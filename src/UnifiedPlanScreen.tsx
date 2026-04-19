@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import type { MarketAssumptions, PathResult, SeedData } from './types';
 import {
   evaluatePlan,
@@ -86,11 +86,6 @@ function cloneEvaluation(value: PlanEvaluation): PlanEvaluation {
   return JSON.parse(JSON.stringify(value)) as PlanEvaluation;
 }
 
-function formatDeltaPercent(value: number) {
-  const sign = value > 0 ? '+' : '';
-  return `${sign}${(value * 100).toFixed(1)}%`;
-}
-
 function deltaPresentation(value: number) {
   if (Math.abs(value) < 0.005) {
     return { label: 'No meaningful change', className: 'text-stone-600' };
@@ -140,6 +135,34 @@ function verdictClassName(verdict: 'Strong' | 'Moderate' | 'Fragile') {
     return 'text-amber-700';
   }
   return 'text-rose-700';
+}
+
+function toReadableConstraint(value: string) {
+  return value.replaceAll('_', ' ');
+}
+
+function buildVerdictExplanation(input: {
+  verdict: 'Strong' | 'Moderate' | 'Fragile';
+  successRate: number;
+  biggestRisk: string;
+  primaryBindingConstraint: string;
+}) {
+  const success = `${Math.round(input.successRate * 100)}%`;
+  const binding = toReadableConstraint(input.primaryBindingConstraint);
+
+  if (input.verdict === 'Strong') {
+    return `This plan looks strong today because it sustains a ${success} success rate while keeping the main pressure (${binding}) contained.`;
+  }
+  if (input.verdict === 'Moderate') {
+    return `This plan is stable but watchful: success is ${success}, and the main pressure is ${binding}. ${input.biggestRisk}`;
+  }
+  return `This plan is fragile right now. Success is ${success}, and the route is being constrained by ${binding}. ${input.biggestRisk}`;
+}
+
+function formatImpactPoints(value: number) {
+  const points = value * 100;
+  const sign = points > 0 ? '+' : '';
+  return `${sign}${points.toFixed(1)} pts success`;
 }
 
 function SectionCard({
@@ -295,6 +318,7 @@ export function UnifiedPlanScreen({
   const [previousEvaluation, setPreviousEvaluation] = useState<PlanEvaluation | null>(null);
   const [isRunning, setIsRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const latestEvaluationRef = useRef<PlanEvaluation | null>(null);
   const [controlsSectionState, setControlsSectionState] = useState<PlanControlsSectionState>(
     DEFAULT_PLAN_CONTROLS_SECTION_STATE,
   );
@@ -331,8 +355,12 @@ export function UnifiedPlanScreen({
     }));
   };
 
-  const runUnifiedAnalysis = (modifiersToApply = appliedConstraintModifiers) => {
-    const priorSnapshot = currentEvaluation ? cloneEvaluation(currentEvaluation) : null;
+  const runUnifiedAnalysis = useCallback((
+    modifiersToApply = appliedConstraintModifiers,
+  ) => {
+    const priorSnapshot = latestEvaluationRef.current
+      ? cloneEvaluation(latestEvaluationRef.current)
+      : null;
     setError(null);
     setIsRunning(true);
     nextPaint(() => {
@@ -384,6 +412,7 @@ export function UnifiedPlanScreen({
 
           setPreviousEvaluation(priorSnapshot);
           setCurrentEvaluation(evaluation);
+          latestEvaluationRef.current = cloneEvaluation(evaluation);
           console.log('[Unified Plan] full result', evaluation);
         } catch (runError) {
           setError(runError instanceof Error ? runError.message : 'Unified plan analysis failed.');
@@ -392,7 +421,22 @@ export function UnifiedPlanScreen({
         }
       })();
     });
-  };
+  }, [
+    appliedConstraintModifiers,
+    assumptions,
+    autopilotDefensive,
+    autopilotOptionalCutsAllowed,
+    data,
+    irmaaPosture,
+    legacyPriority,
+    legacyTargetTodayDollars,
+    optionalFlexPercent,
+    preserveRothPreference,
+    selectedResponses,
+    selectedStressors,
+    targetSuccessRatePercent,
+    travelFlexPercent,
+  ]);
 
   const handleUpdateModelFromDraft = () => {
     const nextApplied = { ...draftConstraintModifiers };
@@ -407,33 +451,61 @@ export function UnifiedPlanScreen({
     }));
   };
 
+  useEffect(() => {
+    runUnifiedAnalysis(appliedConstraintModifiers);
+  }, [appliedConstraintModifiers, runUnifiedAnalysis]);
+
   const currentRun = currentEvaluation?.raw.run ?? null;
   const runDelta = currentEvaluation ? buildRunDelta(previousEvaluation, currentEvaluation) : null;
   const successDeltaPresentation = runDelta ? deltaPresentation(runDelta.successDelta) : null;
+  const annualEssentialSpend = data.spending.essentialMonthly * 12;
+  const annualFlexibleSpend = data.spending.optionalMonthly * 12;
+  const annualTravelSpend = data.spending.travelEarlyRetirementAnnual;
+  const annualTotalSpend =
+    annualEssentialSpend +
+    annualFlexibleSpend +
+    annualTravelSpend +
+    data.spending.annualTaxesInsurance;
+  const topRecommendation = currentEvaluation?.recommendations.top[0] ?? null;
+  const currentRisk =
+    currentEvaluation?.summary.biggestRisk ??
+    'The current plan is most exposed to early-sequence pressure.';
+  const currentOpportunity =
+    topRecommendation?.summary ??
+    currentEvaluation?.summary.bestAction ??
+    'Reducing flexible spending by a small amount is usually the lowest-disruption lever.';
+  const flightPathSummary = currentEvaluation
+    ? `Current course supports about ${formatCurrency(currentEvaluation.summary.planSupportsAnnual)}/year with ${formatPercent(currentEvaluation.summary.successRate)} success.`
+    : `Current course is anchored by the latest plan snapshot (${formatPercent(primaryPath.successRate)} success).`;
+  const autopilotSummary = currentEvaluation
+    ? `${currentEvaluation.responsePolicy.posture} posture · ${currentEvaluation.responsePolicy.routeSummary}`
+    : 'Defensive posture assumed while guidance is loading.';
+  const primaryPressure = currentEvaluation
+    ? toReadableConstraint(currentEvaluation.responsePolicy.primaryBindingConstraint)
+    : toReadableConstraint(primaryPath.failureMode);
+  const verdictExplanation = currentEvaluation
+    ? buildVerdictExplanation({
+        verdict: currentEvaluation.summary.planVerdict,
+        successRate: currentEvaluation.summary.successRate,
+        biggestRisk: currentEvaluation.summary.biggestRisk,
+        primaryBindingConstraint: currentEvaluation.responsePolicy.primaryBindingConstraint,
+      })
+    : 'Plan verdict explanation will appear once the live guidance refresh completes.';
 
   return (
     <section className="rounded-[32px] border border-white/70 bg-white/80 p-6 shadow-lg shadow-amber-950/5 backdrop-blur">
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-        <h2 className="font-serif text-3xl tracking-tight text-stone-900">Plan</h2>
+        <h2 className="font-serif text-3xl tracking-tight text-stone-900">Current Flight Path</h2>
         <div className="flex flex-wrap items-center gap-3">
-          <button
-            type="button"
-            onClick={() => runUnifiedAnalysis()}
-            disabled={isRunning}
-            className="rounded-full bg-blue-700 px-5 py-2.5 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            {isRunning ? 'Running Plan Analysis…' : 'Run Plan Analysis'}
-          </button>
-          <p className="text-sm text-stone-600">
-            Status:{' '}
+          <span className="rounded-full bg-stone-100 px-3 py-1 text-xs font-semibold text-stone-700">
             {isRunning
-              ? 'Running'
+              ? 'Refreshing guidance'
               : error
-                ? 'Run error'
+                ? 'Guidance error'
                 : currentEvaluation
-                  ? `Ready · ${formatPercent(currentEvaluation.summary.successRate)} success`
-                  : `Ready · baseline ${formatPercent(primaryPath.successRate)}`}
-          </p>
+                  ? 'Guidance ready'
+                  : 'Guidance loading'}
+          </span>
           <span
             className={`rounded-full px-3 py-1 text-xs font-semibold ${
               simulationStatus === 'fresh'
@@ -458,40 +530,121 @@ export function UnifiedPlanScreen({
         </p>
       ) : null}
 
-      {currentEvaluation && currentRun ? (
-        <SectionCard title="Plan Verdict">
-          <div className="grid gap-3 md:grid-cols-2">
+      <SectionCard title="Flight Path">
+        <div className="rounded-xl bg-white p-4 text-sm text-stone-700">
+          <p>{flightPathSummary}</p>
+          <p className="mt-2">
+            <span className="font-semibold">Autopilot posture:</span> {autopilotSummary}
+          </p>
+          <p className="mt-1">
+            <span className="font-semibold">Primary pressure:</span> {primaryPressure}
+          </p>
+          <p className="mt-1">
+            <span className="font-semibold">Best improvement lever:</span>{' '}
+            {topRecommendation?.name ?? 'Waiting for recommendation pass'}
+          </p>
+        </div>
+      </SectionCard>
+
+      <div className="mt-4">
+        <SectionCard title="Current Spending Profile">
+          <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
             <div className="rounded-xl bg-white p-3">
-              <p className="text-xs text-stone-500">Plan supports</p>
+              <p className="text-xs text-stone-500">Essential</p>
               <p className="mt-1 text-lg font-semibold text-stone-900">
-                {formatCurrency(currentEvaluation.summary.planSupportsAnnual)}/yr
+                {formatCurrency(annualEssentialSpend)}/yr
               </p>
             </div>
+            <div className="rounded-xl bg-white p-3">
+              <p className="text-xs text-stone-500">Flexible / optional</p>
+              <p className="mt-1 text-lg font-semibold text-stone-900">
+                {formatCurrency(annualFlexibleSpend)}/yr
+              </p>
+            </div>
+            <div className="rounded-xl bg-white p-3">
+              <p className="text-xs text-stone-500">Travel / lifestyle</p>
+              <p className="mt-1 text-lg font-semibold text-stone-900">
+                {formatCurrency(annualTravelSpend)}/yr
+              </p>
+            </div>
+            <div className="rounded-xl bg-white p-3">
+              <p className="text-xs text-stone-500">Total annual spend</p>
+              <p className="mt-1 text-lg font-semibold text-stone-900">
+                {formatCurrency(annualTotalSpend)}/yr
+              </p>
+            </div>
+          </div>
+          <p className="mt-3 text-sm text-stone-600">
+            Lifestyle floor is preserved by default. Guidance leans on flexible and travel spend before core needs.
+          </p>
+        </SectionCard>
+      </div>
+
+      <div className="mt-4 grid gap-4 lg:grid-cols-2">
+        <SectionCard title="Current Risk">
+          <p className="rounded-xl bg-white p-4 text-sm text-stone-700">{currentRisk}</p>
+        </SectionCard>
+        <SectionCard title="Current Opportunity">
+          <p className="rounded-xl bg-white p-4 text-sm text-stone-700">{currentOpportunity}</p>
+        </SectionCard>
+      </div>
+
+      <div className="mt-4">
+        <SectionCard title="Next Best Step">
+          <div className="rounded-xl bg-white p-4 text-sm text-stone-700">
+            {topRecommendation ? (
+              <>
+                <p className="font-semibold text-stone-900">{topRecommendation.name}</p>
+                <p className="mt-2">{topRecommendation.summary}</p>
+                <p className="mt-2 text-stone-600">
+                  Expected impact: {formatImpactPoints(topRecommendation.deltaSuccessRate)}
+                </p>
+              </>
+            ) : (
+              <p>
+                Guidance is still loading. The likely low-friction move is reducing flexible spending slightly while
+                keeping essential spending intact.
+              </p>
+            )}
+          </div>
+        </SectionCard>
+      </div>
+
+      {currentEvaluation && currentRun ? (
+        <div className="mt-4">
+          <SectionCard title="Plan Verdict">
+          <div className="grid gap-3 md:grid-cols-2">
             <div className="rounded-xl bg-white p-3">
               <p className="text-xs text-stone-500">Verdict</p>
               <p className={`mt-1 text-lg font-semibold ${verdictClassName(currentEvaluation.summary.planVerdict)}`}>
                 {currentEvaluation.summary.planVerdict}
               </p>
             </div>
+            <div className="rounded-xl bg-white p-3">
+              <p className="text-xs text-stone-500">Modeled success</p>
+              <p className="mt-1 text-lg font-semibold text-stone-900">
+                {formatPercent(currentEvaluation.summary.successRate)}
+              </p>
+            </div>
           </div>
           <div className="mt-3 rounded-xl bg-white p-4 text-sm text-stone-700">
-            <p>
-              <span className="font-semibold">Biggest risk:</span> {currentEvaluation.summary.biggestRisk}
-            </p>
-            <p className="mt-1">
-              <span className="font-semibold">Best action:</span> {currentEvaluation.summary.bestAction}
-            </p>
-            <p className="mt-1">
+            <p>{verdictExplanation}</p>
+            <p className="mt-2">
               <span className="font-semibold">IRMAA outlook:</span> {currentEvaluation.summary.irmaaOutlook}
             </p>
-            <p className="mt-1">
+            <p>
               <span className="font-semibold">Legacy outlook:</span> {currentEvaluation.summary.legacyOutlook}
             </p>
+            <p className="mt-1">
+              <span className="font-semibold">Binding constraint:</span>{' '}
+              {toReadableConstraint(currentEvaluation.calibration.bindingConstraint)}
+            </p>
           </div>
-        </SectionCard>
+          </SectionCard>
+        </div>
       ) : (
-        <div className="mb-4 rounded-[24px] bg-stone-100/80 p-5 text-sm text-stone-600">
-          Run Plan Analysis to populate verdict, recommendations, IRMAA outlook, and legacy tradeoffs.
+        <div className="mt-4 rounded-[24px] bg-stone-100/80 p-5 text-sm text-stone-600">
+          Building the live plan interpretation from the current plan state and latest simulation snapshot.
         </div>
       )}
 
@@ -927,35 +1080,12 @@ export function UnifiedPlanScreen({
         <SectionCard title="Plan Interpretation">
           <div className="grid gap-3 lg:grid-cols-2">
             <div className="rounded-xl bg-white p-4">
-              <p className="text-xs uppercase tracking-[0.14em] text-stone-500">Recommendations</p>
-              <p className="mt-2 text-sm text-stone-700">{currentEvaluation.recommendations.summary}</p>
-              <div className="mt-3 space-y-2">
-                {currentEvaluation.recommendations.top.map((scenario) => (
-                  <div key={scenario.scenarioId} className="rounded-lg bg-stone-50 p-3">
-                    <p className="font-semibold text-stone-900">{scenario.name}</p>
-                    <p className="mt-1 text-sm text-stone-700">{scenario.summary}</p>
-                    <p className="mt-1 text-xs text-stone-500">
-                      Success delta {formatDeltaPercent(scenario.deltaSuccessRate)}
-                      {scenario.isPlanControl ? ' · Plan control' : ' · Model lever'}
-                    </p>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <div className="rounded-xl bg-white p-4">
-              <p className="text-xs uppercase tracking-[0.14em] text-stone-500">IRMAA + Legacy Tradeoffs</p>
+              <p className="text-xs uppercase tracking-[0.14em] text-stone-500">IRMAA + legacy read</p>
               <p className="mt-2 text-sm text-stone-700">{currentEvaluation.irmaa.explanation}</p>
               <p className="mt-2 text-sm text-stone-700">
-                Legacy target: {formatCurrency(currentEvaluation.calibration.targetLegacyTodayDollars)} · Effective
-                guardrail: {formatCurrency(currentEvaluation.calibration.effectiveLegacyTargetTodayDollars)} · Priority:{' '}
-                {formatLegacyPriorityLabel(currentEvaluation.calibration.legacyPriority)}
-              </p>
-              <p className="mt-1 text-sm text-stone-700">
-                Projected legacy: {formatCurrency(currentEvaluation.calibration.projectedLegacyTodayDollars)}
-              </p>
-              <p className="mt-1 text-sm text-stone-700">
-                Response policy: {currentEvaluation.responsePolicy.posture} · {currentEvaluation.responsePolicy.routeSummary}
+                Legacy target {formatCurrency(currentEvaluation.calibration.targetLegacyTodayDollars)} (
+                {formatLegacyPriorityLabel(currentEvaluation.calibration.legacyPriority)}) vs projected{' '}
+                {formatCurrency(currentEvaluation.calibration.projectedLegacyTodayDollars)}.
               </p>
             </div>
 
@@ -978,35 +1108,6 @@ export function UnifiedPlanScreen({
                     <span className="font-semibold">{formatCurrency(runDelta.medianWealthDelta)}</span>
                   </p>
                 </div>
-              )}
-            </div>
-
-            <div className="rounded-xl bg-white p-4">
-              <p className="text-xs uppercase tracking-[0.14em] text-stone-500">Sensitivities + Excluded impact</p>
-              <p className="mt-2 text-sm text-stone-700">
-                Biggest downside:{' '}
-                <span className="font-semibold">
-                  {currentEvaluation.sensitivities.biggestDownside?.name ?? 'Not available'}
-                </span>
-              </p>
-              {currentEvaluation.sensitivities.biggestDownside ? (
-                <p className="mt-1 text-sm text-stone-700">
-                  Success delta {formatDeltaPercent(currentEvaluation.sensitivities.biggestDownside.deltaSuccessRate)}
-                </p>
-              ) : null}
-              {currentEvaluation.excludedOptions.highImpact.length ? (
-                <ul className="mt-2 space-y-2 text-sm text-stone-700">
-                  {currentEvaluation.excludedOptions.highImpact.slice(0, 3).map((item) => (
-                    <li key={`${item.scenario}-${item.reason}`}>
-                      <p className="font-semibold text-stone-900">{item.scenario}</p>
-                      <p>
-                        +{(item.deltaSuccessRate * 100).toFixed(1)}% blocked: {item.reason}
-                      </p>
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <p className="mt-2 text-sm text-stone-600">No excluded high-impact levers in this run.</p>
               )}
             </div>
           </div>
