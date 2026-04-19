@@ -912,6 +912,7 @@ export function App() {
                   selectedStressors={currentPlanSelectedStressors}
                   selectedResponses={currentPlanSelectedResponses}
                   pathResults={displayedPlanPathResults}
+                  showPlanControls={false}
                 />
               )}
               {currentScreen === 'paths' && (
@@ -984,6 +985,7 @@ export function App() {
                   selectedStressors={currentPlanSelectedStressors}
                   selectedResponses={currentPlanSelectedResponses}
                   pathResults={displayedPlanPathResults}
+                  showPlanControls={false}
                 />
               )}
               {currentScreen === 'export' && <ExportScreen />}

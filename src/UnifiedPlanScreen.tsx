@@ -259,6 +259,7 @@ export function UnifiedPlanScreen({
   selectedStressors,
   selectedResponses,
   pathResults,
+  showPlanControls = false,
 }: {
   data: SeedData;
   assumptions: MarketAssumptions;
@@ -266,6 +267,7 @@ export function UnifiedPlanScreen({
   selectedStressors: string[];
   selectedResponses: string[];
   pathResults: PathResult[];
+  showPlanControls?: boolean;
 }) {
   const toggleStressor = useAppStore((state) => state.toggleStressor);
   const toggleResponse = useAppStore((state) => state.toggleResponse);
@@ -493,7 +495,8 @@ export function UnifiedPlanScreen({
         </div>
       )}
 
-      <SectionCard title="Plan Controls">
+      {showPlanControls ? (
+        <SectionCard title="Plan Controls">
         <div className="rounded-2xl bg-white/90 p-4">
           <p className="text-sm font-medium text-stone-700">Active controls</p>
           <p className="mt-1 text-sm text-stone-600">{activeControlsSummary}</p>
@@ -917,7 +920,8 @@ export function UnifiedPlanScreen({
             </div>
           </ControlSection>
         </div>
-      </SectionCard>
+        </SectionCard>
+      ) : null}
 
       {currentEvaluation && currentRun ? (
         <SectionCard title="Plan Interpretation">
