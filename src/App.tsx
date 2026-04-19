@@ -14,7 +14,7 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { UnifiedPlanScreen } from './UnifiedPlanScreen';
 import type {
@@ -356,6 +356,27 @@ const EMPTY_PATH_RESULT: PathResult = {
 };
 const EMPTY_PATH_RESULTS: PathResult[] = [EMPTY_PATH_RESULT];
 
+type SimulationStatus = 'fresh' | 'stale' | 'running';
+
+interface SimulationResultState {
+  pathResults: PathResult[];
+  parityReport: SimulationParityReport;
+}
+
+function buildSimulationInputFingerprint(input: {
+  data: SeedData;
+  assumptions: MarketAssumptions;
+  selectedStressors: string[];
+  selectedResponses: string[];
+}) {
+  return JSON.stringify({
+    data: input.data,
+    assumptions: input.assumptions,
+    selectedStressors: [...input.selectedStressors].sort(),
+    selectedResponses: [...input.selectedResponses].sort(),
+  });
+}
+
 export function App() {
   const data = useAppStore((state) => state.data);
   const draftAssumptions = useAppStore((state) => state.draftAssumptions);
@@ -366,12 +387,28 @@ export function App() {
 
   const workerRef = useRef<Worker | null>(null);
   const activeRequestIdRef = useRef<string | null>(null);
+  const activeRequestInputRef = useRef<string | null>(null);
+  const initialRunRequestedRef = useRef(false);
+  const latestInputFingerprintRef = useRef<string>('');
+  const lastRunInputsRef = useRef<string | null>(null);
   const requestCounterRef = useRef(0);
-  const [pathResults, setPathResults] = useState<PathResult[]>([]);
-  const [parityReport, setParityReport] = useState<SimulationParityReport>(EMPTY_PARITY_REPORT);
-  const [isSimulationRunning, setIsSimulationRunning] = useState(false);
+  const [simulationResult, setSimulationResult] = useState<SimulationResultState | null>(null);
+  const [simulationStatus, setSimulationStatus] = useState<SimulationStatus>('running');
+  const [lastRunInputs, setLastRunInputs] = useState<string | null>(null);
   const [simulationProgress, setSimulationProgress] = useState(0);
   const [simulationError, setSimulationError] = useState<string | null>(null);
+  const isSimulationRunning = simulationStatus === 'running';
+
+  const simulationInputFingerprint = useMemo(
+    () =>
+      buildSimulationInputFingerprint({
+        data,
+        assumptions: draftAssumptions,
+        selectedStressors: draftSelectedStressors,
+        selectedResponses: draftSelectedResponses,
+      }),
+    [data, draftAssumptions, draftSelectedResponses, draftSelectedStressors],
+  );
 
   useEffect(() => {
     if (typeof Worker === 'undefined') {
@@ -390,16 +427,29 @@ export function App() {
       }
 
       if (message.type === 'progress') {
-        setIsSimulationRunning(true);
+        setSimulationStatus('running');
         setSimulationProgress(message.progress);
         return;
       }
 
       if (message.type === 'result') {
+        const completedInputFingerprint = activeRequestInputRef.current;
         activeRequestIdRef.current = null;
-        setPathResults(message.pathResults);
-        setParityReport(message.parityReport);
-        setIsSimulationRunning(false);
+        activeRequestInputRef.current = null;
+        setSimulationResult({
+          pathResults: message.pathResults,
+          parityReport: message.parityReport,
+        });
+        if (completedInputFingerprint) {
+          lastRunInputsRef.current = completedInputFingerprint;
+          setLastRunInputs(completedInputFingerprint);
+        }
+        setSimulationStatus(
+          completedInputFingerprint &&
+            completedInputFingerprint !== latestInputFingerprintRef.current
+            ? 'stale'
+            : 'fresh',
+        );
         setSimulationProgress(1);
         setSimulationError(null);
         return;
@@ -407,13 +457,29 @@ export function App() {
 
       if (message.type === 'cancelled') {
         activeRequestIdRef.current = null;
-        setIsSimulationRunning(false);
+        activeRequestInputRef.current = null;
+        setSimulationStatus(
+          lastRunInputsRef.current &&
+            lastRunInputsRef.current !== latestInputFingerprintRef.current
+            ? 'stale'
+            : lastRunInputsRef.current
+              ? 'fresh'
+              : 'stale',
+        );
         setSimulationProgress(0);
         return;
       }
 
       activeRequestIdRef.current = null;
-      setIsSimulationRunning(false);
+      activeRequestInputRef.current = null;
+      setSimulationStatus(
+        lastRunInputsRef.current &&
+          lastRunInputsRef.current !== latestInputFingerprintRef.current
+          ? 'stale'
+          : lastRunInputsRef.current
+            ? 'fresh'
+            : 'stale',
+      );
       setSimulationError(message.error);
     };
 
@@ -430,12 +496,13 @@ export function App() {
       worker.terminate();
       workerRef.current = null;
       activeRequestIdRef.current = null;
+      activeRequestInputRef.current = null;
     };
   }, []);
 
-  useEffect(() => {
+  const runSimulation = useCallback(() => {
     const requestId = `${SIMULATION_REQUEST_PREFIX}-${requestCounterRef.current++}`;
-    setIsSimulationRunning(true);
+    setSimulationStatus('running');
     setSimulationProgress(0);
     setSimulationError(null);
 
@@ -448,9 +515,9 @@ export function App() {
           draftSelectedStressors,
           draftSelectedResponses,
         );
-        setPathResults(nextPathResults);
-        setParityReport(
-          buildSimulationParityReport(
+        setSimulationResult({
+          pathResults: nextPathResults,
+          parityReport: buildSimulationParityReport(
             data,
             draftAssumptions,
             draftSelectedStressors,
@@ -459,14 +526,15 @@ export function App() {
               plannerPathOverride: nextPathResults[2] ?? nextPathResults[0],
             },
           ),
-        );
+        });
+        lastRunInputsRef.current = simulationInputFingerprint;
+        setLastRunInputs(simulationInputFingerprint);
+        setSimulationStatus('fresh');
         setSimulationProgress(1);
       } catch (error) {
         setSimulationError(error instanceof Error ? error.message : 'Simulation failed');
-      } finally {
-        setIsSimulationRunning(false);
+        setSimulationStatus(lastRunInputsRef.current ? 'fresh' : 'stale');
       }
-
       return;
     }
 
@@ -479,6 +547,7 @@ export function App() {
     }
 
     activeRequestIdRef.current = requestId;
+    activeRequestInputRef.current = simulationInputFingerprint;
     const runMessage: SimulationWorkerRequest = {
       type: 'run',
       payload: {
@@ -495,7 +564,28 @@ export function App() {
     draftAssumptions,
     draftSelectedResponses,
     draftSelectedStressors,
+    simulationInputFingerprint,
   ]);
+
+  useEffect(() => {
+    latestInputFingerprintRef.current = simulationInputFingerprint;
+
+    if (!lastRunInputsRef.current || simulationStatus === 'running') {
+      return;
+    }
+
+    setSimulationStatus(
+      lastRunInputsRef.current === simulationInputFingerprint ? 'fresh' : 'stale',
+    );
+  }, [simulationInputFingerprint, simulationStatus]);
+
+  useEffect(() => {
+    if (initialRunRequestedRef.current) {
+      return;
+    }
+    initialRunRequestedRef.current = true;
+    runSimulation();
+  }, [runSimulation]);
 
   const cancelSimulation = () => {
     const worker = workerRef.current;
@@ -512,6 +602,8 @@ export function App() {
     worker.postMessage(cancelMessage);
   };
 
+  const pathResults = simulationResult?.pathResults ?? [];
+  const parityReport = simulationResult?.parityReport ?? EMPTY_PARITY_REPORT;
   const displayedPathResults = pathResults.length ? pathResults : EMPTY_PATH_RESULTS;
   const projectionSeries = useMemo(
     () => buildProjectionSeries(displayedPathResults),
@@ -629,6 +721,49 @@ export function App() {
             </div>
           </div>
 
+          <section className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/70 bg-white/75 px-4 py-3 shadow-sm">
+            <div className="flex flex-wrap items-center gap-2 text-sm text-stone-600">
+              <span className="font-medium text-stone-700">Simulation</span>
+              {simulationStatus === 'stale' ? (
+                <span className="rounded-full bg-amber-100 px-2.5 py-1 text-xs font-semibold text-amber-800">
+                  Results outdated
+                </span>
+              ) : simulationStatus === 'running' ? (
+                <span className="rounded-full bg-blue-100 px-2.5 py-1 text-xs font-semibold text-blue-800">
+                  Running {Math.round(simulationProgress * 100)}%
+                </span>
+              ) : (
+                <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-semibold text-emerald-800">
+                  Fresh
+                </span>
+              )}
+              {simulationError ? (
+                <span className="text-xs text-red-700">Error: {simulationError}</span>
+              ) : lastRunInputs ? (
+                <span className="text-xs text-stone-500">Last run retained</span>
+              ) : null}
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={runSimulation}
+                disabled={isSimulationRunning}
+                className="rounded-full bg-blue-700 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-600 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {isSimulationRunning ? 'Running Simulation…' : 'Run Simulation'}
+              </button>
+              {isSimulationRunning ? (
+                <button
+                  type="button"
+                  onClick={cancelSimulation}
+                  className="rounded-full border border-stone-300 bg-white px-4 py-2 text-sm font-semibold text-stone-700 transition hover:bg-stone-50"
+                >
+                  Cancel
+                </button>
+              ) : null}
+            </div>
+          </section>
+
           <section className="mb-6 grid gap-4 md:grid-cols-2 lg:sticky lg:top-0 lg:z-20 lg:grid-cols-4 lg:bg-white/85 lg:pb-4 lg:backdrop-blur">
             <SummaryStatCard
               title="Primary path success"
@@ -731,6 +866,7 @@ export function App() {
               <EditDrawer
                 currentScreen={currentScreen}
                 annualStretchSpend={annualStretchSpend}
+                simulationStatus={simulationStatus}
                 isSimulationRunning={isSimulationRunning}
                 simulationProgress={simulationProgress}
                 simulationError={simulationError}
@@ -3272,6 +3408,7 @@ function ExportScreen() {
 function EditDrawer({
   currentScreen,
   annualStretchSpend,
+  simulationStatus,
   isSimulationRunning,
   simulationProgress,
   simulationError,
@@ -3279,6 +3416,7 @@ function EditDrawer({
 }: {
   currentScreen: ScreenId;
   annualStretchSpend: number;
+  simulationStatus: SimulationStatus;
   isSimulationRunning: boolean;
   simulationProgress: number;
   simulationError: string | null;
@@ -3368,7 +3506,9 @@ function EditDrawer({
               ? `Error: ${simulationError}`
               : isSimulationRunning
                 ? `Running... ${Math.round(simulationProgress * 100)}%`
-                : 'Idle'}
+                : simulationStatus === 'stale'
+                  ? 'Results outdated. Use Run Simulation to refresh.'
+                  : 'Fresh'}
           </p>
           {isSimulationRunning ? (
             <button
@@ -3660,7 +3800,9 @@ function EditDrawer({
               ? `Simulation error: ${simulationError}`
               : isSimulationRunning
                 ? `Simulation running... ${Math.round(simulationProgress * 100)}%`
-                : 'Simulation is idle. It reruns automatically when inputs change.'}
+                : simulationStatus === 'stale'
+                  ? 'Results are outdated. Run Simulation to refresh.'
+                  : 'Simulation results are fresh.'}
           </p>
         </section>
 
