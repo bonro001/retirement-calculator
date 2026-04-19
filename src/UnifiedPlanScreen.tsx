@@ -55,6 +55,12 @@ const DEFAULT_PLAN_CONTROLS_SECTION_STATE: PlanControlsSectionState = {
   recommendationOverlay: false,
 };
 
+const DEFAULT_TIME_PREFERENCE_PROFILE = {
+  ages60to69: 'high',
+  ages70to79: 'medium',
+  ages80plus: 'low',
+} as const;
+
 function getInteractiveUnifiedPlanAssumptions(
   assumptions: MarketAssumptions,
 ): MarketAssumptions {
@@ -275,6 +281,10 @@ function formatLegacyPriorityLabel(value: LegacyPriority) {
   return value.charAt(0).toUpperCase() + value.slice(1);
 }
 
+function formatTimePreferenceLabel(value: 'high' | 'medium' | 'low') {
+  return value.charAt(0).toUpperCase() + value.slice(1);
+}
+
 export function UnifiedPlanScreen({
   data,
   assumptions,
@@ -384,6 +394,7 @@ export function UnifiedPlanScreen({
               preferences: {
                 irmaaPosture,
                 preserveLifestyleFloor: true,
+                timePreference: DEFAULT_TIME_PREFERENCE_PROFILE,
                 calibration: {
                   targetLegacyTodayDollars: Math.max(0, legacyTargetTodayDollars),
                   legacyPriority,
@@ -467,10 +478,20 @@ export function UnifiedPlanScreen({
     annualTravelSpend +
     data.spending.annualTaxesInsurance;
   const topRecommendation = currentEvaluation?.recommendations.top[0] ?? null;
+  const timePreference = currentEvaluation?.timePreference ?? null;
+  const nextBestStepText = timePreference?.earlySpendingCanIncreaseSafely
+    ? timePreference.recommendation
+    : topRecommendation?.summary ??
+      currentEvaluation?.summary.bestAction ??
+      'Keep current spending steady and rerun after meaningful input changes.';
+  const nextBestStepLabel = timePreference?.earlySpendingCanIncreaseSafely
+    ? 'Time-shifted spending move'
+    : topRecommendation?.name ?? 'Stability move';
   const currentRisk =
     currentEvaluation?.summary.biggestRisk ??
     'The current plan is most exposed to early-sequence pressure.';
   const currentOpportunity =
+    timePreference?.explanation ??
     topRecommendation?.summary ??
     currentEvaluation?.summary.bestAction ??
     'Reducing flexible spending by a small amount is usually the lowest-disruption lever.';
@@ -543,6 +564,14 @@ export function UnifiedPlanScreen({
             <span className="font-semibold">Best improvement lever:</span>{' '}
             {topRecommendation?.name ?? 'Waiting for recommendation pass'}
           </p>
+          {timePreference ? (
+            <p className="mt-1">
+              <span className="font-semibold">Time preference:</span>{' '}
+              60s {formatTimePreferenceLabel(timePreference.profile.ages60to69)} · 70s{' '}
+              {formatTimePreferenceLabel(timePreference.profile.ages70to79)} · 80+{' '}
+              {formatTimePreferenceLabel(timePreference.profile.ages80plus)}
+            </p>
+          ) : null}
         </div>
       </SectionCard>
 
@@ -592,13 +621,19 @@ export function UnifiedPlanScreen({
       <div className="mt-4">
         <SectionCard title="Next Best Step">
           <div className="rounded-xl bg-white p-4 text-sm text-stone-700">
-            {topRecommendation ? (
+            {topRecommendation || timePreference ? (
               <>
-                <p className="font-semibold text-stone-900">{topRecommendation.name}</p>
-                <p className="mt-2">{topRecommendation.summary}</p>
-                <p className="mt-2 text-stone-600">
-                  Expected impact: {formatImpactPoints(topRecommendation.deltaSuccessRate)}
-                </p>
+                <p className="font-semibold text-stone-900">{nextBestStepLabel}</p>
+                <p className="mt-2">{nextBestStepText}</p>
+                {timePreference?.estimatedSafeEarlyAnnualShift ? (
+                  <p className="mt-2 text-stone-600">
+                    Suggested early-life shift: {formatCurrency(timePreference.estimatedSafeEarlyAnnualShift)}/yr
+                  </p>
+                ) : topRecommendation ? (
+                  <p className="mt-2 text-stone-600">
+                    Expected impact: {formatImpactPoints(topRecommendation.deltaSuccessRate)}
+                  </p>
+                ) : null}
               </>
             ) : (
               <p>
@@ -629,6 +664,11 @@ export function UnifiedPlanScreen({
           </div>
           <div className="mt-3 rounded-xl bg-white p-4 text-sm text-stone-700">
             <p>{verdictExplanation}</p>
+            {timePreference ? (
+              <p className="mt-2">
+                <span className="font-semibold">Time-weighted read:</span> {timePreference.explanation}
+              </p>
+            ) : null}
             <p className="mt-2">
               <span className="font-semibold">IRMAA outlook:</span> {currentEvaluation.summary.irmaaOutlook}
             </p>

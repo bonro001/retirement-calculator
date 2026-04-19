@@ -10,6 +10,13 @@ import type { SpendSolverResult, SpendSolverSuccessRange } from './spend-solver'
 import type { MarketAssumptions, PathResult, SeedData } from './types';
 
 export type LegacyPriority = 'off' | 'nice_to_have' | 'important' | 'must_preserve';
+export type TimePreferenceValue = 'high' | 'medium' | 'low';
+
+export interface TimePreferenceProfile {
+  ages60to69: TimePreferenceValue;
+  ages70to79: TimePreferenceValue;
+  ages80plus: TimePreferenceValue;
+}
 
 export interface PlanControls {
   selectedStressorIds: string[];
@@ -25,6 +32,7 @@ export interface PlanControls {
 export interface PlanPreferences {
   irmaaPosture?: IrmaaPosture;
   preserveLifestyleFloor?: boolean;
+  timePreference?: Partial<TimePreferenceProfile>;
   calibration?: {
     targetLegacyTodayDollars?: number;
     legacyPriority?: LegacyPriority;
@@ -95,6 +103,23 @@ export interface PlanEvaluation {
     routeSummary: string;
     tradeoffSummary: string;
     primaryBindingConstraint: string;
+  };
+  timePreference: {
+    profile: TimePreferenceProfile;
+    assessment: 'early_spending_room' | 'balanced_path' | 'protective_posture';
+    overConservingLateLife: boolean;
+    earlySpendingCanIncreaseSafely: boolean;
+    estimatedSafeEarlyAnnualShift: number;
+    explanation: string;
+    recommendation: string;
+    indicators: {
+      successBuffer: number;
+      legacyBuffer: number;
+      earlyFailureRate: number;
+      preSocialSecurityFailureRate: number;
+      p10EndingWealth: number;
+      p50EndingWealth: number;
+    };
   };
   irmaa: {
     posture: IrmaaPosture;
@@ -315,6 +340,113 @@ function toIrmaaExplanation(
   }`;
 }
 
+function normalizeTimePreferenceProfile(
+  value: Partial<TimePreferenceProfile> | undefined,
+): TimePreferenceProfile {
+  return {
+    ages60to69: value?.ages60to69 ?? 'high',
+    ages70to79: value?.ages70to79 ?? 'medium',
+    ages80plus: value?.ages80plus ?? 'low',
+  };
+}
+
+function buildTimePreferenceInterpretation(input: {
+  profile: TimePreferenceProfile;
+  legacyPriority: LegacyPriority;
+  minSuccessRate: number;
+  successRate: number;
+  projectedLegacyTodayDollars: number;
+  effectiveLegacyTargetTodayDollars: number;
+  safeBandUpperAnnual: number;
+  supportedAnnualSpend: number;
+  baselineMetrics: DecisionEngineReport['baseline'];
+}) {
+  const successBuffer = input.successRate - input.minSuccessRate;
+  const legacyBuffer =
+    input.projectedLegacyTodayDollars - input.effectiveLegacyTargetTodayDollars;
+  const baseline = input.baselineMetrics;
+  const discretionaryRoom = Math.max(
+    0,
+    input.safeBandUpperAnnual - input.supportedAnnualSpend,
+  );
+  const earlySpendingPriority =
+    input.profile.ages60to69 === 'high'
+      ? 1
+      : input.profile.ages60to69 === 'medium'
+        ? 0.7
+        : 0.45;
+  const conservativeLegacyAllowance = Math.max(
+    0,
+    legacyBuffer * (input.legacyPriority === 'must_preserve' ? 0.03 : 0.06) * earlySpendingPriority,
+  );
+
+  const overConservingLateLife =
+    successBuffer >= 0.06 &&
+    legacyBuffer >= Math.max(150_000, input.effectiveLegacyTargetTodayDollars * 0.15) &&
+    baseline.percentFailFirst10Years <= 0.12 &&
+    baseline.percentFailBeforeSocialSecurity <= 0.1 &&
+    baseline.p10EndingWealth > 0;
+
+  const earlySpendingCanIncreaseSafely =
+    overConservingLateLife && (discretionaryRoom > 0 || conservativeLegacyAllowance > 0);
+
+  const preferredShiftCapacity = Math.max(discretionaryRoom, conservativeLegacyAllowance);
+  const estimatedSafeEarlyAnnualShift = earlySpendingCanIncreaseSafely
+    ? Math.max(
+        0,
+        Math.min(
+          preferredShiftCapacity,
+          input.supportedAnnualSpend * 0.12 * earlySpendingPriority,
+        ),
+      )
+    : 0;
+
+  if (earlySpendingCanIncreaseSafely) {
+    return {
+      assessment: 'early_spending_room' as const,
+      overConservingLateLife,
+      earlySpendingCanIncreaseSafely,
+      estimatedSafeEarlyAnnualShift,
+      explanation:
+        'Your plan is preserving more for later life than necessary. You can shift spending earlier without materially increasing failure risk.',
+      recommendation:
+        estimatedSafeEarlyAnnualShift > 0
+          ? `Shift about ${Math.round(estimatedSafeEarlyAnnualShift / 12).toLocaleString()} dollars per month into your 60s and 70s while keeping legacy and success guardrails intact.`
+          : 'Shift a small amount of spending into your 60s and 70s while preserving legacy and success guardrails.',
+    };
+  }
+
+  const protectivePosture =
+    baseline.percentFailFirst10Years >= 0.25 ||
+    baseline.percentFailBeforeSocialSecurity >= 0.2 ||
+    successBuffer <= 0.01 ||
+    legacyBuffer < 0;
+
+  if (protectivePosture) {
+    return {
+      assessment: 'protective_posture' as const,
+      overConservingLateLife,
+      earlySpendingCanIncreaseSafely,
+      estimatedSafeEarlyAnnualShift: 0,
+      explanation:
+        'This plan still needs a protective posture. Early years carry meaningful risk, so preserving flexibility now remains important.',
+      recommendation:
+        'Keep near-term spending close to current levels and improve resilience first; then revisit shifting more spend into your early retirement years.',
+    };
+  }
+
+  return {
+    assessment: 'balanced_path' as const,
+    overConservingLateLife,
+    earlySpendingCanIncreaseSafely,
+    estimatedSafeEarlyAnnualShift: 0,
+    explanation:
+      'Your plan is reasonably balanced across decades. You can prioritize experiences earlier, but only with modest, measured increases.',
+    recommendation:
+      'If desired, increase flexible or travel spending gradually and recheck success and legacy buffers after each adjustment.',
+  };
+}
+
 export async function evaluatePlan(
   plan: Plan,
   options: EvaluatePlanOptions = {},
@@ -411,7 +543,6 @@ export async function evaluatePlan(
     planRun.irmaa.exposureLevel,
     planRun.irmaa.mainDrivers[0],
   );
-  const bestAction = sanitizeRecommendationText(decision.recommendationSummary.summary);
   const legacyOutlook = toLegacyOutlook({
     legacyPriority,
     requestedLegacyTargetTodayDollars,
@@ -430,6 +561,25 @@ export async function evaluatePlan(
     decision.baselineRiskWarning ??
       decision.worstSensitivityScenarios[0]?.recommendationSummary ??
       'Main risk is early sequence pressure before later income support arrives.',
+  );
+  const timePreferenceProfile = normalizeTimePreferenceProfile(
+    preferences.timePreference,
+  );
+  const timePreference = buildTimePreferenceInterpretation({
+    profile: timePreferenceProfile,
+    legacyPriority,
+    minSuccessRate: effectiveMinSuccessRate,
+    successRate: decision.baseline.successRate,
+    projectedLegacyTodayDollars: planRun.solver.projectedLegacyOutcomeTodayDollars,
+    effectiveLegacyTargetTodayDollars,
+    safeBandUpperAnnual: planRun.solver.safeSpendingBand.upperAnnual,
+    supportedAnnualSpend: planRun.solver.recommendedAnnualSpend,
+    baselineMetrics: decision.baseline,
+  });
+  const bestAction = sanitizeRecommendationText(
+    timePreference.earlySpendingCanIncreaseSafely
+      ? timePreference.recommendation
+      : decision.recommendationSummary.summary,
   );
 
   return {
@@ -469,6 +619,27 @@ export async function evaluatePlan(
       tradeoffSummary: planRun.autopilot.summary.tradeoffSummary,
       primaryBindingConstraint: planRun.autopilot.summary.primaryBindingConstraint,
     },
+    timePreference: {
+      profile: timePreferenceProfile,
+      assessment: timePreference.assessment,
+      overConservingLateLife: timePreference.overConservingLateLife,
+      earlySpendingCanIncreaseSafely: timePreference.earlySpendingCanIncreaseSafely,
+      estimatedSafeEarlyAnnualShift: timePreference.estimatedSafeEarlyAnnualShift,
+      explanation: timePreference.explanation,
+      recommendation: timePreference.recommendation,
+      indicators: {
+        successBuffer:
+          decision.baseline.successRate - effectiveMinSuccessRate,
+        legacyBuffer:
+          planRun.solver.projectedLegacyOutcomeTodayDollars -
+          effectiveLegacyTargetTodayDollars,
+        earlyFailureRate: decision.baseline.percentFailFirst10Years,
+        preSocialSecurityFailureRate:
+          decision.baseline.percentFailBeforeSocialSecurity,
+        p10EndingWealth: decision.baseline.p10EndingWealth,
+        p50EndingWealth: decision.baseline.medianEndingWealth,
+      },
+    },
     irmaa: {
       posture: planRun.irmaa.posture,
       exposureLevel: planRun.irmaa.exposureLevel,
@@ -478,7 +649,7 @@ export async function evaluatePlan(
       explanation: irmaaExplanation,
     },
     recommendations: {
-      summary: `${bestAction} ${recommendationLegacyNote}`,
+      summary: `${bestAction} ${timePreference.explanation} ${recommendationLegacyNote}`,
       top: topRecommendations,
     },
     whatChangedFromLastRun: whatChanged,
