@@ -1,0 +1,92 @@
+import {
+  enableResponse,
+  reduceOptionalSpending,
+  reduceTravelBudget,
+} from '../helpers';
+import type { LeverScenarioDefinition } from '../types';
+
+export function buildSpendingScenarios(): LeverScenarioDefinition[] {
+  return [
+    {
+      id: 'spend_optional_down_5',
+      category: 'spending',
+      name: 'Reduce Spending 5% (Flexible)',
+      description: 'Reduce flexible spending by 5% without touching core essentials.',
+      disruption: 'low',
+      complexity: 'simple',
+      apply: (input) => reduceOptionalSpending(input, 5),
+      tags: ['optional_cut'],
+    },
+    {
+      id: 'spend_optional_down_10',
+      category: 'spending',
+      name: 'Reduce Spending 10% (Flexible)',
+      description: 'Reduce flexible spending by 10% without touching core essentials.',
+      disruption: 'low',
+      complexity: 'simple',
+      apply: (input) => reduceOptionalSpending(input, 10),
+      tags: ['optional_cut'],
+    },
+    {
+      id: 'spend_optional_down_15',
+      category: 'spending',
+      name: 'Reduce Spending 15% (Flexible)',
+      description: 'Reduce flexible spending by 15% without touching core essentials.',
+      disruption: 'medium',
+      complexity: 'simple',
+      apply: (input) => reduceOptionalSpending(input, 15),
+      tags: ['optional_cut'],
+    },
+    {
+      id: 'spend_optional_down_20',
+      category: 'spending',
+      name: 'Reduce Spending 20% (Flexible)',
+      description: 'Reduce flexible spending by 20% without touching core essentials.',
+      disruption: 'medium',
+      complexity: 'simple',
+      apply: (input) => reduceOptionalSpending(input, 20),
+      tags: ['optional_cut'],
+    },
+    {
+      id: 'travel_down_2500',
+      category: 'spending',
+      name: 'Reduce Travel Spending $2,500',
+      description: 'Reduce annual travel budget by $2,500.',
+      disruption: 'low',
+      complexity: 'simple',
+      apply: (input) => reduceTravelBudget(input, 2_500),
+      tags: ['travel_cut'],
+    },
+    {
+      id: 'travel_down_5000',
+      category: 'spending',
+      name: 'Reduce Travel Spending $5,000',
+      description: 'Reduce annual travel budget by $5,000.',
+      disruption: 'low',
+      complexity: 'simple',
+      apply: (input) => reduceTravelBudget(input, 5_000),
+      tags: ['travel_cut'],
+    },
+    {
+      id: 'travel_down_10000',
+      category: 'spending',
+      name: 'Reduce Travel Spending $10,000',
+      description: 'Reduce annual travel budget by $10,000.',
+      disruption: 'medium',
+      complexity: 'simple',
+      apply: (input) => reduceTravelBudget(input, 10_000),
+      tags: ['travel_cut'],
+    },
+    {
+      id: 'response_cut_spending',
+      category: 'spending',
+      name: 'Enable "Reduce Optional Spending" Response',
+      description:
+        'Use the existing planner response control for optional-spending reduction.',
+      disruption: 'low',
+      complexity: 'simple',
+      apply: (input) => enableResponse(input, 'cut_spending'),
+      tags: ['optional_cut', 'response_toggle', 'ui_control'],
+    },
+  ];
+}

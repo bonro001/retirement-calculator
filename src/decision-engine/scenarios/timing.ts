@@ -1,0 +1,77 @@
+import { delayRetirement, enableResponse, shiftSocialSecurityClaim } from '../helpers';
+import type { LeverScenarioDefinition } from '../types';
+
+export function buildTimingScenarios(): LeverScenarioDefinition[] {
+  return [
+    {
+      id: 'response_delay_retirement',
+      category: 'timing',
+      name: 'Enable "Delay Retirement" Response',
+      description: 'Use the existing planner response control to retire later.',
+      disruption: 'medium',
+      complexity: 'simple',
+      apply: (input) => enableResponse(input, 'delay_retirement'),
+      tags: ['retirement_delay', 'response_toggle', 'ui_control'],
+    },
+    {
+      id: 'response_claim_ss_early',
+      category: 'timing',
+      name: 'Enable "Claim Social Security Early" Response',
+      description: 'Use the existing planner response control for earlier Social Security.',
+      disruption: 'low',
+      complexity: 'simple',
+      apply: (input) => enableResponse(input, 'early_ss'),
+      tags: ['ss_timing', 'response_toggle', 'ui_control'],
+    },
+    {
+      id: 'retire_delay_3m',
+      category: 'timing',
+      name: 'Delay Retirement 3 Months',
+      description: 'Delay retirement date by 3 months (timing sensitivity).',
+      disruption: 'medium',
+      complexity: 'simple',
+      apply: (input) => delayRetirement(input, 3),
+      tags: ['retirement_delay'],
+    },
+    {
+      id: 'retire_delay_6m',
+      category: 'timing',
+      name: 'Delay Retirement 6 Months',
+      description: 'Delay retirement date by 6 months (timing sensitivity).',
+      disruption: 'medium',
+      complexity: 'simple',
+      apply: (input) => delayRetirement(input, 6),
+      tags: ['retirement_delay'],
+    },
+    {
+      id: 'retire_delay_12m',
+      category: 'timing',
+      name: 'Delay Retirement 12 Months',
+      description: 'Delay retirement date by 12 months (timing sensitivity).',
+      disruption: 'high',
+      complexity: 'simple',
+      apply: (input) => delayRetirement(input, 12),
+      tags: ['retirement_delay'],
+    },
+    {
+      id: 'ss_claim_delay_1y',
+      category: 'timing',
+      name: 'Delay Social Security 1 Year',
+      description: 'Delay Social Security claim age by one year.',
+      disruption: 'medium',
+      complexity: 'simple',
+      apply: (input) => shiftSocialSecurityClaim(input, 1),
+      tags: ['ss_timing'],
+    },
+    {
+      id: 'ss_claim_earlier_1y',
+      category: 'timing',
+      name: 'Claim Social Security 1 Year Earlier',
+      description: 'Claim Social Security one year earlier.',
+      disruption: 'low',
+      complexity: 'simple',
+      apply: (input) => shiftSocialSecurityClaim(input, -1),
+      tags: ['ss_timing'],
+    },
+  ];
+}
