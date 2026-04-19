@@ -41,6 +41,10 @@ function buildSolverInput() {
   };
 }
 
+function getPhaseDelta(result: ReturnType<typeof solveSpendByReverseTimeline>, phase: 'go_go' | 'slow_go' | 'late') {
+  return result.spendingDeltaByPhase.find((entry) => entry.phase === phase)?.deltaAnnual ?? 0;
+}
+
 describe('spend-solver', () => {
   it('reduces allowed spending when primary residence sale is disabled', () => {
     const allowsHomeSale = solveSpendByReverseTimeline({
@@ -115,4 +119,91 @@ describe('spend-solver', () => {
       firstRun.projectedLegacyOutcomeTodayDollars,
     );
   });
+
+  it('increases earlier-life spending relative to later-life spending in time-weighted mode', () => {
+    const result = solveSpendByReverseTimeline({
+      ...buildSolverInput(),
+      selectedStressors: [],
+      selectedResponses: [],
+      optimizationObjective: 'maximize_time_weighted_spending',
+      targetLegacyTodayDollars: 750_000,
+      minSuccessRate: 0.75,
+    });
+
+    const goGoDelta = getPhaseDelta(result, 'go_go');
+    const lateDelta = getPhaseDelta(result, 'late');
+
+    expect(result.activeOptimizationObjective).toBe('maximize_time_weighted_spending');
+    expect(goGoDelta).toBeGreaterThan(lateDelta);
+    expect(result.spendingDeltaByPhase.find((entry) => entry.phase === 'go_go')?.optimizedAnnual)
+      .toBeGreaterThanOrEqual(
+        result.spendingDeltaByPhase.find((entry) => entry.phase === 'late')?.optimizedAnnual ?? 0,
+      );
+  });
+
+  it('respects minimum ending wealth and success constraints in time-weighted mode', () => {
+    const minSuccessRate = 0.8;
+    const targetLegacy = 700_000;
+    const result = solveSpendByReverseTimeline({
+      ...buildSolverInput(),
+      optimizationObjective: 'maximize_time_weighted_spending',
+      minSuccessRate,
+      targetLegacyTodayDollars: targetLegacy,
+    });
+
+    if (result.feasible) {
+      expect(result.legacyAttainmentMet).toBe(true);
+      expect(result.projectedLegacyOutcomeTodayDollars).toBeGreaterThanOrEqual(targetLegacy);
+      expect(result.modeledSuccessRate).toBeGreaterThanOrEqual(minSuccessRate);
+      return;
+    }
+
+    expect(result.bindingConstraint.toLowerCase()).toContain('no exact solution');
+  });
+
+  it('reduces feasible spending when inheritance is removed in time-weighted mode', () => {
+    const withInheritance = solveSpendByReverseTimeline({
+      ...buildSolverInput(),
+      optimizationObjective: 'maximize_time_weighted_spending',
+      targetLegacyTodayDollars: 1_200_000,
+      minSuccessRate: 0.85,
+    });
+    const withoutInheritance = solveSpendByReverseTimeline({
+      ...buildSolverInput(),
+      optimizationObjective: 'maximize_time_weighted_spending',
+      targetLegacyTodayDollars: 1_200_000,
+      minSuccessRate: 0.85,
+      constraints: {
+        inheritanceEnabled: false,
+      },
+    });
+
+    expect(withoutInheritance.recommendedAnnualSpend).toBeLessThanOrEqual(
+      withInheritance.recommendedAnnualSpend,
+    );
+  }, 20000);
+
+  it('produces a meaningfully different phase profile than preserve_legacy mode', () => {
+    const preserveLegacy = solveSpendByReverseTimeline({
+      ...buildSolverInput(),
+      optimizationObjective: 'preserve_legacy',
+      selectedStressors: [],
+      selectedResponses: [],
+    });
+    const timeWeighted = solveSpendByReverseTimeline({
+      ...buildSolverInput(),
+      optimizationObjective: 'maximize_time_weighted_spending',
+      selectedStressors: [],
+      selectedResponses: [],
+    });
+
+    const preserveDeltas = preserveLegacy.spendingDeltaByPhase.map((entry) => entry.deltaAnnual);
+    const timeWeightedDeltas = timeWeighted.spendingDeltaByPhase.map((entry) => entry.deltaAnnual);
+    const preserveSpread = Math.max(...preserveDeltas) - Math.min(...preserveDeltas);
+    const timeWeightedSpread = Math.max(...timeWeightedDeltas) - Math.min(...timeWeightedDeltas);
+
+    expect(timeWeighted.activeOptimizationObjective).toBe('maximize_time_weighted_spending');
+    expect(preserveLegacy.activeOptimizationObjective).toBe('preserve_legacy');
+    expect(timeWeightedSpread).toBeGreaterThan(preserveSpread);
+  }, 20000);
 });

@@ -861,7 +861,7 @@ export function UnifiedPlanScreen({
     currentEvaluation?.summary.bestAction ??
     'Reducing flexible spending by a small amount is usually the lowest-disruption lever.';
   const activeOptimizationObjective: OptimizationObjective =
-    currentEvaluation?.summary.activeOptimizationObjective ?? 'maximize_flat_spending';
+    currentEvaluation?.summary.activeOptimizationObjective ?? optimizationObjective;
   const activeOptimizationObjectiveLabel = formatOptimizationObjectiveLabel(
     activeOptimizationObjective,
   );

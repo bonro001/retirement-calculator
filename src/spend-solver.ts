@@ -337,6 +337,27 @@ function withHousingPolicyResponses(
   return selectedResponses.filter((id) => id !== 'sell_home_early');
 }
 
+function withInheritancePolicy(data: SeedData, inheritanceEnabled: boolean) {
+  if (inheritanceEnabled) {
+    return data;
+  }
+
+  return {
+    ...data,
+    income: {
+      ...data.income,
+      windfalls: data.income.windfalls.map((windfall) =>
+        windfall.name === 'inheritance'
+          ? {
+              ...windfall,
+              amount: 0,
+            }
+          : windfall,
+      ),
+    },
+  };
+}
+
 function getAverageAnnualHealthcareCost(pathResult: PathResult) {
   if (!pathResult.yearlySeries.length) {
     return 0;
@@ -438,7 +459,12 @@ function evaluateSpendCandidateFactory(input: SpendSolverInputs) {
   const housingFundingPolicy = input.constraints?.retainHouse
     ? 'do_not_sell_primary_residence'
     : input.housingFundingPolicy ?? 'allow_primary_residence_sale';
-  const housingAdjustedData = withHousingFundingPolicy(input.data, housingFundingPolicy);
+  const inheritanceEnabled = input.constraints?.inheritanceEnabled ?? true;
+  const inheritanceAdjustedData = withInheritancePolicy(input.data, inheritanceEnabled);
+  const housingAdjustedData = withHousingFundingPolicy(
+    inheritanceAdjustedData,
+    housingFundingPolicy,
+  );
   const housingAdjustedResponses = withHousingPolicyResponses(
     input.selectedResponses,
     housingFundingPolicy,
