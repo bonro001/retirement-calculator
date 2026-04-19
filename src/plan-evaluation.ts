@@ -1,5 +1,9 @@
 import type { AutopilotPlanResult } from './autopilot-timeline';
 import type { DecisionEngineReport, LeverScenarioResult } from './decision-engine';
+import type {
+  OptimizationObjective,
+  TimePreferenceWeights,
+} from './optimization-objective';
 import {
   analyzeRetirementPlan,
   buildRetirementPlan,
@@ -38,6 +42,8 @@ export interface PlanPreferences {
     legacyPriority?: LegacyPriority;
     minSuccessRate?: number;
     successRateRange?: SpendSolverSuccessRange;
+    optimizationObjective?: OptimizationObjective;
+    timePreferenceWeights?: TimePreferenceWeights;
   };
   responsePolicy?: {
     posture?: 'defensive' | 'balanced';
@@ -80,6 +86,7 @@ export interface PlanEvaluation {
     biggestDriver: string;
     biggestRisk: string;
     bestAction: string;
+    activeOptimizationObjective: OptimizationObjective;
     irmaaOutlook: string;
     legacyOutlook: string;
   };
@@ -470,6 +477,8 @@ export async function evaluatePlan(
   const optionalSpendingFlexPercent = preferences.responsePolicy?.optionalSpendingFlexPercent ?? 12;
   const autopilotPosture = preferences.responsePolicy?.posture ?? 'defensive';
   const irmaaPosture = preferences.irmaaPosture ?? 'balanced';
+  const optimizationObjective =
+    preferences.calibration?.optimizationObjective ?? 'maximize_flat_spending';
   const legacyPriority = resolveLegacyPriority(preferences.calibration?.legacyPriority);
   const requestedLegacyTargetTodayDollars = Math.max(
     0,
@@ -520,6 +529,8 @@ export async function evaluatePlan(
           plan.data.spending.travelEarlyRetirementAnnual,
         minSuccessRate: effectiveMinSuccessRate,
         successRateRange: preferences.calibration?.successRateRange,
+        optimizationObjective,
+        timePreferenceWeights: preferences.calibration?.timePreferenceWeights,
       },
       irmaaPolicy: {
         posture: irmaaPosture,
@@ -591,6 +602,7 @@ export async function evaluatePlan(
       biggestDriver,
       biggestRisk,
       bestAction,
+      activeOptimizationObjective: optimizationObjective,
       irmaaOutlook: `${planRun.irmaa.exposureLevel} exposure${
         planRun.irmaa.likelyYearsAtRisk.length
           ? ` (${planRun.irmaa.likelyYearsAtRisk.length} years at risk)`

@@ -6,6 +6,7 @@ import type {
   SimulationStrategyMode,
   Stressor,
 } from './types';
+import type { OptimizationObjective } from './optimization-objective';
 
 const EXPORT_SCHEMA_VERSION = 'retirement-planner-export.v1';
 
@@ -119,6 +120,7 @@ export interface PlanningExportSnapshot {
   simulationSettings: {
     mode: SimulationStrategyMode;
     plannerAutopilotActive: boolean;
+    optimizationObjective: OptimizationObjective;
     simulationRuns: number;
     simulationSeed: number | null;
     assumptionsVersion: string | null;
@@ -162,6 +164,7 @@ interface BuildPlanningExportInput {
   assumptions: MarketAssumptions;
   selectedStressorIds: string[];
   selectedResponseIds: string[];
+  optimizationObjective?: OptimizationObjective;
 }
 
 function clone<T>(value: T): T {
@@ -440,6 +443,7 @@ function buildSnapshot(
   mode: SimulationStrategyMode,
   stressorIds: string[],
   responseIds: string[],
+  optimizationObjective: OptimizationObjective,
 ): PlanningExportSnapshot {
   const hsaBalance = data.accounts.hsa?.balance ?? 0;
   const liquid = data.accounts.cash.balance + data.accounts.taxable.balance;
@@ -558,6 +562,7 @@ function buildSnapshot(
     simulationSettings: {
       mode,
       plannerAutopilotActive: mode === 'planner_enhanced',
+      optimizationObjective,
       simulationRuns: assumptions.simulationRuns,
       simulationSeed: assumptions.simulationSeed ?? null,
       assumptionsVersion: assumptions.assumptionsVersion ?? null,
@@ -571,6 +576,7 @@ function buildSnapshot(
 export function buildPlanningStateExport(
   input: BuildPlanningExportInput,
 ): PlanningStateExport {
+  const optimizationObjective = input.optimizationObjective ?? 'maximize_flat_spending';
   const activeStressors = input.data.stressors.filter((item) =>
     input.selectedStressorIds.includes(item.id),
   );
@@ -594,6 +600,7 @@ export function buildPlanningStateExport(
     'planner_enhanced',
     [],
     [],
+    optimizationObjective,
   );
   const effectiveInputs = buildSnapshot(
     effectiveData,
@@ -602,6 +609,7 @@ export function buildPlanningStateExport(
     'planner_enhanced',
     activeStressorIds,
     activeResponseIds,
+    optimizationObjective,
   );
   const effectiveSimulationInputs = buildSnapshot(
     effectiveData,
@@ -610,6 +618,7 @@ export function buildPlanningStateExport(
     'raw_simulation',
     activeStressorIds,
     activeResponseIds,
+    optimizationObjective,
   );
   const effectivePlanningStrategyInputs = buildSnapshot(
     effectiveData,
@@ -618,6 +627,7 @@ export function buildPlanningStateExport(
     'planner_enhanced',
     activeStressorIds,
     activeResponseIds,
+    optimizationObjective,
   );
   const simulationProfiles = {
     rawSimulation: buildSimulationProfile({

@@ -124,6 +124,7 @@ describe('scenario compare runner + formatting', () => {
       seed: 1,
       runCount: 100,
       strategyMode: 'planner_enhanced',
+      optimizationObjective: 'maximize_flat_spending',
       scenarioOrder: ['base'],
       results: [
         {

@@ -179,6 +179,7 @@ interface SimulationExecutionOptions {
   onProgress?: (progress: number) => void;
   isCancelled?: () => boolean;
   annualSpendTarget?: number;
+  annualSpendScheduleByYear?: Record<number, number>;
   pathMode?: 'all' | 'selected_only';
   strategyMode?: SimulationStrategyMode;
 }
@@ -594,6 +595,20 @@ function createBaseYearTaxInputs(
     otherOrdinaryIncome: 0,
     filingStatus,
   };
+}
+
+function getScheduledAnnualSpendForYear(
+  schedule: Record<number, number> | undefined,
+  year: number,
+) {
+  if (!schedule) {
+    return null;
+  }
+  const value = schedule[year];
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return null;
+  }
+  return Math.max(0, value);
 }
 
 function getStressAdjustedReturns(
@@ -1085,11 +1100,27 @@ function simulatePath(
           isRetired &&
           yearsIntoRetirement >= 0 &&
           yearsIntoRetirement < effectivePlan.travelPhaseYears;
+        const fixedSpendAnnual =
+          effectivePlan.essentialAnnual + effectivePlan.taxesInsuranceAnnual;
+        const baselineDiscretionaryAnnual =
+          effectivePlan.optionalAnnual + (inTravelPhase ? effectivePlan.travelAnnual : 0);
+        const scheduledAnnualSpend = getScheduledAnnualSpendForYear(
+          options?.annualSpendScheduleByYear,
+          year,
+        );
+        const targetAnnualSpend =
+          scheduledAnnualSpend ?? fixedSpendAnnual + baselineDiscretionaryAnnual;
+        const discretionaryTargetAnnual = Math.max(0, targetAnnualSpend - fixedSpendAnnual);
+        const discretionaryScale =
+          baselineDiscretionaryAnnual > 0
+            ? discretionaryTargetAnnual / baselineDiscretionaryAnnual
+            : 0;
+        const optionalAnnualForYear = effectivePlan.optionalAnnual * discretionaryScale;
+        const travelAnnualForYear = inTravelPhase
+          ? effectivePlan.travelAnnual * discretionaryScale
+          : 0;
         const baseSpending =
-          effectivePlan.essentialAnnual +
-          effectivePlan.optionalAnnual +
-          effectivePlan.taxesInsuranceAnnual +
-          (inTravelPhase ? effectivePlan.travelAnnual : 0);
+          fixedSpendAnnual + optionalAnnualForYear + travelAnnualForYear;
 
         const fundedYears = totalAssetsAtStart / Math.max(baseSpending, 1);
         if (
@@ -1108,10 +1139,8 @@ function simulatePath(
         }
 
         const cutMultiplier = optionalCutActive ? 1 - effectivePlan.guardrails.cutPercent : 1;
-        const optionalSpend = effectivePlan.optionalAnnual * cutMultiplier;
-        const travelSpend = inTravelPhase
-          ? effectivePlan.travelAnnual * cutMultiplier
-          : 0;
+        const optionalSpend = optionalAnnualForYear * cutMultiplier;
+        const travelSpend = travelAnnualForYear * cutMultiplier;
         const spendingBeforeHealthcare =
           (effectivePlan.essentialAnnual + optionalSpend + effectivePlan.taxesInsuranceAnnual + travelSpend) *
           inflationIndex;

@@ -1,4 +1,5 @@
 import type { DecisionEngineOptions, LeverScenarioResult, PlannerInput } from '../decision-engine';
+import type { OptimizationObjective } from '../optimization-objective';
 import type { SimulationStrategyMode } from '../types';
 
 export interface ScenarioCompareDefinition {
@@ -33,6 +34,7 @@ export interface ScenarioCompareReport {
   seed: number;
   runCount: number;
   strategyMode: SimulationStrategyMode;
+  optimizationObjective: OptimizationObjective;
   scenarioOrder: string[];
   results: ScenarioCompareResult[];
 }

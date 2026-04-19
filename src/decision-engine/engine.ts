@@ -180,6 +180,7 @@ export async function evaluateDecisionLevers(
 
   const rankedRecommendations = toRankedRecommendations(allScenarioResults, maxRecommendations);
   const report: DecisionEngineReport = {
+    activeOptimizationObjective: input.optimizationObjective ?? 'maximize_flat_spending',
     baseline: baselineMetrics,
     recommendationSummary: deriveRecommendationSummary(
       baselineMetrics,

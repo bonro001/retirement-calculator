@@ -1,5 +1,16 @@
 import type { MarketAssumptions, PathResult, SeedData } from './types';
-import { buildPathResults, getAnnualStretchSpend } from './utils';
+import {
+  DEFAULT_TIME_PREFERENCE_WEIGHTS,
+  computeTimeWeightedSpendingUtility,
+  type OptimizationObjective,
+  type TimePreferenceWeights,
+} from './optimization-objective';
+import {
+  buildPathResults,
+  calculateCurrentAges,
+  getAnnualStretchSpend,
+  getRetirementHorizonYears,
+} from './utils';
 
 export type HousingFundingPolicy =
   | 'allow_primary_residence_sale'
@@ -15,6 +26,8 @@ export interface SpendSolverInputs {
   assumptions: MarketAssumptions;
   selectedStressors: string[];
   selectedResponses: string[];
+  optimizationObjective?: OptimizationObjective;
+  timePreferenceWeights?: TimePreferenceWeights;
   targetLegacyTodayDollars: number;
   minSuccessRate: number;
   successRateRange?: SpendSolverSuccessRange;
@@ -23,6 +36,15 @@ export interface SpendSolverInputs {
   toleranceAnnual?: number;
   maxIterations?: number;
   housingFundingPolicy?: HousingFundingPolicy;
+  constraints?: {
+    optimizationObjective?: OptimizationObjective;
+    minimumSuccessRate?: number;
+    minimumEndingWealth?: number;
+    retainHouse?: boolean;
+    essentialSpendingFloor?: number;
+    inheritanceEnabled?: boolean;
+    allocationLocked?: boolean;
+  };
 }
 
 export interface SpendSolverBand {
@@ -35,17 +57,37 @@ export interface SpendSolverBand {
 }
 
 export interface SpendSolverResult {
+  activeOptimizationObjective: OptimizationObjective;
   recommendedAnnualSpend: number;
   recommendedMonthlySpend: number;
   safeSpendingBand: SpendSolverBand;
   modeledSuccessRate: number;
   medianEndingWealth: number;
+  p10EndingWealth: number;
+  first10YearFailureRisk: number;
   projectedLegacyOutcomeTodayDollars: number;
   projectedLegacyOutcomeNominalDollars: number;
   targetLegacyTodayDollars: number;
+  legacyAttainmentMet: boolean;
+  currentSpendingPath: Array<{ year: number; age: number; annualSpend: number }>;
+  optimizedSpendingPath: Array<{ year: number; age: number; annualSpend: number }>;
+  spendingDeltaByPhase: Array<{
+    phase: 'go_go' | 'slow_go' | 'late';
+    currentAnnual: number;
+    optimizedAnnual: number;
+    deltaAnnual: number;
+  }>;
   successBuffer: number;
   legacyBuffer: number;
   bindingConstraint: string;
+  surplusPreservedBecause: string;
+  inheritanceMateriality: 'low' | 'medium' | 'high';
+  houseRetentionContribution: string;
+  endingWealthBreakdown: {
+    median: number;
+    p10: number;
+    targetLegacyTodayDollars: number;
+  };
   actionableExplanation: string;
   tradeoffExplanation: string;
   feasible: boolean;
@@ -59,6 +101,10 @@ export interface SpendSolverResult {
 interface SpendSolverEvaluation {
   annualSpend: number;
   monthlySpend: number;
+  annualSpendScheduleByYear?: Record<number, number>;
+  optimizedSpendingPath?: Array<{ year: number; age: number; annualSpend: number }>;
+  spendingDeltaByPhase?: SpendSolverResult['spendingDeltaByPhase'];
+  utilityScore?: number;
   pathResult: PathResult;
   successRate: number;
   medianEndingWealth: number;
@@ -81,6 +127,12 @@ interface SearchOutcome {
 
 const DEFAULT_TOLERANCE_ANNUAL = 250;
 const DEFAULT_MAX_ITERATIONS = 22;
+const DEFAULT_OBJECTIVE: OptimizationObjective = 'maximize_flat_spending';
+const PHASE_GRID = {
+  goGo: [1, 1.15, 1.3],
+  slowGo: [0.9, 1, 1.1],
+  late: [0.75, 0.9, 1],
+};
 const CURRENCY_FORMATTER = new Intl.NumberFormat('en-US', {
   style: 'currency',
   currency: 'USD',
@@ -117,6 +169,121 @@ function normalizeSuccessRange(
   const min = clamp(Math.max(range.min, minSuccessRate), 0, 1);
   const max = clamp(Math.max(range.max, min), min, 1);
   return { min, max };
+}
+
+function resolveOptimizationObjective(input: SpendSolverInputs): OptimizationObjective {
+  return (
+    input.constraints?.optimizationObjective ??
+    input.optimizationObjective ??
+    DEFAULT_OBJECTIVE
+  );
+}
+
+function toPhaseByAge(age: number): 'go_go' | 'slow_go' | 'late' {
+  if (age < 70) {
+    return 'go_go';
+  }
+  if (age < 80) {
+    return 'slow_go';
+  }
+  return 'late';
+}
+
+function buildYearAgeTimeline(data: SeedData, assumptions: MarketAssumptions) {
+  const ages = calculateCurrentAges(data);
+  const horizonYears = getRetirementHorizonYears(data, assumptions);
+  const startYear = new Date().getFullYear();
+  return Array.from({ length: horizonYears + 1 }, (_, offset) => ({
+    year: startYear + offset,
+    age: ages.rob + offset,
+  }));
+}
+
+function buildFlatSpendingPath(
+  timeline: Array<{ year: number; age: number }>,
+  annualSpend: number,
+) {
+  return timeline.map(({ year, age }) => ({
+    year,
+    age,
+    annualSpend: roundCurrency(Math.max(0, annualSpend)),
+  }));
+}
+
+function buildPhaseSpendingPath(
+  timeline: Array<{ year: number; age: number }>,
+  baselineAnnualSpend: number,
+  multipliers: { goGo: number; slowGo: number; late: number },
+  scale: number,
+) {
+  return timeline.map(({ year, age }) => {
+    const phase = toPhaseByAge(age);
+    const phaseMultiplier =
+      phase === 'go_go'
+        ? multipliers.goGo
+        : phase === 'slow_go'
+          ? multipliers.slowGo
+          : multipliers.late;
+    return {
+      year,
+      age,
+      annualSpend: roundCurrency(Math.max(0, baselineAnnualSpend * phaseMultiplier * scale)),
+    };
+  });
+}
+
+function toAnnualSpendScheduleByYear(
+  path: Array<{ year: number; age: number; annualSpend: number }>,
+) {
+  return Object.fromEntries(path.map((point) => [point.year, point.annualSpend]));
+}
+
+function average(values: number[]) {
+  if (!values.length) {
+    return 0;
+  }
+  return values.reduce((sum, value) => sum + value, 0) / values.length;
+}
+
+function summarizePhaseDeltas(input: {
+  currentPath: Array<{ year: number; age: number; annualSpend: number }>;
+  optimizedPath: Array<{ year: number; age: number; annualSpend: number }>;
+}): SpendSolverResult['spendingDeltaByPhase'] {
+  const phaseKeys: Array<'go_go' | 'slow_go' | 'late'> = ['go_go', 'slow_go', 'late'];
+  return phaseKeys.map((phase) => {
+    const currentValues = input.currentPath
+      .filter((point) => toPhaseByAge(point.age) === phase)
+      .map((point) => point.annualSpend);
+    const optimizedValues = input.optimizedPath
+      .filter((point) => toPhaseByAge(point.age) === phase)
+      .map((point) => point.annualSpend);
+    const currentAnnual = roundCurrency(average(currentValues));
+    const optimizedAnnual = roundCurrency(average(optimizedValues));
+    return {
+      phase,
+      currentAnnual,
+      optimizedAnnual,
+      deltaAnnual: roundCurrency(optimizedAnnual - currentAnnual),
+    };
+  });
+}
+
+function getFirst10YearFailureRisk(pathResult: PathResult) {
+  const startYear = new Date().getFullYear();
+  const endYear = startYear + 9;
+  return pathResult.failureYearDistribution
+    .filter((point) => point.year <= endYear)
+    .reduce((sum, point) => sum + point.rate, 0);
+}
+
+function toInheritanceMateriality(pathResult: PathResult): 'low' | 'medium' | 'high' {
+  if (pathResult.inheritanceDependenceRate >= 0.45) {
+    return 'high';
+  }
+  if (pathResult.inheritanceDependenceRate >= 0.2) {
+    return 'medium';
+  }
+  return 'low';
 }
 
 function withAnnualSpendTarget(data: SeedData, annualSpend: number): SeedData {
@@ -233,20 +400,116 @@ function selectCloserEvaluation(
   return candidate.annualSpend >= current.annualSpend ? candidate : current;
 }
 
+function selectPreferredFeasibleByObjective(
+  current: SpendSolverEvaluation | null,
+  candidate: SpendSolverEvaluation,
+  objective: OptimizationObjective,
+) {
+  if (!current) {
+    return candidate;
+  }
+
+  if (objective === 'maximize_time_weighted_spending') {
+    const currentUtility = current.utilityScore ?? 0;
+    const candidateUtility = candidate.utilityScore ?? 0;
+    if (candidateUtility > currentUtility) {
+      return candidate;
+    }
+    if (candidateUtility < currentUtility) {
+      return current;
+    }
+  }
+
+  if (candidate.annualSpend > current.annualSpend) {
+    return candidate;
+  }
+  if (candidate.annualSpend < current.annualSpend) {
+    return current;
+  }
+
+  return candidate.successRate >= current.successRate ? candidate : current;
+}
+
 function evaluateSpendCandidateFactory(input: SpendSolverInputs) {
-  const cache = new Map<string, SpendSolverEvaluation>();
+  const flatCache = new Map<string, SpendSolverEvaluation>();
+  const scheduleCache = new Map<string, SpendSolverEvaluation>();
   const inflation = input.assumptions.inflation;
-  const housingFundingPolicy = input.housingFundingPolicy ?? 'allow_primary_residence_sale';
+  const housingFundingPolicy = input.constraints?.retainHouse
+    ? 'do_not_sell_primary_residence'
+    : input.housingFundingPolicy ?? 'allow_primary_residence_sale';
   const housingAdjustedData = withHousingFundingPolicy(input.data, housingFundingPolicy);
   const housingAdjustedResponses = withHousingPolicyResponses(
     input.selectedResponses,
     housingFundingPolicy,
   );
+  const timeline = buildYearAgeTimeline(input.data, input.assumptions);
+  const baselineAnnualSpend = getAnnualStretchSpend(input.data);
+  const currentSpendingPath = buildFlatSpendingPath(timeline, baselineAnnualSpend);
+  const objective = resolveOptimizationObjective(input);
+  const weights = input.timePreferenceWeights ?? DEFAULT_TIME_PREFERENCE_WEIGHTS;
+  const essentialFloorAnnual = Math.max(
+    0,
+    input.constraints?.essentialSpendingFloor ??
+      input.spendingFloorAnnual ??
+      input.data.spending.essentialMonthly * 12 + input.data.spending.annualTaxesInsurance,
+  );
 
-  return (annualSpend: number): SpendSolverEvaluation => {
+  const evaluatePath = (
+    annualSpendPath: Array<{ year: number; age: number; annualSpend: number }>,
+  ) => {
+    const spendScheduleByYear = toAnnualSpendScheduleByYear(annualSpendPath);
+    const key = JSON.stringify(spendScheduleByYear);
+    const cached = scheduleCache.get(key);
+    if (cached) {
+      return cached;
+    }
+
+    const [pathResult] = buildPathResults(
+      housingAdjustedData,
+      input.assumptions,
+      input.selectedStressors,
+      housingAdjustedResponses,
+      {
+        pathMode: 'selected_only',
+        annualSpendScheduleByYear: spendScheduleByYear,
+      },
+    );
+
+    const projectedLegacyTodayDollars = toTodayDollars(
+      pathResult.medianEndingWealth,
+      inflation,
+      pathResult.monteCarloMetadata.planningHorizonYears,
+    );
+    const spendingByYear = annualSpendPath.map((point) => point.annualSpend);
+    const agesByYear = annualSpendPath.map((point) => point.age);
+    const utilityScore = computeTimeWeightedSpendingUtility({
+      agesByYear,
+      spendingByYear,
+      weights,
+      scope: 'discretionary_above_essential_floor',
+      essentialFloorByYear: annualSpendPath.map(() => essentialFloorAnnual),
+    });
+    const evaluation: SpendSolverEvaluation = {
+      annualSpend: roundCurrency(average(spendingByYear)),
+      monthlySpend: roundCurrency(average(spendingByYear) / 12),
+      annualSpendScheduleByYear: spendScheduleByYear,
+      optimizedSpendingPath: annualSpendPath,
+      pathResult,
+      successRate: pathResult.successRate,
+      medianEndingWealth: pathResult.medianEndingWealth,
+      projectedLegacyTodayDollars,
+      annualFederalTaxEstimate: pathResult.annualFederalTaxEstimate,
+      annualHealthcareCostEstimate: getAverageAnnualHealthcareCost(pathResult),
+      utilityScore,
+    };
+    scheduleCache.set(key, evaluation);
+    return evaluation;
+  };
+
+  const evaluateFlat = (annualSpend: number): SpendSolverEvaluation => {
     const normalizedSpend = roundCurrency(Math.max(0, annualSpend));
     const key = normalizedSpend.toFixed(2);
-    const cached = cache.get(key);
+    const cached = flatCache.get(key);
     if (cached) {
       return cached;
     }
@@ -267,18 +530,40 @@ function evaluateSpendCandidateFactory(input: SpendSolverInputs) {
       inflation,
       pathResult.monteCarloMetadata.planningHorizonYears,
     );
+    const flatPath = buildFlatSpendingPath(timeline, normalizedSpend);
     const evaluation: SpendSolverEvaluation = {
       annualSpend: normalizedSpend,
       monthlySpend: normalizedSpend / 12,
+      annualSpendScheduleByYear: toAnnualSpendScheduleByYear(flatPath),
+      optimizedSpendingPath: flatPath,
       pathResult,
       successRate: pathResult.successRate,
       medianEndingWealth: pathResult.medianEndingWealth,
       projectedLegacyTodayDollars,
       annualFederalTaxEstimate: pathResult.annualFederalTaxEstimate,
       annualHealthcareCostEstimate: getAverageAnnualHealthcareCost(pathResult),
+      utilityScore: computeTimeWeightedSpendingUtility({
+        agesByYear: flatPath.map((point) => point.age),
+        spendingByYear: flatPath.map((point) => point.annualSpend),
+        weights,
+        scope: 'discretionary_above_essential_floor',
+        essentialFloorByYear: flatPath.map(() => essentialFloorAnnual),
+      }),
     };
-    cache.set(key, evaluation);
+    flatCache.set(key, evaluation);
     return evaluation;
+  };
+
+  return {
+    evaluateFlat,
+    evaluatePath,
+    timeline,
+    currentSpendingPath,
+    baselineAnnualSpend,
+    objective,
+    weights,
+    essentialFloorAnnual,
+    housingFundingPolicy,
   };
 }
 
@@ -430,6 +715,90 @@ function solveForSuccessRangeTarget(
   });
 
   return bestInRange;
+}
+
+function solveForTimeWeightedSpend(
+  input: {
+    evaluatePath: (
+      annualSpendPath: Array<{ year: number; age: number; annualSpend: number }>,
+    ) => SpendSolverEvaluation;
+    evaluateFlat: (annualSpend: number) => SpendSolverEvaluation;
+    timeline: Array<{ year: number; age: number }>;
+    baselineAnnualSpend: number;
+    constraints: SpendSolverConstraints;
+    floorAnnual: number;
+    ceilingAnnual: number;
+    maxIterations: number;
+  },
+): SearchOutcome {
+  const maxEvaluations = Math.max(20, input.maxIterations * 8);
+  let iterations = 0;
+  const baselineEvaluation = input.evaluateFlat(input.baselineAnnualSpend);
+  let bestClosest = baselineEvaluation;
+  let bestFeasible: SpendSolverEvaluation | null = isFeasible(baselineEvaluation, input.constraints)
+    ? baselineEvaluation
+    : null;
+
+  outer: for (const goGo of PHASE_GRID.goGo) {
+    for (const slowGo of PHASE_GRID.slowGo) {
+      if (slowGo > goGo) {
+        continue;
+      }
+      for (const late of PHASE_GRID.late) {
+        if (late > slowGo) {
+          continue;
+        }
+
+        const unscaledPath = buildPhaseSpendingPath(
+          input.timeline,
+          input.baselineAnnualSpend,
+          { goGo, slowGo, late },
+          1,
+        );
+        const unscaledAverage = average(unscaledPath.map((point) => point.annualSpend));
+        if (!(unscaledAverage > 0)) {
+          continue;
+        }
+
+        const minScale = Math.max(0.2, input.floorAnnual / unscaledAverage);
+        const maxScale = Math.max(minScale, input.ceilingAnnual / unscaledAverage);
+        const scaleSteps = 7;
+
+        for (let scaleIndex = 0; scaleIndex < scaleSteps; scaleIndex += 1) {
+          if (iterations >= maxEvaluations) {
+            break outer;
+          }
+
+          const ratio = scaleIndex / (scaleSteps - 1);
+          const scale = minScale + (maxScale - minScale) * ratio;
+          const scaledPath = buildPhaseSpendingPath(
+            input.timeline,
+            input.baselineAnnualSpend,
+            { goGo, slowGo, late },
+            scale,
+          );
+          const evaluation = input.evaluatePath(scaledPath);
+          iterations += 1;
+
+          bestClosest = selectCloserEvaluation(bestClosest, evaluation, input.constraints);
+          if (isFeasible(evaluation, input.constraints)) {
+            bestFeasible = selectPreferredFeasibleByObjective(
+              bestFeasible,
+              evaluation,
+              'maximize_time_weighted_spending',
+            );
+          }
+        }
+      }
+    }
+  }
+
+  return {
+    bestFeasible,
+    bestClosest,
+    iterations,
+    converged: iterations < maxEvaluations,
+  };
 }
 
 function describeConstraintFailure(
@@ -682,10 +1051,37 @@ function buildConstraintExplanation({
   return 'Success-rate floor is the binding constraint';
 }
 
+function toSurplusPreservedBecause(input: {
+  objective: OptimizationObjective;
+  bindingConstraint: string;
+  feasible: boolean;
+}) {
+  if (!input.feasible) {
+    return 'Current guardrails are tighter than the requested spend path, so surplus is retained to avoid infeasible outcomes.';
+  }
+
+  if (input.bindingConstraint.toLowerCase().includes('legacy')) {
+    return 'Legacy floor is active, so the optimizer preserves additional ending wealth.';
+  }
+  if (input.bindingConstraint.toLowerCase().includes('success')) {
+    return 'Success floor is active, so the optimizer preserves extra wealth as a resilience buffer.';
+  }
+  if (input.bindingConstraint.toLowerCase().includes('cap')) {
+    return 'Configured spend ceiling capped the optimization before surplus could be fully consumed.';
+  }
+
+  if (input.objective === 'maximize_time_weighted_spending') {
+    return 'The optimizer shifted spend earlier but still preserves tail-risk buffer to keep guardrails intact.';
+  }
+  return 'Current constraints leave residual ending wealth in median outcomes.';
+}
+
 export function solveSpendByReverseTimeline(input: SpendSolverInputs): SpendSolverResult {
+  const objective = resolveOptimizationObjective(input);
   const currentAnnualSpend = getAnnualStretchSpend(input.data);
+  const explicitFloor = input.constraints?.essentialSpendingFloor ?? input.spendingFloorAnnual;
   const floorAnnual = roundCurrency(
-    Math.max(0, input.spendingFloorAnnual ?? Math.max(currentAnnualSpend * 0.35, 1_000)),
+    Math.max(0, explicitFloor ?? Math.max(currentAnnualSpend * 0.35, 1_000)),
   );
   const ceilingAnnual = roundCurrency(
     Math.max(floorAnnual, input.spendingCeilingAnnual ?? Math.max(currentAnnualSpend * 2.5, 1_000)),
@@ -694,30 +1090,50 @@ export function solveSpendByReverseTimeline(input: SpendSolverInputs): SpendSolv
     Math.max(10, input.toleranceAnnual ?? DEFAULT_TOLERANCE_ANNUAL),
   );
   const maxIterations = Math.max(6, input.maxIterations ?? DEFAULT_MAX_ITERATIONS);
-  const normalizedRange = normalizeSuccessRange(input.successRateRange, input.minSuccessRate);
-  const evaluate = evaluateSpendCandidateFactory(input);
+  const minSuccessRate = clamp(
+    input.constraints?.minimumSuccessRate ?? input.minSuccessRate,
+    0,
+    1,
+  );
+  const minEndingWealth =
+    input.constraints?.minimumEndingWealth ?? input.targetLegacyTodayDollars;
+  const normalizedRange = normalizeSuccessRange(input.successRateRange, minSuccessRate);
+  const evaluator = evaluateSpendCandidateFactory(input);
+  const evaluateFlat = evaluator.evaluateFlat;
   const baseConstraints: SpendSolverConstraints = {
-    minSuccessRate: clamp(input.minSuccessRate, 0, 1),
-    targetLegacyTodayDollars: Math.max(0, input.targetLegacyTodayDollars),
+    minSuccessRate,
+    targetLegacyTodayDollars: Math.max(0, minEndingWealth),
   };
 
-  const baseSearch = solveForHighestFeasibleSpend(
-    evaluate,
-    floorAnnual,
-    ceilingAnnual,
-    baseConstraints,
-    toleranceAnnual,
-    maxIterations,
-  );
+  const baseSearch =
+    objective === 'maximize_time_weighted_spending'
+      ? solveForTimeWeightedSpend({
+          evaluatePath: evaluator.evaluatePath,
+          evaluateFlat,
+          timeline: evaluator.timeline,
+          baselineAnnualSpend: evaluator.baselineAnnualSpend,
+          constraints: baseConstraints,
+          floorAnnual,
+          ceilingAnnual,
+          maxIterations,
+        })
+      : solveForHighestFeasibleSpend(
+          evaluateFlat,
+          floorAnnual,
+          ceilingAnnual,
+          baseConstraints,
+          toleranceAnnual,
+          maxIterations,
+        );
 
   const nonConvergenceDetected = !baseSearch.converged;
   const upperEvaluation = baseSearch.bestFeasible;
   let recommended = upperEvaluation ?? baseSearch.bestClosest;
-  let feasible = Boolean(upperEvaluation);
+  let feasible = isFeasible(recommended, baseConstraints);
 
-  if (upperEvaluation && normalizedRange) {
+  if (upperEvaluation && normalizedRange && objective !== 'maximize_time_weighted_spending') {
     const inRangeCandidate = solveForSuccessRangeTarget(
-      evaluate,
+      evaluateFlat,
       floorAnnual,
       upperEvaluation.annualSpend,
       baseConstraints,
@@ -741,7 +1157,7 @@ export function solveSpendByReverseTimeline(input: SpendSolverInputs): SpendSolv
       ? normalizedRange.max
       : clamp(baseConstraints.minSuccessRate + 0.08, 0, 0.995);
     const conservativeSearch = solveForHighestFeasibleSpend(
-      evaluate,
+      evaluateFlat,
       floorAnnual,
       recommended.annualSpend,
       {
@@ -784,7 +1200,7 @@ export function solveSpendByReverseTimeline(input: SpendSolverInputs): SpendSolv
     feasible,
   });
   const actionableExplanation = buildActionableExplanation({
-    evaluate,
+    evaluate: evaluateFlat,
     recommended,
     lowerEvaluation,
     constraints: baseConstraints,
@@ -798,19 +1214,57 @@ export function solveSpendByReverseTimeline(input: SpendSolverInputs): SpendSolv
     recommended,
     lowerEvaluation,
   });
+  const currentSpendingPath = evaluator.currentSpendingPath;
+  const optimizedSpendingPath =
+    recommended.optimizedSpendingPath ?? buildFlatSpendingPath(evaluator.timeline, recommendedAnnualSpend);
+  const spendingDeltaByPhase = summarizePhaseDeltas({
+    currentPath: currentSpendingPath,
+    optimizedPath: optimizedSpendingPath,
+  });
+  const p10EndingWealth = recommended.pathResult.endingWealthPercentiles.p10;
+  const first10YearFailureRisk = getFirst10YearFailureRisk(recommended.pathResult);
+  const inheritanceMateriality = toInheritanceMateriality(recommended.pathResult);
+  const houseRetentionContribution =
+    evaluator.housingFundingPolicy === 'do_not_sell_primary_residence'
+      ? 'Primary residence sale is disabled, which limits available liquidity and keeps more wealth tied up in housing.'
+      : recommended.pathResult.homeSaleDependenceRate >= 0.25
+        ? 'Home-sale proceeds contribute meaningfully to staying within the current guardrails.'
+        : 'Home-sale proceeds are not a primary dependency in this run.';
+  const surplusPreservedBecause = toSurplusPreservedBecause({
+    objective,
+    bindingConstraint,
+    feasible,
+  });
+  const legacyAttainmentMet =
+    recommended.projectedLegacyTodayDollars >= baseConstraints.targetLegacyTodayDollars;
 
   return {
+    activeOptimizationObjective: objective,
     recommendedAnnualSpend,
     recommendedMonthlySpend,
     safeSpendingBand,
     modeledSuccessRate: recommended.successRate,
     medianEndingWealth: recommended.medianEndingWealth,
+    p10EndingWealth,
+    first10YearFailureRisk,
     projectedLegacyOutcomeTodayDollars: recommended.projectedLegacyTodayDollars,
     projectedLegacyOutcomeNominalDollars: recommended.pathResult.medianEndingWealth,
     targetLegacyTodayDollars: baseConstraints.targetLegacyTodayDollars,
+    legacyAttainmentMet,
+    currentSpendingPath,
+    optimizedSpendingPath,
+    spendingDeltaByPhase,
     successBuffer,
     legacyBuffer,
     bindingConstraint,
+    surplusPreservedBecause,
+    inheritanceMateriality,
+    houseRetentionContribution,
+    endingWealthBreakdown: {
+      median: recommended.medianEndingWealth,
+      p10: p10EndingWealth,
+      targetLegacyTodayDollars: baseConstraints.targetLegacyTodayDollars,
+    },
     actionableExplanation,
     tradeoffExplanation,
     feasible,

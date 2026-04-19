@@ -9,6 +9,10 @@ import {
   type SpendSolverResult,
   type SpendSolverSuccessRange,
 } from './spend-solver';
+import type {
+  OptimizationObjective,
+  TimePreferenceWeights,
+} from './optimization-objective';
 import type { MarketAssumptions, PathResult, SeedData } from './types';
 import { buildPathResults, getAnnualStretchSpend } from './utils';
 
@@ -41,6 +45,8 @@ export interface ExitSpendingTargets {
   spendingTargetAnnual: number;
   minSuccessRate: number;
   successRateRange?: SpendSolverSuccessRange;
+  optimizationObjective: OptimizationObjective;
+  timePreferenceWeights?: TimePreferenceWeights;
 }
 
 export interface IrmaaPolicyModel {
@@ -121,6 +127,7 @@ export interface BuildRetirementPlanInput {
 
 const DEFAULT_EXIT_TARGET = 1_000_000;
 const DEFAULT_MIN_SUCCESS_RATE = 0.8;
+const DEFAULT_OPTIMIZATION_OBJECTIVE: OptimizationObjective = 'maximize_flat_spending';
 
 function cloneSeedData(data: SeedData): SeedData {
   return JSON.parse(JSON.stringify(data)) as SeedData;
@@ -265,6 +272,19 @@ function toVerdict(successRate: number): UnifiedPlanSummary['planVerdict'] {
   return 'At Risk';
 }
 
+function formatOptimizationObjectiveLabel(value: OptimizationObjective) {
+  if (value === 'preserve_legacy') {
+    return 'preserve legacy';
+  }
+  if (value === 'minimize_failure_risk') {
+    return 'minimize failure risk';
+  }
+  if (value === 'maximize_time_weighted_spending') {
+    return 'maximize time-weighted spending';
+  }
+  return 'maximize flat spending';
+}
+
 function buildNarrative(
   plan: RetirementPlan,
   solver: SpendSolverResult,
@@ -274,12 +294,15 @@ function buildNarrative(
   const biggestRisk = decision.baselineRiskWarning
     ? decision.baselineRiskWarning
     : 'If nothing changes, the main risk is sequence and spending pressure in early retirement years.';
+  const objectiveLabel = formatOptimizationObjectiveLabel(plan.targets.optimizationObjective);
   return [
-    `This plan supports approximately ${Math.round(solver.recommendedAnnualSpend).toLocaleString('en-US', {
+    `Active objective is ${objectiveLabel}. Current feasible spend level is approximately ${Math.round(
+      solver.recommendedAnnualSpend,
+    ).toLocaleString('en-US', {
       style: 'currency',
       currency: 'USD',
       maximumFractionDigits: 0,
-    })} spending with ${(decision.baseline.successRate * 100).toFixed(1)}% success.`,
+    })} with ${(decision.baseline.successRate * 100).toFixed(1)}% success.`,
     `Autopilot is currently set to a ${plan.autopilotPolicy.posture} posture.`,
     `IRMAA exposure is ${irmaa.exposureLevel.toLowerCase()} because ${irmaa.mainDrivers[0].toLowerCase()}`,
     `Given your constraints, the best path forward is ${decision.recommendationSummary.summary}`,
@@ -295,6 +318,9 @@ export function buildRetirementPlan(input: BuildRetirementPlanInput): Retirement
       input.targets.spendingTargetAnnual ?? getAnnualStretchSpend(input.data),
     minSuccessRate: clampRate(input.targets.minSuccessRate ?? DEFAULT_MIN_SUCCESS_RATE),
     successRateRange: input.targets.successRateRange,
+    optimizationObjective:
+      input.targets.optimizationObjective ?? DEFAULT_OPTIMIZATION_OBJECTIVE,
+    timePreferenceWeights: input.targets.timePreferenceWeights,
   };
   if (input.targets.exitTargetTodayDollars === undefined) {
     inferredAssumptions.push('Defaulted exit target to $1,000,000.');
@@ -304,6 +330,9 @@ export function buildRetirementPlan(input: BuildRetirementPlanInput): Retirement
   }
   if (input.targets.spendingTargetAnnual === undefined) {
     inferredAssumptions.push('Defaulted spending target to current annual stretch spending.');
+  }
+  if (input.targets.optimizationObjective === undefined) {
+    inferredAssumptions.push('Defaulted optimization objective to maximize_flat_spending.');
   }
 
   const irmaaPolicy: IrmaaPolicyModel = {
@@ -401,6 +430,8 @@ export async function analyzeRetirementPlan(
     assumptions: plan.assumptions,
     selectedStressors: plan.scenarioToggles.stressors,
     selectedResponses: plan.scenarioToggles.responses,
+    optimizationObjective: plan.targets.optimizationObjective,
+    timePreferenceWeights: plan.targets.timePreferenceWeights,
     targetLegacyTodayDollars: plan.targets.exitTargetTodayDollars,
     minSuccessRate: plan.targets.minSuccessRate,
     successRateRange: plan.targets.successRateRange,

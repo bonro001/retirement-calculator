@@ -1,4 +1,5 @@
 import type { MarketAssumptions, SimulationStrategyMode, SeedData } from '../types';
+import type { OptimizationObjective } from '../optimization-objective';
 
 export type LeverCategory =
   | 'spending'
@@ -17,6 +18,7 @@ export interface PlannerInput {
   selectedStressors: string[];
   selectedResponses: string[];
   strategyMode?: SimulationStrategyMode;
+  optimizationObjective?: OptimizationObjective;
 }
 
 export interface LeverScenarioDefinition {
@@ -144,6 +146,7 @@ export interface DecisionEngineOptions {
 }
 
 export interface DecisionEngineReport {
+  activeOptimizationObjective: OptimizationObjective;
   baseline: ScenarioMetrics;
   recommendationSummary: RecommendationSummaryOutput;
   baselineRiskWarning: string | null;

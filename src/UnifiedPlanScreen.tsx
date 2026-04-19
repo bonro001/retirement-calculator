@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import type { MarketAssumptions, PathResult, SeedData } from './types';
+import type { OptimizationObjective } from './optimization-objective';
 import {
   evaluatePlan,
   type LegacyPriority,
@@ -171,6 +172,29 @@ function formatImpactPoints(value: number) {
   return `${sign}${points.toFixed(1)} pts success`;
 }
 
+function formatOptimizationObjectiveLabel(value: OptimizationObjective) {
+  if (value === 'preserve_legacy') {
+    return 'Preserve legacy';
+  }
+  if (value === 'minimize_failure_risk') {
+    return 'Minimize failure risk';
+  }
+  if (value === 'maximize_time_weighted_spending') {
+    return 'Maximize time-weighted spending';
+  }
+  return 'Maximize flat spending';
+}
+
+function formatPhaseLabel(value: 'go_go' | 'slow_go' | 'late') {
+  if (value === 'go_go') {
+    return '60s (Go-Go)';
+  }
+  if (value === 'slow_go') {
+    return '70s (Slow-Go)';
+  }
+  return '80+ (Late)';
+}
+
 function SectionCard({
   title,
   subtitle,
@@ -312,6 +336,8 @@ export function UnifiedPlanScreen({
 
   const [legacyTargetTodayDollars, setLegacyTargetTodayDollars] = useState(1_000_000);
   const [legacyPriority, setLegacyPriority] = useState<LegacyPriority>('important');
+  const [optimizationObjective, setOptimizationObjective] =
+    useState<OptimizationObjective>('maximize_time_weighted_spending');
   const [targetSuccessRatePercent, setTargetSuccessRatePercent] = useState(80);
   const [irmaaPosture, setIrmaaPosture] = useState<IrmaaPosture>('balanced');
   const [draftConstraintModifiers, setDraftConstraintModifiers] = useState<ConstraintModifiers>(
@@ -398,6 +424,7 @@ export function UnifiedPlanScreen({
                 calibration: {
                   targetLegacyTodayDollars: Math.max(0, legacyTargetTodayDollars),
                   legacyPriority,
+                  optimizationObjective,
                   minSuccessRate: Math.max(0, Math.min(1, targetSuccessRatePercent / 100)),
                   successRateRange: {
                     min: Math.max(0, Math.min(1, targetSuccessRatePercent / 100)),
@@ -441,6 +468,7 @@ export function UnifiedPlanScreen({
     irmaaPosture,
     legacyPriority,
     legacyTargetTodayDollars,
+    optimizationObjective,
     optionalFlexPercent,
     preserveRothPreference,
     selectedResponses,
@@ -495,8 +523,13 @@ export function UnifiedPlanScreen({
     topRecommendation?.summary ??
     currentEvaluation?.summary.bestAction ??
     'Reducing flexible spending by a small amount is usually the lowest-disruption lever.';
+  const activeOptimizationObjective: OptimizationObjective =
+    currentEvaluation?.summary.activeOptimizationObjective ?? 'maximize_flat_spending';
+  const activeOptimizationObjectiveLabel = formatOptimizationObjectiveLabel(
+    activeOptimizationObjective,
+  );
   const flightPathSummary = currentEvaluation
-    ? `Current course supports about ${formatCurrency(currentEvaluation.summary.planSupportsAnnual)}/year with ${formatPercent(currentEvaluation.summary.successRate)} success.`
+    ? `Current course is being evaluated under “${activeOptimizationObjectiveLabel}”. The current feasible plan supports about ${formatCurrency(currentEvaluation.summary.planSupportsAnnual)}/year with ${formatPercent(currentEvaluation.summary.successRate)} success.`
     : `Current course is anchored by the latest plan snapshot (${formatPercent(primaryPath.successRate)} success).`;
   const autopilotSummary = currentEvaluation
     ? `${currentEvaluation.responsePolicy.posture} posture · ${currentEvaluation.responsePolicy.routeSummary}`
@@ -512,6 +545,48 @@ export function UnifiedPlanScreen({
         primaryBindingConstraint: currentEvaluation.responsePolicy.primaryBindingConstraint,
       })
     : 'Plan verdict explanation will appear once the live guidance refresh completes.';
+  const hardConstraints = currentRun
+    ? [
+        `Success floor: ${formatPercent(currentRun.plan.targets.minSuccessRate)}`,
+        `Legacy floor: ${formatCurrency(currentRun.plan.targets.exitTargetTodayDollars)} (today's dollars)`,
+        'Preserve essential spending floor',
+        ...(currentRun.plan.constraints.doNotSellHouse ? ['Keep house (no primary residence sale)'] : []),
+        ...(currentRun.plan.constraints.doNotRetireLater ? ['Do not retire later'] : []),
+      ]
+    : [];
+  const softPreferences = currentRun
+    ? [
+        `Autopilot posture: ${currentRun.plan.autopilotPolicy.posture}`,
+        `IRMAA posture: ${currentRun.plan.irmaaPolicy.posture}`,
+        currentRun.plan.withdrawalPolicy.preserveRothPreference
+          ? 'Preserve Roth preference enabled'
+          : 'Preserve Roth preference disabled',
+        currentRun.plan.constraints.minimumTravelBudgetAnnual
+          ? `Travel floor: ${formatCurrency(currentRun.plan.constraints.minimumTravelBudgetAnnual)}/yr`
+          : 'Travel floor: none',
+      ]
+    : [];
+  const suggestedLevers = currentEvaluation?.recommendations.top.length
+    ? currentEvaluation.recommendations.top.map((item) => item.name)
+    : ['No lever available yet'];
+  const solverDiagnostics = currentEvaluation?.raw.spendingCalibration;
+  const substantialWealthReasons = solverDiagnostics
+    ? [
+        solverDiagnostics.surplusPreservedBecause,
+        `Binding constraint: ${toReadableConstraint(solverDiagnostics.bindingConstraint)}.`,
+        `Legacy target floor: ${formatCurrency(solverDiagnostics.targetLegacyTodayDollars)}; projected legacy: ${formatCurrency(solverDiagnostics.projectedLegacyOutcomeTodayDollars)}.`,
+        solverDiagnostics.houseRetentionContribution,
+        solverDiagnostics.inheritanceMateriality === 'high'
+          ? 'Inheritance is materially supporting feasibility in this path.'
+          : solverDiagnostics.inheritanceMateriality === 'medium'
+            ? 'Inheritance contributes meaningfully in some downside paths.'
+            : 'Inheritance is not a major dependency in this path.',
+        `Median outcomes can stay high while tail-risk remains: p10 ending wealth is ${formatCurrency(solverDiagnostics.p10EndingWealth)} and first-10-year failure risk is ${formatPercent(solverDiagnostics.first10YearFailureRisk)}.`,
+      ]
+    : [];
+  const showTimeWeightedComparison =
+    activeOptimizationObjective === 'maximize_time_weighted_spending' &&
+    Boolean(solverDiagnostics?.spendingDeltaByPhase.length);
 
   return (
     <section className="rounded-[32px] border border-white/70 bg-white/80 p-6 shadow-lg shadow-amber-950/5 backdrop-blur">
@@ -554,6 +629,9 @@ export function UnifiedPlanScreen({
       <SectionCard title="Flight Path">
         <div className="rounded-xl bg-white p-4 text-sm text-stone-700">
           <p>{flightPathSummary}</p>
+          <p className="mt-2">
+            <span className="font-semibold">Active objective:</span> {activeOptimizationObjectiveLabel}
+          </p>
           <p className="mt-2">
             <span className="font-semibold">Autopilot posture:</span> {autopilotSummary}
           </p>
@@ -618,6 +696,39 @@ export function UnifiedPlanScreen({
         </SectionCard>
       </div>
 
+      {currentEvaluation && currentRun ? (
+        <div className="mt-4">
+          <SectionCard title="Constraints And Levers" subtitle="Hard constraints are enforced; soft preferences shape guidance; suggested levers are optional actions.">
+            <div className="grid gap-3 lg:grid-cols-3">
+              <div className="rounded-xl bg-white p-4 text-sm text-stone-700">
+                <p className="text-xs uppercase tracking-[0.14em] text-stone-500">Hard constraints</p>
+                <ul className="mt-2 space-y-1">
+                  {hardConstraints.map((item) => (
+                    <li key={item}>• {item}</li>
+                  ))}
+                </ul>
+              </div>
+              <div className="rounded-xl bg-white p-4 text-sm text-stone-700">
+                <p className="text-xs uppercase tracking-[0.14em] text-stone-500">Soft preferences</p>
+                <ul className="mt-2 space-y-1">
+                  {softPreferences.map((item) => (
+                    <li key={item}>• {item}</li>
+                  ))}
+                </ul>
+              </div>
+              <div className="rounded-xl bg-white p-4 text-sm text-stone-700">
+                <p className="text-xs uppercase tracking-[0.14em] text-stone-500">Suggested levers</p>
+                <ul className="mt-2 space-y-1">
+                  {suggestedLevers.map((item) => (
+                    <li key={item}>• {item}</li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+          </SectionCard>
+        </div>
+      ) : null}
+
       <div className="mt-4">
         <SectionCard title="Next Best Step">
           <div className="rounded-xl bg-white p-4 text-sm text-stone-700">
@@ -644,6 +755,59 @@ export function UnifiedPlanScreen({
           </div>
         </SectionCard>
       </div>
+
+      {solverDiagnostics ? (
+        <div className="mt-4">
+          <SectionCard title="Why Am I Still Ending With Substantial Wealth?">
+            <div className="rounded-xl bg-white p-4 text-sm text-stone-700">
+              <ul className="space-y-1">
+                {substantialWealthReasons.map((item) => (
+                  <li key={item}>• {item}</li>
+                ))}
+              </ul>
+            </div>
+
+            {showTimeWeightedComparison ? (
+              <div className="mt-3 rounded-xl bg-white p-4 text-sm text-stone-700">
+                <p className="text-xs uppercase tracking-[0.14em] text-stone-500">
+                  Time-Weighted Spending Comparison
+                </p>
+                <p className="mt-2">
+                  Current path average: {formatCurrency(annualTotalSpend)}/yr · Optimized path average:{' '}
+                  {formatCurrency(solverDiagnostics.recommendedAnnualSpend)}/yr
+                </p>
+                <p className="mt-1">
+                  Constraint that bound first:{' '}
+                  <span className="font-semibold">
+                    {toReadableConstraint(solverDiagnostics.bindingConstraint)}
+                  </span>
+                </p>
+                <div className="mt-3 grid gap-2 md:grid-cols-3">
+                  {solverDiagnostics.spendingDeltaByPhase.map((phase) => (
+                    <div key={phase.phase} className="rounded-lg bg-stone-100 px-3 py-2">
+                      <p className="text-xs text-stone-500">{formatPhaseLabel(phase.phase)}</p>
+                      <p className="text-sm text-stone-700">
+                        Current {formatCurrency(phase.currentAnnual)}/yr
+                      </p>
+                      <p className="text-sm text-stone-700">
+                        Optimized {formatCurrency(phase.optimizedAnnual)}/yr
+                      </p>
+                      <p
+                        className={`text-sm font-semibold ${
+                          phase.deltaAnnual >= 0 ? 'text-emerald-700' : 'text-rose-700'
+                        }`}
+                      >
+                        Delta {phase.deltaAnnual >= 0 ? '+' : ''}
+                        {formatCurrency(phase.deltaAnnual)}/yr
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+          </SectionCard>
+        </div>
+      ) : null}
 
       {currentEvaluation && currentRun ? (
         <div className="mt-4">
@@ -953,11 +1117,28 @@ export function UnifiedPlanScreen({
 
           <ControlSection
             title="Plan Settings"
-            summary={`IRMAA ${irmaaPosture} · Autopilot ${autopilotDefensive ? 'defensive' : 'balanced'} · Target success ${targetSuccessRatePercent}%`}
+            summary={`Objective ${formatOptimizationObjectiveLabel(optimizationObjective)} · IRMAA ${irmaaPosture} · Autopilot ${autopilotDefensive ? 'defensive' : 'balanced'} · Target success ${targetSuccessRatePercent}%`}
             isOpen={controlsSectionState.planSettings}
             onToggle={() => setControlsSectionOpen('planSettings', !controlsSectionState.planSettings)}
           >
             <div className="grid gap-4 lg:grid-cols-3">
+              <label className="text-sm text-stone-700">
+                Optimization objective
+                <select
+                  value={optimizationObjective}
+                  onChange={(event) =>
+                    setOptimizationObjective(event.target.value as OptimizationObjective)
+                  }
+                  className="mt-1 w-full rounded-xl border border-stone-300 bg-white px-3 py-2"
+                >
+                  <option value="preserve_legacy">Preserve legacy</option>
+                  <option value="minimize_failure_risk">Minimize failure risk</option>
+                  <option value="maximize_flat_spending">Maximize flat spending</option>
+                  <option value="maximize_time_weighted_spending">
+                    Maximize time-weighted spending
+                  </option>
+                </select>
+              </label>
               <label className="text-sm text-stone-700">
                 Target success rate (%)
                 <input
