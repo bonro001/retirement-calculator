@@ -1,5 +1,6 @@
 import type { AutopilotPlanResult } from './autopilot-timeline';
 import type { DecisionEngineReport, LeverScenarioResult } from './decision-engine';
+import { perfStart } from './debug-perf';
 import type {
   OptimizationObjective,
   TimePreferenceWeights,
@@ -458,6 +459,10 @@ export async function evaluatePlan(
   plan: Plan,
   options: EvaluatePlanOptions = {},
 ): Promise<PlanEvaluation> {
+  const finishPerf = perfStart('plan-eval', 'evaluate-plan', {
+    selectedStressors: plan.controls.selectedStressorIds.length,
+    selectedResponses: plan.controls.selectedResponseIds.length,
+  });
   const preferences = plan.preferences ?? {};
   const toggles = plan.controls.toggles ?? {};
   const selectedResponses = ensureResponse(
@@ -593,7 +598,7 @@ export async function evaluatePlan(
       : decision.recommendationSummary.summary,
   );
 
-  return {
+  const evaluation: PlanEvaluation = {
     summary: {
       planSupportsAnnual: planRun.solver.recommendedAnnualSpend,
       planSupportsMonthly: planRun.solver.recommendedMonthlySpend,
@@ -688,4 +693,9 @@ export async function evaluatePlan(
       run: planRun,
     },
   };
+  finishPerf('ok', {
+    successRate: decision.baseline.successRate,
+    objective: optimizationObjective,
+  });
+  return evaluation;
 }

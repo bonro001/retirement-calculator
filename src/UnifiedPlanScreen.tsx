@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { MarketAssumptions, PathResult, SeedData } from './types';
+import { perfLog, perfStart } from './debug-perf';
 import type { OptimizationObjective } from './optimization-objective';
 import {
   evaluatePlan,
@@ -12,6 +13,7 @@ import { formatCurrency, formatPercent } from './utils';
 
 const INTERACTIVE_UNIFIED_PLAN_MAX_RUNS = 700;
 type PlanSimulationStatus = 'fresh' | 'stale' | 'running';
+type PlanAnalysisStatus = 'fresh' | 'stale' | 'running';
 
 type ConstraintModifierKey =
   | 'retireLater'
@@ -309,6 +311,46 @@ function formatTimePreferenceLabel(value: 'high' | 'medium' | 'low') {
   return value.charAt(0).toUpperCase() + value.slice(1);
 }
 
+function buildPlanAnalysisFingerprint(input: {
+  data: SeedData;
+  assumptions: MarketAssumptions;
+  selectedStressors: string[];
+  selectedResponses: string[];
+  legacyTargetTodayDollars: number;
+  legacyPriority: LegacyPriority;
+  optimizationObjective: OptimizationObjective;
+  targetSuccessRatePercent: number;
+  irmaaPosture: IrmaaPosture;
+  appliedConstraintModifiers: ConstraintModifiers;
+  autopilotDefensive: boolean;
+  autopilotOptionalCutsAllowed: boolean;
+  optionalFlexPercent: number;
+  travelFlexPercent: number;
+  preserveRothPreference: boolean;
+}) {
+  return JSON.stringify({
+    data: input.data,
+    assumptions: input.assumptions,
+    selectedStressors: [...input.selectedStressors].sort(),
+    selectedResponses: [...input.selectedResponses].sort(),
+    calibration: {
+      legacyTargetTodayDollars: input.legacyTargetTodayDollars,
+      legacyPriority: input.legacyPriority,
+      optimizationObjective: input.optimizationObjective,
+      targetSuccessRatePercent: input.targetSuccessRatePercent,
+    },
+    policy: {
+      irmaaPosture: input.irmaaPosture,
+      appliedConstraintModifiers: input.appliedConstraintModifiers,
+      autopilotDefensive: input.autopilotDefensive,
+      autopilotOptionalCutsAllowed: input.autopilotOptionalCutsAllowed,
+      optionalFlexPercent: input.optionalFlexPercent,
+      travelFlexPercent: input.travelFlexPercent,
+      preserveRothPreference: input.preserveRothPreference,
+    },
+  });
+}
+
 export function UnifiedPlanScreen({
   data,
   assumptions,
@@ -353,8 +395,13 @@ export function UnifiedPlanScreen({
   const [currentEvaluation, setCurrentEvaluation] = useState<PlanEvaluation | null>(null);
   const [previousEvaluation, setPreviousEvaluation] = useState<PlanEvaluation | null>(null);
   const [isRunning, setIsRunning] = useState(false);
+  const [planAnalysisStatus, setPlanAnalysisStatus] = useState<PlanAnalysisStatus>('running');
   const [error, setError] = useState<string | null>(null);
   const latestEvaluationRef = useRef<PlanEvaluation | null>(null);
+  const analysisInFlightRef = useRef(false);
+  const hasInitializedRef = useRef(false);
+  const lastRunFingerprintRef = useRef<string | null>(null);
+  const latestFingerprintRef = useRef<string>('');
   const [controlsSectionState, setControlsSectionState] = useState<PlanControlsSectionState>(
     DEFAULT_PLAN_CONTROLS_SECTION_STATE,
   );
@@ -380,6 +427,43 @@ export function UnifiedPlanScreen({
     .map((item) => item.name);
   const stressorSummary = summarizeSelectorNames(activeStressorNames);
   const responseSummary = summarizeSelectorNames(activeResponseNames);
+  const analysisInputFingerprint = useMemo(
+    () =>
+      buildPlanAnalysisFingerprint({
+        data,
+        assumptions,
+        selectedStressors,
+        selectedResponses,
+        legacyTargetTodayDollars,
+        legacyPriority,
+        optimizationObjective,
+        targetSuccessRatePercent,
+        irmaaPosture,
+        appliedConstraintModifiers,
+        autopilotDefensive,
+        autopilotOptionalCutsAllowed,
+        optionalFlexPercent,
+        travelFlexPercent,
+        preserveRothPreference,
+      }),
+    [
+      appliedConstraintModifiers,
+      assumptions,
+      autopilotDefensive,
+      autopilotOptionalCutsAllowed,
+      data,
+      irmaaPosture,
+      legacyPriority,
+      legacyTargetTodayDollars,
+      optimizationObjective,
+      optionalFlexPercent,
+      preserveRothPreference,
+      selectedResponses,
+      selectedStressors,
+      targetSuccessRatePercent,
+      travelFlexPercent,
+    ],
+  );
 
   const setControlsSectionOpen = (
     key: keyof PlanControlsSectionState,
@@ -392,21 +476,57 @@ export function UnifiedPlanScreen({
   };
 
   const runUnifiedAnalysis = useCallback((
+    reason: 'initial-load' | 'manual' | 'update-model',
     modifiersToApply = appliedConstraintModifiers,
   ) => {
+    const runFingerprint = buildPlanAnalysisFingerprint({
+      data,
+      assumptions,
+      selectedStressors,
+      selectedResponses,
+      legacyTargetTodayDollars,
+      legacyPriority,
+      optimizationObjective,
+      targetSuccessRatePercent,
+      irmaaPosture,
+      appliedConstraintModifiers: modifiersToApply,
+      autopilotDefensive,
+      autopilotOptionalCutsAllowed,
+      optionalFlexPercent,
+      travelFlexPercent,
+      preserveRothPreference,
+    });
+
+    if (analysisInFlightRef.current) {
+      perfLog('unified-plan', 'skip duplicate plan analysis (already running)', {
+        reason,
+      });
+      return;
+    }
+
     const priorSnapshot = latestEvaluationRef.current
       ? cloneEvaluation(latestEvaluationRef.current)
       : null;
+    const finishPerf = perfStart('unified-plan', 'plan-analysis', {
+      reason,
+      stressorCount: selectedStressors.length,
+      responseCount: selectedResponses.length,
+    });
+
+    analysisInFlightRef.current = true;
+    latestFingerprintRef.current = runFingerprint;
     setError(null);
     setIsRunning(true);
+    setPlanAnalysisStatus('running');
     nextPaint(() => {
       void (async () => {
         try {
           const interactiveAssumptions = getInteractiveUnifiedPlanAssumptions(assumptions);
+          // TODO(perf): move evaluatePlan off the main thread (worker) to avoid UI stalls on slower machines.
           const evaluation = await evaluatePlan(
             {
-            data,
-            assumptions: interactiveAssumptions,
+              data,
+              assumptions: interactiveAssumptions,
               controls: {
                 selectedStressorIds: selectedStressors,
                 selectedResponseIds: selectedResponses,
@@ -451,10 +571,22 @@ export function UnifiedPlanScreen({
           setPreviousEvaluation(priorSnapshot);
           setCurrentEvaluation(evaluation);
           latestEvaluationRef.current = cloneEvaluation(evaluation);
+          lastRunFingerprintRef.current = runFingerprint;
+          setPlanAnalysisStatus(
+            runFingerprint === latestFingerprintRef.current ? 'fresh' : 'stale',
+          );
+          finishPerf('ok', { staleAtCompletion: runFingerprint !== latestFingerprintRef.current });
           console.log('[Unified Plan] full result', evaluation);
         } catch (runError) {
           setError(runError instanceof Error ? runError.message : 'Unified plan analysis failed.');
+          setPlanAnalysisStatus(
+            lastRunFingerprintRef.current === latestFingerprintRef.current ? 'fresh' : 'stale',
+          );
+          finishPerf('error', {
+            message: runError instanceof Error ? runError.message : 'unknown error',
+          });
         } finally {
+          analysisInFlightRef.current = false;
           setIsRunning(false);
         }
       })();
@@ -480,7 +612,7 @@ export function UnifiedPlanScreen({
   const handleUpdateModelFromDraft = () => {
     const nextApplied = { ...draftConstraintModifiers };
     setAppliedConstraintModifiers(nextApplied);
-    runUnifiedAnalysis(nextApplied);
+    runUnifiedAnalysis('update-model', nextApplied);
   };
 
   const setDraftModifier = (key: ConstraintModifierKey, checked: boolean) => {
@@ -491,7 +623,29 @@ export function UnifiedPlanScreen({
   };
 
   useEffect(() => {
-    runUnifiedAnalysis(appliedConstraintModifiers);
+    latestFingerprintRef.current = analysisInputFingerprint;
+    if (!hasInitializedRef.current || analysisInFlightRef.current) {
+      return;
+    }
+    if (!lastRunFingerprintRef.current) {
+      return;
+    }
+    if (lastRunFingerprintRef.current === analysisInputFingerprint) {
+      return;
+    }
+    perfLog('unified-plan', 'effect-triggered stale mark after input change', {
+      reason: 'render-triggered recompute detected',
+    });
+    setPlanAnalysisStatus('stale');
+  }, [analysisInputFingerprint]);
+
+  useEffect(() => {
+    if (hasInitializedRef.current) {
+      return;
+    }
+    hasInitializedRef.current = true;
+    perfLog('unified-plan', 'effect-triggered initial plan analysis');
+    runUnifiedAnalysis('initial-load', appliedConstraintModifiers);
   }, [appliedConstraintModifiers, runUnifiedAnalysis]);
 
   const currentRun = currentEvaluation?.raw.run ?? null;
@@ -598,10 +752,20 @@ export function UnifiedPlanScreen({
               ? 'Refreshing guidance'
               : error
                 ? 'Guidance error'
+                : planAnalysisStatus === 'stale'
+                  ? 'Guidance outdated'
                 : currentEvaluation
                   ? 'Guidance ready'
                   : 'Guidance loading'}
           </span>
+          <button
+            type="button"
+            onClick={() => runUnifiedAnalysis('manual', appliedConstraintModifiers)}
+            disabled={isRunning}
+            className="rounded-full bg-blue-700 px-3 py-1 text-xs font-semibold text-white transition hover:bg-blue-600 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {isRunning ? 'Running Plan Analysis…' : 'Run Plan Analysis'}
+          </button>
           <span
             className={`rounded-full px-3 py-1 text-xs font-semibold ${
               simulationStatus === 'fresh'
@@ -623,6 +787,11 @@ export function UnifiedPlanScreen({
       {error ? (
         <p className="mb-4 rounded-2xl bg-red-50 px-4 py-3 text-sm text-red-700">
           {error}
+        </p>
+      ) : null}
+      {!error && planAnalysisStatus === 'stale' ? (
+        <p className="mb-4 rounded-2xl bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          Plan guidance is outdated relative to current inputs. Run Plan Analysis to refresh.
         </p>
       ) : null}
 

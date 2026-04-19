@@ -17,6 +17,7 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { UnifiedPlanScreen } from './UnifiedPlanScreen';
+import { perfLog, perfStart } from './debug-perf';
 import type {
   SimulationWorkerRequest,
   SimulationWorkerResponse,
@@ -414,6 +415,9 @@ export function App() {
   const lastPlanRunInputsRef = useRef<string | null>(null);
   const lastSimulationRunInputsRef = useRef<string | null>(null);
   const requestCounterRef = useRef(0);
+  const analysisTimersRef = useRef(
+    new Map<string, { target: AnalysisTarget; end: ReturnType<typeof perfStart> }>(),
+  );
 
   const [currentPlanResult, setCurrentPlanResult] = useState<SimulationResultState | null>(null);
   const [simulationResult, setSimulationResult] = useState<SimulationResultState | null>(null);
@@ -458,6 +462,21 @@ export function App() {
     ],
   );
 
+  const stopTrackedAnalysis = useCallback(
+    (requestId: string, outcome: 'ok' | 'error' | 'cancelled', extra?: Record<string, unknown>) => {
+      const timer = analysisTimersRef.current.get(requestId);
+      if (!timer) {
+        return;
+      }
+      timer.end(outcome, {
+        target: timer.target,
+        ...(extra ?? {}),
+      });
+      analysisTimersRef.current.delete(requestId);
+    },
+    [],
+  );
+
   useEffect(() => {
     if (typeof Worker === 'undefined') {
       return undefined;
@@ -490,6 +509,9 @@ export function App() {
 
       if (message.type === 'result') {
         const completedInputFingerprint = activeMeta.inputFingerprint;
+        stopTrackedAnalysis(message.requestId, 'ok', {
+          pathCount: message.pathResults.length,
+        });
         activeRequestIdRef.current = null;
         activeRequestMetaRef.current = null;
 
@@ -527,6 +549,7 @@ export function App() {
       }
 
       if (message.type === 'cancelled') {
+        stopTrackedAnalysis(message.requestId, 'cancelled');
         activeRequestIdRef.current = null;
         activeRequestMetaRef.current = null;
 
@@ -547,6 +570,7 @@ export function App() {
         return;
       }
 
+      stopTrackedAnalysis(message.requestId, 'error', { error: message.error });
       activeRequestIdRef.current = null;
       activeRequestMetaRef.current = null;
       if (activeMeta.target === 'simulation') {
@@ -580,8 +604,9 @@ export function App() {
       workerRef.current = null;
       activeRequestIdRef.current = null;
       activeRequestMetaRef.current = null;
+      analysisTimersRef.current.clear();
     };
-  }, []);
+  }, [stopTrackedAnalysis]);
 
   const runAnalysis = useCallback((target: AnalysisTarget, overrideInput?: AnalysisInput) => {
     const requestId = `${SIMULATION_REQUEST_PREFIX}-${requestCounterRef.current++}`;
@@ -602,6 +627,23 @@ export function App() {
             selectedResponses: currentPlanSelectedResponses,
             fingerprint: planInputFingerprint,
           };
+
+    const activeMeta = activeRequestMetaRef.current;
+    if (
+      activeMeta &&
+      activeMeta.target === target &&
+      activeMeta.inputFingerprint === analysisInput.fingerprint
+    ) {
+      perfLog('simulation', 'skip duplicate analysis request', { target });
+      return;
+    }
+
+    const finishPerf = perfStart('simulation', 'analysis-run', {
+      target,
+      hasWorker: Boolean(workerRef.current),
+      stressorCount: analysisInput.selectedStressors.length,
+      responseCount: analysisInput.selectedResponses.length,
+    });
 
     if (target === 'simulation') {
       setSimulationStatus('running');
@@ -644,6 +686,7 @@ export function App() {
           setPlanResultStatus('fresh');
         }
         setAnalysisProgress(1);
+        finishPerf('ok', { pathCount: nextPathResults.length, fallback: true });
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Simulation failed';
         if (target === 'simulation') {
@@ -657,10 +700,11 @@ export function App() {
           setPlanResultError(message);
           setPlanResultStatus(
             lastPlanRunInputsRef.current === latestPlanInputFingerprintRef.current
-              ? 'fresh'
-              : 'stale',
+            ? 'fresh'
+            : 'stale',
           );
         }
+        finishPerf('error', { fallback: true, error: message });
       }
       return;
     }
@@ -671,6 +715,9 @@ export function App() {
         requestId: activeRequestIdRef.current,
       };
       worker.postMessage(cancelMessage);
+      stopTrackedAnalysis(activeRequestIdRef.current, 'cancelled', {
+        replacedBy: requestId,
+      });
     }
 
     activeRequestIdRef.current = requestId;
@@ -678,6 +725,10 @@ export function App() {
       target,
       inputFingerprint: analysisInput.fingerprint,
     };
+    analysisTimersRef.current.set(requestId, {
+      target,
+      end: finishPerf,
+    });
     const runMessage: SimulationWorkerRequest = {
       type: 'run',
       payload: {
@@ -700,6 +751,7 @@ export function App() {
     simulationDraftSelectedResponses,
     simulationDraftSelectedStressors,
     simulationInputFingerprint,
+    stopTrackedAnalysis,
   ]);
 
   const commitSimulationToPlan = useCallback(() => {
@@ -727,6 +779,9 @@ export function App() {
     if (!lastPlanRunInputsRef.current || planResultStatus === 'running') {
       return;
     }
+    perfLog('simulation', 'effect-triggered plan status recompute', {
+      stale: lastPlanRunInputsRef.current !== planInputFingerprint,
+    });
     setPlanResultStatus(
       lastPlanRunInputsRef.current === planInputFingerprint ? 'fresh' : 'stale',
     );
@@ -738,6 +793,9 @@ export function App() {
       return;
     }
 
+    perfLog('simulation', 'effect-triggered simulation status recompute', {
+      stale: lastSimulationRunInputsRef.current !== simulationInputFingerprint,
+    });
     setSimulationStatus(
       lastSimulationRunInputsRef.current === simulationInputFingerprint ? 'fresh' : 'stale',
     );
@@ -747,6 +805,7 @@ export function App() {
     if (currentPlanResult || activeRequestIdRef.current) {
       return;
     }
+    perfLog('simulation', 'effect-triggered initial plan analysis');
     runAnalysis('plan');
   }, [runAnalysis, currentPlanResult]);
 
@@ -764,6 +823,7 @@ export function App() {
       requestId: activeRequestId,
     };
     worker.postMessage(cancelMessage);
+    stopTrackedAnalysis(activeRequestId, 'cancelled', { reason: 'manual-cancel' });
   };
 
   const planPathResults = currentPlanResult?.pathResults ?? [];
@@ -1281,6 +1341,10 @@ function ScenarioCompareScreen({
   };
 
   const runCompare = () => {
+    if (isRunning) {
+      perfLog('simulation', 'skip duplicate scenario-compare run');
+      return;
+    }
     if (!selectedScenarioIds.length) {
       setError('Select at least one scenario to compare.');
       return;
@@ -1527,6 +1591,10 @@ function SpendSolverScreen({
   ]);
 
   const handleSolve = () => {
+    if (isSolving) {
+      perfLog('solver', 'skip duplicate spend solver run');
+      return;
+    }
     const parsedFloor = parseOptionalNumber(spendingFloorAnnual);
     const parsedCeiling = parseOptionalNumber(spendingCeilingAnnual);
     const normalizedMinSuccessRate = clampRate(minSuccessRatePercent / 100);
@@ -2198,6 +2266,10 @@ function AutopilotPlanScreen({
   const [error, setError] = useState<string | null>(null);
 
   const runAutopilot = () => {
+    if (isRunning) {
+      perfLog('retirement-plan', 'skip duplicate autopilot run');
+      return;
+    }
     setError(null);
     setIsRunning(true);
     setResult(null);

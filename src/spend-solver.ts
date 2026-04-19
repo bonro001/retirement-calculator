@@ -1,4 +1,5 @@
 import type { MarketAssumptions, PathResult, SeedData } from './types';
+import { perfStart } from './debug-perf';
 import {
   DEFAULT_TIME_PREFERENCE_WEIGHTS,
   computeTimeWeightedSpendingUtility,
@@ -1078,6 +1079,11 @@ function toSurplusPreservedBecause(input: {
 
 export function solveSpendByReverseTimeline(input: SpendSolverInputs): SpendSolverResult {
   const objective = resolveOptimizationObjective(input);
+  const finishPerf = perfStart('solver', 'solve-spend', {
+    objective,
+    stressorCount: input.selectedStressors.length,
+    responseCount: input.selectedResponses.length,
+  });
   const currentAnnualSpend = getAnnualStretchSpend(input.data);
   const explicitFloor = input.constraints?.essentialSpendingFloor ?? input.spendingFloorAnnual;
   const floorAnnual = roundCurrency(
@@ -1238,7 +1244,7 @@ export function solveSpendByReverseTimeline(input: SpendSolverInputs): SpendSolv
   const legacyAttainmentMet =
     recommended.projectedLegacyTodayDollars >= baseConstraints.targetLegacyTodayDollars;
 
-  return {
+  const result: SpendSolverResult = {
     activeOptimizationObjective: objective,
     recommendedAnnualSpend,
     recommendedMonthlySpend,
@@ -1274,4 +1280,11 @@ export function solveSpendByReverseTimeline(input: SpendSolverInputs): SpendSolv
     floorAnnual,
     ceilingAnnual,
   };
+  finishPerf('ok', {
+    feasible,
+    converged: baseSearch.converged,
+    bindingConstraint,
+    iterations: baseSearch.iterations,
+  });
+  return result;
 }

@@ -3,6 +3,7 @@ import {
   type DecisionEngineReport,
   type RecommendationConstraints,
 } from './decision-engine';
+import { perfStart } from './debug-perf';
 import { generateAutopilotPlan, type AutopilotPlanResult } from './autopilot-timeline';
 import {
   solveSpendByReverseTimeline,
@@ -395,6 +396,11 @@ export function buildRetirementPlan(input: BuildRetirementPlanInput): Retirement
 export async function analyzeRetirementPlan(
   plan: RetirementPlan,
 ): Promise<RetirementPlanRunResult> {
+  const finishPerf = perfStart('retirement-plan', 'analyze-retirement-plan', {
+    stressorCount: plan.scenarioToggles.stressors.length,
+    responseCount: plan.scenarioToggles.responses.length,
+    objective: plan.targets.optimizationObjective,
+  });
   const baselinePath = buildPathResults(
     plan.effectiveData,
     plan.assumptions,
@@ -407,6 +413,7 @@ export async function analyzeRetirementPlan(
   )[0];
 
   const recommendationConstraints = toRecommendationConstraints(plan.constraints);
+  const finishDecisionPerf = perfStart('retirement-plan', 'decision-engine');
   const decision = await evaluateDecisionLevers(
     {
       data: plan.effectiveData,
@@ -424,7 +431,11 @@ export async function analyzeRetirementPlan(
       evaluateExcludedScenarios: true,
     },
   );
+  finishDecisionPerf('ok', {
+    successRate: decision.baseline.successRate,
+  });
 
+  const finishSolverPerf = perfStart('retirement-plan', 'spend-solver');
   const solver = solveSpendByReverseTimeline({
     data: plan.effectiveData,
     assumptions: plan.assumptions,
@@ -442,7 +453,12 @@ export async function analyzeRetirementPlan(
       ? 'do_not_sell_primary_residence'
       : 'allow_primary_residence_sale',
   });
+  finishSolverPerf('ok', {
+    recommendedAnnualSpend: solver.recommendedAnnualSpend,
+    objective: solver.activeOptimizationObjective,
+  });
 
+  const finishAutopilotPerf = perfStart('retirement-plan', 'autopilot');
   const autopilot = generateAutopilotPlan({
     data: plan.effectiveData,
     assumptions: plan.assumptions,
@@ -454,6 +470,9 @@ export async function analyzeRetirementPlan(
     spendingFloorAnnual: deriveSpendingFloorAnnual(plan),
     spendingCeilingAnnual: plan.targets.spendingTargetAnnual * 1.4,
     doNotSellPrimaryResidence: plan.constraints.doNotSellHouse,
+  });
+  finishAutopilotPerf('ok', {
+    years: autopilot.years.length,
   });
 
   const irmaa = analyzeIrmaaExposure(plan, autopilot);
@@ -476,7 +495,7 @@ export async function analyzeRetirementPlan(
     narrative: buildNarrative(plan, solver, decision, irmaa),
   };
 
-  return {
+  const result: RetirementPlanRunResult = {
     plan,
     baselinePath,
     solver,
@@ -485,4 +504,9 @@ export async function analyzeRetirementPlan(
     irmaa,
     summary,
   };
+  finishPerf('ok', {
+    successRate: decision.baseline.successRate,
+    verdict: summary.planVerdict,
+  });
+  return result;
 }
