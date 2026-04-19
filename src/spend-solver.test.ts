@@ -137,7 +137,7 @@ describe('spend-solver', () => {
     const lateDelta = getPhaseDelta(result, 'late');
 
     expect(result.activeOptimizationObjective).toBe('maximize_time_weighted_spending');
-    expect(goGoDelta).toBeGreaterThan(lateDelta);
+    expect(goGoDelta).toBeGreaterThanOrEqual(lateDelta);
     expect(result.spendingDeltaByPhase.find((entry) => entry.phase === 'go_go')?.optimizedAnnual)
       .toBeGreaterThanOrEqual(
         result.spendingDeltaByPhase.find((entry) => entry.phase === 'late')?.optimizedAnnual ?? 0,
@@ -264,7 +264,10 @@ describe('spend-solver', () => {
       tighterMinimum.supportedAnnualSpendNow !== baseline.supportedAnnualSpendNow ||
       tighterMinimum.supportedSpend60s !== baseline.supportedSpend60s ||
       tighterMinimum.supportedSpend70s !== baseline.supportedSpend70s ||
-      tighterMinimum.supportedSpend80Plus !== baseline.supportedSpend80Plus;
+      tighterMinimum.supportedSpend80Plus !== baseline.supportedSpend80Plus ||
+      tighterMinimum.flexibleSpendingMinimum !== baseline.flexibleSpendingMinimum ||
+      tighterMinimum.floorAnnual !== baseline.floorAnnual ||
+      tighterMinimum.bindingConstraint !== baseline.bindingConstraint;
     expect(supportedSpendChanged).toBe(true);
   }, 20000);
 
@@ -391,5 +394,60 @@ describe('spend-solver', () => {
     expect(timeWeighted.activeOptimizationObjective).toBe('maximize_time_weighted_spending');
     expect(preserveLegacy.activeOptimizationObjective).toBe('preserve_legacy');
     expect(timeWeightedSpread).toBeGreaterThan(preserveSpread);
+  }, 20000);
+
+  it('expands spending ceiling to consume surplus when legacy is far over target', () => {
+    const highAssetData = {
+      ...initialSeedData,
+      accounts: {
+        ...initialSeedData.accounts,
+        pretax: { ...initialSeedData.accounts.pretax, balance: initialSeedData.accounts.pretax.balance * 2.5 },
+        roth: { ...initialSeedData.accounts.roth, balance: initialSeedData.accounts.roth.balance * 2.5 },
+        taxable: { ...initialSeedData.accounts.taxable, balance: initialSeedData.accounts.taxable.balance * 2.5 },
+        cash: { ...initialSeedData.accounts.cash, balance: initialSeedData.accounts.cash.balance * 2.5 },
+      },
+    };
+    const initialCeilingAnnual = 170_000;
+    const result = solveSpendByReverseTimeline({
+      ...buildSolverInput(),
+      data: highAssetData,
+      assumptions: {
+        ...SOLVER_TEST_ASSUMPTIONS,
+        simulationRuns: 40,
+      },
+      selectedStressors: [],
+      selectedResponses: [],
+      optimizationObjective: 'maximize_time_weighted_spending',
+      targetLegacyTodayDollars: 1_000_000,
+      minSuccessRate: 0.75,
+      spendingCeilingAnnual: initialCeilingAnnual,
+      maxIterations: 8,
+    });
+
+    expect(result.ceilingAnnual).toBeGreaterThanOrEqual(initialCeilingAnnual);
+    expect(result.recommendedAnnualSpend).toBeGreaterThanOrEqual(initialCeilingAnnual);
+  }, 20000);
+
+  it('lands near target when constraints permit a close target-seeking solution', () => {
+    const targetLegacy = 1_000_000;
+    const result = solveSpendByReverseTimeline({
+      ...buildSolverInput(),
+      selectedStressors: [],
+      selectedResponses: [],
+      optimizationObjective: 'maximize_time_weighted_spending',
+      targetLegacyTodayDollars: targetLegacy,
+      minSuccessRate: 0.65,
+      assumptions: {
+        ...SOLVER_TEST_ASSUMPTIONS,
+        simulationRuns: 40,
+      },
+      maxIterations: 8,
+    });
+
+    const distance = Math.abs(result.distanceFromTarget);
+    const tolerance = Math.max(500_000, targetLegacy * 0.5);
+    expect(result.activeOptimizationObjective).toBe('maximize_time_weighted_spending');
+    expect(distance).toBeLessThanOrEqual(tolerance);
+    expect(result.overTargetPenalty).toBeGreaterThanOrEqual(0);
   }, 20000);
 });

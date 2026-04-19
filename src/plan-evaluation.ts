@@ -117,6 +117,9 @@ export interface PlanEvaluation {
     effectiveLegacyTargetTodayDollars: number;
     legacyPriority: LegacyPriority;
     projectedLegacyTodayDollars: number;
+    distanceFromTarget: number;
+    overTargetPenalty: number;
+    isTargetBinding: boolean;
     modeledSuccessRate: number;
     bindingGuardrail: string;
     bindingGuardrailExplanation: string;
@@ -658,6 +661,9 @@ export async function evaluatePlan(
       effectiveLegacyTargetTodayDollars,
       legacyPriority,
       projectedLegacyTodayDollars: planRun.solver.projectedLegacyOutcomeTodayDollars,
+      distanceFromTarget: planRun.solver.distanceFromTarget,
+      overTargetPenalty: planRun.solver.overTargetPenalty,
+      isTargetBinding: planRun.solver.isTargetBinding,
       modeledSuccessRate: planRun.solver.modeledSuccessRate,
       bindingGuardrail: planRun.solver.bindingGuardrail,
       bindingGuardrailExplanation: planRun.solver.bindingGuardrailExplanation,

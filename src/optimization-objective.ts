@@ -36,6 +36,8 @@ export interface LegacyTargetScoreResult {
   distanceToTarget: number;
   overReservedAmount: number;
   underTargetAmount: number;
+  overTargetPenalty: number;
+  underTargetPenalty: number;
   penalty: number;
 }
 
@@ -46,8 +48,8 @@ export const DEFAULT_TIME_PREFERENCE_WEIGHTS: TimePreferenceWeights = {
 };
 
 const DEFAULT_TARGET_DEADBAND_PERCENT = 0.05;
-const DEFAULT_UNDER_TARGET_PENALTY_WEIGHT = 1.0;
-const DEFAULT_OVER_TARGET_PENALTY_WEIGHT = 0.55;
+const DEFAULT_UNDER_TARGET_PENALTY_WEIGHT = 1.35;
+const DEFAULT_OVER_TARGET_PENALTY_WEIGHT = 1.1;
 
 export function getAgeBandWeight(
   age: number,
@@ -104,6 +106,8 @@ export function scoreUtilityWithLegacyTarget({
       distanceToTarget: projectedEndingWealthTodayDollars,
       overReservedAmount: Math.max(0, projectedEndingWealthTodayDollars),
       underTargetAmount: 0,
+      overTargetPenalty: 0,
+      underTargetPenalty: 0,
       penalty: 0,
     };
   }
@@ -113,10 +117,15 @@ export function scoreUtilityWithLegacyTarget({
   const deadband = target * Math.max(0, deadbandPercent);
   const underTargetAmount = Math.max(0, target - projected);
   const overReservedAmount = Math.max(0, projected - target);
-  const underPenalty =
-    Math.max(0, underTargetAmount - deadband) * Math.max(0, underTargetPenaltyWeight);
-  const overPenalty =
-    Math.max(0, overReservedAmount - deadband) * Math.max(0, overTargetPenaltyWeight);
+  const underExcess = Math.max(0, underTargetAmount - deadband);
+  const overExcess = Math.max(0, overReservedAmount - deadband);
+  const penaltyScale = Math.max(target * 0.15, 100_000);
+  const underPenaltyLinear = underExcess * Math.max(0, underTargetPenaltyWeight);
+  const overPenaltyLinear = overExcess * Math.max(0, overTargetPenaltyWeight);
+  const underPenaltyCurve = (underExcess * underExcess) / penaltyScale;
+  const overPenaltyCurve = (overExcess * overExcess) / penaltyScale;
+  const underPenalty = underPenaltyLinear + underPenaltyCurve;
+  const overPenalty = overPenaltyLinear + overPenaltyCurve;
   const penalty = underPenalty + overPenalty;
 
   return {
@@ -124,6 +133,8 @@ export function scoreUtilityWithLegacyTarget({
     distanceToTarget,
     overReservedAmount,
     underTargetAmount,
+    overTargetPenalty: overPenalty,
+    underTargetPenalty: underPenalty,
     penalty,
   };
 }

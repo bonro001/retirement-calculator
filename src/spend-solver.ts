@@ -99,6 +99,11 @@ export interface SpendSolverResult {
   projectedLegacyOutcomeTodayDollars: number;
   projectedLegacyOutcomeNominalDollars: number;
   targetLegacyTodayDollars: number;
+  legacyTarget: number;
+  projectedEndingWealth: number;
+  distanceFromTarget: number;
+  overTargetPenalty: number;
+  isTargetBinding: boolean;
   legacyGapToTarget: number;
   overReservedAmount: number;
   legacyAttainmentMet: boolean;
@@ -177,10 +182,11 @@ interface SearchOutcome {
 const DEFAULT_TOLERANCE_ANNUAL = 250;
 const DEFAULT_MAX_ITERATIONS = 22;
 const DEFAULT_OBJECTIVE: OptimizationObjective = 'maximize_flat_spending';
+const DEFAULT_LEGACY_TARGET_TOLERANCE_PERCENT = 0.08;
 const PHASE_GRID = {
   goGo: [1, 1.15, 1.3],
   slowGo: [0.9, 1, 1.1],
-  late: [0.75, 0.9, 1],
+  late: [0.75, 0.9, 1, 1.15],
 };
 const CURRENCY_FORMATTER = new Intl.NumberFormat('en-US', {
   style: 'currency',
@@ -530,6 +536,20 @@ function isFeasible(
   );
 }
 
+function getLegacyTargetTolerance(targetLegacyTodayDollars: number) {
+  return Math.max(
+    50_000,
+    Math.max(0, targetLegacyTodayDollars) * DEFAULT_LEGACY_TARGET_TOLERANCE_PERCENT,
+  );
+}
+
+function getLegacyTargetDistance(input: {
+  projectedLegacyTodayDollars: number;
+  targetLegacyTodayDollars: number;
+}) {
+  return Math.abs(input.projectedLegacyTodayDollars - input.targetLegacyTodayDollars);
+}
+
 function selectCloserEvaluation(
   current: SpendSolverEvaluation,
   candidate: SpendSolverEvaluation,
@@ -567,30 +587,43 @@ function selectPreferredFeasibleByObjective(
       projectedEndingWealthTodayDollars: candidate.projectedLegacyTodayDollars,
       legacyTargetTodayDollars: constraints.targetLegacyTodayDollars,
     });
-    const currentHorizonYears = Math.max(
-      1,
-      current.pathResult.monteCarloMetadata.planningHorizonYears,
-    );
-    const candidateHorizonYears = Math.max(
-      1,
-      candidate.pathResult.monteCarloMetadata.planningHorizonYears,
-    );
+    const targetTolerance = getLegacyTargetTolerance(constraints.targetLegacyTodayDollars);
+    const currentTargetDistance = getLegacyTargetDistance({
+      projectedLegacyTodayDollars: current.projectedLegacyTodayDollars,
+      targetLegacyTodayDollars: constraints.targetLegacyTodayDollars,
+    });
+    const candidateTargetDistance = getLegacyTargetDistance({
+      projectedLegacyTodayDollars: candidate.projectedLegacyTodayDollars,
+      targetLegacyTodayDollars: constraints.targetLegacyTodayDollars,
+    });
+    const currentWithinTolerance = currentTargetDistance <= targetTolerance;
+    const candidateWithinTolerance = candidateTargetDistance <= targetTolerance;
+    if (candidateWithinTolerance !== currentWithinTolerance) {
+      return candidateWithinTolerance ? candidate : current;
+    }
+    if (
+      !candidateWithinTolerance &&
+      !currentWithinTolerance &&
+      candidateTargetDistance !== currentTargetDistance
+    ) {
+      return candidateTargetDistance < currentTargetDistance ? candidate : current;
+    }
+
+    const currentHorizonYears = Math.max(1, current.pathResult.monteCarloMetadata.planningHorizonYears);
+    const candidateHorizonYears = Math.max(1, candidate.pathResult.monteCarloMetadata.planningHorizonYears);
     const currentGuardrailPenalty =
-      current.annualFederalTaxEstimate * currentHorizonYears * 0.75 +
-      current.annualHealthcareCostEstimate * currentHorizonYears * 0.9 +
-      current.pathResult.irmaaExposureRate * currentHorizonYears * 10_000;
+      current.annualFederalTaxEstimate * currentHorizonYears * 0.22 +
+      current.annualHealthcareCostEstimate * currentHorizonYears * 0.27 +
+      current.pathResult.irmaaExposureRate * currentHorizonYears * 4_500;
     const candidateGuardrailPenalty =
-      candidate.annualFederalTaxEstimate * candidateHorizonYears * 0.75 +
-      candidate.annualHealthcareCostEstimate * candidateHorizonYears * 0.9 +
-      candidate.pathResult.irmaaExposureRate * candidateHorizonYears * 10_000;
+      candidate.annualFederalTaxEstimate * candidateHorizonYears * 0.22 +
+      candidate.annualHealthcareCostEstimate * candidateHorizonYears * 0.27 +
+      candidate.pathResult.irmaaExposureRate * candidateHorizonYears * 4_500;
     const currentScore = currentLegacyScore.compositeScore - currentGuardrailPenalty;
     const candidateScore = candidateLegacyScore.compositeScore - candidateGuardrailPenalty;
 
-    if (candidateScore > currentScore) {
-      return candidate;
-    }
-    if (candidateScore < currentScore) {
-      return current;
+    if (candidateScore !== currentScore) {
+      return candidateScore > currentScore ? candidate : current;
     }
 
     if (
@@ -943,14 +976,7 @@ function solveForTimeWeightedSpend(
 
   outer: for (const goGo of PHASE_GRID.goGo) {
     for (const slowGo of PHASE_GRID.slowGo) {
-      if (slowGo > goGo) {
-        continue;
-      }
       for (const late of PHASE_GRID.late) {
-        if (late > slowGo) {
-          continue;
-        }
-
         const unscaledPath = buildPhaseSpendingPath(
           input.timeline,
           input.baselineAnnualSpend,
@@ -1532,7 +1558,7 @@ export function solveSpendByReverseTimeline(input: SpendSolverInputs): SpendSolv
       explicitFloor ?? Math.max(currentAnnualSpend * 0.35, 1_000),
     ),
   );
-  const ceilingAnnual = roundCurrency(
+  const initialCeilingAnnual = roundCurrency(
     Math.max(floorAnnual, input.spendingCeilingAnnual ?? Math.max(currentAnnualSpend * 2.5, 1_000)),
   );
   const toleranceAnnual = roundCurrency(
@@ -1552,8 +1578,9 @@ export function solveSpendByReverseTimeline(input: SpendSolverInputs): SpendSolv
     minSuccessRate,
     targetLegacyTodayDollars: Math.max(0, minEndingWealth),
   };
-
-  const baseSearch =
+  let ceilingAnnual = initialCeilingAnnual;
+  let expansionSteps = 0;
+  let baseSearch =
     objective === 'maximize_time_weighted_spending'
       ? solveForTimeWeightedSpend({
           evaluatePath: evaluator.evaluatePath,
@@ -1574,11 +1601,96 @@ export function solveSpendByReverseTimeline(input: SpendSolverInputs): SpendSolv
           toleranceAnnual,
           maxIterations,
         );
-
-  const nonConvergenceDetected = !baseSearch.converged;
-  const upperEvaluation = baseSearch.bestFeasible;
+  let nonConvergenceDetected = !baseSearch.converged;
+  let upperEvaluation = baseSearch.bestFeasible;
   let recommended = upperEvaluation ?? baseSearch.bestClosest;
   let feasible = isFeasible(recommended, baseConstraints);
+
+  if (objective === 'maximize_time_weighted_spending') {
+    const targetTolerance = getLegacyTargetTolerance(baseConstraints.targetLegacyTodayDollars);
+    const maxAutoCeilingAnnual = roundCurrency(
+      Math.max(
+        initialCeilingAnnual * 4,
+        evaluator.baselineAnnualSpend * 5,
+        floorAnnual * 2,
+      ),
+    );
+    const maxCeilingExpansionSteps = Math.min(3, Math.max(1, Math.floor(maxIterations / 6)));
+    while (
+      expansionSteps < maxCeilingExpansionSteps &&
+      ceilingAnnual < maxAutoCeilingAnnual &&
+      recommended.annualSpend >= ceilingAnnual - toleranceAnnual &&
+      recommended.projectedLegacyTodayDollars >
+        baseConstraints.targetLegacyTodayDollars + targetTolerance
+    ) {
+      const nextCeilingAnnual = roundCurrency(
+        Math.min(
+          maxAutoCeilingAnnual,
+          ceilingAnnual * 1.35 + evaluator.baselineAnnualSpend * 0.1,
+        ),
+      );
+      if (nextCeilingAnnual <= ceilingAnnual + 1) {
+        break;
+      }
+
+      ceilingAnnual = nextCeilingAnnual;
+      const expandedSearch = solveForTimeWeightedSpend({
+        evaluatePath: evaluator.evaluatePath,
+        evaluateFlat,
+        timeline: evaluator.timeline,
+        baselineAnnualSpend: evaluator.baselineAnnualSpend,
+        constraints: baseConstraints,
+        minimumAnnualSpend: evaluator.minimumAcceptableAnnualSpend,
+        floorAnnual,
+        ceilingAnnual,
+        maxIterations,
+      });
+      baseSearch = expandedSearch;
+      nonConvergenceDetected = nonConvergenceDetected || !expandedSearch.converged;
+      upperEvaluation = expandedSearch.bestFeasible;
+      recommended = upperEvaluation ?? expandedSearch.bestClosest;
+      feasible = isFeasible(recommended, baseConstraints);
+      expansionSteps += 1;
+    }
+  }
+
+  if (
+    objective === 'maximize_time_weighted_spending' &&
+    feasible &&
+    recommended.projectedLegacyTodayDollars >
+      baseConstraints.targetLegacyTodayDollars +
+        getLegacyTargetTolerance(baseConstraints.targetLegacyTodayDollars)
+  ) {
+    const surplusBurnSearch = solveForHighestFeasibleSpend(
+      evaluateFlat,
+      Math.max(floorAnnual, recommended.annualSpend),
+      ceilingAnnual,
+      baseConstraints,
+      toleranceAnnual,
+      maxIterations,
+    );
+    if (surplusBurnSearch.bestFeasible) {
+      const burnCandidate = surplusBurnSearch.bestFeasible;
+      const burnDistance = getLegacyTargetDistance({
+        projectedLegacyTodayDollars: burnCandidate.projectedLegacyTodayDollars,
+        targetLegacyTodayDollars: baseConstraints.targetLegacyTodayDollars,
+      });
+      const recommendedDistance = getLegacyTargetDistance({
+        projectedLegacyTodayDollars: recommended.projectedLegacyTodayDollars,
+        targetLegacyTodayDollars: baseConstraints.targetLegacyTodayDollars,
+      });
+      if (
+        burnCandidate.annualSpend >= recommended.annualSpend &&
+        burnDistance < recommendedDistance
+      ) {
+        recommended = burnCandidate;
+        feasible = true;
+        if (!upperEvaluation || burnCandidate.annualSpend > upperEvaluation.annualSpend) {
+          upperEvaluation = burnCandidate;
+        }
+      }
+    }
+  }
 
   if (upperEvaluation && normalizedRange && objective !== 'maximize_time_weighted_spending') {
     const inRangeCandidate = solveForSuccessRangeTarget(
@@ -1677,6 +1789,17 @@ export function solveSpendByReverseTimeline(input: SpendSolverInputs): SpendSolv
       inheritanceEnabled: input.constraints?.inheritanceEnabled ?? true,
       allocationLocked: input.constraints?.allocationLocked ?? false,
     });
+  const legacyTargetScore = scoreUtilityWithLegacyTarget({
+    baseUtility: recommended.utilityScore ?? 0,
+    projectedEndingWealthTodayDollars: recommended.projectedLegacyTodayDollars,
+    legacyTargetTodayDollars: baseConstraints.targetLegacyTodayDollars,
+  });
+  const distanceFromTarget = legacyTargetScore.distanceToTarget;
+  const overTargetPenalty = legacyTargetScore.overTargetPenalty;
+  const targetTolerance = getLegacyTargetTolerance(baseConstraints.targetLegacyTodayDollars);
+  const isTargetBinding =
+    bindingGuardrail === 'legacy_target' ||
+    Math.abs(distanceFromTarget) <= targetTolerance;
 
   const bindingConstraint = buildConstraintExplanation({
     recommended,
@@ -1791,6 +1914,11 @@ export function solveSpendByReverseTimeline(input: SpendSolverInputs): SpendSolv
     projectedLegacyOutcomeTodayDollars: recommended.projectedLegacyTodayDollars,
     projectedLegacyOutcomeNominalDollars: recommended.pathResult.medianEndingWealth,
     targetLegacyTodayDollars: baseConstraints.targetLegacyTodayDollars,
+    legacyTarget: baseConstraints.targetLegacyTodayDollars,
+    projectedEndingWealth: recommended.projectedLegacyTodayDollars,
+    distanceFromTarget,
+    overTargetPenalty,
+    isTargetBinding,
     legacyGapToTarget,
     overReservedAmount,
     legacyAttainmentMet,
@@ -1834,6 +1962,10 @@ export function solveSpendByReverseTimeline(input: SpendSolverInputs): SpendSolv
     bindingGuardrail,
     bindingConstraint,
     iterations: baseSearch.iterations,
+    expandedCeilingAnnual: ceilingAnnual,
+    initialCeilingAnnual,
+    expansionSteps,
+    distanceFromTarget,
   });
   return result;
 }

@@ -99,5 +99,22 @@ describe('optimization objective helpers', () => {
 
     expect(nearTarget.compositeScore).toBeGreaterThan(farOverTarget.compositeScore);
     expect(farOverTarget.overReservedAmount).toBeGreaterThan(nearTarget.overReservedAmount);
+    expect(farOverTarget.overTargetPenalty).toBeGreaterThan(nearTarget.overTargetPenalty);
+  });
+
+  it('penalizes large over-target outcomes meaningfully', () => {
+    const slightlyOver = scoreUtilityWithLegacyTarget({
+      baseUtility: 100_000,
+      legacyTargetTodayDollars: 1_000_000,
+      projectedEndingWealthTodayDollars: 1_120_000,
+    });
+    const veryOver = scoreUtilityWithLegacyTarget({
+      baseUtility: 100_000,
+      legacyTargetTodayDollars: 1_000_000,
+      projectedEndingWealthTodayDollars: 2_000_000,
+    });
+
+    expect(veryOver.overTargetPenalty).toBeGreaterThan(slightlyOver.overTargetPenalty);
+    expect(veryOver.compositeScore).toBeLessThan(slightlyOver.compositeScore);
   });
 });
