@@ -408,33 +408,80 @@ export function UnifiedPlanScreen({
 
   return (
     <section className="rounded-[32px] border border-white/70 bg-white/80 p-6 shadow-lg shadow-amber-950/5 backdrop-blur">
-      <div className="mb-5">
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <h2 className="font-serif text-3xl tracking-tight text-stone-900">Plan</h2>
-        <p className="mt-2 max-w-[68ch] text-sm leading-6 text-stone-600">
-          One integrated retirement plan model for spending support, autopilot response, IRMAA
-          exposure, recommendations, and Monte Carlo risk.
-        </p>
+        <div className="flex flex-wrap items-center gap-3">
+          <button
+            type="button"
+            onClick={() => runUnifiedAnalysis()}
+            disabled={isRunning}
+            className="rounded-full bg-blue-700 px-5 py-2.5 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {isRunning ? 'Running Plan Analysis…' : 'Run Plan Analysis'}
+          </button>
+          <p className="text-sm text-stone-600">
+            Status:{' '}
+            {isRunning
+              ? 'Running'
+              : error
+                ? 'Run error'
+                : currentEvaluation
+                  ? `Ready · ${formatPercent(currentEvaluation.summary.successRate)} success`
+                  : `Ready · baseline ${formatPercent(primaryPath.successRate)}`}
+          </p>
+        </div>
       </div>
 
-      <div className="mb-5 flex flex-wrap items-center gap-3">
-        <button
-          type="button"
-          onClick={() => runUnifiedAnalysis()}
-          disabled={isRunning}
-          className="rounded-full bg-blue-700 px-5 py-2.5 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
-        >
-          {isRunning ? 'Running Plan Analysis…' : 'Run Plan Analysis'}
-        </button>
-        <p className="text-sm text-stone-600">
-          Live path baseline: {formatPercent(primaryPath.successRate)} success,{' '}
-          {formatCurrency(primaryPath.medianEndingWealth)} median ending wealth.
+      {error ? (
+        <p className="mb-4 rounded-2xl bg-red-50 px-4 py-3 text-sm text-red-700">
+          {error}
         </p>
-      </div>
+      ) : null}
 
-      <SectionCard
-        title="Plan Controls"
-        subtitle="Single control surface for recommendation-driving inputs: stressors, responses, core plan inputs, settings, and excluded-option modifiers."
-      >
+      {currentEvaluation && currentRun ? (
+        <SectionCard title="Plan Verdict">
+          <div className="grid gap-3 md:grid-cols-3">
+            <div className="rounded-xl bg-white p-3">
+              <p className="text-xs text-stone-500">Plan supports</p>
+              <p className="mt-1 text-lg font-semibold text-stone-900">
+                {formatCurrency(currentEvaluation.summary.planSupportsAnnual)}/yr
+              </p>
+            </div>
+            <div className="rounded-xl bg-white p-3">
+              <p className="text-xs text-stone-500">Success</p>
+              <p className={`mt-1 text-lg font-semibold ${verdictClassName(currentEvaluation.summary.planVerdict)}`}>
+                {formatPercent(currentEvaluation.summary.successRate)}
+              </p>
+            </div>
+            <div className="rounded-xl bg-white p-3">
+              <p className="text-xs text-stone-500">Verdict</p>
+              <p className={`mt-1 text-lg font-semibold ${verdictClassName(currentEvaluation.summary.planVerdict)}`}>
+                {currentEvaluation.summary.planVerdict}
+              </p>
+            </div>
+          </div>
+          <div className="mt-3 rounded-xl bg-white p-4 text-sm text-stone-700">
+            <p>
+              <span className="font-semibold">Biggest risk:</span> {currentEvaluation.summary.biggestRisk}
+            </p>
+            <p className="mt-1">
+              <span className="font-semibold">Best action:</span> {currentEvaluation.summary.bestAction}
+            </p>
+            <p className="mt-1">
+              <span className="font-semibold">IRMAA outlook:</span> {currentEvaluation.summary.irmaaOutlook}
+            </p>
+            <p className="mt-1">
+              <span className="font-semibold">Legacy outlook:</span> {currentEvaluation.summary.legacyOutlook}
+            </p>
+          </div>
+        </SectionCard>
+      ) : (
+        <div className="mb-4 rounded-[24px] bg-stone-100/80 p-5 text-sm text-stone-600">
+          Run Plan Analysis to populate verdict, recommendations, IRMAA outlook, and legacy tradeoffs.
+        </div>
+      )}
+
+      <SectionCard title="Plan Controls">
         <div className="rounded-2xl bg-white/90 p-4">
           <p className="text-sm font-medium text-stone-700">Active controls</p>
           <p className="mt-1 text-sm text-stone-600">{activeControlsSummary}</p>
@@ -698,22 +745,11 @@ export function UnifiedPlanScreen({
 
           <ControlSection
             title="Plan Settings"
-            summary={`IRMAA ${irmaaPosture} · Autopilot ${autopilotDefensive ? 'defensive' : 'balanced'} · Flex ${optionalFlexPercent}% optional / ${travelFlexPercent}% travel`}
+            summary={`IRMAA ${irmaaPosture} · Autopilot ${autopilotDefensive ? 'defensive' : 'balanced'} · Target success ${targetSuccessRatePercent}%`}
             isOpen={controlsSectionState.planSettings}
             onToggle={() => setControlsSectionOpen('planSettings', !controlsSectionState.planSettings)}
           >
             <div className="grid gap-4 lg:grid-cols-3">
-              <label className="text-sm text-stone-700">
-                Exit target (today $)
-                <input
-                  type="number"
-                  value={exitTargetTodayDollars}
-                  min={0}
-                  step={10000}
-                  onChange={(event) => setExitTargetTodayDollars(Number(event.target.value) || 0)}
-                  className="mt-1 w-full rounded-xl border border-stone-300 bg-white px-3 py-2"
-                />
-              </label>
               <label className="text-sm text-stone-700">
                 Target success rate (%)
                 <input
@@ -796,6 +832,40 @@ export function UnifiedPlanScreen({
           </ControlSection>
 
           <ControlSection
+            title="Legacy Goal"
+            summary={legacySummary}
+            isOpen={controlsSectionState.legacyGoal}
+            onToggle={() => setControlsSectionOpen('legacyGoal', !controlsSectionState.legacyGoal)}
+          >
+            <div className="grid gap-3 md:grid-cols-2">
+              <label className="text-sm text-stone-700">
+                Legacy target ($)
+                <input
+                  type="number"
+                  value={legacyTargetTodayDollars}
+                  min={0}
+                  step={10000}
+                  onChange={(event) => setLegacyTargetTodayDollars(Number(event.target.value) || 0)}
+                  className="mt-1 w-full rounded-xl border border-stone-300 bg-white px-3 py-2"
+                />
+              </label>
+              <label className="text-sm text-stone-700">
+                Legacy priority
+                <select
+                  value={legacyPriority}
+                  onChange={(event) => setLegacyPriority(event.target.value as LegacyPriority)}
+                  className="mt-1 w-full rounded-xl border border-stone-300 bg-white px-3 py-2"
+                >
+                  <option value="off">Off</option>
+                  <option value="nice_to_have">Nice to have</option>
+                  <option value="important">Important</option>
+                  <option value="must_preserve">Must preserve</option>
+                </select>
+              </label>
+            </div>
+          </ControlSection>
+
+          <ControlSection
             title="Excluded High-Impact Options"
             summary={constraintSummary}
             isOpen={controlsSectionState.recommendationOverlay}
@@ -806,10 +876,7 @@ export function UnifiedPlanScreen({
               )
             }
           >
-            <p className="text-xs text-stone-500">
-              Thin overlay only. Recommendations still derive from current plan controls.
-            </p>
-            <div className="mt-3 grid gap-2 md:grid-cols-2">
+            <div className="grid gap-2 md:grid-cols-2">
               {(Object.keys(CONSTRAINT_MODIFIER_LABELS) as ConstraintModifierKey[]).map((key) => (
                 <label key={key} className="flex items-center gap-2 text-sm text-stone-700">
                   <input
@@ -840,219 +907,106 @@ export function UnifiedPlanScreen({
         </div>
       </SectionCard>
 
-      {error ? (
-        <p className="mt-4 rounded-2xl bg-red-50 px-4 py-3 text-sm text-red-700">
-          {error}
-        </p>
-      ) : null}
-
-      {!currentEvaluation || !currentRun ? (
-        <div className="mt-4 rounded-[24px] bg-stone-100/80 p-5 text-sm text-stone-600">
-          Run Plan Analysis to generate an integrated plan view: supported spending, exit amount,
-          autopilot response policy, IRMAA exposure, recommendations, and tradeoffs.
-        </div>
-      ) : (
-        <div className="mt-4 space-y-4">
-          <SectionCard title="Plan Summary">
-            <div className="grid gap-3 md:grid-cols-3">
-              <div className="rounded-xl bg-white p-3">
-                <p className="text-xs text-stone-500">Supported annual spending</p>
-                <p className="mt-1 text-lg font-semibold text-stone-900">
-                  {formatCurrency(currentEvaluation.summary.planSupportsAnnual)}
-                </p>
-              </div>
-              <div className="rounded-xl bg-white p-3">
-                <p className="text-xs text-stone-500">Exit target / projected (today $)</p>
-                <p className="mt-1 text-lg font-semibold text-stone-900">
-                  {formatCurrency(currentEvaluation.calibration.targetLegacyTodayDollars)} /{' '}
-                  {formatCurrency(currentEvaluation.calibration.projectedLegacyTodayDollars)}
-                </p>
-              </div>
-              <div className="rounded-xl bg-white p-3">
-                <p className="text-xs text-stone-500">Success / verdict</p>
-                <p className={`mt-1 text-lg font-semibold ${verdictClassName(currentEvaluation.summary.planVerdict)}`}>
-                  {formatPercent(currentEvaluation.summary.successRate)} · {currentEvaluation.summary.planVerdict}
-                </p>
-              </div>
-            </div>
-            <div className="mt-3 rounded-xl bg-white p-4 text-sm text-stone-700">
-              <p>
-                <span className="font-semibold">Biggest driver:</span>{' '}
-                {currentEvaluation.summary.biggestDriver}
-              </p>
-              <p className="mt-1">
-                <span className="font-semibold">Biggest risk:</span> {currentEvaluation.summary.biggestRisk}
-              </p>
-              <p className="mt-1">
-                <span className="font-semibold">What to do next:</span> {currentEvaluation.summary.bestAction}
-              </p>
-            </div>
-          </SectionCard>
-
-          <SectionCard
-            title="Spending + Autopilot"
-            subtitle="Calibration and response policy are part of the same plan."
-          >
-            <div className="grid gap-3 md:grid-cols-2">
-              <div className="rounded-xl bg-white p-4">
-                <p className="text-xs uppercase tracking-[0.14em] text-stone-500">Plan calibration</p>
-                <p className="mt-2 text-sm text-stone-700">
-                  Sustainable spend: <span className="font-semibold">{formatCurrency(currentEvaluation.calibration.supportedAnnualSpend)}</span> annual (
-                  {formatCurrency(currentEvaluation.calibration.supportedMonthlySpend)} monthly)
-                </p>
-                <p className="mt-1 text-sm text-stone-700">
-                  Safe band: {formatCurrency(currentEvaluation.calibration.safeBandAnnual.lower)} to{' '}
-                  {formatCurrency(currentEvaluation.calibration.safeBandAnnual.upper)}
-                </p>
-                <p className="mt-1 text-sm text-stone-700">
-                  Binding constraint: {currentEvaluation.calibration.bindingConstraint}
-                </p>
-              </div>
-              <div className="rounded-xl bg-white p-4">
-                <p className="text-xs uppercase tracking-[0.14em] text-stone-500">How this plan responds</p>
-                <p className="mt-2 text-sm text-stone-700">
-                  Posture: <span className="font-semibold">{currentEvaluation.responsePolicy.posture}</span> · Guardrails{' '}
-                  {currentRun.plan.assumptions.guardrailFloorYears}/{currentRun.plan.assumptions.guardrailCeilingYears}
-                </p>
-                <p className="mt-1 text-sm text-stone-700">
-                  Optional spending flexibility: {currentRun.plan.autopilotPolicy.optionalSpendingFlexPercent}%
-                </p>
-                <p className="mt-1 text-sm text-stone-700">
-                  Travel flexibility: {currentRun.plan.autopilotPolicy.travelFlexPercent}%
-                </p>
-                <p className="mt-1 text-sm text-stone-700">
-                  Route summary: {currentEvaluation.responsePolicy.routeSummary}
-                </p>
-              </div>
-            </div>
-          </SectionCard>
-
-          <SectionCard title="IRMAA">
+      {currentEvaluation && currentRun ? (
+        <SectionCard title="Plan Interpretation">
+          <div className="grid gap-3 lg:grid-cols-2">
             <div className="rounded-xl bg-white p-4">
-              <p className="text-sm text-stone-700">
-                Posture: <span className="font-semibold">{currentEvaluation.irmaa.posture}</span> · Exposure:{' '}
-                <span className="font-semibold">{currentEvaluation.irmaa.exposureLevel}</span>
+              <p className="text-xs uppercase tracking-[0.14em] text-stone-500">Recommendations</p>
+              <p className="mt-2 text-sm text-stone-700">{currentEvaluation.recommendations.summary}</p>
+              <div className="mt-3 space-y-2">
+                {currentEvaluation.recommendations.top.map((scenario) => (
+                  <div key={scenario.scenarioId} className="rounded-lg bg-stone-50 p-3">
+                    <p className="font-semibold text-stone-900">{scenario.name}</p>
+                    <p className="mt-1 text-sm text-stone-700">{scenario.summary}</p>
+                    <p className="mt-1 text-xs text-stone-500">
+                      Success delta {formatDeltaPercent(scenario.deltaSuccessRate)}
+                      {scenario.isPlanControl ? ' · Plan control' : ' · Model lever'}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="rounded-xl bg-white p-4">
+              <p className="text-xs uppercase tracking-[0.14em] text-stone-500">IRMAA + Legacy Tradeoffs</p>
+              <p className="mt-2 text-sm text-stone-700">{currentEvaluation.irmaa.explanation}</p>
+              <p className="mt-2 text-sm text-stone-700">
+                Legacy target: {formatCurrency(currentEvaluation.calibration.targetLegacyTodayDollars)} · Effective
+                guardrail: {formatCurrency(currentEvaluation.calibration.effectiveLegacyTargetTodayDollars)} · Priority:{' '}
+                {formatLegacyPriorityLabel(currentEvaluation.calibration.legacyPriority)}
               </p>
               <p className="mt-1 text-sm text-stone-700">
-                Likely years at risk:{' '}
-                {currentEvaluation.irmaa.likelyYearsAtRisk.length
-                  ? currentEvaluation.irmaa.likelyYearsAtRisk.join(', ')
-                  : 'none'}
+                Projected legacy: {formatCurrency(currentEvaluation.calibration.projectedLegacyTodayDollars)}
               </p>
-              <p className="mt-1 text-sm text-stone-700">{currentEvaluation.irmaa.explanation}</p>
-              <p className="mt-2 text-sm font-semibold text-stone-800">Main drivers</p>
-              <ul className="mt-1 space-y-1 text-sm text-stone-700">
-                {currentEvaluation.irmaa.mainDrivers.map((driver) => (
-                  <li key={driver}>• {driver}</li>
-                ))}
-              </ul>
-              <p className="mt-2 text-sm font-semibold text-stone-800">What would lower exposure</p>
-              <ul className="mt-1 space-y-1 text-sm text-stone-700">
-                {currentEvaluation.irmaa.whatWouldLowerExposure.map((item) => (
-                  <li key={item}>• {item}</li>
-                ))}
-              </ul>
+              <p className="mt-1 text-sm text-stone-700">
+                Response policy: {currentEvaluation.responsePolicy.posture} · {currentEvaluation.responsePolicy.routeSummary}
+              </p>
             </div>
-          </SectionCard>
 
-          <SectionCard title="Recommendations">
-            <p className="text-sm text-stone-700">
-              Recommendations are aligned to current plan controls (stressors, responses, and plan
-              settings), with synthetic levers only used as secondary sensitivities.
-            </p>
-            <p className="mt-2 text-sm text-stone-700">{currentEvaluation.recommendations.summary}</p>
-            <div className="mt-3 grid gap-2">
-              {currentEvaluation.recommendations.top.map((scenario) => (
-                <div key={scenario.scenarioId} className="rounded-xl bg-white p-3">
-                  <p className="font-semibold text-stone-900">{scenario.name}</p>
-                  <p className="mt-1 text-sm text-stone-700">{scenario.summary}</p>
-                  <p className="mt-1 text-xs text-stone-500">
-                    Success delta {formatDeltaPercent(scenario.deltaSuccessRate)}
-                    {scenario.isPlanControl
-                      ? ' · Plan control'
-                      : ' · Model lever'}
+            <div className="rounded-xl bg-white p-4">
+              <p className="text-xs uppercase tracking-[0.14em] text-stone-500">What changed from last run</p>
+              {!runDelta ? (
+                <p className="mt-2 text-sm text-stone-600">No previous run yet.</p>
+              ) : (
+                <div className="mt-2 space-y-2 text-sm text-stone-700">
+                  <p>
+                    Change from last run:{' '}
+                    <span className={`font-semibold ${successDeltaPresentation?.className ?? ''}`}>
+                      {successDeltaPresentation?.label}
+                    </span>
+                  </p>
+                  <p>{runDelta.topRecommendationMessage}</p>
+                  <p>{runDelta.biggestDriverMessage}</p>
+                  <p>
+                    Median ending wealth change:{' '}
+                    <span className="font-semibold">{formatCurrency(runDelta.medianWealthDelta)}</span>
                   </p>
                 </div>
-              ))}
-              {!currentEvaluation.recommendations.top.length ? (
-                <p className="text-sm text-stone-600">
-                  No positive recommendation candidates were found under current constraints.
+              )}
+            </div>
+
+            <div className="rounded-xl bg-white p-4">
+              <p className="text-xs uppercase tracking-[0.14em] text-stone-500">Sensitivities + Excluded impact</p>
+              <p className="mt-2 text-sm text-stone-700">
+                Biggest downside:{' '}
+                <span className="font-semibold">
+                  {currentEvaluation.sensitivities.biggestDownside?.name ?? 'Not available'}
+                </span>
+              </p>
+              {currentEvaluation.sensitivities.biggestDownside ? (
+                <p className="mt-1 text-sm text-stone-700">
+                  Success delta {formatDeltaPercent(currentEvaluation.sensitivities.biggestDownside.deltaSuccessRate)}
                 </p>
               ) : null}
+              {currentEvaluation.excludedOptions.highImpact.length ? (
+                <ul className="mt-2 space-y-2 text-sm text-stone-700">
+                  {currentEvaluation.excludedOptions.highImpact.slice(0, 3).map((item) => (
+                    <li key={`${item.scenario}-${item.reason}`}>
+                      <p className="font-semibold text-stone-900">{item.scenario}</p>
+                      <p>
+                        +{(item.deltaSuccessRate * 100).toFixed(1)}% blocked: {item.reason}
+                      </p>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="mt-2 text-sm text-stone-600">No excluded high-impact levers in this run.</p>
+              )}
             </div>
-          </SectionCard>
-
-          <SectionCard title="What changed from last run?">
-            {!runDelta ? (
-              <p className="text-sm text-stone-600">
-                No previous run yet. Run again after changing settings to compare.
-              </p>
-            ) : (
-              <div className="space-y-2 text-sm text-stone-700">
-                <p>
-                  Change from last run:{' '}
-                  <span className={`font-semibold ${successDeltaPresentation?.className ?? ''}`}>
-                    {successDeltaPresentation?.label}
-                  </span>
-                </p>
-                <p>{runDelta.topRecommendationMessage}</p>
-                <p>{runDelta.biggestDriverMessage}</p>
-                <p>
-                  Median ending wealth change:{' '}
-                  <span className="font-semibold">{formatCurrency(runDelta.medianWealthDelta)}</span>
-                </p>
-              </div>
-            )}
-          </SectionCard>
-
-          <SectionCard title="Sensitivities / Excluded High-Impact Options">
-            <div className="grid gap-3 md:grid-cols-2">
-              <div className="rounded-xl bg-white p-4">
-                <p className="text-xs uppercase tracking-[0.14em] text-stone-500">Biggest downside sensitivity</p>
-                <p className="mt-1 text-sm font-semibold text-stone-900">
-                  {currentEvaluation.sensitivities.biggestDownside?.name ?? 'Not available'}
-                </p>
-                {currentEvaluation.sensitivities.biggestDownside ? (
-                  <p className="mt-1 text-sm text-stone-700">
-                    Success delta{' '}
-                    {formatDeltaPercent(currentEvaluation.sensitivities.biggestDownside.deltaSuccessRate)}
-                  </p>
-                ) : null}
-              </div>
-              <div className="rounded-xl bg-white p-4">
-                <p className="text-xs uppercase tracking-[0.14em] text-stone-500">Excluded high-impact levers</p>
-                {currentEvaluation.excludedOptions.highImpact.length ? (
-                  <ul className="mt-1 space-y-2 text-sm text-stone-700">
-                    {currentEvaluation.excludedOptions.highImpact.map((item) => (
-                      <li key={`${item.scenario}-${item.reason}`}>
-                        <p className="font-semibold text-stone-900">{item.scenario}</p>
-                        <p>
-                          Would improve success by {formatDeltaPercent(item.deltaSuccessRate)} but is excluded: {item.reason}
-                        </p>
-                      </li>
-                    ))}
-                  </ul>
-                ) : (
-                  <p className="mt-1 text-sm text-stone-600">No excluded high-impact levers in this run.</p>
-                )}
-              </div>
-            </div>
-          </SectionCard>
+          </div>
 
           {currentRun.plan.inferredAssumptions.length ? (
-            <SectionCard title="Model Completeness">
-              <p className="text-sm text-stone-700">
-                Model completeness: <span className="font-semibold">{currentRun.plan.modelCompleteness}</span>
-              </p>
-              <ul className="mt-2 space-y-1 text-sm text-stone-700">
-                {currentRun.plan.inferredAssumptions.map((item) => (
-                  <li key={item}>• {item}</li>
-                ))}
-              </ul>
-            </SectionCard>
-          ) : null}
-        </div>
-      )}
+            <p className="mt-3 text-sm text-stone-700">
+              Model completeness: <span className="font-semibold">{currentRun.plan.modelCompleteness}</span> ·
+              inferred assumptions: {currentRun.plan.inferredAssumptions.join('; ')}
+            </p>
+          ) : (
+            <p className="mt-3 text-sm text-stone-700">
+              Model completeness: <span className="font-semibold">{currentRun.plan.modelCompleteness}</span>
+            </p>
+          )}
+        </SectionCard>
+      ) : null}
     </section>
   );
 }
