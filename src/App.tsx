@@ -616,7 +616,9 @@ export function App() {
   const totalPortfolio = getTotalPortfolioBalance(data);
   const annualCoreSpend = getAnnualCoreSpend(data);
   const annualStretchSpend = getAnnualStretchSpend(data);
+  const horizonYears = getRetirementHorizonYears(data, draftAssumptions);
   const primaryPath = displayedPathResults[2] ?? displayedPathResults[0];
+  const isPlanHomeScreen = currentScreen === 'overview' || currentScreen === 'insights';
 
   return (
     <div className="min-h-screen bg-[radial-gradient(circle_at_top_left,_rgba(96,165,250,0.22),_transparent_30%),linear-gradient(135deg,#f6fbff_0%,#edf5fb_42%,#dce9f5_100%)] text-slate-900">
@@ -677,6 +679,52 @@ export function App() {
               ))}
             </div>
           </div>
+
+          {isPlanHomeScreen ? (
+            <section className="mb-6 lg:sticky lg:top-0 lg:z-20 lg:bg-white/85 lg:pb-4 lg:backdrop-blur">
+              <div className="mb-3 flex flex-wrap items-center gap-2 text-sm text-stone-600">
+                <span className="font-medium text-stone-700">Plan snapshot</span>
+                {simulationStatus === 'fresh' ? (
+                  <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-semibold text-emerald-800">
+                    Fresh
+                  </span>
+                ) : simulationStatus === 'running' ? (
+                  <span className="rounded-full bg-blue-100 px-2.5 py-1 text-xs font-semibold text-blue-800">
+                    Running {Math.round(simulationProgress * 100)}%
+                  </span>
+                ) : (
+                  <span className="rounded-full bg-amber-100 px-2.5 py-1 text-xs font-semibold text-amber-800">
+                    Outdated
+                  </span>
+                )}
+                {simulationError ? (
+                  <span className="text-xs text-red-700">Error: {simulationError}</span>
+                ) : null}
+              </div>
+              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+                <SummaryStatCard
+                  title="Primary path success"
+                  value={formatPercent(primaryPath.successRate)}
+                  description="Latest known plan snapshot from the most recent completed simulation run."
+                />
+                <SummaryStatCard
+                  title="Median ending wealth"
+                  value={formatCurrency(primaryPath.medianEndingWealth)}
+                  description="Median result across the latest Monte Carlo run."
+                />
+                <SummaryStatCard
+                  title="Starting runway"
+                  value={`${primaryPath.yearsFunded} yrs`}
+                  description={`Current assets divided by current annual spending. Planning horizon is ${horizonYears} years.`}
+                />
+                <SummaryStatCard
+                  title="IRMAA exposure"
+                  value={primaryPath.irmaaExposure}
+                  description="Directional signal from the latest run for Medicare-related income pressure."
+                />
+              </div>
+            </section>
+          ) : null}
 
           <div className="lg:min-h-0 lg:flex-1 lg:overflow-y-auto lg:pr-1">
             <section className="space-y-6">
