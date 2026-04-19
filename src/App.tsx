@@ -363,6 +363,13 @@ interface SimulationResultState {
   parityReport: SimulationParityReport;
 }
 
+type AnalysisTarget = 'plan' | 'simulation';
+
+interface ActiveAnalysisRequestMeta {
+  target: AnalysisTarget;
+  inputFingerprint: string;
+}
+
 function buildSimulationInputFingerprint(input: {
   data: SeedData;
   assumptions: MarketAssumptions;
@@ -378,35 +385,67 @@ function buildSimulationInputFingerprint(input: {
 }
 
 export function App() {
-  const data = useAppStore((state) => state.data);
-  const draftAssumptions = useAppStore((state) => state.draftAssumptions);
+  const simulationDraft = useAppStore((state) => state.data);
+  const simulationDraftAssumptions = useAppStore((state) => state.draftAssumptions);
+  const simulationDraftSelectedResponses = useAppStore((state) => state.draftSelectedResponses);
+  const simulationDraftSelectedStressors = useAppStore((state) => state.draftSelectedStressors);
+  const currentPlan = useAppStore((state) => state.appliedData);
+  const currentPlanAssumptions = useAppStore((state) => state.appliedAssumptions);
+  const currentPlanSelectedResponses = useAppStore((state) => state.appliedSelectedResponses);
+  const currentPlanSelectedStressors = useAppStore((state) => state.appliedSelectedStressors);
   const currentScreen = useAppStore((state) => state.currentScreen);
-  const draftSelectedResponses = useAppStore((state) => state.draftSelectedResponses);
-  const draftSelectedStressors = useAppStore((state) => state.draftSelectedStressors);
   const setCurrentScreen = useAppStore((state) => state.setCurrentScreen);
 
   const workerRef = useRef<Worker | null>(null);
   const activeRequestIdRef = useRef<string | null>(null);
-  const activeRequestInputRef = useRef<string | null>(null);
-  const latestInputFingerprintRef = useRef<string>('');
-  const lastRunInputsRef = useRef<string | null>(null);
+  const activeRequestMetaRef = useRef<ActiveAnalysisRequestMeta | null>(null);
+  const latestPlanInputFingerprintRef = useRef<string>('');
+  const latestSimulationInputFingerprintRef = useRef<string>('');
+  const lastPlanRunInputsRef = useRef<string | null>(null);
+  const lastSimulationRunInputsRef = useRef<string | null>(null);
   const requestCounterRef = useRef(0);
+
+  const [currentPlanResult, setCurrentPlanResult] = useState<SimulationResultState | null>(null);
   const [simulationResult, setSimulationResult] = useState<SimulationResultState | null>(null);
-  const [simulationStatus, setSimulationStatus] = useState<SimulationStatus>('running');
-  const [lastRunInputs, setLastRunInputs] = useState<string | null>(null);
-  const [simulationProgress, setSimulationProgress] = useState(0);
+
+  const [planResultStatus, setPlanResultStatus] = useState<SimulationStatus>('running');
+  const [simulationStatus, setSimulationStatus] = useState<SimulationStatus>('stale');
+  const [analysisProgress, setAnalysisProgress] = useState(0);
+  const [planResultError, setPlanResultError] = useState<string | null>(null);
   const [simulationError, setSimulationError] = useState<string | null>(null);
+
   const isSimulationRunning = simulationStatus === 'running';
+
+  const planInputFingerprint = useMemo(
+    () =>
+      buildSimulationInputFingerprint({
+        data: currentPlan,
+        assumptions: currentPlanAssumptions,
+        selectedStressors: currentPlanSelectedStressors,
+        selectedResponses: currentPlanSelectedResponses,
+      }),
+    [
+      currentPlan,
+      currentPlanAssumptions,
+      currentPlanSelectedResponses,
+      currentPlanSelectedStressors,
+    ],
+  );
 
   const simulationInputFingerprint = useMemo(
     () =>
       buildSimulationInputFingerprint({
-        data,
-        assumptions: draftAssumptions,
-        selectedStressors: draftSelectedStressors,
-        selectedResponses: draftSelectedResponses,
+        data: simulationDraft,
+        assumptions: simulationDraftAssumptions,
+        selectedStressors: simulationDraftSelectedStressors,
+        selectedResponses: simulationDraftSelectedResponses,
       }),
-    [data, draftAssumptions, draftSelectedResponses, draftSelectedStressors],
+    [
+      simulationDraft,
+      simulationDraftAssumptions,
+      simulationDraftSelectedResponses,
+      simulationDraftSelectedStressors,
+    ],
   );
 
   useEffect(() => {
@@ -424,62 +463,97 @@ export function App() {
       if (message.requestId !== activeRequestIdRef.current) {
         return;
       }
+      const activeMeta = activeRequestMetaRef.current;
+      if (!activeMeta) {
+        return;
+      }
 
       if (message.type === 'progress') {
-        setSimulationStatus('running');
-        setSimulationProgress(message.progress);
+        if (activeMeta.target === 'simulation') {
+          setSimulationStatus('running');
+        } else {
+          setPlanResultStatus('running');
+        }
+        setAnalysisProgress(message.progress);
         return;
       }
 
       if (message.type === 'result') {
-        const completedInputFingerprint = activeRequestInputRef.current;
+        const completedInputFingerprint = activeMeta.inputFingerprint;
         activeRequestIdRef.current = null;
-        activeRequestInputRef.current = null;
-        setSimulationResult({
-          pathResults: message.pathResults,
-          parityReport: message.parityReport,
-        });
-        if (completedInputFingerprint) {
-          lastRunInputsRef.current = completedInputFingerprint;
-          setLastRunInputs(completedInputFingerprint);
+        activeRequestMetaRef.current = null;
+
+        if (activeMeta.target === 'simulation') {
+          setSimulationResult({
+            pathResults: message.pathResults,
+            parityReport: message.parityReport,
+          });
+          if (completedInputFingerprint) {
+            lastSimulationRunInputsRef.current = completedInputFingerprint;
+          }
+          setSimulationStatus(
+            completedInputFingerprint !== latestSimulationInputFingerprintRef.current
+              ? 'stale'
+              : 'fresh',
+          );
+          setSimulationError(null);
+        } else {
+          setCurrentPlanResult({
+            pathResults: message.pathResults,
+            parityReport: message.parityReport,
+          });
+          if (completedInputFingerprint) {
+            lastPlanRunInputsRef.current = completedInputFingerprint;
+          }
+          setPlanResultStatus(
+            completedInputFingerprint !== latestPlanInputFingerprintRef.current
+              ? 'stale'
+              : 'fresh',
+          );
+          setPlanResultError(null);
         }
-        setSimulationStatus(
-          completedInputFingerprint &&
-            completedInputFingerprint !== latestInputFingerprintRef.current
-            ? 'stale'
-            : 'fresh',
-        );
-        setSimulationProgress(1);
-        setSimulationError(null);
+        setAnalysisProgress(1);
         return;
       }
 
       if (message.type === 'cancelled') {
         activeRequestIdRef.current = null;
-        activeRequestInputRef.current = null;
-        setSimulationStatus(
-          lastRunInputsRef.current &&
-            lastRunInputsRef.current !== latestInputFingerprintRef.current
-            ? 'stale'
-            : lastRunInputsRef.current
+        activeRequestMetaRef.current = null;
+
+        if (activeMeta.target === 'simulation') {
+          setSimulationStatus(
+            lastSimulationRunInputsRef.current === latestSimulationInputFingerprintRef.current
               ? 'fresh'
               : 'stale',
-        );
-        setSimulationProgress(0);
+          );
+        } else {
+          setPlanResultStatus(
+            lastPlanRunInputsRef.current === latestPlanInputFingerprintRef.current
+              ? 'fresh'
+              : 'stale',
+          );
+        }
+        setAnalysisProgress(0);
         return;
       }
 
       activeRequestIdRef.current = null;
-      activeRequestInputRef.current = null;
-      setSimulationStatus(
-        lastRunInputsRef.current &&
-          lastRunInputsRef.current !== latestInputFingerprintRef.current
-          ? 'stale'
-          : lastRunInputsRef.current
+      activeRequestMetaRef.current = null;
+      if (activeMeta.target === 'simulation') {
+        setSimulationStatus(
+          lastSimulationRunInputsRef.current === latestSimulationInputFingerprintRef.current
             ? 'fresh'
             : 'stale',
-      );
-      setSimulationError(message.error);
+        );
+        setSimulationError(message.error);
+      } else {
+        setPlanResultStatus(
+          lastPlanRunInputsRef.current === latestPlanInputFingerprintRef.current
+            ? 'fresh'
+            : 'stale',
+        );
+        setPlanResultError(message.error);
+      }
     };
 
     return () => {
@@ -495,44 +569,87 @@ export function App() {
       worker.terminate();
       workerRef.current = null;
       activeRequestIdRef.current = null;
-      activeRequestInputRef.current = null;
+      activeRequestMetaRef.current = null;
     };
   }, []);
 
-  const runSimulation = useCallback(() => {
+  const runAnalysis = useCallback((target: AnalysisTarget) => {
     const requestId = `${SIMULATION_REQUEST_PREFIX}-${requestCounterRef.current++}`;
-    setSimulationStatus('running');
-    setSimulationProgress(0);
-    setSimulationError(null);
+    const analysisInput =
+      target === 'simulation'
+        ? {
+            data: simulationDraft,
+            assumptions: simulationDraftAssumptions,
+            selectedStressors: simulationDraftSelectedStressors,
+            selectedResponses: simulationDraftSelectedResponses,
+            fingerprint: simulationInputFingerprint,
+          }
+        : {
+            data: currentPlan,
+            assumptions: currentPlanAssumptions,
+            selectedStressors: currentPlanSelectedStressors,
+            selectedResponses: currentPlanSelectedResponses,
+            fingerprint: planInputFingerprint,
+          };
+
+    if (target === 'simulation') {
+      setSimulationStatus('running');
+      setSimulationError(null);
+    } else {
+      setPlanResultStatus('running');
+      setPlanResultError(null);
+    }
+    setAnalysisProgress(0);
 
     const worker = workerRef.current;
     if (!worker) {
       try {
         const nextPathResults = buildPathResults(
-          data,
-          draftAssumptions,
-          draftSelectedStressors,
-          draftSelectedResponses,
+          analysisInput.data,
+          analysisInput.assumptions,
+          analysisInput.selectedStressors,
+          analysisInput.selectedResponses,
         );
-        setSimulationResult({
+        const nextResult = {
           pathResults: nextPathResults,
           parityReport: buildSimulationParityReport(
-            data,
-            draftAssumptions,
-            draftSelectedStressors,
-            draftSelectedResponses,
+            analysisInput.data,
+            analysisInput.assumptions,
+            analysisInput.selectedStressors,
+            analysisInput.selectedResponses,
             {
               plannerPathOverride: nextPathResults[2] ?? nextPathResults[0],
             },
           ),
-        });
-        lastRunInputsRef.current = simulationInputFingerprint;
-        setLastRunInputs(simulationInputFingerprint);
-        setSimulationStatus('fresh');
-        setSimulationProgress(1);
+        };
+
+        if (target === 'simulation') {
+          setSimulationResult(nextResult);
+          lastSimulationRunInputsRef.current = analysisInput.fingerprint;
+          setSimulationStatus('fresh');
+        } else {
+          setCurrentPlanResult(nextResult);
+          lastPlanRunInputsRef.current = analysisInput.fingerprint;
+          setPlanResultStatus('fresh');
+        }
+        setAnalysisProgress(1);
       } catch (error) {
-        setSimulationError(error instanceof Error ? error.message : 'Simulation failed');
-        setSimulationStatus(lastRunInputsRef.current ? 'fresh' : 'stale');
+        const message = error instanceof Error ? error.message : 'Simulation failed';
+        if (target === 'simulation') {
+          setSimulationError(message);
+          setSimulationStatus(
+            lastSimulationRunInputsRef.current === latestSimulationInputFingerprintRef.current
+              ? 'fresh'
+              : 'stale',
+          );
+        } else {
+          setPlanResultError(message);
+          setPlanResultStatus(
+            lastPlanRunInputsRef.current === latestPlanInputFingerprintRef.current
+              ? 'fresh'
+              : 'stale',
+          );
+        }
       }
       return;
     }
@@ -546,50 +663,68 @@ export function App() {
     }
 
     activeRequestIdRef.current = requestId;
-    activeRequestInputRef.current = simulationInputFingerprint;
+    activeRequestMetaRef.current = {
+      target,
+      inputFingerprint: analysisInput.fingerprint,
+    };
     const runMessage: SimulationWorkerRequest = {
       type: 'run',
       payload: {
         requestId,
-        data,
-        assumptions: draftAssumptions,
-        selectedStressors: draftSelectedStressors,
-        selectedResponses: draftSelectedResponses,
+        data: analysisInput.data,
+        assumptions: analysisInput.assumptions,
+        selectedStressors: analysisInput.selectedStressors,
+        selectedResponses: analysisInput.selectedResponses,
       },
     };
     worker.postMessage(runMessage);
   }, [
-    data,
-    draftAssumptions,
-    draftSelectedResponses,
-    draftSelectedStressors,
+    currentPlan,
+    currentPlanAssumptions,
+    currentPlanSelectedResponses,
+    currentPlanSelectedStressors,
+    planInputFingerprint,
+    simulationDraft,
+    simulationDraftAssumptions,
+    simulationDraftSelectedResponses,
+    simulationDraftSelectedStressors,
     simulationInputFingerprint,
   ]);
 
   useEffect(() => {
-    latestInputFingerprintRef.current = simulationInputFingerprint;
+    latestPlanInputFingerprintRef.current = planInputFingerprint;
+    if (!lastPlanRunInputsRef.current || planResultStatus === 'running') {
+      return;
+    }
+    setPlanResultStatus(
+      lastPlanRunInputsRef.current === planInputFingerprint ? 'fresh' : 'stale',
+    );
+  }, [planInputFingerprint, planResultStatus]);
 
-    if (!lastRunInputsRef.current || simulationStatus === 'running') {
+  useEffect(() => {
+    latestSimulationInputFingerprintRef.current = simulationInputFingerprint;
+    if (!lastSimulationRunInputsRef.current || simulationStatus === 'running') {
       return;
     }
 
     setSimulationStatus(
-      lastRunInputsRef.current === simulationInputFingerprint ? 'fresh' : 'stale',
+      lastSimulationRunInputsRef.current === simulationInputFingerprint ? 'fresh' : 'stale',
     );
   }, [simulationInputFingerprint, simulationStatus]);
 
   useEffect(() => {
-    if (simulationResult || activeRequestIdRef.current) {
+    if (currentPlanResult || activeRequestIdRef.current) {
       return;
     }
-    runSimulation();
-  }, [runSimulation, simulationResult]);
+    runAnalysis('plan');
+  }, [runAnalysis, currentPlanResult]);
 
   const cancelSimulation = () => {
     const worker = workerRef.current;
     const activeRequestId = activeRequestIdRef.current;
+    const activeMeta = activeRequestMetaRef.current;
 
-    if (!worker || !activeRequestId) {
+    if (!worker || !activeRequestId || activeMeta?.target !== 'simulation') {
       return;
     }
 
@@ -600,24 +735,34 @@ export function App() {
     worker.postMessage(cancelMessage);
   };
 
-  const pathResults = simulationResult?.pathResults ?? [];
-  const parityReport = simulationResult?.parityReport ?? EMPTY_PARITY_REPORT;
-  const displayedPathResults = pathResults.length ? pathResults : EMPTY_PATH_RESULTS;
-  const projectionSeries = useMemo(
-    () => buildProjectionSeries(displayedPathResults),
-    [displayedPathResults],
+  const planPathResults = currentPlanResult?.pathResults ?? [];
+  const displayedPlanPathResults = planPathResults.length ? planPathResults : EMPTY_PATH_RESULTS;
+  const planProjectionSeries = useMemo(
+    () => buildProjectionSeries(displayedPlanPathResults),
+    [displayedPlanPathResults],
   );
-  const distributionSeries = useMemo(
-    () => buildDistributionSeries(displayedPathResults),
-    [displayedPathResults],
+  const simulationPathResults = simulationResult?.pathResults ?? [];
+  const displayedSimulationPathResults = simulationPathResults.length
+    ? simulationPathResults
+    : EMPTY_PATH_RESULTS;
+  const simulationDistributionSeries = useMemo(
+    () => buildDistributionSeries(displayedSimulationPathResults),
+    [displayedSimulationPathResults],
   );
+  const simulationProjectionSeries = useMemo(
+    () => buildProjectionSeries(displayedSimulationPathResults),
+    [displayedSimulationPathResults],
+  );
+  const simulationParityReport = simulationResult?.parityReport ?? EMPTY_PARITY_REPORT;
 
-  const currentAges = calculateCurrentAges(data);
-  const totalPortfolio = getTotalPortfolioBalance(data);
-  const annualCoreSpend = getAnnualCoreSpend(data);
-  const annualStretchSpend = getAnnualStretchSpend(data);
-  const horizonYears = getRetirementHorizonYears(data, draftAssumptions);
-  const primaryPath = displayedPathResults[2] ?? displayedPathResults[0];
+  const currentAges = calculateCurrentAges(currentPlan);
+  const totalPortfolio = getTotalPortfolioBalance(currentPlan);
+  const annualCoreSpend = getAnnualCoreSpend(currentPlan);
+  const annualStretchSpend = getAnnualStretchSpend(currentPlan);
+  const horizonYears = getRetirementHorizonYears(currentPlan, currentPlanAssumptions);
+  const planPrimaryPath = displayedPlanPathResults[2] ?? displayedPlanPathResults[0];
+  const simulationPrimaryPath =
+    displayedSimulationPathResults[2] ?? displayedSimulationPathResults[0];
   const isPlanHomeScreen = currentScreen === 'overview' || currentScreen === 'insights';
 
   return (
@@ -684,42 +829,42 @@ export function App() {
             <section className="mb-6 lg:sticky lg:top-0 lg:z-20 lg:bg-white/85 lg:pb-4 lg:backdrop-blur">
               <div className="mb-3 flex flex-wrap items-center gap-2 text-sm text-stone-600">
                 <span className="font-medium text-stone-700">Plan snapshot</span>
-                {simulationStatus === 'fresh' ? (
+                {planResultStatus === 'fresh' ? (
                   <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-semibold text-emerald-800">
                     Fresh
                   </span>
-                ) : simulationStatus === 'running' ? (
+                ) : planResultStatus === 'running' ? (
                   <span className="rounded-full bg-blue-100 px-2.5 py-1 text-xs font-semibold text-blue-800">
-                    Running {Math.round(simulationProgress * 100)}%
+                    Running {Math.round(analysisProgress * 100)}%
                   </span>
                 ) : (
                   <span className="rounded-full bg-amber-100 px-2.5 py-1 text-xs font-semibold text-amber-800">
                     Outdated
                   </span>
                 )}
-                {simulationError ? (
-                  <span className="text-xs text-red-700">Error: {simulationError}</span>
+                {planResultError ? (
+                  <span className="text-xs text-red-700">Error: {planResultError}</span>
                 ) : null}
               </div>
               <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
                 <SummaryStatCard
                   title="Primary path success"
-                  value={formatPercent(primaryPath.successRate)}
+                  value={formatPercent(planPrimaryPath.successRate)}
                   description="Latest known plan snapshot from the most recent completed simulation run."
                 />
                 <SummaryStatCard
                   title="Median ending wealth"
-                  value={formatCurrency(primaryPath.medianEndingWealth)}
+                  value={formatCurrency(planPrimaryPath.medianEndingWealth)}
                   description="Median result across the latest Monte Carlo run."
                 />
                 <SummaryStatCard
                   title="Starting runway"
-                  value={`${primaryPath.yearsFunded} yrs`}
+                  value={`${planPrimaryPath.yearsFunded} yrs`}
                   description={`Current assets divided by current annual spending. Planning horizon is ${horizonYears} years.`}
                 />
                 <SummaryStatCard
                   title="IRMAA exposure"
-                  value={primaryPath.irmaaExposure}
+                  value={planPrimaryPath.irmaaExposure}
                   description="Directional signal from the latest run for Medicare-related income pressure."
                 />
               </div>
@@ -730,43 +875,43 @@ export function App() {
             <section className="space-y-6">
               {currentScreen === 'overview' && (
                 <UnifiedPlanScreen
-                  data={data}
-                  assumptions={draftAssumptions}
-                  simulationStatus={simulationStatus}
-                  selectedStressors={draftSelectedStressors}
-                  selectedResponses={draftSelectedResponses}
-                  pathResults={displayedPathResults}
+                  data={currentPlan}
+                  assumptions={currentPlanAssumptions}
+                  simulationStatus={planResultStatus}
+                  selectedStressors={currentPlanSelectedStressors}
+                  selectedResponses={currentPlanSelectedResponses}
+                  pathResults={displayedPlanPathResults}
                 />
               )}
               {currentScreen === 'paths' && (
                 <PathComparisonScreen
-                  pathResults={displayedPathResults}
-                  selectedStressors={draftSelectedStressors}
-                  selectedResponses={draftSelectedResponses}
+                  pathResults={displayedPlanPathResults}
+                  selectedStressors={currentPlanSelectedStressors}
+                  selectedResponses={currentPlanSelectedResponses}
                 />
               )}
               {currentScreen === 'compare' && (
                 <ScenarioCompareScreen
-                  data={data}
-                  assumptions={draftAssumptions}
-                  selectedStressors={draftSelectedStressors}
-                  selectedResponses={draftSelectedResponses}
+                  data={currentPlan}
+                  assumptions={currentPlanAssumptions}
+                  selectedStressors={currentPlanSelectedStressors}
+                  selectedResponses={currentPlanSelectedResponses}
                 />
               )}
               {currentScreen === 'solver' && (
                 <SpendSolverScreen
-                  data={data}
-                  assumptions={draftAssumptions}
-                  selectedStressors={draftSelectedStressors}
-                  selectedResponses={draftSelectedResponses}
+                  data={currentPlan}
+                  assumptions={currentPlanAssumptions}
+                  selectedStressors={currentPlanSelectedStressors}
+                  selectedResponses={currentPlanSelectedResponses}
                 />
               )}
               {currentScreen === 'autopilot' && (
                 <AutopilotPlanScreen
-                  data={data}
-                  assumptions={draftAssumptions}
-                  selectedStressors={draftSelectedStressors}
-                  selectedResponses={draftSelectedResponses}
+                  data={currentPlan}
+                  assumptions={currentPlanAssumptions}
+                  selectedStressors={currentPlanSelectedStressors}
+                  selectedResponses={currentPlanSelectedResponses}
                 />
               )}
               {currentScreen === 'accounts' && <AccountsScreen />}
@@ -774,37 +919,37 @@ export function App() {
                 <SpendingScreen
                   annualCoreSpend={annualCoreSpend}
                   annualStretchSpend={annualStretchSpend}
-                  retirementDate={data.income.salaryEndDate}
+                  retirementDate={currentPlan.income.salaryEndDate}
                 />
               )}
               {currentScreen === 'income' && <IncomeScreen />}
               {currentScreen === 'taxes' && <TaxesScreen />}
               {currentScreen === 'stress' && (
-                <StressScreen projectionSeries={projectionSeries} />
+                <StressScreen projectionSeries={planProjectionSeries} />
               )}
               {currentScreen === 'simulation' && (
                 <SimulationScreen
-                  assumptions={draftAssumptions}
-                  distributionSeries={distributionSeries}
-                  parityReport={parityReport}
-                  primaryPath={primaryPath}
-                  projectionSeries={projectionSeries}
+                  assumptions={simulationDraftAssumptions}
+                  distributionSeries={simulationDistributionSeries}
+                  parityReport={simulationParityReport}
+                  primaryPath={simulationPrimaryPath}
+                  projectionSeries={simulationProjectionSeries}
                   simulationStatus={simulationStatus}
-                  simulationProgress={simulationProgress}
+                  simulationProgress={analysisProgress}
                   simulationError={simulationError}
                   isSimulationRunning={isSimulationRunning}
-                  onRunSimulation={runSimulation}
+                  onRunSimulation={() => runAnalysis('simulation')}
                   onCancelSimulation={cancelSimulation}
                 />
               )}
               {currentScreen === 'insights' && (
                 <UnifiedPlanScreen
-                  data={data}
-                  assumptions={draftAssumptions}
-                  simulationStatus={simulationStatus}
-                  selectedStressors={draftSelectedStressors}
-                  selectedResponses={draftSelectedResponses}
-                  pathResults={displayedPathResults}
+                  data={currentPlan}
+                  assumptions={currentPlanAssumptions}
+                  simulationStatus={planResultStatus}
+                  selectedStressors={currentPlanSelectedStressors}
+                  selectedResponses={currentPlanSelectedResponses}
+                  pathResults={displayedPlanPathResults}
                 />
               )}
               {currentScreen === 'export' && <ExportScreen />}

@@ -73,6 +73,8 @@ interface AppState {
   ) => void;
   updateSocialSecurityClaim: (person: string, claimAge: number) => void;
   updateWindfall: (name: string, field: 'year' | 'amount', value: number) => void;
+  commitDraftToApplied: () => void;
+  resetDraftToApplied: () => void;
 }
 
 const defaultAssumptions: MarketAssumptions = {
@@ -219,5 +221,46 @@ export const useAppStore = create<AppState>((set) => ({
       });
 
       return { data, hasPendingSimulationChanges };
+    }),
+  commitDraftToApplied: () =>
+    set((state) => {
+      const appliedData = cloneSeedData(state.data);
+      const appliedSelectedStressors = [...state.draftSelectedStressors];
+      const appliedSelectedResponses = [...state.draftSelectedResponses];
+      const appliedAssumptions = { ...state.draftAssumptions };
+
+      return {
+        appliedData,
+        appliedSelectedStressors,
+        appliedSelectedResponses,
+        appliedAssumptions,
+        hasPendingSimulationChanges: hasPendingChanges({
+          ...state,
+          appliedData,
+          appliedSelectedStressors,
+          appliedSelectedResponses,
+          appliedAssumptions,
+        }),
+      };
+    }),
+  resetDraftToApplied: () =>
+    set((state) => {
+      const data = cloneSeedData(state.appliedData);
+      const draftSelectedStressors = [...state.appliedSelectedStressors];
+      const draftSelectedResponses = [...state.appliedSelectedResponses];
+      const draftAssumptions = { ...state.appliedAssumptions };
+      return {
+        data,
+        draftSelectedStressors,
+        draftSelectedResponses,
+        draftAssumptions,
+        hasPendingSimulationChanges: hasPendingChanges({
+          ...state,
+          data,
+          draftSelectedStressors,
+          draftSelectedResponses,
+          draftAssumptions,
+        }),
+      };
     }),
 }));
