@@ -20,7 +20,7 @@ function nowMs() {
 
 function debugEnabled() {
   const meta = import.meta as ImportMeta & { env?: { DEV?: boolean } };
-  const devMode = typeof window !== 'undefined' && Boolean(meta.env?.DEV);
+  const devMode = Boolean(meta.env?.DEV);
   const forcedFlag =
     typeof globalThis !== 'undefined' &&
     Boolean((globalThis as { __RETIRE_DEBUG_PERF__?: boolean }).__RETIRE_DEBUG_PERF__);

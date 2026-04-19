@@ -3,7 +3,7 @@ import type { Plan, PlanEvaluation } from './plan-evaluation';
 export interface PlanAnalysisRunPayload {
   requestId: string;
   plan: Plan;
-  previousEvaluation: PlanEvaluation | null;
+  previousEvaluation?: PlanEvaluation | null;
 }
 
 export type PlanAnalysisWorkerRequest =
@@ -31,4 +31,3 @@ export type PlanAnalysisWorkerResponse =
       requestId: string;
       error: string;
     };
-

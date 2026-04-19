@@ -21,14 +21,12 @@ workerScope.onmessage = (event: MessageEvent<PlanAnalysisWorkerRequest>) => {
     return;
   }
 
-  const { requestId, plan, previousEvaluation } = message.payload;
+  const { requestId, plan } = message.payload;
   cancelledRequests.delete(requestId);
 
   void (async () => {
     try {
-      const evaluation = await evaluatePlan(plan, {
-        previousEvaluation,
-      });
+      const evaluation = await evaluatePlan(plan);
 
       if (cancelledRequests.has(requestId)) {
         cancelledRequests.delete(requestId);
@@ -62,4 +60,3 @@ workerScope.onmessage = (event: MessageEvent<PlanAnalysisWorkerRequest>) => {
     }
   })();
 };
-
