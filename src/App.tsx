@@ -370,6 +370,14 @@ interface ActiveAnalysisRequestMeta {
   inputFingerprint: string;
 }
 
+interface AnalysisInput {
+  data: SeedData;
+  assumptions: MarketAssumptions;
+  selectedStressors: string[];
+  selectedResponses: string[];
+  fingerprint: string;
+}
+
 function buildSimulationInputFingerprint(input: {
   data: SeedData;
   assumptions: MarketAssumptions;
@@ -393,6 +401,8 @@ export function App() {
   const currentPlanAssumptions = useAppStore((state) => state.appliedAssumptions);
   const currentPlanSelectedResponses = useAppStore((state) => state.appliedSelectedResponses);
   const currentPlanSelectedStressors = useAppStore((state) => state.appliedSelectedStressors);
+  const commitDraftToApplied = useAppStore((state) => state.commitDraftToApplied);
+  const hasPendingSimulationChanges = useAppStore((state) => state.hasPendingSimulationChanges);
   const currentScreen = useAppStore((state) => state.currentScreen);
   const setCurrentScreen = useAppStore((state) => state.setCurrentScreen);
 
@@ -573,9 +583,10 @@ export function App() {
     };
   }, []);
 
-  const runAnalysis = useCallback((target: AnalysisTarget) => {
+  const runAnalysis = useCallback((target: AnalysisTarget, overrideInput?: AnalysisInput) => {
     const requestId = `${SIMULATION_REQUEST_PREFIX}-${requestCounterRef.current++}`;
-    const analysisInput =
+    const analysisInput: AnalysisInput =
+      overrideInput ??
       target === 'simulation'
         ? {
             data: simulationDraft,
@@ -684,6 +695,26 @@ export function App() {
     currentPlanSelectedResponses,
     currentPlanSelectedStressors,
     planInputFingerprint,
+    simulationDraft,
+    simulationDraftAssumptions,
+    simulationDraftSelectedResponses,
+    simulationDraftSelectedStressors,
+    simulationInputFingerprint,
+  ]);
+
+  const commitSimulationToPlan = useCallback(() => {
+    const nextPlanInput: AnalysisInput = {
+      data: simulationDraft,
+      assumptions: simulationDraftAssumptions,
+      selectedStressors: simulationDraftSelectedStressors,
+      selectedResponses: simulationDraftSelectedResponses,
+      fingerprint: simulationInputFingerprint,
+    };
+    commitDraftToApplied();
+    runAnalysis('plan', nextPlanInput);
+  }, [
+    commitDraftToApplied,
+    runAnalysis,
     simulationDraft,
     simulationDraftAssumptions,
     simulationDraftSelectedResponses,
@@ -940,6 +971,9 @@ export function App() {
                   isSimulationRunning={isSimulationRunning}
                   onRunSimulation={() => runAnalysis('simulation')}
                   onCancelSimulation={cancelSimulation}
+                  onCommitToPlan={commitSimulationToPlan}
+                  canCommitToPlan={hasPendingSimulationChanges}
+                  isPlanResultRunning={planResultStatus === 'running'}
                 />
               )}
               {currentScreen === 'insights' && (
@@ -2827,6 +2861,9 @@ function SimulationScreen({
   isSimulationRunning,
   onRunSimulation,
   onCancelSimulation,
+  onCommitToPlan,
+  canCommitToPlan,
+  isPlanResultRunning,
 }: {
   assumptions: MarketAssumptions;
   distributionSeries: ReturnType<typeof buildDistributionSeries>;
@@ -2839,6 +2876,9 @@ function SimulationScreen({
   isSimulationRunning: boolean;
   onRunSimulation: () => void;
   onCancelSimulation: () => void;
+  onCommitToPlan: () => void;
+  canCommitToPlan: boolean;
+  isPlanResultRunning: boolean;
 }) {
   const stressors = useAppStore((state) => state.data.stressors);
   const responses = useAppStore((state) => state.data.responses);
@@ -2882,6 +2922,14 @@ function SimulationScreen({
             >
               {isSimulationRunning ? 'Running Simulation…' : 'Run Simulation'}
             </button>
+            <button
+              type="button"
+              onClick={onCommitToPlan}
+              disabled={isSimulationRunning || isPlanResultRunning || !canCommitToPlan}
+              className="rounded-full border border-blue-300 bg-blue-50 px-4 py-2 text-sm font-semibold text-blue-700 transition hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {isPlanResultRunning ? 'Committing…' : 'Commit to Plan'}
+            </button>
             {isSimulationRunning ? (
               <button
                 type="button"
@@ -2893,6 +2941,9 @@ function SimulationScreen({
             ) : null}
           </div>
         </div>
+        <p className="mt-2 text-xs text-stone-500">
+          Simulation is a sandbox. Changes affect the live Plan only after you commit.
+        </p>
       </div>
 
       <div className="mb-6 grid gap-4 lg:grid-cols-2">
