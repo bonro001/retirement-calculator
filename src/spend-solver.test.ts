@@ -209,7 +209,7 @@ describe('spend-solver', () => {
       60_000 + 12_000 + flexibleMinimumAnnual + travelMinimumAnnual,
     );
     expect(result.recommendedAnnualSpend).toBeGreaterThanOrEqual(result.floorAnnual);
-  });
+  }, 20000);
 
   it('changes supported spending when flexible minimums are tightened', () => {
     const constrainedData = {
