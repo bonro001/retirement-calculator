@@ -836,7 +836,11 @@ export function UnifiedPlanScreen({
   const successDeltaPresentation = runDelta ? deltaPresentation(runDelta.successDelta) : null;
   const annualEssentialSpend = data.spending.essentialMonthly * 12;
   const annualFlexibleSpend = data.spending.optionalMonthly * 12;
+  const annualFlexibleSpendMinimum = currentEvaluation?.raw.spendingCalibration.flexibleSpendingMinimum ??
+    annualFlexibleSpend;
   const annualTravelSpend = data.spending.travelEarlyRetirementAnnual;
+  const annualTravelSpendMinimum = currentEvaluation?.raw.spendingCalibration.travelSpendingMinimum ??
+    annualTravelSpend;
   const annualTotalSpend =
     annualEssentialSpend +
     annualFlexibleSpend +
@@ -911,7 +915,17 @@ export function UnifiedPlanScreen({
     ? [
         solverDiagnostics.surplusPreservedBecause,
         `Binding constraint: ${toReadableConstraint(solverDiagnostics.bindingConstraint)}.`,
-        `Legacy target floor: ${formatCurrency(solverDiagnostics.targetLegacyTodayDollars)}; projected legacy: ${formatCurrency(solverDiagnostics.projectedLegacyOutcomeTodayDollars)}.`,
+        `Legacy target: ${formatCurrency(solverDiagnostics.targetLegacyTodayDollars)}; projected ending wealth: ${formatCurrency(solverDiagnostics.projectedLegacyOutcomeTodayDollars)}; gap: ${formatCurrency(solverDiagnostics.legacyGapToTarget)}.`,
+        solverDiagnostics.overReservedAmount > 0
+          ? `Over-reserved amount versus legacy target: ${formatCurrency(solverDiagnostics.overReservedAmount)}.`
+          : 'Projected ending wealth is at or below the legacy target band.',
+        `Flexible spending target/min: ${formatCurrency(solverDiagnostics.flexibleSpendingTarget)} / ${formatCurrency(solverDiagnostics.flexibleSpendingMinimum)} per year.`,
+        `Travel spending target/min: ${formatCurrency(solverDiagnostics.travelSpendingTarget)} / ${formatCurrency(solverDiagnostics.travelSpendingMinimum)} per year.`,
+        solverDiagnostics.constrainedBySpendingFloors
+          ? 'Spending floors are currently binding the optimization.'
+          : solverDiagnostics.constrainedByLegacyTarget
+            ? 'Legacy target proximity is currently binding the optimization.'
+            : `Primary optimizer driver: ${toReadableConstraint(solverDiagnostics.optimizationConstraintDriver)}.`,
         solverDiagnostics.houseRetentionContribution,
         solverDiagnostics.inheritanceMateriality === 'high'
           ? 'Inheritance is materially supporting feasibility in this path.'
@@ -1007,7 +1021,7 @@ export function UnifiedPlanScreen({
 
       <div className="mt-4">
         <SectionCard title="Current Spending Profile">
-          <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
+            <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
             <div className="rounded-xl bg-white p-3">
               <p className="text-xs text-stone-500">Essential</p>
               <p className="mt-1 text-lg font-semibold text-stone-900">
@@ -1019,11 +1033,17 @@ export function UnifiedPlanScreen({
               <p className="mt-1 text-lg font-semibold text-stone-900">
                 {formatCurrency(annualFlexibleSpend)}/yr
               </p>
+              <p className="mt-1 text-xs text-stone-500">
+                Min {formatCurrency(annualFlexibleSpendMinimum)}/yr
+              </p>
             </div>
             <div className="rounded-xl bg-white p-3">
               <p className="text-xs text-stone-500">Travel / lifestyle</p>
               <p className="mt-1 text-lg font-semibold text-stone-900">
                 {formatCurrency(annualTravelSpend)}/yr
+              </p>
+              <p className="mt-1 text-xs text-stone-500">
+                Min {formatCurrency(annualTravelSpendMinimum)}/yr
               </p>
             </div>
             <div className="rounded-xl bg-white p-3">

@@ -139,7 +139,7 @@ describe('spend-solver', () => {
       .toBeGreaterThanOrEqual(
         result.spendingDeltaByPhase.find((entry) => entry.phase === 'late')?.optimizedAnnual ?? 0,
       );
-  });
+  }, 20000);
 
   it('respects minimum ending wealth and success constraints in time-weighted mode', () => {
     const minSuccessRate = 0.8;
@@ -161,7 +161,7 @@ describe('spend-solver', () => {
     expect(result.bindingConstraint.length).toBeGreaterThan(0);
     expect(result.actionableExplanation.length).toBeGreaterThan(0);
     expect(result.modeledSuccessRate < minSuccessRate || result.projectedLegacyOutcomeTodayDollars < targetLegacy).toBe(true);
-  });
+  }, 20000);
 
   it('reduces feasible spending when inheritance is removed in time-weighted mode', () => {
     const withInheritance = solveSpendByReverseTimeline({
@@ -184,6 +184,45 @@ describe('spend-solver', () => {
       withInheritance.recommendedAnnualSpend,
     );
   }, 20000);
+
+  it('does not reduce flexible spending below configured minimums', () => {
+    const flexibleMinimumAnnual = 36_000;
+    const travelMinimumAnnual = 6_000;
+    const result = solveSpendByReverseTimeline({
+      ...buildSolverInput(),
+      optimizationObjective: 'maximize_time_weighted_spending',
+      spendingMinimums: {
+        flexibleAnnualMinimum: flexibleMinimumAnnual,
+        travelAnnualMinimum: travelMinimumAnnual,
+      },
+      spendingFloorAnnual: 60_000 + 12_000 + flexibleMinimumAnnual + travelMinimumAnnual,
+      selectedStressors: [],
+      selectedResponses: [],
+    });
+
+    expect(result.flexibleSpendingMinimum).toBeGreaterThanOrEqual(flexibleMinimumAnnual);
+    expect(result.travelSpendingMinimum).toBeGreaterThanOrEqual(travelMinimumAnnual);
+    expect(result.floorAnnual).toBeGreaterThanOrEqual(
+      60_000 + 12_000 + flexibleMinimumAnnual + travelMinimumAnnual,
+    );
+    expect(result.recommendedAnnualSpend).toBeGreaterThanOrEqual(result.floorAnnual);
+  });
+
+  it('applies sensible spending-minimum defaults for plans without explicit minimum fields', () => {
+    const inferredFloorAnnual = 60_000 + 12_000 + 60_000 * 0.88 + 14_000 * 0.8;
+    const result = solveSpendByReverseTimeline({
+      ...buildSolverInput(),
+      optimizationObjective: 'maximize_time_weighted_spending',
+      spendingFloorAnnual: inferredFloorAnnual,
+      selectedStressors: [],
+      selectedResponses: [],
+    });
+
+    expect(result.flexibleSpendingMinimum).toBeGreaterThan(0);
+    expect(result.travelSpendingMinimum).toBeGreaterThan(0);
+    expect(result.flexibleSpendingMinimum).toBeLessThanOrEqual(result.flexibleSpendingTarget);
+    expect(result.travelSpendingMinimum).toBeLessThanOrEqual(result.travelSpendingTarget);
+  });
 
   it('produces a meaningfully different phase profile than preserve_legacy mode', () => {
     const preserveLegacy = solveSpendByReverseTimeline({

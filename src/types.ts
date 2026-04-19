@@ -62,6 +62,10 @@ export interface SpendingData {
   optionalMonthly: number;
   annualTaxesInsurance: number;
   travelEarlyRetirementAnnual: number;
+  // Optional per-category minimums; when omitted, defaults are inferred.
+  essentialMinimumMonthly?: number;
+  optionalMinimumMonthly?: number;
+  travelMinimumAnnual?: number;
 }
 
 export interface Holding {

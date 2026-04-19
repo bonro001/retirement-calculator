@@ -4,6 +4,7 @@ import {
   computeTimeWeightedSpendingUtility,
   getAgeBandWeight,
   DEFAULT_TIME_PREFERENCE_WEIGHTS,
+  scoreUtilityWithLegacyTarget,
 } from './optimization-objective';
 import { buildRetirementPlan } from './retirement-plan';
 import type { MarketAssumptions } from './types';
@@ -83,5 +84,20 @@ describe('optimization objective helpers', () => {
       late: 0.6,
     });
   });
-});
 
+  it('scores ending wealth near legacy target better than far over target', () => {
+    const nearTarget = scoreUtilityWithLegacyTarget({
+      baseUtility: 1_000_000,
+      legacyTargetTodayDollars: 1_000_000,
+      projectedEndingWealthTodayDollars: 1_050_000,
+    });
+    const farOverTarget = scoreUtilityWithLegacyTarget({
+      baseUtility: 1_000_000,
+      legacyTargetTodayDollars: 1_000_000,
+      projectedEndingWealthTodayDollars: 2_145_000,
+    });
+
+    expect(nearTarget.compositeScore).toBeGreaterThan(farOverTarget.compositeScore);
+    expect(farOverTarget.overReservedAmount).toBeGreaterThan(nearTarget.overReservedAmount);
+  });
+});

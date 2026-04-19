@@ -271,6 +271,84 @@ export function getAnnualStretchSpend(data: SeedData) {
   return getAnnualCoreSpend(data) + data.spending.travelEarlyRetirementAnnual;
 }
 
+export interface AnnualSpendingTargets {
+  essentialAnnual: number;
+  flexibleAnnual: number;
+  travelAnnual: number;
+  taxesInsuranceAnnual: number;
+  totalAnnual: number;
+}
+
+export interface AnnualSpendingMinimums {
+  essentialAnnualMinimum: number;
+  flexibleAnnualMinimum: number;
+  travelAnnualMinimum: number;
+  taxesInsuranceAnnualMinimum: number;
+  totalAnnualMinimum: number;
+}
+
+export function getAnnualSpendingTargets(data: SeedData): AnnualSpendingTargets {
+  const essentialAnnual = Math.max(0, data.spending.essentialMonthly * 12);
+  const flexibleAnnual = Math.max(0, data.spending.optionalMonthly * 12);
+  const travelAnnual = Math.max(0, data.spending.travelEarlyRetirementAnnual);
+  const taxesInsuranceAnnual = Math.max(0, data.spending.annualTaxesInsurance);
+  return {
+    essentialAnnual,
+    flexibleAnnual,
+    travelAnnual,
+    taxesInsuranceAnnual,
+    totalAnnual: essentialAnnual + flexibleAnnual + travelAnnual + taxesInsuranceAnnual,
+  };
+}
+
+export function getAnnualSpendingMinimums(
+  data: SeedData,
+  overrides?: Partial<{
+    essentialAnnualMinimum: number;
+    flexibleAnnualMinimum: number;
+    travelAnnualMinimum: number;
+    taxesInsuranceAnnualMinimum: number;
+  }>,
+): AnnualSpendingMinimums {
+  const targets = getAnnualSpendingTargets(data);
+  const defaultEssentialMinimumAnnual =
+    (data.spending.essentialMinimumMonthly ?? data.spending.essentialMonthly) * 12;
+  const essentialAnnualMinimum = Math.max(
+    0,
+    overrides?.essentialAnnualMinimum ?? defaultEssentialMinimumAnnual,
+  );
+  const flexibleAnnualMinimum = Math.max(
+    0,
+    Math.min(
+      targets.flexibleAnnual,
+      overrides?.flexibleAnnualMinimum ??
+        (data.spending.optionalMinimumMonthly ?? 0) * 12,
+    ),
+  );
+  const travelAnnualMinimum = Math.max(
+    0,
+    Math.min(
+      targets.travelAnnual,
+      overrides?.travelAnnualMinimum ?? data.spending.travelMinimumAnnual ?? 0,
+    ),
+  );
+  const taxesInsuranceAnnualMinimum = Math.max(
+    0,
+    overrides?.taxesInsuranceAnnualMinimum ?? data.spending.annualTaxesInsurance,
+  );
+  return {
+    essentialAnnualMinimum,
+    flexibleAnnualMinimum,
+    travelAnnualMinimum,
+    taxesInsuranceAnnualMinimum,
+    totalAnnualMinimum:
+      essentialAnnualMinimum +
+      flexibleAnnualMinimum +
+      travelAnnualMinimum +
+      taxesInsuranceAnnualMinimum,
+  };
+}
+
 export function getRetirementHorizonYears(
   data: SeedData,
   assumptions?: Pick<MarketAssumptions, 'robPlanningEndAge' | 'debbiePlanningEndAge'>,

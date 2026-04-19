@@ -15,7 +15,12 @@ import type {
   TimePreferenceWeights,
 } from './optimization-objective';
 import type { MarketAssumptions, PathResult, SeedData } from './types';
-import { buildPathResults, getAnnualStretchSpend } from './utils';
+import {
+  buildPathResults,
+  getAnnualSpendingMinimums,
+  getAnnualSpendingTargets,
+  getAnnualStretchSpend,
+} from './utils';
 
 export type ModelCompleteness = 'faithful' | 'reconstructed';
 export type IrmaaPosture = 'minimize' | 'balanced' | 'ignore';
@@ -192,16 +197,45 @@ function normalizeScenarioResponses(
 }
 
 function deriveSpendingFloorAnnual(plan: RetirementPlan) {
-  const baselineAnnual = getAnnualStretchSpend(plan.effectiveData);
-  const essentialAnnual =
-    plan.effectiveData.spending.essentialMonthly * 12 +
-    plan.effectiveData.spending.annualTaxesInsurance;
-  let floor = baselineAnnual * (1 - plan.autopilotPolicy.optionalSpendingFlexPercent / 100);
+  const targets = getAnnualSpendingTargets(plan.effectiveData);
+  const baselineAnnual = targets.totalAnnual;
+  const flexibleFloorFromPolicy = plan.autopilotPolicy.optionalSpendingCutsAllowed
+    ? targets.flexibleAnnual * (1 - plan.autopilotPolicy.optionalSpendingFlexPercent / 100)
+    : targets.flexibleAnnual;
+  const travelFloorFromPolicy = plan.autopilotPolicy.optionalSpendingCutsAllowed
+    ? targets.travelAnnual * (1 - plan.autopilotPolicy.travelFlexPercent / 100)
+    : targets.travelAnnual;
+
+  const minimums = getAnnualSpendingMinimums(plan.effectiveData, {
+    flexibleAnnualMinimum: flexibleFloorFromPolicy,
+    travelAnnualMinimum: Math.max(
+      0,
+      plan.constraints.minimumTravelBudgetAnnual ?? travelFloorFromPolicy,
+    ),
+  });
+
   if (!plan.autopilotPolicy.optionalSpendingCutsAllowed) {
-    floor = baselineAnnual;
+    return Math.max(0, baselineAnnual);
   }
-  floor = Math.max(floor, essentialAnnual);
-  return Math.max(0, floor);
+  return Math.max(0, minimums.totalAnnualMinimum);
+}
+
+function deriveSpendingMinimums(plan: RetirementPlan) {
+  const targets = getAnnualSpendingTargets(plan.effectiveData);
+  const flexibleFloorFromPolicy = plan.autopilotPolicy.optionalSpendingCutsAllowed
+    ? targets.flexibleAnnual * (1 - plan.autopilotPolicy.optionalSpendingFlexPercent / 100)
+    : targets.flexibleAnnual;
+  const travelFloorFromPolicy = plan.autopilotPolicy.optionalSpendingCutsAllowed
+    ? targets.travelAnnual * (1 - plan.autopilotPolicy.travelFlexPercent / 100)
+    : targets.travelAnnual;
+
+  return getAnnualSpendingMinimums(plan.effectiveData, {
+    flexibleAnnualMinimum: flexibleFloorFromPolicy,
+    travelAnnualMinimum: Math.max(
+      0,
+      plan.constraints.minimumTravelBudgetAnnual ?? travelFloorFromPolicy,
+    ),
+  });
 }
 
 function analyzeIrmaaExposure(
@@ -436,6 +470,7 @@ export async function analyzeRetirementPlan(
   });
 
   const finishSolverPerf = perfStart('retirement-plan', 'spend-solver');
+  const spendingMinimums = deriveSpendingMinimums(plan);
   const solver = solveSpendByReverseTimeline({
     data: plan.effectiveData,
     assumptions: plan.assumptions,
@@ -448,6 +483,11 @@ export async function analyzeRetirementPlan(
     successRateRange: plan.targets.successRateRange,
     spendingFloorAnnual: deriveSpendingFloorAnnual(plan),
     spendingCeilingAnnual: plan.targets.spendingTargetAnnual * 1.4,
+    spendingMinimums: {
+      essentialAnnualMinimum: spendingMinimums.essentialAnnualMinimum,
+      flexibleAnnualMinimum: spendingMinimums.flexibleAnnualMinimum,
+      travelAnnualMinimum: spendingMinimums.travelAnnualMinimum,
+    },
     toleranceAnnual: 250,
     housingFundingPolicy: plan.constraints.doNotSellHouse
       ? 'do_not_sell_primary_residence'
