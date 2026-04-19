@@ -10,6 +10,7 @@ import { useAppStore } from './store';
 import { formatCurrency, formatPercent } from './utils';
 
 const INTERACTIVE_UNIFIED_PLAN_MAX_RUNS = 700;
+type PlanSimulationStatus = 'fresh' | 'stale' | 'running';
 
 type ConstraintModifierKey =
   | 'retireLater'
@@ -254,12 +255,14 @@ function formatLegacyPriorityLabel(value: LegacyPriority) {
 export function UnifiedPlanScreen({
   data,
   assumptions,
+  simulationStatus,
   selectedStressors,
   selectedResponses,
   pathResults,
 }: {
   data: SeedData;
   assumptions: MarketAssumptions;
+  simulationStatus: PlanSimulationStatus;
   selectedStressors: string[];
   selectedResponses: string[];
   pathResults: PathResult[];
@@ -429,6 +432,21 @@ export function UnifiedPlanScreen({
                   ? `Ready · ${formatPercent(currentEvaluation.summary.successRate)} success`
                   : `Ready · baseline ${formatPercent(primaryPath.successRate)}`}
           </p>
+          <span
+            className={`rounded-full px-3 py-1 text-xs font-semibold ${
+              simulationStatus === 'fresh'
+                ? 'bg-emerald-100 text-emerald-800'
+                : simulationStatus === 'running'
+                  ? 'bg-blue-100 text-blue-800'
+                  : 'bg-amber-100 text-amber-800'
+            }`}
+          >
+            {simulationStatus === 'fresh'
+              ? 'Plan data fresh'
+              : simulationStatus === 'running'
+                ? 'Simulation running'
+                : 'Plan data outdated'}
+          </span>
         </div>
       </div>
 

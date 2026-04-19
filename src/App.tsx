@@ -616,11 +616,7 @@ export function App() {
   const totalPortfolio = getTotalPortfolioBalance(data);
   const annualCoreSpend = getAnnualCoreSpend(data);
   const annualStretchSpend = getAnnualStretchSpend(data);
-  const horizonYears = getRetirementHorizonYears(data, draftAssumptions);
   const primaryPath = displayedPathResults[2] ?? displayedPathResults[0];
-  const cashReserve = data.accounts.cash.balance;
-  const investedAssets = totalPortfolio - cashReserve;
-  const showSidebarSnapshot = currentScreen !== 'overview' && currentScreen !== 'insights';
 
   return (
     <div className="min-h-screen bg-[radial-gradient(circle_at_top_left,_rgba(96,165,250,0.22),_transparent_30%),linear-gradient(135deg,#f6fbff_0%,#edf5fb_42%,#dce9f5_100%)] text-slate-900">
@@ -660,43 +656,6 @@ export function App() {
             ))}
           </nav>
 
-          {showSidebarSnapshot ? (
-            <div className="mt-6 hidden rounded-[28px] bg-stone-900 p-5 text-stone-50 xl:block">
-            <p className="text-xs uppercase tracking-[0.22em] text-stone-300">
-              Current plan snapshot
-            </p>
-            <p className="mt-3 text-4xl font-semibold">{formatCurrency(totalPortfolio)}</p>
-            <p className="mt-2 text-sm text-stone-300">
-              Seeded household assets today, before future windfalls.
-            </p>
-            <dl className="mt-5 space-y-3 text-sm">
-              <div className="flex justify-between gap-3">
-                <dt className="text-stone-400">Invested assets</dt>
-                <dd>{formatCurrency(investedAssets)}</dd>
-              </div>
-              <div className="flex justify-between gap-3">
-                <dt className="text-stone-400">Cash reserve</dt>
-                <dd>{formatCurrency(cashReserve)}</dd>
-              </div>
-              <div className="flex justify-between gap-3">
-                <dt className="text-stone-400">Total seeded assets</dt>
-                <dd>{formatCurrency(totalPortfolio)}</dd>
-              </div>
-              <div className="flex justify-between gap-3">
-                <dt className="text-stone-400">Retire target</dt>
-                <dd>{formatDate(data.income.salaryEndDate)}</dd>
-              </div>
-              <div className="flex justify-between gap-3">
-                <dt className="text-stone-400">Household spend</dt>
-                <dd>{formatCurrency(annualStretchSpend)}/yr</dd>
-              </div>
-              <div className="flex justify-between gap-3">
-                <dt className="text-stone-400">IRMAA mode</dt>
-                <dd>{data.rules.irmaaAware ? 'Aware' : 'Off'}</dd>
-              </div>
-            </dl>
-            </div>
-          ) : null}
         </aside>
 
         <main className="flex-1 px-4 py-4 sm:px-6 lg:px-8 lg:flex lg:max-h-screen lg:flex-col lg:overflow-hidden">
@@ -719,77 +678,13 @@ export function App() {
             </div>
           </div>
 
-          <section className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/70 bg-white/75 px-4 py-3 shadow-sm">
-            <div className="flex flex-wrap items-center gap-2 text-sm text-stone-600">
-              <span className="font-medium text-stone-700">Simulation</span>
-              {simulationStatus === 'stale' ? (
-                <span className="rounded-full bg-amber-100 px-2.5 py-1 text-xs font-semibold text-amber-800">
-                  Results outdated
-                </span>
-              ) : simulationStatus === 'running' ? (
-                <span className="rounded-full bg-blue-100 px-2.5 py-1 text-xs font-semibold text-blue-800">
-                  Running {Math.round(simulationProgress * 100)}%
-                </span>
-              ) : (
-                <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-semibold text-emerald-800">
-                  Fresh
-                </span>
-              )}
-              {simulationError ? (
-                <span className="text-xs text-red-700">Error: {simulationError}</span>
-              ) : lastRunInputs ? (
-                <span className="text-xs text-stone-500">Last run retained</span>
-              ) : null}
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <button
-                type="button"
-                onClick={runSimulation}
-                disabled={isSimulationRunning}
-                className="rounded-full bg-blue-700 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-600 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {isSimulationRunning ? 'Running Simulation…' : 'Run Simulation'}
-              </button>
-              {isSimulationRunning ? (
-                <button
-                  type="button"
-                  onClick={cancelSimulation}
-                  className="rounded-full border border-stone-300 bg-white px-4 py-2 text-sm font-semibold text-stone-700 transition hover:bg-stone-50"
-                >
-                  Cancel
-                </button>
-              ) : null}
-            </div>
-          </section>
-
-          <section className="mb-6 grid gap-4 md:grid-cols-2 lg:sticky lg:top-0 lg:z-20 lg:grid-cols-4 lg:bg-white/85 lg:pb-4 lg:backdrop-blur">
-            <SummaryStatCard
-              title="Primary path success"
-              value={formatPercent(primaryPath.successRate)}
-              description="Based on the currently selected stressors and responses."
-            />
-            <SummaryStatCard
-              title="Median ending wealth"
-              value={formatCurrency(primaryPath.medianEndingWealth)}
-              description="Median result across the current Monte Carlo path runs."
-            />
-            <SummaryStatCard
-              title="Starting runway"
-              value={`${primaryPath.yearsFunded} yrs`}
-              description={`Current assets divided by current annual spending. Full planning horizon is ${horizonYears} years.`}
-            />
-            <SummaryStatCard
-              title="IRMAA exposure"
-              value={primaryPath.irmaaExposure}
-              description="Directional flag to show whether this path drifts into higher income years."
-            />
-          </section>
           <div className="lg:min-h-0 lg:flex-1 lg:overflow-y-auto lg:pr-1">
             <section className="space-y-6">
               {currentScreen === 'overview' && (
                 <UnifiedPlanScreen
                   data={data}
                   assumptions={draftAssumptions}
+                  simulationStatus={simulationStatus}
                   selectedStressors={draftSelectedStressors}
                   selectedResponses={draftSelectedResponses}
                   pathResults={displayedPathResults}
@@ -852,6 +747,7 @@ export function App() {
                 <UnifiedPlanScreen
                   data={data}
                   assumptions={draftAssumptions}
+                  simulationStatus={simulationStatus}
                   selectedStressors={draftSelectedStressors}
                   selectedResponses={draftSelectedResponses}
                   pathResults={displayedPathResults}
