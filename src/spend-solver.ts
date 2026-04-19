@@ -104,6 +104,9 @@ export interface SpendSolverResult {
   distanceFromTarget: number;
   overTargetPenalty: number;
   isTargetBinding: boolean;
+  ceilingUsed: number;
+  ceilingIterations: number;
+  finalBindingConstraint: string;
   legacyGapToTarget: number;
   overReservedAmount: number;
   legacyAttainmentMet: boolean;
@@ -1478,6 +1481,45 @@ function toOptimizationConstraintDriver(
   return 'mixed_or_other';
 }
 
+function toFinalBindingConstraint(input: {
+  bindingConstraint: string;
+  bindingGuardrail: BindingGuardrail;
+  isCeilingBound: boolean;
+}) {
+  const normalized = input.bindingConstraint.toLowerCase();
+  if (input.isCeilingBound || normalized.includes('upper spending cap')) {
+    return 'upper_spending_cap';
+  }
+  if (normalized.includes('legacy') || input.bindingGuardrail === 'legacy_target') {
+    return 'legacy_target';
+  }
+  if (normalized.includes('success') || input.bindingGuardrail === 'success_floor') {
+    return 'success_floor';
+  }
+  if (normalized.includes('spending floor') || input.bindingGuardrail === 'spending_floor') {
+    return 'spending_floor';
+  }
+  if (input.bindingGuardrail === 'ACA_affordability') {
+    return 'aca_affordability';
+  }
+  if (input.bindingGuardrail === 'IRMAA_threshold') {
+    return 'irmaa_threshold';
+  }
+  if (input.bindingGuardrail === 'tax_drag') {
+    return 'tax_drag';
+  }
+  if (input.bindingGuardrail === 'keep_house') {
+    return 'keep_house';
+  }
+  if (input.bindingGuardrail === 'no_inheritance') {
+    return 'no_inheritance';
+  }
+  if (input.bindingGuardrail === 'allocation_locked') {
+    return 'allocation_locked';
+  }
+  return 'mixed_or_other';
+}
+
 function toPrimaryTradeoff(input: {
   bindingConstraint: string;
   annualFederalTaxEstimate: number;
@@ -1608,25 +1650,26 @@ export function solveSpendByReverseTimeline(input: SpendSolverInputs): SpendSolv
 
   if (objective === 'maximize_time_weighted_spending') {
     const targetTolerance = getLegacyTargetTolerance(baseConstraints.targetLegacyTodayDollars);
-    const maxAutoCeilingAnnual = roundCurrency(
-      Math.max(
-        initialCeilingAnnual * 4,
-        evaluator.baselineAnnualSpend * 5,
-        floorAnnual * 2,
-      ),
-    );
-    const maxCeilingExpansionSteps = Math.min(3, Math.max(1, Math.floor(maxIterations / 6)));
+    const maxCeilingExpansionSteps = Math.max(2, Math.min(4, Math.floor(maxIterations / 2)));
     while (
       expansionSteps < maxCeilingExpansionSteps &&
-      ceilingAnnual < maxAutoCeilingAnnual &&
       recommended.annualSpend >= ceilingAnnual - toleranceAnnual &&
       recommended.projectedLegacyTodayDollars >
         baseConstraints.targetLegacyTodayDollars + targetTolerance
     ) {
+      const targetGap =
+        recommended.projectedLegacyTodayDollars - baseConstraints.targetLegacyTodayDollars;
+      const remainingYears = Math.max(
+        1,
+        recommended.pathResult.monteCarloMetadata.planningHorizonYears,
+      );
+      const approxRequiredAnnualIncrease = roundCurrency(
+        Math.max(toleranceAnnual, targetGap / remainingYears),
+      );
       const nextCeilingAnnual = roundCurrency(
-        Math.min(
-          maxAutoCeilingAnnual,
-          ceilingAnnual * 1.35 + evaluator.baselineAnnualSpend * 0.1,
+        Math.max(
+          ceilingAnnual + toleranceAnnual,
+          recommended.annualSpend + approxRequiredAnnualIncrease * 1.05,
         ),
       );
       if (nextCeilingAnnual <= ceilingAnnual + 1) {
@@ -1797,6 +1840,13 @@ export function solveSpendByReverseTimeline(input: SpendSolverInputs): SpendSolv
   const distanceFromTarget = legacyTargetScore.distanceToTarget;
   const overTargetPenalty = legacyTargetScore.overTargetPenalty;
   const targetTolerance = getLegacyTargetTolerance(baseConstraints.targetLegacyTodayDollars);
+  const isCeilingBoundAtResult =
+    recommendedAnnualSpend >= ceilingAnnual - toleranceAnnual;
+  const finalBindingConstraint = toFinalBindingConstraint({
+    bindingConstraint,
+    bindingGuardrail,
+    isCeilingBound: isCeilingBoundAtResult,
+  });
   const isTargetBinding =
     bindingGuardrail === 'legacy_target' ||
     Math.abs(distanceFromTarget) <= targetTolerance;
@@ -1919,6 +1969,9 @@ export function solveSpendByReverseTimeline(input: SpendSolverInputs): SpendSolv
     distanceFromTarget,
     overTargetPenalty,
     isTargetBinding,
+    ceilingUsed: ceilingAnnual,
+    ceilingIterations: expansionSteps,
+    finalBindingConstraint,
     legacyGapToTarget,
     overReservedAmount,
     legacyAttainmentMet,
@@ -1966,6 +2019,7 @@ export function solveSpendByReverseTimeline(input: SpendSolverInputs): SpendSolv
     initialCeilingAnnual,
     expansionSteps,
     distanceFromTarget,
+    finalBindingConstraint,
   });
   return result;
 }

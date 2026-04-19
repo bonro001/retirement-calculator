@@ -425,7 +425,13 @@ describe('spend-solver', () => {
     });
 
     expect(result.ceilingAnnual).toBeGreaterThanOrEqual(initialCeilingAnnual);
+    expect(result.ceilingUsed).toBe(result.ceilingAnnual);
+    expect(result.ceilingIterations).toBeGreaterThan(0);
     expect(result.recommendedAnnualSpend).toBeGreaterThanOrEqual(initialCeilingAnnual);
+    const closeToTarget = Math.abs(result.distanceFromTarget) <= Math.max(500_000, 1_000_000 * 0.5);
+    expect(
+      closeToTarget || result.finalBindingConstraint !== 'upper_spending_cap',
+    ).toBe(true);
   }, 20000);
 
   it('lands near target when constraints permit a close target-seeking solution', () => {
