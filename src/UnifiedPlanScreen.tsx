@@ -779,7 +779,24 @@ export function UnifiedPlanScreen({
           plan: planToAnalyze,
         },
       };
-      worker.postMessage(runMessage);
+      try {
+        worker.postMessage(runMessage);
+      } catch (postError) {
+        requestFingerprintByIdRef.current.delete(requestId);
+        clearTrackedPlanAnalysisTimeout(requestId);
+        stopTrackedPlanAnalysis(requestId, 'error', { reason: 'worker-post-failed' });
+        activeRequestIdRef.current = null;
+        analysisInFlightRef.current = false;
+        setIsRunning(false);
+        setPlanAnalysisStatus(
+          lastRunFingerprintRef.current === latestFingerprintRef.current ? 'fresh' : 'stale',
+        );
+        const message =
+          postError instanceof Error
+            ? postError.message
+            : 'Failed to start plan analysis in worker.';
+        setError(message);
+      }
       return;
     }
 
@@ -860,6 +877,36 @@ export function UnifiedPlanScreen({
     targetSuccessRatePercent,
     travelFlexPercent,
   ]);
+
+  useEffect(() => {
+    if (!isRunning) {
+      return;
+    }
+    const intervalId = window.setInterval(() => {
+      const hasActiveRequest = activeRequestIdRef.current !== null;
+      const isInFlight = analysisInFlightRef.current;
+      if (hasActiveRequest && isInFlight) {
+        return;
+      }
+      if (activeRequestIdRef.current) {
+        requestFingerprintByIdRef.current.delete(activeRequestIdRef.current);
+        clearTrackedPlanAnalysisTimeout(activeRequestIdRef.current);
+        stopTrackedPlanAnalysis(activeRequestIdRef.current, 'cancelled', {
+          reason: 'stale-running-state-guard',
+        });
+        activeRequestIdRef.current = null;
+      }
+      analysisInFlightRef.current = false;
+      setIsRunning(false);
+      setPlanAnalysisStatus(
+        lastRunFingerprintRef.current === latestFingerprintRef.current ? 'fresh' : 'stale',
+      );
+      perfLog('unified-plan', 'running-state guard reset applied');
+    }, 1000);
+    return () => {
+      clearInterval(intervalId);
+    };
+  }, [isRunning, clearTrackedPlanAnalysisTimeout, stopTrackedPlanAnalysis]);
 
   const handleUpdateModelFromDraft = () => {
     const nextApplied = { ...draftConstraintModifiers };
@@ -1042,7 +1089,7 @@ export function UnifiedPlanScreen({
             disabled={isRunning}
             className="rounded-full bg-blue-700 px-3 py-1 text-xs font-semibold text-white transition hover:bg-blue-600 disabled:cursor-not-allowed disabled:opacity-60"
           >
-            Run Plan Analysis
+            {isRunning ? 'Running Plan Analysis…' : 'Run Plan Analysis'}
           </button>
           <span
             className={`rounded-full px-3 py-1 text-xs font-semibold ${
