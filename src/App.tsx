@@ -388,7 +388,6 @@ export function App() {
   const workerRef = useRef<Worker | null>(null);
   const activeRequestIdRef = useRef<string | null>(null);
   const activeRequestInputRef = useRef<string | null>(null);
-  const initialRunRequestedRef = useRef(false);
   const latestInputFingerprintRef = useRef<string>('');
   const lastRunInputsRef = useRef<string | null>(null);
   const requestCounterRef = useRef(0);
@@ -580,12 +579,11 @@ export function App() {
   }, [simulationInputFingerprint, simulationStatus]);
 
   useEffect(() => {
-    if (initialRunRequestedRef.current) {
+    if (simulationResult || activeRequestIdRef.current) {
       return;
     }
-    initialRunRequestedRef.current = true;
     runSimulation();
-  }, [runSimulation]);
+  }, [runSimulation, simulationResult]);
 
   const cancelSimulation = () => {
     const worker = workerRef.current;
