@@ -458,17 +458,11 @@ export function UnifiedPlanScreen({
 
       {currentEvaluation && currentRun ? (
         <SectionCard title="Plan Verdict">
-          <div className="grid gap-3 md:grid-cols-3">
+          <div className="grid gap-3 md:grid-cols-2">
             <div className="rounded-xl bg-white p-3">
               <p className="text-xs text-stone-500">Plan supports</p>
               <p className="mt-1 text-lg font-semibold text-stone-900">
                 {formatCurrency(currentEvaluation.summary.planSupportsAnnual)}/yr
-              </p>
-            </div>
-            <div className="rounded-xl bg-white p-3">
-              <p className="text-xs text-stone-500">Success</p>
-              <p className={`mt-1 text-lg font-semibold ${verdictClassName(currentEvaluation.summary.planVerdict)}`}>
-                {formatPercent(currentEvaluation.summary.successRate)}
               </p>
             </div>
             <div className="rounded-xl bg-white p-3">
