@@ -1485,9 +1485,10 @@ function toFinalBindingConstraint(input: {
   bindingConstraint: string;
   bindingGuardrail: BindingGuardrail;
   isCeilingBound: boolean;
+  ceilingIsArtificial: boolean;
 }) {
   const normalized = input.bindingConstraint.toLowerCase();
-  if (input.isCeilingBound || normalized.includes('upper spending cap')) {
+  if (input.isCeilingBound && input.ceilingIsArtificial) {
     return 'upper_spending_cap';
   }
   if (normalized.includes('legacy') || input.bindingGuardrail === 'legacy_target') {
@@ -1622,6 +1623,7 @@ export function solveSpendByReverseTimeline(input: SpendSolverInputs): SpendSolv
   };
   let ceilingAnnual = initialCeilingAnnual;
   let expansionSteps = 0;
+  let ceilingExpansionBlockedByGuardrail = false;
   let baseSearch =
     objective === 'maximize_time_weighted_spending'
       ? solveForTimeWeightedSpend({
@@ -1650,13 +1652,22 @@ export function solveSpendByReverseTimeline(input: SpendSolverInputs): SpendSolv
 
   if (objective === 'maximize_time_weighted_spending') {
     const targetTolerance = getLegacyTargetTolerance(baseConstraints.targetLegacyTodayDollars);
-    const maxCeilingExpansionSteps = Math.max(2, Math.min(4, Math.floor(maxIterations / 2)));
+    const maxCeilingExpansionSteps = Math.max(12, maxIterations * 6);
     while (
       expansionSteps < maxCeilingExpansionSteps &&
       recommended.annualSpend >= ceilingAnnual - toleranceAnnual &&
       recommended.projectedLegacyTodayDollars >
         baseConstraints.targetLegacyTodayDollars + targetTolerance
     ) {
+      const probeSpend = roundCurrency(
+        recommended.annualSpend + Math.max(toleranceAnnual, recommended.annualSpend * 0.01),
+      );
+      const probeEvaluation = evaluateFlat(probeSpend);
+      if (!isFeasible(probeEvaluation, baseConstraints)) {
+        ceilingExpansionBlockedByGuardrail = true;
+        break;
+      }
+
       const targetGap =
         recommended.projectedLegacyTodayDollars - baseConstraints.targetLegacyTodayDollars;
       const remainingYears = Math.max(
@@ -1670,6 +1681,7 @@ export function solveSpendByReverseTimeline(input: SpendSolverInputs): SpendSolv
         Math.max(
           ceilingAnnual + toleranceAnnual,
           recommended.annualSpend + approxRequiredAnnualIncrease * 1.05,
+          probeSpend + approxRequiredAnnualIncrease * 0.5,
         ),
       );
       if (nextCeilingAnnual <= ceilingAnnual + 1) {
@@ -1842,15 +1854,6 @@ export function solveSpendByReverseTimeline(input: SpendSolverInputs): SpendSolv
   const targetTolerance = getLegacyTargetTolerance(baseConstraints.targetLegacyTodayDollars);
   const isCeilingBoundAtResult =
     recommendedAnnualSpend >= ceilingAnnual - toleranceAnnual;
-  const finalBindingConstraint = toFinalBindingConstraint({
-    bindingConstraint,
-    bindingGuardrail,
-    isCeilingBound: isCeilingBoundAtResult,
-  });
-  const isTargetBinding =
-    bindingGuardrail === 'legacy_target' ||
-    Math.abs(distanceFromTarget) <= targetTolerance;
-
   const bindingConstraint = buildConstraintExplanation({
     recommended,
     constraints: baseConstraints,
@@ -1860,6 +1863,15 @@ export function solveSpendByReverseTimeline(input: SpendSolverInputs): SpendSolv
     toleranceAnnual,
     feasible,
   });
+  const finalBindingConstraint = toFinalBindingConstraint({
+    bindingConstraint,
+    bindingGuardrail,
+    isCeilingBound: isCeilingBoundAtResult,
+    ceilingIsArtificial: !ceilingExpansionBlockedByGuardrail,
+  });
+  const isTargetBinding =
+    bindingGuardrail === 'legacy_target' ||
+    Math.abs(distanceFromTarget) <= targetTolerance;
   const actionableExplanation = buildActionableExplanation({
     evaluate: evaluateFlat,
     recommended,
