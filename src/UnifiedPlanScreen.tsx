@@ -16,7 +16,8 @@ import type { IrmaaPosture } from './retirement-plan';
 import { useAppStore } from './store';
 import { formatCurrency, formatPercent } from './utils';
 
-const INTERACTIVE_UNIFIED_PLAN_MAX_RUNS = 700;
+const INTERACTIVE_UNIFIED_PLAN_MAX_RUNS = 250;
+const PLAN_ANALYSIS_TIMEOUT_MS = 45_000;
 const PLAN_ANALYSIS_REQUEST_PREFIX = 'plan-analysis-request';
 type PlanSimulationStatus = 'fresh' | 'stale' | 'running';
 type PlanAnalysisStatus = 'fresh' | 'stale' | 'running';
@@ -465,6 +466,9 @@ export function UnifiedPlanScreen({
   const analysisTimersRef = useRef(
     new Map<string, ReturnType<typeof perfStart>>(),
   );
+  const analysisTimeoutsRef = useRef(
+    new Map<string, ReturnType<typeof setTimeout>>(),
+  );
   const analysisInFlightRef = useRef(false);
   const analysisRunCountRef = useRef(0);
   const hasInitializedRef = useRef(false);
@@ -560,6 +564,15 @@ export function UnifiedPlanScreen({
     [],
   );
 
+  const clearTrackedPlanAnalysisTimeout = useCallback((requestId: string) => {
+    const timeoutId = analysisTimeoutsRef.current.get(requestId);
+    if (!timeoutId) {
+      return;
+    }
+    clearTimeout(timeoutId);
+    analysisTimeoutsRef.current.delete(requestId);
+  }, []);
+
   useEffect(() => {
     if (typeof Worker === 'undefined') {
       return undefined;
@@ -578,6 +591,7 @@ export function UnifiedPlanScreen({
 
       if (message.type === 'cancelled') {
         requestFingerprintByIdRef.current.delete(message.requestId);
+        clearTrackedPlanAnalysisTimeout(message.requestId);
         stopTrackedPlanAnalysis(message.requestId, 'cancelled');
         activeRequestIdRef.current = null;
         analysisInFlightRef.current = false;
@@ -590,6 +604,7 @@ export function UnifiedPlanScreen({
 
       if (message.type === 'error') {
         requestFingerprintByIdRef.current.delete(message.requestId);
+        clearTrackedPlanAnalysisTimeout(message.requestId);
         stopTrackedPlanAnalysis(message.requestId, 'error', { error: message.error });
         activeRequestIdRef.current = null;
         analysisInFlightRef.current = false;
@@ -605,6 +620,7 @@ export function UnifiedPlanScreen({
         requestFingerprintByIdRef.current.get(message.requestId) ??
         latestFingerprintRef.current;
       requestFingerprintByIdRef.current.delete(message.requestId);
+      clearTrackedPlanAnalysisTimeout(message.requestId);
       activeRequestIdRef.current = null;
       analysisInFlightRef.current = false;
       setIsRunning(false);
@@ -628,6 +644,7 @@ export function UnifiedPlanScreen({
     return () => {
       const activeRequestId = activeRequestIdRef.current;
       if (activeRequestId) {
+        clearTrackedPlanAnalysisTimeout(activeRequestId);
         const cancelMessage: PlanAnalysisWorkerRequest = {
           type: 'cancel',
           requestId: activeRequestId,
@@ -639,9 +656,11 @@ export function UnifiedPlanScreen({
       workerRef.current = null;
       activeRequestIdRef.current = null;
       analysisTimersRef.current.clear();
+      analysisTimeoutsRef.current.forEach((timeoutId) => clearTimeout(timeoutId));
+      analysisTimeoutsRef.current.clear();
       requestFingerprintByIdRef.current.clear();
     };
-  }, [stopTrackedPlanAnalysis]);
+  }, [clearTrackedPlanAnalysisTimeout, stopTrackedPlanAnalysis]);
 
   const runUnifiedAnalysis = useCallback((
     reason: 'initial-load' | 'manual' | 'update-model',
@@ -723,6 +742,34 @@ export function UnifiedPlanScreen({
       travelFlexPercent,
     });
     const worker = workerRef.current;
+    const timeoutId = setTimeout(() => {
+      if (activeRequestIdRef.current !== requestId) {
+        return;
+      }
+      perfLog('unified-plan', 'simulation timeout', {
+        requestId,
+        timeoutMs: PLAN_ANALYSIS_TIMEOUT_MS,
+        runCount: analysisRunCountRef.current,
+      });
+      requestFingerprintByIdRef.current.delete(requestId);
+      clearTrackedPlanAnalysisTimeout(requestId);
+      stopTrackedPlanAnalysis(requestId, 'cancelled', { reason: 'timeout' });
+      const timeoutCancelMessage: PlanAnalysisWorkerRequest = {
+        type: 'cancel',
+        requestId,
+      };
+      workerRef.current?.postMessage(timeoutCancelMessage);
+      activeRequestIdRef.current = null;
+      analysisInFlightRef.current = false;
+      setIsRunning(false);
+      setError(
+        'Plan analysis timed out. Try "Run Plan Analysis" again after reducing stressors or simulation complexity.',
+      );
+      setPlanAnalysisStatus(
+        lastRunFingerprintRef.current === latestFingerprintRef.current ? 'fresh' : 'stale',
+      );
+    }, PLAN_ANALYSIS_TIMEOUT_MS);
+    analysisTimeoutsRef.current.set(requestId, timeoutId);
 
     if (worker) {
       const runMessage: PlanAnalysisWorkerRequest = {
@@ -744,6 +791,7 @@ export function UnifiedPlanScreen({
             stopTrackedPlanAnalysis(requestId, 'cancelled', {
               reason: 'superseded',
             });
+            clearTrackedPlanAnalysisTimeout(requestId);
             return;
           }
           setPreviousEvaluation(latestEvaluationRef.current);
@@ -757,6 +805,7 @@ export function UnifiedPlanScreen({
             staleAtCompletion: runFingerprint !== latestFingerprintRef.current,
             fallback: true,
           });
+          clearTrackedPlanAnalysisTimeout(requestId);
           perfLog('unified-plan', 'simulation end', {
             runCount: analysisRunCountRef.current,
             successRate: evaluation.summary.successRate,
@@ -769,6 +818,7 @@ export function UnifiedPlanScreen({
               reason: 'superseded',
               fallback: true,
             });
+            clearTrackedPlanAnalysisTimeout(requestId);
             return;
           }
           const message = runError instanceof Error ? runError.message : 'Unified plan analysis failed.';
@@ -780,6 +830,7 @@ export function UnifiedPlanScreen({
             message,
             fallback: true,
           });
+          clearTrackedPlanAnalysisTimeout(requestId);
         } finally {
           if (activeRequestIdRef.current === requestId) {
             activeRequestIdRef.current = null;
@@ -805,6 +856,7 @@ export function UnifiedPlanScreen({
     selectedStressors,
     stopTrackedPlanAnalysis,
     currentEvaluation,
+    clearTrackedPlanAnalysisTimeout,
     targetSuccessRatePercent,
     travelFlexPercent,
   ]);
