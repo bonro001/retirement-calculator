@@ -785,91 +785,79 @@ export function App() {
             />
           </section>
           <div className="lg:min-h-0 lg:flex-1 lg:overflow-y-auto lg:pr-1">
-            <section className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_340px]">
-              <div className="space-y-6">
-                {currentScreen === 'overview' && (
-                  <UnifiedPlanScreen
-                    data={data}
-                    assumptions={draftAssumptions}
-                    selectedStressors={draftSelectedStressors}
-                    selectedResponses={draftSelectedResponses}
-                    pathResults={displayedPathResults}
-                  />
-                )}
-                {currentScreen === 'paths' && (
-                  <PathComparisonScreen
-                    pathResults={displayedPathResults}
-                    selectedStressors={draftSelectedStressors}
-                    selectedResponses={draftSelectedResponses}
-                  />
-                )}
-                {currentScreen === 'compare' && (
-                  <ScenarioCompareScreen
-                    data={data}
-                    assumptions={draftAssumptions}
-                    selectedStressors={draftSelectedStressors}
-                    selectedResponses={draftSelectedResponses}
-                  />
-                )}
-                {currentScreen === 'solver' && (
-                  <SpendSolverScreen
-                    data={data}
-                    assumptions={draftAssumptions}
-                    selectedStressors={draftSelectedStressors}
-                    selectedResponses={draftSelectedResponses}
-                  />
-                )}
-                {currentScreen === 'autopilot' && (
-                  <AutopilotPlanScreen
-                    data={data}
-                    assumptions={draftAssumptions}
-                    selectedStressors={draftSelectedStressors}
-                    selectedResponses={draftSelectedResponses}
-                  />
-                )}
-                {currentScreen === 'accounts' && <AccountsScreen />}
-                {currentScreen === 'spending' && (
-                  <SpendingScreen
-                    annualCoreSpend={annualCoreSpend}
-                    annualStretchSpend={annualStretchSpend}
-                    retirementDate={data.income.salaryEndDate}
-                  />
-                )}
-                {currentScreen === 'income' && <IncomeScreen />}
-                {currentScreen === 'taxes' && <TaxesScreen />}
-                {currentScreen === 'stress' && (
-                  <StressScreen projectionSeries={projectionSeries} />
-                )}
-                {currentScreen === 'simulation' && (
-                  <SimulationScreen
-                    assumptions={draftAssumptions}
-                    distributionSeries={distributionSeries}
-                    parityReport={parityReport}
-                    primaryPath={primaryPath}
-                    projectionSeries={projectionSeries}
-                  />
-                )}
-                {currentScreen === 'insights' && (
-                  <UnifiedPlanScreen
-                    data={data}
-                    assumptions={draftAssumptions}
-                    selectedStressors={draftSelectedStressors}
-                    selectedResponses={draftSelectedResponses}
-                    pathResults={displayedPathResults}
-                  />
-                )}
-                {currentScreen === 'export' && <ExportScreen />}
-              </div>
-
-              <EditDrawer
-                currentScreen={currentScreen}
-                annualStretchSpend={annualStretchSpend}
-                simulationStatus={simulationStatus}
-                isSimulationRunning={isSimulationRunning}
-                simulationProgress={simulationProgress}
-                simulationError={simulationError}
-                onCancelSimulation={cancelSimulation}
-              />
+            <section className="space-y-6">
+              {currentScreen === 'overview' && (
+                <UnifiedPlanScreen
+                  data={data}
+                  assumptions={draftAssumptions}
+                  selectedStressors={draftSelectedStressors}
+                  selectedResponses={draftSelectedResponses}
+                  pathResults={displayedPathResults}
+                />
+              )}
+              {currentScreen === 'paths' && (
+                <PathComparisonScreen
+                  pathResults={displayedPathResults}
+                  selectedStressors={draftSelectedStressors}
+                  selectedResponses={draftSelectedResponses}
+                />
+              )}
+              {currentScreen === 'compare' && (
+                <ScenarioCompareScreen
+                  data={data}
+                  assumptions={draftAssumptions}
+                  selectedStressors={draftSelectedStressors}
+                  selectedResponses={draftSelectedResponses}
+                />
+              )}
+              {currentScreen === 'solver' && (
+                <SpendSolverScreen
+                  data={data}
+                  assumptions={draftAssumptions}
+                  selectedStressors={draftSelectedStressors}
+                  selectedResponses={draftSelectedResponses}
+                />
+              )}
+              {currentScreen === 'autopilot' && (
+                <AutopilotPlanScreen
+                  data={data}
+                  assumptions={draftAssumptions}
+                  selectedStressors={draftSelectedStressors}
+                  selectedResponses={draftSelectedResponses}
+                />
+              )}
+              {currentScreen === 'accounts' && <AccountsScreen />}
+              {currentScreen === 'spending' && (
+                <SpendingScreen
+                  annualCoreSpend={annualCoreSpend}
+                  annualStretchSpend={annualStretchSpend}
+                  retirementDate={data.income.salaryEndDate}
+                />
+              )}
+              {currentScreen === 'income' && <IncomeScreen />}
+              {currentScreen === 'taxes' && <TaxesScreen />}
+              {currentScreen === 'stress' && (
+                <StressScreen projectionSeries={projectionSeries} />
+              )}
+              {currentScreen === 'simulation' && (
+                <SimulationScreen
+                  assumptions={draftAssumptions}
+                  distributionSeries={distributionSeries}
+                  parityReport={parityReport}
+                  primaryPath={primaryPath}
+                  projectionSeries={projectionSeries}
+                />
+              )}
+              {currentScreen === 'insights' && (
+                <UnifiedPlanScreen
+                  data={data}
+                  assumptions={draftAssumptions}
+                  selectedStressors={draftSelectedStressors}
+                  selectedResponses={draftSelectedResponses}
+                  pathResults={displayedPathResults}
+                />
+              )}
+              {currentScreen === 'export' && <ExportScreen />}
             </section>
           </div>
         </main>
@@ -3400,419 +3388,6 @@ function ExportScreen() {
         </pre>
       </div>
     </Panel>
-  );
-}
-
-function EditDrawer({
-  currentScreen,
-  annualStretchSpend,
-  simulationStatus,
-  isSimulationRunning,
-  simulationProgress,
-  simulationError,
-  onCancelSimulation,
-}: {
-  currentScreen: ScreenId;
-  annualStretchSpend: number;
-  simulationStatus: SimulationStatus;
-  isSimulationRunning: boolean;
-  simulationProgress: number;
-  simulationError: string | null;
-  onCancelSimulation: () => void;
-}) {
-  const data = useAppStore((state) => state.data);
-  const draftAssumptions = useAppStore((state) => state.draftAssumptions);
-  const draftSelectedResponses = useAppStore((state) => state.draftSelectedResponses);
-  const draftSelectedStressors = useAppStore((state) => state.draftSelectedStressors);
-  const toggleResponse = useAppStore((state) => state.toggleResponse);
-  const toggleStressor = useAppStore((state) => state.toggleStressor);
-  const updateAssumption = useAppStore((state) => state.updateAssumption);
-  const updateIncome = useAppStore((state) => state.updateIncome);
-  const updateSocialSecurityClaim = useAppStore((state) => state.updateSocialSecurityClaim);
-  const updateSpending = useAppStore((state) => state.updateSpending);
-  const updateWindfall = useAppStore((state) => state.updateWindfall);
-  const areControlsLocked = isSimulationRunning;
-  const isOverviewScreen = currentScreen === 'overview';
-  const sectionStorageKey = 'retirement-path-lab-overview-sections-v1';
-  const defaultSectionState = {
-    basePlan: false,
-    spending: false,
-    incomeTiming: false,
-    assumptions: false,
-    planSettings: false,
-  };
-  const [sectionState, setSectionState] = useState(defaultSectionState);
-
-  useEffect(() => {
-    if (!isOverviewScreen || typeof window === 'undefined') {
-      return;
-    }
-
-    const saved = window.sessionStorage.getItem(sectionStorageKey);
-    if (!saved) {
-      return;
-    }
-
-    try {
-      const parsed = JSON.parse(saved) as Partial<typeof defaultSectionState>;
-      setSectionState((previous) => ({
-        ...previous,
-        ...parsed,
-      }));
-    } catch {
-      setSectionState(defaultSectionState);
-    }
-  }, [isOverviewScreen]);
-
-  useEffect(() => {
-    if (!isOverviewScreen || typeof window === 'undefined') {
-      return;
-    }
-    window.sessionStorage.setItem(sectionStorageKey, JSON.stringify(sectionState));
-  }, [isOverviewScreen, sectionState]);
-
-  const setSectionOpen = (
-    key: keyof typeof defaultSectionState,
-    open: boolean,
-  ) => {
-    setSectionState((previous) => ({
-      ...previous,
-      [key]: open,
-    }));
-  };
-
-  const basePlanSummary = `${formatCurrency(data.income.salaryAnnual)} salary • ends ${formatDate(data.income.salaryEndDate)}`;
-  const spendingSummary = `${formatCurrency(data.spending.essentialMonthly)}/mo essential • ${formatCurrency(data.spending.optionalMonthly)}/mo optional`;
-  const incomeTimingSummary = `SS ${data.income.socialSecurity.map((entry) => `${formatPersonLabel(entry.person)} ${entry.claimAge}`).join(' / ')} • windfalls ${data.income.windfalls.map((windfall) => `${formatWindfallLabel(windfall.name)} ${windfall.year}`).join(' / ')}`;
-  const assumptionsSummary = `Eq ${formatPercent(draftAssumptions.equityMean)} • Vol ${formatPercent(draftAssumptions.equityVolatility)} • Inflation ${formatPercent(draftAssumptions.inflation)}`;
-  const planSettingsSummary = `Horizon ${draftAssumptions.robPlanningEndAge}/${draftAssumptions.debbiePlanningEndAge} • Travel ${draftAssumptions.travelPhaseYears}y`;
-  const useUnifiedPlanControlSurface =
-    currentScreen === 'overview' || currentScreen === 'insights';
-
-  if (useUnifiedPlanControlSurface) {
-    return (
-      <aside className="rounded-[32px] border border-white/70 bg-stone-950 p-5 text-stone-50 shadow-xl shadow-stone-900/20">
-        <div className="mb-4">
-          <p className="text-xs uppercase tracking-[0.22em] text-stone-400">Edit drawer</p>
-          <h2 className="mt-2 font-serif text-2xl leading-tight">Plan controls are in the main panel.</h2>
-        </div>
-
-        <div className="rounded-[24px] border border-stone-800 bg-stone-900/70 p-4">
-          <p className="text-sm font-medium text-stone-300">Simulation status</p>
-          <p className="mt-2 text-xs text-stone-400">
-            {simulationError
-              ? `Error: ${simulationError}`
-              : isSimulationRunning
-                ? `Running... ${Math.round(simulationProgress * 100)}%`
-                : simulationStatus === 'stale'
-                  ? 'Results outdated. Use Run Simulation to refresh.'
-                  : 'Fresh'}
-          </p>
-          {isSimulationRunning ? (
-            <button
-              type="button"
-              onClick={onCancelSimulation}
-              className="mt-3 w-full rounded-2xl border border-stone-700 px-4 py-2 text-sm font-semibold text-stone-200 transition hover:border-stone-500 hover:text-stone-100"
-            >
-              Cancel Simulation
-            </button>
-          ) : null}
-        </div>
-      </aside>
-    );
-  }
-
-  return (
-    <aside className="rounded-[32px] border border-white/70 bg-stone-950 p-5 text-stone-50 shadow-xl shadow-stone-900/20">
-      <div className="mb-6">
-        <p className="text-xs uppercase tracking-[0.22em] text-stone-400">
-          Edit drawer
-        </p>
-        <h2 className="mt-2 font-serif text-3xl leading-tight">
-          Tune the path inputs without losing the big picture.
-        </h2>
-      </div>
-
-      <div className="space-y-6">
-        <section>
-          <div className="mb-3 flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <h3 className="text-lg font-semibold">Stressors</h3>
-              <InfoPopover title="Stressors" body={DRAWER_SECTION_HELP.stressors} />
-            </div>
-            <p className="text-sm text-stone-400">{draftSelectedStressors.length} active</p>
-          </div>
-          <div className="space-y-2">
-            {data.stressors.map((item) => (
-              <ToggleChip
-                key={item.id}
-                active={draftSelectedStressors.includes(item.id)}
-                label={item.name}
-                helpText={DRAWER_SELECTOR_HELP.stressors[item.id]}
-                disabled={areControlsLocked}
-                onClick={() => toggleStressor(item.id)}
-              />
-            ))}
-          </div>
-        </section>
-
-        <section>
-          <div className="mb-3 flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <h3 className="text-lg font-semibold">Solutions</h3>
-              <InfoPopover title="Solutions" body={DRAWER_SECTION_HELP.solutions} />
-            </div>
-            <p className="text-sm text-stone-400">{draftSelectedResponses.length} active</p>
-          </div>
-          <div className="space-y-2">
-            {data.responses.map((item) => (
-              <ToggleChip
-                key={item.id}
-                active={draftSelectedResponses.includes(item.id)}
-                label={item.name}
-                helpText={DRAWER_SELECTOR_HELP.responses[item.id]}
-                disabled={areControlsLocked}
-                onClick={() => toggleResponse(item.id)}
-              />
-            ))}
-          </div>
-        </section>
-
-        <AccordionSection
-          title="Base plan inputs"
-          summary={basePlanSummary}
-          isOpen={!isOverviewScreen || sectionState.basePlan}
-          isCollapsible={isOverviewScreen}
-          disabled={areControlsLocked}
-          onToggle={() => setSectionOpen('basePlan', !sectionState.basePlan)}
-        >
-          <div className="space-y-3">
-            <NumberInputControl
-              label="Salary annual"
-              value={data.income.salaryAnnual}
-              min={0}
-              step={1000}
-              disabled={areControlsLocked}
-              onChange={(value) => updateIncome('salaryAnnual', value)}
-            />
-            <DateInputControl
-              label="Salary end date"
-              value={data.income.salaryEndDate}
-              disabled={areControlsLocked}
-              onChange={(value) => updateIncome('salaryEndDate', value)}
-            />
-          </div>
-        </AccordionSection>
-
-        <AccordionSection
-          title="Spending inputs"
-          summary={spendingSummary}
-          isOpen={!isOverviewScreen || sectionState.spending}
-          isCollapsible={isOverviewScreen}
-          disabled={areControlsLocked}
-          onToggle={() => setSectionOpen('spending', !sectionState.spending)}
-        >
-          <div className="space-y-3">
-            <NumberInputControl
-              label="Essential monthly"
-              value={data.spending.essentialMonthly}
-              min={0}
-              step={100}
-              disabled={areControlsLocked}
-              onChange={(value) => updateSpending('essentialMonthly', value)}
-            />
-            <NumberInputControl
-              label="Optional monthly"
-              value={data.spending.optionalMonthly}
-              min={0}
-              step={100}
-              disabled={areControlsLocked}
-              onChange={(value) => updateSpending('optionalMonthly', value)}
-            />
-            <NumberInputControl
-              label="Taxes + insurance annual"
-              value={data.spending.annualTaxesInsurance}
-              min={0}
-              step={500}
-              disabled={areControlsLocked}
-              onChange={(value) => updateSpending('annualTaxesInsurance', value)}
-            />
-            <NumberInputControl
-              label="Travel annual (early retirement)"
-              value={data.spending.travelEarlyRetirementAnnual}
-              min={0}
-              step={500}
-              disabled={areControlsLocked}
-              onChange={(value) => updateSpending('travelEarlyRetirementAnnual', value)}
-            />
-          </div>
-        </AccordionSection>
-
-        <AccordionSection
-          title="Income timing"
-          summary={incomeTimingSummary}
-          isOpen={!isOverviewScreen || sectionState.incomeTiming}
-          isCollapsible={isOverviewScreen}
-          disabled={areControlsLocked}
-          onToggle={() => setSectionOpen('incomeTiming', !sectionState.incomeTiming)}
-        >
-          <div className="space-y-4">
-            <div className="space-y-3">
-              {data.income.socialSecurity.map((entry) => (
-                <RangeControl
-                  key={entry.person}
-                  label={`${formatPersonLabel(entry.person)} SS claim age`}
-                  min={62}
-                  max={70}
-                  step={1}
-                  value={entry.claimAge}
-                  valueDisplay={`${entry.claimAge}`}
-                  disabled={areControlsLocked}
-                  onChange={(value) =>
-                    updateSocialSecurityClaim(entry.person, Math.round(value))
-                  }
-                />
-              ))}
-            </div>
-            <div className="space-y-3">
-              {data.income.windfalls.map((windfall) => (
-                <div key={windfall.name} className="grid gap-3 sm:grid-cols-2">
-                  <NumberInputControl
-                    label={`${formatWindfallLabel(windfall.name)} year`}
-                    value={windfall.year}
-                    min={new Date().getFullYear()}
-                    step={1}
-                    disabled={areControlsLocked}
-                    onChange={(value) =>
-                      updateWindfall(windfall.name, 'year', Math.round(value))
-                    }
-                  />
-                  <NumberInputControl
-                    label={`${formatWindfallLabel(windfall.name)} amount`}
-                    value={windfall.amount}
-                    min={0}
-                    step={10000}
-                    disabled={areControlsLocked}
-                    onChange={(value) => updateWindfall(windfall.name, 'amount', value)}
-                  />
-                </div>
-              ))}
-            </div>
-          </div>
-        </AccordionSection>
-
-        <AccordionSection
-          title="Market assumptions"
-          summary={assumptionsSummary}
-          isOpen={!isOverviewScreen || sectionState.assumptions}
-          isCollapsible={isOverviewScreen}
-          disabled={areControlsLocked}
-          onToggle={() => setSectionOpen('assumptions', !sectionState.assumptions)}
-        >
-          <div className="space-y-4">
-            <RangeControl
-              label={`Equity mean ${formatPercent(draftAssumptions.equityMean)}`}
-              min={0.04}
-              max={0.1}
-              step={0.002}
-              value={draftAssumptions.equityMean}
-              disabled={areControlsLocked}
-              onChange={(value) => updateAssumption('equityMean', value)}
-            />
-            <RangeControl
-              label={`Equity volatility ${formatPercent(draftAssumptions.equityVolatility)}`}
-              min={0.08}
-              max={0.28}
-              step={0.005}
-              value={draftAssumptions.equityVolatility}
-              disabled={areControlsLocked}
-              onChange={(value) => updateAssumption('equityVolatility', value)}
-            />
-            <RangeControl
-              label={`Inflation ${formatPercent(draftAssumptions.inflation)}`}
-              min={0.01}
-              max={0.07}
-              step={0.002}
-              value={draftAssumptions.inflation}
-              disabled={areControlsLocked}
-              onChange={(value) => updateAssumption('inflation', value)}
-            />
-          </div>
-        </AccordionSection>
-
-        <AccordionSection
-          title="Plan settings"
-          summary={planSettingsSummary}
-          isOpen={!isOverviewScreen || sectionState.planSettings}
-          isCollapsible={isOverviewScreen}
-          disabled={areControlsLocked}
-          onToggle={() => setSectionOpen('planSettings', !sectionState.planSettings)}
-        >
-          <div className="space-y-4">
-            <RangeControl
-              label="Rob end age"
-              min={80}
-              max={100}
-              step={1}
-              value={draftAssumptions.robPlanningEndAge}
-              valueDisplay={`${draftAssumptions.robPlanningEndAge}`}
-              disabled={areControlsLocked}
-              onChange={(value) => updateAssumption('robPlanningEndAge', value)}
-            />
-            <RangeControl
-              label="Debbie end age"
-              min={80}
-              max={105}
-              step={1}
-              value={draftAssumptions.debbiePlanningEndAge}
-              valueDisplay={`${draftAssumptions.debbiePlanningEndAge}`}
-              disabled={areControlsLocked}
-              onChange={(value) => updateAssumption('debbiePlanningEndAge', value)}
-            />
-            <RangeControl
-              label="Travel phase years"
-              min={0}
-              max={20}
-              step={1}
-              value={draftAssumptions.travelPhaseYears}
-              valueDisplay={`${draftAssumptions.travelPhaseYears}`}
-              disabled={areControlsLocked}
-              onChange={(value) => updateAssumption('travelPhaseYears', value)}
-            />
-          </div>
-        </AccordionSection>
-
-        <section className="rounded-[24px] border border-stone-800 bg-stone-900/70 p-4">
-          <p className="text-sm font-medium text-stone-300">Simulation status</p>
-          {isSimulationRunning ? (
-            <button
-              type="button"
-              onClick={onCancelSimulation}
-              className="mt-3 w-full rounded-2xl border border-stone-700 px-4 py-2 text-sm font-semibold text-stone-200 transition hover:border-stone-500 hover:text-stone-100"
-            >
-              Cancel Simulation
-            </button>
-          ) : null}
-          <p className="mt-2 text-xs text-stone-400">
-            {simulationError
-              ? `Simulation error: ${simulationError}`
-              : isSimulationRunning
-                ? `Simulation running... ${Math.round(simulationProgress * 100)}%`
-                : simulationStatus === 'stale'
-                  ? 'Results are outdated. Run Simulation to refresh.'
-                  : 'Simulation results are fresh.'}
-          </p>
-        </section>
-
-        <section className="rounded-[24px] bg-stone-900 p-4">
-          <p className="text-sm font-medium text-stone-300">Current planning spend</p>
-          <p className="mt-2 text-3xl font-semibold">{formatCurrency(annualStretchSpend)}</p>
-          <p className="mt-2 text-sm leading-6 text-stone-400">
-            This uses the seed file’s essential, optional, taxes/insurance, and early-retirement travel amounts.
-          </p>
-        </section>
-      </div>
-    </aside>
   );
 }
 
