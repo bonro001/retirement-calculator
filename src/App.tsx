@@ -741,6 +741,12 @@ export function App() {
                   parityReport={parityReport}
                   primaryPath={primaryPath}
                   projectionSeries={projectionSeries}
+                  simulationStatus={simulationStatus}
+                  simulationProgress={simulationProgress}
+                  simulationError={simulationError}
+                  isSimulationRunning={isSimulationRunning}
+                  onRunSimulation={runSimulation}
+                  onCancelSimulation={cancelSimulation}
                 />
               )}
               {currentScreen === 'insights' && (
@@ -2622,18 +2628,113 @@ function SimulationScreen({
   parityReport,
   primaryPath,
   projectionSeries,
+  simulationStatus,
+  simulationProgress,
+  simulationError,
+  isSimulationRunning,
+  onRunSimulation,
+  onCancelSimulation,
 }: {
   assumptions: MarketAssumptions;
   distributionSeries: ReturnType<typeof buildDistributionSeries>;
   parityReport: SimulationParityReport;
   primaryPath: PathResult;
   projectionSeries: ReturnType<typeof buildProjectionSeries>;
+  simulationStatus: SimulationStatus;
+  simulationProgress: number;
+  simulationError: string | null;
+  isSimulationRunning: boolean;
+  onRunSimulation: () => void;
+  onCancelSimulation: () => void;
 }) {
+  const stressors = useAppStore((state) => state.data.stressors);
+  const responses = useAppStore((state) => state.data.responses);
+  const selectedStressors = useAppStore((state) => state.draftSelectedStressors);
+  const selectedResponses = useAppStore((state) => state.draftSelectedResponses);
+  const toggleStressor = useAppStore((state) => state.toggleStressor);
+  const toggleResponse = useAppStore((state) => state.toggleResponse);
+
   return (
     <Panel
-      title="Simulation"
-      subtitle="This V1 simulation now runs annual Monte Carlo paths with guardrails, four planning buckets, simple withdrawal sequencing, and stress overlays from the product handoff."
+      title="Simulations"
+      subtitle="Run and inspect simulation outcomes here. Plan uses the last completed simulation result."
     >
+      <div className="mb-6 rounded-[24px] bg-stone-100/85 p-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center gap-2 text-sm text-stone-600">
+            <span className="font-medium text-stone-700">Status</span>
+            {simulationStatus === 'fresh' ? (
+              <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-semibold text-emerald-800">
+                Fresh
+              </span>
+            ) : simulationStatus === 'running' ? (
+              <span className="rounded-full bg-blue-100 px-2.5 py-1 text-xs font-semibold text-blue-800">
+                Running {Math.round(simulationProgress * 100)}%
+              </span>
+            ) : (
+              <span className="rounded-full bg-amber-100 px-2.5 py-1 text-xs font-semibold text-amber-800">
+                Outdated
+              </span>
+            )}
+            {simulationError ? (
+              <span className="text-xs text-red-700">Error: {simulationError}</span>
+            ) : null}
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={onRunSimulation}
+              disabled={isSimulationRunning}
+              className="rounded-full bg-blue-700 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-600 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {isSimulationRunning ? 'Running Simulation…' : 'Run Simulation'}
+            </button>
+            {isSimulationRunning ? (
+              <button
+                type="button"
+                onClick={onCancelSimulation}
+                className="rounded-full border border-stone-300 bg-white px-4 py-2 text-sm font-semibold text-stone-700 transition hover:bg-stone-50"
+              >
+                Cancel
+              </button>
+            ) : null}
+          </div>
+        </div>
+      </div>
+
+      <div className="mb-6 grid gap-4 lg:grid-cols-2">
+        <article className="rounded-[24px] bg-stone-100/85 p-4">
+          <p className="text-sm font-medium text-stone-700">Scenario controls: stressors</p>
+          <div className="mt-3 grid gap-2 md:grid-cols-2">
+            {stressors.map((item) => (
+              <label key={item.id} className="flex items-center gap-2 text-sm text-stone-700">
+                <input
+                  type="checkbox"
+                  checked={selectedStressors.includes(item.id)}
+                  onChange={() => toggleStressor(item.id)}
+                />
+                {item.name}
+              </label>
+            ))}
+          </div>
+        </article>
+        <article className="rounded-[24px] bg-stone-100/85 p-4">
+          <p className="text-sm font-medium text-stone-700">Scenario controls: responses</p>
+          <div className="mt-3 grid gap-2 md:grid-cols-2">
+            {responses.map((item) => (
+              <label key={item.id} className="flex items-center gap-2 text-sm text-stone-700">
+                <input
+                  type="checkbox"
+                  checked={selectedResponses.includes(item.id)}
+                  onChange={() => toggleResponse(item.id)}
+                />
+                {item.name}
+              </label>
+            ))}
+          </div>
+        </article>
+      </div>
+
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <MetricTile label="Equity mean" value={formatPercent(assumptions.equityMean)} />
         <MetricTile
