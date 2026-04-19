@@ -67,6 +67,15 @@ export interface SpendSolverBand {
 
 export interface SpendSolverResult {
   activeOptimizationObjective: OptimizationObjective;
+  supportedMonthlySpendNow: number;
+  supportedAnnualSpendNow: number;
+  supportedSpend60s: number;
+  supportedSpend70s: number;
+  supportedSpend80Plus: number;
+  userTargetSpendNowMonthly: number;
+  userTargetSpendNowAnnual: number;
+  spendGapNowMonthly: number;
+  spendGapNowAnnual: number;
   recommendedAnnualSpend: number;
   recommendedMonthlySpend: number;
   safeSpendingBand: SpendSolverBand;
@@ -74,6 +83,8 @@ export interface SpendSolverResult {
   medianEndingWealth: number;
   p10EndingWealth: number;
   first10YearFailureRisk: number;
+  annualFederalTaxEstimate: number;
+  annualHealthcareCostEstimate: number;
   projectedLegacyOutcomeTodayDollars: number;
   projectedLegacyOutcomeNominalDollars: number;
   targetLegacyTodayDollars: number;
@@ -103,6 +114,8 @@ export interface SpendSolverResult {
   successBuffer: number;
   legacyBuffer: number;
   bindingConstraint: string;
+  primaryTradeoff: string;
+  whySupportedSpendIsNotHigher: string;
   surplusPreservedBecause: string;
   inheritanceMateriality: 'low' | 'medium' | 'high';
   houseRetentionContribution: string;
@@ -531,24 +544,46 @@ function selectPreferredFeasibleByObjective(
   }
 
   if (objective === 'maximize_time_weighted_spending') {
-    const currentScore = scoreUtilityWithLegacyTarget({
+    const currentLegacyScore = scoreUtilityWithLegacyTarget({
       baseUtility: current.utilityScore ?? 0,
       projectedEndingWealthTodayDollars: current.projectedLegacyTodayDollars,
       legacyTargetTodayDollars: constraints.targetLegacyTodayDollars,
     });
-    const candidateScore = scoreUtilityWithLegacyTarget({
+    const candidateLegacyScore = scoreUtilityWithLegacyTarget({
       baseUtility: candidate.utilityScore ?? 0,
       projectedEndingWealthTodayDollars: candidate.projectedLegacyTodayDollars,
       legacyTargetTodayDollars: constraints.targetLegacyTodayDollars,
     });
-    if (candidateScore.compositeScore > currentScore.compositeScore) {
+    const currentHorizonYears = Math.max(
+      1,
+      current.pathResult.monteCarloMetadata.planningHorizonYears,
+    );
+    const candidateHorizonYears = Math.max(
+      1,
+      candidate.pathResult.monteCarloMetadata.planningHorizonYears,
+    );
+    const currentGuardrailPenalty =
+      current.annualFederalTaxEstimate * currentHorizonYears * 0.75 +
+      current.annualHealthcareCostEstimate * currentHorizonYears * 0.9 +
+      current.pathResult.irmaaExposureRate * currentHorizonYears * 10_000;
+    const candidateGuardrailPenalty =
+      candidate.annualFederalTaxEstimate * candidateHorizonYears * 0.75 +
+      candidate.annualHealthcareCostEstimate * candidateHorizonYears * 0.9 +
+      candidate.pathResult.irmaaExposureRate * candidateHorizonYears * 10_000;
+    const currentScore = currentLegacyScore.compositeScore - currentGuardrailPenalty;
+    const candidateScore = candidateLegacyScore.compositeScore - candidateGuardrailPenalty;
+
+    if (candidateScore > currentScore) {
       return candidate;
     }
-    if (candidateScore.compositeScore < currentScore.compositeScore) {
+    if (candidateScore < currentScore) {
       return current;
     }
 
-    if (Math.abs(candidateScore.distanceToTarget) < Math.abs(currentScore.distanceToTarget)) {
+    if (
+      Math.abs(candidateLegacyScore.distanceToTarget) <
+      Math.abs(currentLegacyScore.distanceToTarget)
+    ) {
       return candidate;
     }
   }
@@ -595,9 +630,9 @@ function evaluateSpendCandidateFactory(input: SpendSolverInputs) {
   const weights = input.timePreferenceWeights ?? DEFAULT_TIME_PREFERENCE_WEIGHTS;
   const minimumAcceptableAnnualSpend = Math.max(
     0,
-    input.constraints?.essentialSpendingFloor ??
-      input.spendingFloorAnnual ??
-      spendingProfile.totalMinimumAnnual,
+    spendingProfile.totalMinimumAnnual,
+    input.spendingFloorAnnual ?? 0,
+    input.constraints?.essentialSpendingFloor ?? 0,
   );
 
   const evaluatePath = (
@@ -628,13 +663,14 @@ function evaluateSpendCandidateFactory(input: SpendSolverInputs) {
     );
     const spendingByYear = annualSpendPath.map((point) => point.annualSpend);
     const agesByYear = annualSpendPath.map((point) => point.age);
-    const utilityScore = computeTimeWeightedSpendingUtility({
-      agesByYear,
-      spendingByYear,
-      weights,
-      scope: 'discretionary_above_essential_floor',
-      essentialFloorByYear: annualSpendPath.map(() => minimumAcceptableAnnualSpend),
-    });
+    const utilityScore =
+      computeTimeWeightedSpendingUtility({
+        agesByYear,
+        spendingByYear,
+        weights,
+        scope: 'discretionary_above_essential_floor',
+        essentialFloorByYear: annualSpendPath.map(() => minimumAcceptableAnnualSpend),
+      }) / Math.max(1, agesByYear.length);
     const evaluation: SpendSolverEvaluation = {
       annualSpend: roundCurrency(average(spendingByYear)),
       monthlySpend: roundCurrency(average(spendingByYear) / 12),
@@ -692,13 +728,14 @@ function evaluateSpendCandidateFactory(input: SpendSolverInputs) {
       projectedLegacyTodayDollars,
       annualFederalTaxEstimate: pathResult.annualFederalTaxEstimate,
       annualHealthcareCostEstimate: getAverageAnnualHealthcareCost(pathResult),
-      utilityScore: computeTimeWeightedSpendingUtility({
-        agesByYear: flatPath.map((point) => point.age),
-        spendingByYear: flatPath.map((point) => point.annualSpend),
-        weights,
-        scope: 'discretionary_above_essential_floor',
-        essentialFloorByYear: flatPath.map(() => minimumAcceptableAnnualSpend),
-      }),
+      utilityScore:
+        computeTimeWeightedSpendingUtility({
+          agesByYear: flatPath.map((point) => point.age),
+          spendingByYear: flatPath.map((point) => point.annualSpend),
+          weights,
+          scope: 'discretionary_above_essential_floor',
+          essentialFloorByYear: flatPath.map(() => minimumAcceptableAnnualSpend),
+        }) / Math.max(1, flatPath.length),
     };
     flatCache.set(key, evaluation);
     return evaluation;
@@ -1254,6 +1291,66 @@ function toOptimizationConstraintDriver(
   return 'mixed_or_other';
 }
 
+function toPrimaryTradeoff(input: {
+  bindingConstraint: string;
+  annualFederalTaxEstimate: number;
+  annualHealthcareCostEstimate: number;
+  irmaaExposureRate: number;
+  overReservedAmount: number;
+}): string {
+  const normalized = input.bindingConstraint.toLowerCase();
+  if (normalized.includes('legacy')) {
+    return 'Higher spending now versus landing near the legacy target.';
+  }
+  if (normalized.includes('success')) {
+    return 'Higher spending now versus maintaining the required success floor.';
+  }
+  if (normalized.includes('spending floor')) {
+    return 'Current lifestyle minimums are limiting how far spending can be reduced.';
+  }
+
+  const irmaaSignal =
+    input.irmaaExposureRate > 0.2 ? 'IRMAA exposure' : 'tax and healthcare drag';
+  if (input.overReservedAmount > 0) {
+    return `Present spending is balanced against ${irmaaSignal} and legacy over-reserve reduction.`;
+  }
+  return `Present spending is balanced against ${irmaaSignal} and downside resilience.`;
+}
+
+function toWhySupportedSpendIsNotHigher(input: {
+  bindingConstraint: string;
+  annualFederalTaxEstimate: number;
+  annualHealthcareCostEstimate: number;
+  irmaaExposureRate: number;
+  overReservedAmount: number;
+}): string {
+  const normalized = input.bindingConstraint.toLowerCase();
+  if (normalized.includes('legacy')) {
+    return `Raising spend further would likely push projected legacy below target. Current tax drag is about ${formatCurrency(
+      input.annualFederalTaxEstimate,
+    )}/yr and healthcare premium drag is about ${formatCurrency(
+      input.annualHealthcareCostEstimate,
+    )}/yr.`;
+  }
+  if (normalized.includes('success')) {
+    return `Raising spend further would likely push success below the required floor. Current tax drag is about ${formatCurrency(
+      input.annualFederalTaxEstimate,
+    )}/yr and healthcare premium drag is about ${formatCurrency(
+      input.annualHealthcareCostEstimate,
+    )}/yr.`;
+  }
+  const irmaaText =
+    input.irmaaExposureRate > 0
+      ? `IRMAA exposure appears in ${(input.irmaaExposureRate * 100).toFixed(0)}% of runs`
+      : 'IRMAA exposure remains limited in this run';
+  if (input.overReservedAmount > 0) {
+    return `Supported spend is capped by guardrails even though the plan remains over-reserved by ${formatCurrency(
+      input.overReservedAmount,
+    )}. ${irmaaText}, with taxes and healthcare costs absorbing additional income headroom.`;
+  }
+  return `Supported spend is capped by active guardrails. ${irmaaText}, with taxes and healthcare costs absorbing additional income headroom.`;
+}
+
 export function solveSpendByReverseTimeline(input: SpendSolverInputs): SpendSolverResult {
   const objective = resolveOptimizationObjective(input);
   const finishPerf = perfStart('solver', 'solve-spend', {
@@ -1382,6 +1479,20 @@ export function solveSpendByReverseTimeline(input: SpendSolverInputs): SpendSolv
     recommended.projectedLegacyTodayDollars - baseConstraints.targetLegacyTodayDollars;
   const legacyGapToTarget = legacyBuffer;
   const overReservedAmount = Math.max(0, legacyGapToTarget);
+  const taxHealthcareDragAnnual =
+    recommended.annualFederalTaxEstimate + recommended.annualHealthcareCostEstimate;
+  const taxHealthcareDragRate =
+    taxHealthcareDragAnnual / Math.max(1, recommendedAnnualSpend);
+  const irmaaDragRate = recommended.pathResult.irmaaExposureRate * 0.08;
+  const supportedSpendAdjustmentRate = clamp(
+    taxHealthcareDragRate * 0.16 + irmaaDragRate,
+    0,
+    0.22,
+  );
+  const supportedAnnualSpendNow = roundCurrency(
+    Math.max(floorAnnual, recommendedAnnualSpend * (1 - supportedSpendAdjustmentRate)),
+  );
+  const supportedMonthlySpendNow = roundCurrency(supportedAnnualSpendNow / 12);
 
   const bindingConstraint = buildConstraintExplanation({
     recommended,
@@ -1419,6 +1530,19 @@ export function solveSpendByReverseTimeline(input: SpendSolverInputs): SpendSolv
     currentPath: currentSpendingPath,
     optimizedPath: optimizedSpendingPath,
   });
+  const supportedScale = supportedAnnualSpendNow / Math.max(1, recommendedAnnualSpend);
+  const supportedSpend60s = roundCurrency(
+    (spendingDeltaByPhase.find((phase) => phase.phase === 'go_go')?.optimizedAnnual ??
+      recommendedAnnualSpend) * supportedScale,
+  );
+  const supportedSpend70s = roundCurrency(
+    (spendingDeltaByPhase.find((phase) => phase.phase === 'slow_go')?.optimizedAnnual ??
+      recommendedAnnualSpend) * supportedScale,
+  );
+  const supportedSpend80Plus = roundCurrency(
+    (spendingDeltaByPhase.find((phase) => phase.phase === 'late')?.optimizedAnnual ??
+      recommendedAnnualSpend) * supportedScale,
+  );
   const p10EndingWealth = recommended.pathResult.endingWealthPercentiles.p10;
   const first10YearFailureRisk = getFirst10YearFailureRisk(recommended.pathResult);
   const inheritanceMateriality = toInheritanceMateriality(recommended.pathResult);
@@ -1441,9 +1565,36 @@ export function solveSpendByReverseTimeline(input: SpendSolverInputs): SpendSolv
     optimizationConstraintDriver === 'spending_floors';
   const constrainedByLegacyTarget =
     optimizationConstraintDriver === 'legacy_target';
+  const userTargetSpendNowAnnual = roundCurrency(evaluator.baselineAnnualSpend);
+  const userTargetSpendNowMonthly = roundCurrency(userTargetSpendNowAnnual / 12);
+  const spendGapNowAnnual = roundCurrency(supportedAnnualSpendNow - userTargetSpendNowAnnual);
+  const spendGapNowMonthly = roundCurrency(supportedMonthlySpendNow - userTargetSpendNowMonthly);
+  const primaryTradeoff = toPrimaryTradeoff({
+    bindingConstraint,
+    annualFederalTaxEstimate: recommended.annualFederalTaxEstimate,
+    annualHealthcareCostEstimate: recommended.annualHealthcareCostEstimate,
+    irmaaExposureRate: recommended.pathResult.irmaaExposureRate,
+    overReservedAmount,
+  });
+  const whySupportedSpendIsNotHigher = toWhySupportedSpendIsNotHigher({
+    bindingConstraint,
+    annualFederalTaxEstimate: recommended.annualFederalTaxEstimate,
+    annualHealthcareCostEstimate: recommended.annualHealthcareCostEstimate,
+    irmaaExposureRate: recommended.pathResult.irmaaExposureRate,
+    overReservedAmount,
+  });
 
   const result: SpendSolverResult = {
     activeOptimizationObjective: objective,
+    supportedMonthlySpendNow,
+    supportedAnnualSpendNow,
+    supportedSpend60s,
+    supportedSpend70s,
+    supportedSpend80Plus,
+    userTargetSpendNowMonthly,
+    userTargetSpendNowAnnual,
+    spendGapNowMonthly,
+    spendGapNowAnnual,
     recommendedAnnualSpend,
     recommendedMonthlySpend,
     safeSpendingBand,
@@ -1451,6 +1602,8 @@ export function solveSpendByReverseTimeline(input: SpendSolverInputs): SpendSolv
     medianEndingWealth: recommended.medianEndingWealth,
     p10EndingWealth,
     first10YearFailureRisk,
+    annualFederalTaxEstimate: recommended.annualFederalTaxEstimate,
+    annualHealthcareCostEstimate: recommended.annualHealthcareCostEstimate,
     projectedLegacyOutcomeTodayDollars: recommended.projectedLegacyTodayDollars,
     projectedLegacyOutcomeNominalDollars: recommended.pathResult.medianEndingWealth,
     targetLegacyTodayDollars: baseConstraints.targetLegacyTodayDollars,
@@ -1470,6 +1623,8 @@ export function solveSpendByReverseTimeline(input: SpendSolverInputs): SpendSolv
     successBuffer,
     legacyBuffer,
     bindingConstraint,
+    primaryTradeoff,
+    whySupportedSpendIsNotHigher,
     surplusPreservedBecause,
     inheritanceMateriality,
     houseRetentionContribution,

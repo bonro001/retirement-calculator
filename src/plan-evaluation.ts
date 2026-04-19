@@ -92,6 +92,17 @@ export interface PlanEvaluation {
     legacyOutlook: string;
   };
   calibration: {
+    userTargetMonthlySpendNow: number;
+    userTargetAnnualSpendNow: number;
+    supportedMonthlySpendNow: number;
+    supportedAnnualSpendNow: number;
+    supportedSpend60s: number;
+    supportedSpend70s: number;
+    supportedSpend80Plus: number;
+    spendGapNowMonthly: number;
+    spendGapNowAnnual: number;
+    flexibleSpendingMinimum: number;
+    overReservedAmount: number;
     supportedAnnualSpend: number;
     supportedMonthlySpend: number;
     safeBandAnnual: {
@@ -105,6 +116,8 @@ export interface PlanEvaluation {
     projectedLegacyTodayDollars: number;
     modeledSuccessRate: number;
     bindingConstraint: string;
+    primaryTradeoff: string;
+    whySupportedSpendIsNotHigher: string;
   };
   responsePolicy: {
     posture: 'defensive' | 'balanced';
@@ -600,8 +613,8 @@ export async function evaluatePlan(
 
   const evaluation: PlanEvaluation = {
     summary: {
-      planSupportsAnnual: planRun.solver.recommendedAnnualSpend,
-      planSupportsMonthly: planRun.solver.recommendedMonthlySpend,
+      planSupportsAnnual: planRun.solver.supportedAnnualSpendNow,
+      planSupportsMonthly: planRun.solver.supportedMonthlySpendNow,
       successRate: decision.baseline.successRate,
       planVerdict: toPlanVerdict(decision.baseline.successRate),
       biggestDriver,
@@ -616,8 +629,19 @@ export async function evaluatePlan(
       legacyOutlook,
     },
     calibration: {
-      supportedAnnualSpend: planRun.solver.recommendedAnnualSpend,
-      supportedMonthlySpend: planRun.solver.recommendedMonthlySpend,
+      userTargetMonthlySpendNow: planRun.solver.userTargetSpendNowMonthly,
+      userTargetAnnualSpendNow: planRun.solver.userTargetSpendNowAnnual,
+      supportedMonthlySpendNow: planRun.solver.supportedMonthlySpendNow,
+      supportedAnnualSpendNow: planRun.solver.supportedAnnualSpendNow,
+      supportedSpend60s: planRun.solver.supportedSpend60s,
+      supportedSpend70s: planRun.solver.supportedSpend70s,
+      supportedSpend80Plus: planRun.solver.supportedSpend80Plus,
+      spendGapNowMonthly: planRun.solver.spendGapNowMonthly,
+      spendGapNowAnnual: planRun.solver.spendGapNowAnnual,
+      flexibleSpendingMinimum: planRun.solver.flexibleSpendingMinimum,
+      overReservedAmount: planRun.solver.overReservedAmount,
+      supportedAnnualSpend: planRun.solver.supportedAnnualSpendNow,
+      supportedMonthlySpend: planRun.solver.supportedMonthlySpendNow,
       safeBandAnnual: {
         lower: planRun.solver.safeSpendingBand.lowerAnnual,
         target: planRun.solver.safeSpendingBand.targetAnnual,
@@ -629,6 +653,8 @@ export async function evaluatePlan(
       projectedLegacyTodayDollars: planRun.solver.projectedLegacyOutcomeTodayDollars,
       modeledSuccessRate: planRun.solver.modeledSuccessRate,
       bindingConstraint: planRun.solver.bindingConstraint,
+      primaryTradeoff: planRun.solver.primaryTradeoff,
+      whySupportedSpendIsNotHigher: planRun.solver.whySupportedSpendIsNotHigher,
     },
     responsePolicy: {
       posture: autopilotPosture,

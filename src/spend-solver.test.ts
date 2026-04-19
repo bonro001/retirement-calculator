@@ -78,6 +78,9 @@ describe('spend-solver', () => {
     expect(highLegacy.recommendedAnnualSpend).toBeLessThanOrEqual(
       lowLegacy.recommendedAnnualSpend,
     );
+    expect(highLegacy.supportedAnnualSpendNow).toBeLessThanOrEqual(
+      lowLegacy.supportedAnnualSpendNow,
+    );
   });
 
   it('reduces allowed spending when required success rate increases', () => {
@@ -207,6 +210,148 @@ describe('spend-solver', () => {
     );
     expect(result.recommendedAnnualSpend).toBeGreaterThanOrEqual(result.floorAnnual);
   });
+
+  it('changes supported spending when flexible minimums are tightened', () => {
+    const constrainedData = {
+      ...initialSeedData,
+      accounts: {
+        ...initialSeedData.accounts,
+        pretax: { ...initialSeedData.accounts.pretax, balance: initialSeedData.accounts.pretax.balance * 0.35 },
+        roth: { ...initialSeedData.accounts.roth, balance: initialSeedData.accounts.roth.balance * 0.35 },
+        taxable: { ...initialSeedData.accounts.taxable, balance: initialSeedData.accounts.taxable.balance * 0.35 },
+        cash: { ...initialSeedData.accounts.cash, balance: initialSeedData.accounts.cash.balance * 0.35 },
+      },
+    };
+    const constrainedAssumptions: MarketAssumptions = {
+      ...SOLVER_TEST_ASSUMPTIONS,
+      simulationRuns: 50,
+      equityMean: 0.03,
+      internationalEquityMean: 0.03,
+      bondMean: 0.015,
+      cashMean: 0.005,
+      inflation: 0.04,
+    };
+    const baseline = solveSpendByReverseTimeline({
+      ...buildSolverInput(),
+      data: constrainedData,
+      assumptions: constrainedAssumptions,
+      optimizationObjective: 'maximize_time_weighted_spending',
+      targetLegacyTodayDollars: 900_000,
+      minSuccessRate: 0.9,
+      spendingCeilingAnnual: 200_000,
+      spendingMinimums: {
+        flexibleAnnualMinimum: 10_000,
+      },
+      selectedStressors: ['market_down', 'high_inflation'],
+      selectedResponses: ['cut_spending'],
+    });
+    const tighterMinimum = solveSpendByReverseTimeline({
+      ...buildSolverInput(),
+      data: constrainedData,
+      assumptions: constrainedAssumptions,
+      optimizationObjective: 'maximize_time_weighted_spending',
+      targetLegacyTodayDollars: 900_000,
+      minSuccessRate: 0.9,
+      spendingCeilingAnnual: 200_000,
+      spendingMinimums: {
+        flexibleAnnualMinimum: 45_000,
+      },
+      selectedStressors: ['market_down', 'high_inflation'],
+      selectedResponses: ['cut_spending'],
+    });
+
+    const supportedSpendChanged =
+      tighterMinimum.supportedAnnualSpendNow !== baseline.supportedAnnualSpendNow ||
+      tighterMinimum.supportedSpend60s !== baseline.supportedSpend60s ||
+      tighterMinimum.supportedSpend70s !== baseline.supportedSpend70s ||
+      tighterMinimum.supportedSpend80Plus !== baseline.supportedSpend80Plus;
+    expect(supportedSpendChanged).toBe(true);
+  }, 20000);
+
+  it('changes supported spending when IRMAA/tax constraints tighten', () => {
+    const pretaxHeavyData = {
+      ...initialSeedData,
+      accounts: {
+        ...initialSeedData.accounts,
+        pretax: {
+          ...initialSeedData.accounts.pretax,
+          balance:
+            initialSeedData.accounts.pretax.balance * 0.75 +
+            initialSeedData.accounts.roth.balance * 0.75 +
+            initialSeedData.accounts.taxable.balance * 0.75,
+        },
+        roth: { ...initialSeedData.accounts.roth, balance: initialSeedData.accounts.roth.balance * 0.05 },
+        taxable: { ...initialSeedData.accounts.taxable, balance: initialSeedData.accounts.taxable.balance * 0.05 },
+        cash: { ...initialSeedData.accounts.cash, balance: initialSeedData.accounts.cash.balance * 0.2 },
+      },
+    };
+    const constrainedAssumptions: MarketAssumptions = {
+      ...SOLVER_TEST_ASSUMPTIONS,
+      simulationRuns: 50,
+      equityMean: 0.03,
+      internationalEquityMean: 0.03,
+      bondMean: 0.015,
+      cashMean: 0.005,
+      inflation: 0.04,
+    };
+    const base = solveSpendByReverseTimeline({
+      ...buildSolverInput(),
+      data: pretaxHeavyData,
+      assumptions: constrainedAssumptions,
+      optimizationObjective: 'maximize_time_weighted_spending',
+      targetLegacyTodayDollars: 900_000,
+      minSuccessRate: 0.9,
+      spendingCeilingAnnual: 200_000,
+      selectedStressors: ['market_down', 'high_inflation'],
+      selectedResponses: ['cut_spending'],
+    });
+    const tighterTaxData = {
+      ...pretaxHeavyData,
+      household: {
+        ...pretaxHeavyData.household,
+        filingStatus: 'single',
+      },
+    };
+    const tighterConstraints = solveSpendByReverseTimeline({
+      ...buildSolverInput(),
+      data: tighterTaxData,
+      assumptions: {
+        ...constrainedAssumptions,
+        irmaaThreshold: 60_000,
+      },
+      optimizationObjective: 'maximize_time_weighted_spending',
+      targetLegacyTodayDollars: 900_000,
+      minSuccessRate: 0.9,
+      spendingCeilingAnnual: 200_000,
+      selectedStressors: ['market_down', 'high_inflation'],
+      selectedResponses: ['cut_spending'],
+    });
+
+    const supportedSpendChanged =
+      tighterConstraints.supportedAnnualSpendNow !== base.supportedAnnualSpendNow ||
+      tighterConstraints.supportedSpend60s !== base.supportedSpend60s ||
+      tighterConstraints.supportedSpend70s !== base.supportedSpend70s ||
+      tighterConstraints.supportedSpend80Plus !== base.supportedSpend80Plus;
+    expect(supportedSpendChanged).toBe(true);
+  }, 20000);
+
+  it('keeps supported spending output distinct from user target spending intent', () => {
+    const result = solveSpendByReverseTimeline({
+      ...buildSolverInput(),
+      optimizationObjective: 'maximize_time_weighted_spending',
+      targetLegacyTodayDollars: 1_300_000,
+      minSuccessRate: 0.88,
+      selectedStressors: ['market_down', 'high_inflation'],
+      selectedResponses: ['cut_spending'],
+    });
+
+    expect(result.userTargetSpendNowMonthly).toBeGreaterThan(0);
+    expect(result.supportedMonthlySpendNow).toBeGreaterThan(0);
+    expect(result.userTargetSpendNowMonthly).not.toBe(result.supportedMonthlySpendNow);
+    expect(result.spendGapNowMonthly).toBe(
+      Number((result.supportedMonthlySpendNow - result.userTargetSpendNowMonthly).toFixed(2)),
+    );
+  }, 20000);
 
   it('applies sensible spending-minimum defaults for plans without explicit minimum fields', () => {
     const inferredFloorAnnual = 60_000 + 12_000 + 60_000 * 0.88 + 14_000 * 0.8;

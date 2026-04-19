@@ -846,6 +846,13 @@ export function UnifiedPlanScreen({
     annualFlexibleSpend +
     annualTravelSpend +
     data.spending.annualTaxesInsurance;
+  const userTargetMonthlySpend =
+    currentEvaluation?.calibration.userTargetMonthlySpendNow ?? annualTotalSpend / 12;
+  const plannerSupportedMonthlySpend =
+    currentEvaluation?.calibration.supportedMonthlySpendNow ??
+    (primaryPath.yearlySeries[0]?.medianSpending ?? annualTotalSpend) / 12;
+  const spendGapNowMonthly =
+    currentEvaluation?.calibration.spendGapNowMonthly ?? (plannerSupportedMonthlySpend - userTargetMonthlySpend);
   const topRecommendation = currentEvaluation?.recommendations.top[0] ?? null;
   const timePreference = currentEvaluation?.timePreference ?? null;
   const nextBestStepText = timePreference?.earlySpendingCanIncreaseSafely
@@ -911,6 +918,11 @@ export function UnifiedPlanScreen({
     ? currentEvaluation.recommendations.top.map((item) => item.name)
     : ['No lever available yet'];
   const solverDiagnostics = currentEvaluation?.raw.spendingCalibration;
+  const acaExposureYears = currentEvaluation
+    ? currentEvaluation.raw.run.autopilot.years.filter(
+        (year) => year.acaStatus === 'Above subsidy range' || year.acaStatus === 'Bridge breached',
+      ).length
+    : 0;
   const substantialWealthReasons = solverDiagnostics
     ? [
         solverDiagnostics.surplusPreservedBecause,
@@ -1021,7 +1033,7 @@ export function UnifiedPlanScreen({
 
       <div className="mt-4">
         <SectionCard title="Current Spending Profile">
-            <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
+          <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
             <div className="rounded-xl bg-white p-3">
               <p className="text-xs text-stone-500">Essential</p>
               <p className="mt-1 text-lg font-semibold text-stone-900">
@@ -1029,7 +1041,7 @@ export function UnifiedPlanScreen({
               </p>
             </div>
             <div className="rounded-xl bg-white p-3">
-              <p className="text-xs text-stone-500">Flexible / optional</p>
+              <p className="text-xs text-stone-500">Flexible / optional target</p>
               <p className="mt-1 text-lg font-semibold text-stone-900">
                 {formatCurrency(annualFlexibleSpend)}/yr
               </p>
@@ -1038,7 +1050,7 @@ export function UnifiedPlanScreen({
               </p>
             </div>
             <div className="rounded-xl bg-white p-3">
-              <p className="text-xs text-stone-500">Travel / lifestyle</p>
+              <p className="text-xs text-stone-500">Travel / lifestyle target</p>
               <p className="mt-1 text-lg font-semibold text-stone-900">
                 {formatCurrency(annualTravelSpend)}/yr
               </p>
@@ -1053,11 +1065,83 @@ export function UnifiedPlanScreen({
               </p>
             </div>
           </div>
-          <p className="mt-3 text-sm text-stone-600">
-            Lifestyle floor is preserved by default. Guidance leans on flexible and travel spend before core needs.
-          </p>
+          <div className="mt-3 grid gap-3 md:grid-cols-3">
+            <div className="rounded-xl bg-blue-50 p-3 text-sm text-blue-900">
+              <p className="text-xs uppercase tracking-[0.12em] text-blue-700">User Target Now</p>
+              <p className="mt-1 font-semibold">{formatCurrency(userTargetMonthlySpend)}/mo</p>
+            </div>
+            <div className="rounded-xl bg-emerald-50 p-3 text-sm text-emerald-900">
+              <p className="text-xs uppercase tracking-[0.12em] text-emerald-700">Planner-Supported Now</p>
+              <p className="mt-1 font-semibold">{formatCurrency(plannerSupportedMonthlySpend)}/mo</p>
+            </div>
+            <div className="rounded-xl bg-stone-100 p-3 text-sm text-stone-800">
+              <p className="text-xs uppercase tracking-[0.12em] text-stone-600">Spend Gap Now</p>
+              <p className="mt-1 font-semibold">
+                {spendGapNowMonthly >= 0 ? '+' : ''}
+                {formatCurrency(spendGapNowMonthly)}/mo
+              </p>
+            </div>
+          </div>
         </SectionCard>
       </div>
+
+      {currentEvaluation ? (
+        <div className="mt-4">
+          <SectionCard title="Planner Interpretation">
+            <div className="grid gap-3 md:grid-cols-2">
+              <div className="rounded-xl bg-white p-4 text-sm text-stone-700">
+                <p>“You asked to spend {formatCurrency(currentEvaluation.calibration.userTargetMonthlySpendNow)}/month.”</p>
+                <p className="mt-2">
+                  Current supported spending is {formatCurrency(currentEvaluation.calibration.supportedMonthlySpendNow)}/month with{' '}
+                  {formatPercent(currentEvaluation.summary.successRate)} success.
+                </p>
+                <p className="mt-2">
+                  Binding constraint: {toReadableConstraint(currentEvaluation.calibration.bindingConstraint)}.
+                </p>
+                <p className="mt-2">
+                  Primary tradeoff: {currentEvaluation.calibration.primaryTradeoff}
+                </p>
+                <ul className="mt-3 space-y-1 text-stone-600">
+                  <li>
+                    • Reducing flexible spending toward its floor ({formatCurrency(currentEvaluation.calibration.flexibleSpendingMinimum)}/yr)
+                    can improve resilience without cutting core needs.
+                  </li>
+                  <li>
+                    • Supported spend by phase: 60s {formatCurrency(currentEvaluation.calibration.supportedSpend60s)}/yr, 70s{' '}
+                    {formatCurrency(currentEvaluation.calibration.supportedSpend70s)}/yr, 80+{' '}
+                    {formatCurrency(currentEvaluation.calibration.supportedSpend80Plus)}/yr.
+                  </li>
+                </ul>
+              </div>
+              <div className="rounded-xl bg-white p-4 text-sm text-stone-700">
+                <p>
+                  Tax + healthcare pressure: federal tax estimate{' '}
+                  {formatCurrency(currentEvaluation.raw.spendingCalibration.annualFederalTaxEstimate)}/yr and
+                  healthcare premiums{' '}
+                  {formatCurrency(currentEvaluation.raw.spendingCalibration.annualHealthcareCostEstimate)}/yr.
+                </p>
+                <p className="mt-2">
+                  IRMAA outlook: {currentEvaluation.summary.irmaaOutlook}.
+                </p>
+                <p className="mt-2">
+                  ACA exposure: {acaExposureYears > 0 ? `${acaExposureYears} years above subsidy-safe range.` : 'No ACA breach years in current route.'}
+                </p>
+                <p className="mt-2">
+                  Legacy landing: {formatCurrency(currentEvaluation.raw.spendingCalibration.projectedLegacyOutcomeTodayDollars)} vs target {formatCurrency(currentEvaluation.raw.spendingCalibration.targetLegacyTodayDollars)}.
+                </p>
+                {currentEvaluation.calibration.overReservedAmount > 0 ? (
+                  <p className="mt-2">
+                    This plan is currently over-reserved by {formatCurrency(currentEvaluation.calibration.overReservedAmount)} relative to the legacy target.
+                  </p>
+                ) : null}
+                <p className="mt-2">
+                  {currentEvaluation.calibration.whySupportedSpendIsNotHigher}
+                </p>
+              </div>
+            </div>
+          </SectionCard>
+        </div>
+      ) : null}
 
       <div className="mt-4 grid gap-4 lg:grid-cols-2">
         <SectionCard title="Current Risk">
