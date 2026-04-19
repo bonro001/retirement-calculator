@@ -4,14 +4,20 @@ import { perfLog, perfStart } from './debug-perf';
 import type { OptimizationObjective } from './optimization-objective';
 import {
   evaluatePlan,
+  type Plan,
   type LegacyPriority,
   type PlanEvaluation,
 } from './plan-evaluation';
+import type {
+  PlanAnalysisWorkerRequest,
+  PlanAnalysisWorkerResponse,
+} from './plan-analysis-worker-types';
 import type { IrmaaPosture } from './retirement-plan';
 import { useAppStore } from './store';
 import { formatCurrency, formatPercent } from './utils';
 
 const INTERACTIVE_UNIFIED_PLAN_MAX_RUNS = 700;
+const PLAN_ANALYSIS_REQUEST_PREFIX = 'plan-analysis-request';
 type PlanSimulationStatus = 'fresh' | 'stale' | 'running';
 type PlanAnalysisStatus = 'fresh' | 'stale' | 'running';
 
@@ -351,6 +357,64 @@ function buildPlanAnalysisFingerprint(input: {
   });
 }
 
+function buildPlanForAnalysis(input: {
+  data: SeedData;
+  assumptions: MarketAssumptions;
+  selectedStressors: string[];
+  selectedResponses: string[];
+  modifiers: ConstraintModifiers;
+  preserveRothPreference: boolean;
+  irmaaPosture: IrmaaPosture;
+  legacyTargetTodayDollars: number;
+  legacyPriority: LegacyPriority;
+  optimizationObjective: OptimizationObjective;
+  targetSuccessRatePercent: number;
+  autopilotDefensive: boolean;
+  autopilotOptionalCutsAllowed: boolean;
+  optionalFlexPercent: number;
+  travelFlexPercent: number;
+}): Plan {
+  return {
+    data: input.data,
+    assumptions: getInteractiveUnifiedPlanAssumptions(input.assumptions),
+    controls: {
+      selectedStressorIds: input.selectedStressors,
+      selectedResponseIds: input.selectedResponses,
+      toggles: {
+        preserveRoth: input.preserveRothPreference,
+        increaseCashBuffer: false,
+        avoidRetirementDelayRecommendations: !input.modifiers.retireLater,
+        avoidHomeSaleRecommendations: !input.modifiers.sellHouse,
+      },
+    },
+    preferences: {
+      irmaaPosture: input.irmaaPosture,
+      preserveLifestyleFloor: true,
+      timePreference: DEFAULT_TIME_PREFERENCE_PROFILE,
+      calibration: {
+        targetLegacyTodayDollars: Math.max(0, input.legacyTargetTodayDollars),
+        legacyPriority: input.legacyPriority,
+        optimizationObjective: input.optimizationObjective,
+        minSuccessRate: Math.max(0, Math.min(1, input.targetSuccessRatePercent / 100)),
+        successRateRange: {
+          min: Math.max(0, Math.min(1, input.targetSuccessRatePercent / 100)),
+          max: Math.max(
+            0,
+            Math.min(1, (Math.min(99, input.targetSuccessRatePercent + 10)) / 100),
+          ),
+        },
+      },
+      responsePolicy: {
+        posture: input.autopilotDefensive ? 'defensive' : 'balanced',
+        optionalSpendingCutsAllowed: input.autopilotOptionalCutsAllowed,
+        optionalSpendingFlexPercent: input.optionalFlexPercent,
+        travelFlexPercent: input.travelFlexPercent,
+        preserveRothPreference: input.preserveRothPreference,
+      },
+    },
+  };
+}
+
 export function UnifiedPlanScreen({
   data,
   assumptions,
@@ -398,6 +462,13 @@ export function UnifiedPlanScreen({
   const [planAnalysisStatus, setPlanAnalysisStatus] = useState<PlanAnalysisStatus>('running');
   const [error, setError] = useState<string | null>(null);
   const latestEvaluationRef = useRef<PlanEvaluation | null>(null);
+  const workerRef = useRef<Worker | null>(null);
+  const activeRequestIdRef = useRef<string | null>(null);
+  const requestCounterRef = useRef(0);
+  const requestFingerprintByIdRef = useRef(new Map<string, string>());
+  const analysisTimersRef = useRef(
+    new Map<string, ReturnType<typeof perfStart>>(),
+  );
   const analysisInFlightRef = useRef(false);
   const hasInitializedRef = useRef(false);
   const lastRunFingerprintRef = useRef<string | null>(null);
@@ -475,6 +546,104 @@ export function UnifiedPlanScreen({
     }));
   };
 
+  const stopTrackedPlanAnalysis = useCallback(
+    (
+      requestId: string,
+      outcome: 'ok' | 'error' | 'cancelled',
+      extra?: Record<string, unknown>,
+    ) => {
+      requestFingerprintByIdRef.current.delete(requestId);
+      const end = analysisTimersRef.current.get(requestId);
+      if (!end) {
+        return;
+      }
+      end(outcome, extra);
+      analysisTimersRef.current.delete(requestId);
+    },
+    [],
+  );
+
+  useEffect(() => {
+    if (typeof Worker === 'undefined') {
+      return undefined;
+    }
+
+    const worker = new Worker(new URL('./plan-analysis.worker.ts', import.meta.url), {
+      type: 'module',
+    });
+    workerRef.current = worker;
+
+    worker.onmessage = (event: MessageEvent<PlanAnalysisWorkerResponse>) => {
+      const message = event.data;
+      if (message.requestId !== activeRequestIdRef.current) {
+        return;
+      }
+
+      if (message.type === 'cancelled') {
+        requestFingerprintByIdRef.current.delete(message.requestId);
+        stopTrackedPlanAnalysis(message.requestId, 'cancelled');
+        activeRequestIdRef.current = null;
+        analysisInFlightRef.current = false;
+        setIsRunning(false);
+        setPlanAnalysisStatus(
+          lastRunFingerprintRef.current === latestFingerprintRef.current ? 'fresh' : 'stale',
+        );
+        return;
+      }
+
+      if (message.type === 'error') {
+        requestFingerprintByIdRef.current.delete(message.requestId);
+        stopTrackedPlanAnalysis(message.requestId, 'error', { error: message.error });
+        activeRequestIdRef.current = null;
+        analysisInFlightRef.current = false;
+        setIsRunning(false);
+        setError(message.error);
+        setPlanAnalysisStatus(
+          lastRunFingerprintRef.current === latestFingerprintRef.current ? 'fresh' : 'stale',
+        );
+        return;
+      }
+
+      const runFingerprint =
+        requestFingerprintByIdRef.current.get(message.requestId) ??
+        latestFingerprintRef.current;
+      requestFingerprintByIdRef.current.delete(message.requestId);
+      activeRequestIdRef.current = null;
+      analysisInFlightRef.current = false;
+      setIsRunning(false);
+      setPreviousEvaluation(
+        latestEvaluationRef.current ? cloneEvaluation(latestEvaluationRef.current) : null,
+      );
+      setCurrentEvaluation(message.evaluation);
+      latestEvaluationRef.current = cloneEvaluation(message.evaluation);
+      lastRunFingerprintRef.current = runFingerprint;
+      setPlanAnalysisStatus(
+        runFingerprint === latestFingerprintRef.current ? 'fresh' : 'stale',
+      );
+      stopTrackedPlanAnalysis(message.requestId, 'ok', {
+        staleAtCompletion: runFingerprint !== latestFingerprintRef.current,
+      });
+      console.log('[Unified Plan] full result', message.evaluation);
+    };
+
+    return () => {
+      const activeRequestId = activeRequestIdRef.current;
+      if (activeRequestId) {
+        const cancelMessage: PlanAnalysisWorkerRequest = {
+          type: 'cancel',
+          requestId: activeRequestId,
+        };
+        worker.postMessage(cancelMessage);
+        stopTrackedPlanAnalysis(activeRequestId, 'cancelled', { reason: 'component-unmount' });
+      }
+      worker.terminate();
+      workerRef.current = null;
+      activeRequestIdRef.current = null;
+      analysisTimersRef.current.clear();
+      requestFingerprintByIdRef.current.clear();
+    };
+  }, [stopTrackedPlanAnalysis]);
+
   const runUnifiedAnalysis = useCallback((
     reason: 'initial-load' | 'manual' | 'update-model',
     modifiersToApply = appliedConstraintModifiers,
@@ -512,62 +681,60 @@ export function UnifiedPlanScreen({
       stressorCount: selectedStressors.length,
       responseCount: selectedResponses.length,
     });
+    const requestId = `${PLAN_ANALYSIS_REQUEST_PREFIX}-${requestCounterRef.current++}`;
 
     analysisInFlightRef.current = true;
+    activeRequestIdRef.current = requestId;
+    requestFingerprintByIdRef.current.set(requestId, runFingerprint);
+    analysisTimersRef.current.set(requestId, finishPerf);
     latestFingerprintRef.current = runFingerprint;
     setError(null);
     setIsRunning(true);
     setPlanAnalysisStatus('running');
+    const planToAnalyze = buildPlanForAnalysis({
+      data,
+      assumptions,
+      selectedStressors,
+      selectedResponses,
+      modifiers: modifiersToApply,
+      preserveRothPreference,
+      irmaaPosture,
+      legacyTargetTodayDollars,
+      legacyPriority,
+      optimizationObjective,
+      targetSuccessRatePercent,
+      autopilotDefensive,
+      autopilotOptionalCutsAllowed,
+      optionalFlexPercent,
+      travelFlexPercent,
+    });
+    const worker = workerRef.current;
+
+    if (worker) {
+      const runMessage: PlanAnalysisWorkerRequest = {
+        type: 'run',
+        payload: {
+          requestId,
+          plan: planToAnalyze,
+          previousEvaluation: priorSnapshot,
+        },
+      };
+      worker.postMessage(runMessage);
+      return;
+    }
+
     nextPaint(() => {
       void (async () => {
         try {
-          const interactiveAssumptions = getInteractiveUnifiedPlanAssumptions(assumptions);
-          // TODO(perf): move evaluatePlan off the main thread (worker) to avoid UI stalls on slower machines.
-          const evaluation = await evaluatePlan(
-            {
-              data,
-              assumptions: interactiveAssumptions,
-              controls: {
-                selectedStressorIds: selectedStressors,
-                selectedResponseIds: selectedResponses,
-                toggles: {
-                  preserveRoth: preserveRothPreference,
-                  increaseCashBuffer: false,
-                  avoidRetirementDelayRecommendations: !modifiersToApply.retireLater,
-                  avoidHomeSaleRecommendations: !modifiersToApply.sellHouse,
-                },
-              },
-              preferences: {
-                irmaaPosture,
-                preserveLifestyleFloor: true,
-                timePreference: DEFAULT_TIME_PREFERENCE_PROFILE,
-                calibration: {
-                  targetLegacyTodayDollars: Math.max(0, legacyTargetTodayDollars),
-                  legacyPriority,
-                  optimizationObjective,
-                  minSuccessRate: Math.max(0, Math.min(1, targetSuccessRatePercent / 100)),
-                  successRateRange: {
-                    min: Math.max(0, Math.min(1, targetSuccessRatePercent / 100)),
-                    max: Math.max(
-                      0,
-                      Math.min(1, (Math.min(99, targetSuccessRatePercent + 10)) / 100),
-                    ),
-                  },
-                },
-                responsePolicy: {
-                  posture: autopilotDefensive ? 'defensive' : 'balanced',
-                  optionalSpendingCutsAllowed: autopilotOptionalCutsAllowed,
-                  optionalSpendingFlexPercent: optionalFlexPercent,
-                  travelFlexPercent,
-                  preserveRothPreference,
-                },
-              },
-            },
-            {
-              previousEvaluation: priorSnapshot,
-            },
-          );
-
+          const evaluation = await evaluatePlan(planToAnalyze, {
+            previousEvaluation: priorSnapshot,
+          });
+          if (activeRequestIdRef.current !== requestId) {
+            stopTrackedPlanAnalysis(requestId, 'cancelled', {
+              reason: 'superseded',
+            });
+            return;
+          }
           setPreviousEvaluation(priorSnapshot);
           setCurrentEvaluation(evaluation);
           latestEvaluationRef.current = cloneEvaluation(evaluation);
@@ -575,17 +742,32 @@ export function UnifiedPlanScreen({
           setPlanAnalysisStatus(
             runFingerprint === latestFingerprintRef.current ? 'fresh' : 'stale',
           );
-          finishPerf('ok', { staleAtCompletion: runFingerprint !== latestFingerprintRef.current });
+          stopTrackedPlanAnalysis(requestId, 'ok', {
+            staleAtCompletion: runFingerprint !== latestFingerprintRef.current,
+            fallback: true,
+          });
           console.log('[Unified Plan] full result', evaluation);
         } catch (runError) {
-          setError(runError instanceof Error ? runError.message : 'Unified plan analysis failed.');
+          if (activeRequestIdRef.current !== requestId) {
+            stopTrackedPlanAnalysis(requestId, 'cancelled', {
+              reason: 'superseded',
+              fallback: true,
+            });
+            return;
+          }
+          const message = runError instanceof Error ? runError.message : 'Unified plan analysis failed.';
+          setError(message);
           setPlanAnalysisStatus(
             lastRunFingerprintRef.current === latestFingerprintRef.current ? 'fresh' : 'stale',
           );
-          finishPerf('error', {
-            message: runError instanceof Error ? runError.message : 'unknown error',
+          stopTrackedPlanAnalysis(requestId, 'error', {
+            message,
+            fallback: true,
           });
         } finally {
+          if (activeRequestIdRef.current === requestId) {
+            activeRequestIdRef.current = null;
+          }
           analysisInFlightRef.current = false;
           setIsRunning(false);
         }
@@ -605,6 +787,7 @@ export function UnifiedPlanScreen({
     preserveRothPreference,
     selectedResponses,
     selectedStressors,
+    stopTrackedPlanAnalysis,
     targetSuccessRatePercent,
     travelFlexPercent,
   ]);
