@@ -20,6 +20,17 @@ export type HousingFundingPolicy =
   | 'allow_primary_residence_sale'
   | 'do_not_sell_primary_residence';
 
+export type BindingGuardrail =
+  | 'legacy_target'
+  | 'success_floor'
+  | 'ACA_affordability'
+  | 'IRMAA_threshold'
+  | 'tax_drag'
+  | 'spending_floor'
+  | 'keep_house'
+  | 'no_inheritance'
+  | 'allocation_locked';
+
 export interface SpendSolverSuccessRange {
   min: number;
   max: number;
@@ -113,6 +124,8 @@ export interface SpendSolverResult {
   }>;
   successBuffer: number;
   legacyBuffer: number;
+  bindingGuardrail: BindingGuardrail;
+  bindingGuardrailExplanation: string;
   bindingConstraint: string;
   primaryTradeoff: string;
   whySupportedSpendIsNotHigher: string;
@@ -1013,6 +1026,154 @@ function describeConstraintFailure(
   return 'push the plan outside current guardrails';
 }
 
+interface GuardrailProbeInputs {
+  baseline: SpendSolverEvaluation;
+  probe: SpendSolverEvaluation | null;
+  constraints: SpendSolverConstraints;
+  floorAnnual: number;
+  ceilingAnnual: number;
+  recommendedAnnualSpend: number;
+  toleranceAnnual: number;
+  retainHouse: boolean;
+  inheritanceEnabled: boolean;
+  allocationLocked: boolean;
+}
+
+export function determineBindingGuardrailFromProbe(
+  input: GuardrailProbeInputs,
+): { bindingGuardrail: BindingGuardrail; bindingGuardrailExplanation: string } {
+  const atUpperCap =
+    input.recommendedAnnualSpend >= input.ceilingAnnual - input.toleranceAnnual;
+  if (atUpperCap) {
+    return {
+      bindingGuardrail: 'tax_drag',
+      bindingGuardrailExplanation:
+        'The configured spending cap is currently limiting additional supported spending.',
+    };
+  }
+
+  const nearFloor = input.recommendedAnnualSpend <= input.floorAnnual + input.toleranceAnnual;
+  if (!input.probe) {
+    if (nearFloor) {
+      return {
+        bindingGuardrail: 'spending_floor',
+        bindingGuardrailExplanation:
+          'Spending is already near the configured floor, so there is little room to reduce or rebalance spending further.',
+      };
+    }
+    return {
+      bindingGuardrail: 'success_floor',
+      bindingGuardrailExplanation:
+        'The plan is close to its current success guardrail, limiting additional supported spending.',
+      };
+  }
+
+  const successShortfall =
+    input.constraints.minSuccessRate - input.probe.successRate;
+  const legacyShortfall =
+    input.constraints.targetLegacyTodayDollars -
+    input.probe.projectedLegacyTodayDollars;
+  const irmaaDelta =
+    input.probe.pathResult.irmaaExposureRate -
+    input.baseline.pathResult.irmaaExposureRate;
+  const taxDelta =
+    input.probe.annualFederalTaxEstimate - input.baseline.annualFederalTaxEstimate;
+  const healthcareDelta =
+    input.probe.annualHealthcareCostEstimate - input.baseline.annualHealthcareCostEstimate;
+  const baselineAcaCost = input.baseline.pathResult.yearlySeries.reduce(
+    (sum, year) => sum + year.medianNetAcaCost,
+    0,
+  );
+  const probeAcaCost = input.probe.pathResult.yearlySeries.reduce(
+    (sum, year) => sum + year.medianNetAcaCost,
+    0,
+  );
+  const acaDelta = probeAcaCost - baselineAcaCost;
+
+  const successShortfallPct = Math.max(0, successShortfall);
+  const legacyShortfallPct = Math.max(
+    0,
+    legacyShortfall / Math.max(1, input.constraints.targetLegacyTodayDollars),
+  );
+
+  if (legacyShortfallPct > 0 || successShortfallPct > 0) {
+    if (legacyShortfallPct >= successShortfallPct) {
+      return {
+        bindingGuardrail: 'legacy_target',
+        bindingGuardrailExplanation:
+          'Increasing spending further would push projected ending wealth below the legacy target.',
+      };
+    }
+    return {
+      bindingGuardrail: 'success_floor',
+      bindingGuardrailExplanation:
+        'Increasing spending further would drop success probability below the required floor.',
+    };
+  }
+
+  if (acaDelta > Math.max(2_000, input.probe.annualSpend * 0.02)) {
+    return {
+      bindingGuardrail: 'ACA_affordability',
+      bindingGuardrailExplanation:
+        'ACA affordability is limiting additional spending; extra withdrawals increase projected pre-Medicare premium burden.',
+    };
+  }
+
+  if (irmaaDelta > 0.03) {
+    return {
+      bindingGuardrail: 'IRMAA_threshold',
+      bindingGuardrailExplanation:
+        'IRMAA thresholds are limiting additional withdrawals during Medicare years.',
+    };
+  }
+
+  if (taxDelta + healthcareDelta > Math.max(3_000, input.probe.annualSpend * 0.025)) {
+    return {
+      bindingGuardrail: 'tax_drag',
+      bindingGuardrailExplanation:
+        'Tax and healthcare drag rises materially with additional spending, limiting supported spend.',
+    };
+  }
+
+  if (nearFloor) {
+    return {
+      bindingGuardrail: 'spending_floor',
+      bindingGuardrailExplanation:
+        'Spending-floor settings are constraining flexibility at the current plan level.',
+    };
+  }
+
+  if (input.retainHouse) {
+    return {
+      bindingGuardrail: 'keep_house',
+      bindingGuardrailExplanation:
+        'Keeping the primary residence unsold reduces liquidity headroom and limits additional supported spending.',
+    };
+  }
+
+  if (!input.inheritanceEnabled) {
+    return {
+      bindingGuardrail: 'no_inheritance',
+      bindingGuardrailExplanation:
+        'With inheritance disabled, the plan has less future liquidity support for higher current spending.',
+    };
+  }
+
+  if (input.allocationLocked) {
+    return {
+      bindingGuardrail: 'allocation_locked',
+      bindingGuardrailExplanation:
+        'Locked allocation settings reduce the planner’s ability to rebalance risk/return for higher spending support.',
+    };
+  }
+
+  return {
+    bindingGuardrail: 'tax_drag',
+    bindingGuardrailExplanation:
+      'Additional spending is mainly absorbed by higher tax and withdrawal drag under current assumptions.',
+  };
+}
+
 function findIncreaseUntilConstraintBreach(
   evaluate: (annualSpend: number) => SpendSolverEvaluation,
   recommendedAnnual: number,
@@ -1493,6 +1654,29 @@ export function solveSpendByReverseTimeline(input: SpendSolverInputs): SpendSolv
     Math.max(floorAnnual, recommendedAnnualSpend * (1 - supportedSpendAdjustmentRate)),
   );
   const supportedMonthlySpendNow = roundCurrency(supportedAnnualSpendNow / 12);
+  const bindingProbeAnnualSpend = roundCurrency(
+    Math.min(
+      ceilingAnnual,
+      recommendedAnnualSpend + Math.max(toleranceAnnual, recommendedAnnualSpend * 0.01),
+    ),
+  );
+  const bindingProbeEvaluation =
+    bindingProbeAnnualSpend > recommendedAnnualSpend + 0.5
+      ? evaluateFlat(bindingProbeAnnualSpend)
+      : null;
+  const { bindingGuardrail, bindingGuardrailExplanation } =
+    determineBindingGuardrailFromProbe({
+      baseline: recommended,
+      probe: bindingProbeEvaluation,
+      constraints: baseConstraints,
+      floorAnnual,
+      ceilingAnnual,
+      recommendedAnnualSpend,
+      toleranceAnnual,
+      retainHouse: input.constraints?.retainHouse ?? false,
+      inheritanceEnabled: input.constraints?.inheritanceEnabled ?? true,
+      allocationLocked: input.constraints?.allocationLocked ?? false,
+    });
 
   const bindingConstraint = buildConstraintExplanation({
     recommended,
@@ -1622,6 +1806,8 @@ export function solveSpendByReverseTimeline(input: SpendSolverInputs): SpendSolv
     spendingDeltaByPhase,
     successBuffer,
     legacyBuffer,
+    bindingGuardrail,
+    bindingGuardrailExplanation,
     bindingConstraint,
     primaryTradeoff,
     whySupportedSpendIsNotHigher,
@@ -1645,6 +1831,7 @@ export function solveSpendByReverseTimeline(input: SpendSolverInputs): SpendSolv
   finishPerf('ok', {
     feasible,
     converged: baseSearch.converged,
+    bindingGuardrail,
     bindingConstraint,
     iterations: baseSearch.iterations,
   });

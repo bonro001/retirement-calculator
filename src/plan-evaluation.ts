@@ -8,6 +8,8 @@ import type {
 import {
   analyzeRetirementPlan,
   buildRetirementPlan,
+  type DecisionImpactAssessment,
+  type PlanDecisionInput,
   type IrmaaPosture,
   type RetirementPlanRunResult,
 } from './retirement-plan';
@@ -53,6 +55,7 @@ export interface PlanPreferences {
     travelFlexPercent?: number;
     preserveRothPreference?: boolean;
   };
+  decisionImpact?: PlanDecisionInput;
 }
 
 export interface Plan {
@@ -115,6 +118,8 @@ export interface PlanEvaluation {
     legacyPriority: LegacyPriority;
     projectedLegacyTodayDollars: number;
     modeledSuccessRate: number;
+    bindingGuardrail: string;
+    bindingGuardrailExplanation: string;
     bindingConstraint: string;
     primaryTradeoff: string;
     whySupportedSpendIsNotHigher: string;
@@ -170,6 +175,7 @@ export interface PlanEvaluation {
       reason: string;
     }>;
   };
+  decisionImpact: DecisionImpactAssessment | null;
   raw: {
     baselinePath: PathResult;
     spendingCalibration: SpendSolverResult;
@@ -557,6 +563,7 @@ export async function evaluatePlan(
         strategyMode: 'planner_enhanced',
         seedStrategy: 'shared',
       },
+      decisionImpactRequest: preferences.decisionImpact,
     }),
   );
 
@@ -652,6 +659,8 @@ export async function evaluatePlan(
       legacyPriority,
       projectedLegacyTodayDollars: planRun.solver.projectedLegacyOutcomeTodayDollars,
       modeledSuccessRate: planRun.solver.modeledSuccessRate,
+      bindingGuardrail: planRun.solver.bindingGuardrail,
+      bindingGuardrailExplanation: planRun.solver.bindingGuardrailExplanation,
       bindingConstraint: planRun.solver.bindingConstraint,
       primaryTradeoff: planRun.solver.primaryTradeoff,
       whySupportedSpendIsNotHigher: planRun.solver.whySupportedSpendIsNotHigher,
@@ -711,6 +720,7 @@ export async function evaluatePlan(
         reason: sanitizeRecommendationText(item.reasonExcluded),
       })),
     },
+    decisionImpact: planRun.decisionImpact,
     raw: {
       baselinePath: planRun.baselinePath,
       spendingCalibration: planRun.solver,

@@ -24,6 +24,8 @@ import {
 
 export type ModelCompleteness = 'faithful' | 'reconstructed';
 export type IrmaaPosture = 'minimize' | 'balanced' | 'ignore';
+export type DecisionFundingSource = 'taxable' | 'pretax' | 'roth' | 'cash' | 'financed';
+export type DecisionTiming = 'now' | number;
 
 export interface PlanConstraintsModel {
   doNotRetireLater: boolean;
@@ -65,6 +67,25 @@ export interface DecisionEngineSettingsModel {
   seedStrategy: 'shared' | 'scenario_derived';
 }
 
+export interface PlanDecisionInput {
+  decisionCost: number;
+  decisionTiming: DecisionTiming;
+  decisionFundingSource: DecisionFundingSource;
+}
+
+export interface DecisionImpactAssessment {
+  decisionFeasible: boolean;
+  decisionPrimaryConstraintHit: string;
+  decisionSuccessDelta: number;
+  decisionLegacyDelta: number;
+  decisionTaxDelta: number;
+  decisionIRMAADelta: number;
+  decisionACADelta: number;
+  suggestedMitigationLever: string;
+  bindingGuardrail: string;
+  bindingGuardrailExplanation: string;
+}
+
 export interface RetirementPlan {
   modelCompleteness: ModelCompleteness;
   inferredAssumptions: string[];
@@ -82,6 +103,7 @@ export interface RetirementPlan {
   targets: ExitSpendingTargets;
   irmaaPolicy: IrmaaPolicyModel;
   decisionEngineSettings: DecisionEngineSettingsModel;
+  decisionImpactRequest?: PlanDecisionInput;
   assumptions: MarketAssumptions;
   baseData: SeedData;
   effectiveData: SeedData;
@@ -114,6 +136,7 @@ export interface RetirementPlanRunResult {
   solver: SpendSolverResult;
   autopilot: AutopilotPlanResult;
   decision: DecisionEngineReport;
+  decisionImpact: DecisionImpactAssessment | null;
   irmaa: IrmaaExposureAnalysis;
   summary: UnifiedPlanSummary;
 }
@@ -129,6 +152,7 @@ export interface BuildRetirementPlanInput {
   targets: Partial<ExitSpendingTargets>;
   irmaaPolicy: Partial<IrmaaPolicyModel>;
   decisionEngineSettings?: Partial<DecisionEngineSettingsModel>;
+  decisionImpactRequest?: PlanDecisionInput;
 }
 
 const DEFAULT_EXIT_TARGET = 1_000_000;
@@ -160,6 +184,146 @@ function applyAssumptionOverrides(
     };
   }
   return next;
+}
+
+function getDecisionYear(decisionTiming: DecisionTiming, startYear: number) {
+  if (decisionTiming === 'now') {
+    return startYear;
+  }
+  if (!Number.isFinite(decisionTiming)) {
+    return startYear;
+  }
+  return Math.max(startYear, Math.round(decisionTiming));
+}
+
+function toPresentValue(
+  amount: number,
+  yearsUntil: number,
+  inflation: number,
+) {
+  const discount = Math.pow(1 + Math.max(-0.95, inflation), Math.max(0, yearsUntil));
+  if (discount <= 0) {
+    return amount;
+  }
+  return amount / discount;
+}
+
+function applyDecisionToData(
+  plan: RetirementPlan,
+  decision: PlanDecisionInput,
+): SeedData {
+  const next = cloneSeedData(plan.effectiveData);
+  const decisionCost = Math.max(0, decision.decisionCost);
+  if (!(decisionCost > 0)) {
+    return next;
+  }
+
+  const startYear = new Date().getFullYear();
+  const decisionYear = getDecisionYear(decision.decisionTiming, startYear);
+  const yearsUntilDecision = Math.max(0, decisionYear - startYear);
+  const presentCost = toPresentValue(decisionCost, yearsUntilDecision, plan.assumptions.inflation);
+
+  if (decision.decisionFundingSource === 'financed') {
+    const financedYears = 5;
+    const annualPayment = (decisionCost * 1.08) / financedYears;
+    next.spending.optionalMonthly += annualPayment / 12;
+    return next;
+  }
+
+  const targetBucket =
+    decision.decisionFundingSource === 'cash'
+      ? 'cash'
+      : decision.decisionFundingSource === 'taxable'
+        ? 'taxable'
+        : decision.decisionFundingSource === 'pretax'
+          ? 'pretax'
+          : 'roth';
+  const currentBalance = next.accounts[targetBucket].balance;
+  next.accounts[targetBucket].balance = Math.max(0, currentBalance - presentCost);
+  return next;
+}
+
+function getSourceTaxRate(source: DecisionFundingSource) {
+  if (source === 'pretax') {
+    return 0.24;
+  }
+  if (source === 'taxable') {
+    return 0.08;
+  }
+  return 0;
+}
+
+function getSourceIrmaaImpact(source: DecisionFundingSource) {
+  if (source === 'pretax') {
+    return 0.05;
+  }
+  if (source === 'taxable') {
+    return 0.015;
+  }
+  return 0;
+}
+
+function getSourceAcaImpact(source: DecisionFundingSource) {
+  if (source === 'pretax') {
+    return 0.03;
+  }
+  if (source === 'taxable') {
+    return 0.01;
+  }
+  return 0;
+}
+
+function averageAnnualAcaNetCost(path: PathResult) {
+  if (!path.yearlySeries.length) {
+    return 0;
+  }
+  const total = path.yearlySeries.reduce((sum, year) => sum + year.medianNetAcaCost, 0);
+  return total / Math.max(1, path.yearlySeries.length);
+}
+
+function isDecisionFeasible(
+  plan: RetirementPlan,
+  solver: SpendSolverResult,
+) {
+  return (
+    solver.modeledSuccessRate >= plan.targets.minSuccessRate &&
+    solver.projectedLegacyOutcomeTodayDollars >= plan.targets.exitTargetTodayDollars
+  );
+}
+
+function getMitigationSuggestion(input: {
+  decision: PlanDecisionInput;
+  feasible: boolean;
+  decisionPrimaryConstraintHit: string;
+  decisionSuccessDelta: number;
+  decisionLegacyDelta: number;
+  decisionTaxDelta: number;
+  decisionIRMAADelta: number;
+}) {
+  if (input.decision.decisionFundingSource === 'pretax' && input.decisionIRMAADelta > 0.02) {
+    return 'Try funding from cash or taxable assets first to reduce IRMAA and tax pressure.';
+  }
+  if (input.decision.decisionFundingSource === 'pretax' && input.decisionTaxDelta > 2_000) {
+    return 'Switch funding away from pretax withdrawals or split the purchase across years.';
+  }
+  if (!input.feasible) {
+    if (input.decisionPrimaryConstraintHit === 'legacy_target') {
+      return 'Reduce flexible spending by 5-10% or lower the decision amount to preserve legacy target.';
+    }
+    if (input.decisionPrimaryConstraintHit === 'success_floor') {
+      return 'Offset with a modest spending reduction (about 5-10%) to restore success buffer.';
+    }
+    if (input.decisionPrimaryConstraintHit === 'ACA_affordability') {
+      return 'Shift funding toward cash/Roth to lower MAGI in pre-65 years and protect ACA affordability.';
+    }
+  }
+  if (input.decisionLegacyDelta < -50_000) {
+    return 'Phase the purchase or trim optional/travel spending temporarily to offset legacy impact.';
+  }
+  if (input.decisionSuccessDelta < -0.02) {
+    return 'Pair this decision with a small optional-spending cut to keep success above your floor.';
+  }
+  return 'Decision appears feasible; no major mitigation needed beyond normal annual review.';
 }
 
 function toRecommendationConstraints(
@@ -421,6 +585,7 @@ export function buildRetirementPlan(input: BuildRetirementPlanInput): Retirement
       seedStrategy: input.decisionEngineSettings?.seedStrategy ?? 'shared',
       simulationRunsOverride: input.decisionEngineSettings?.simulationRunsOverride,
     },
+    decisionImpactRequest: input.decisionImpactRequest,
     assumptions: input.assumptions,
     baseData: cloneSeedData(input.data),
     effectiveData,
@@ -429,6 +594,7 @@ export function buildRetirementPlan(input: BuildRetirementPlanInput): Retirement
 
 export async function analyzeRetirementPlan(
   plan: RetirementPlan,
+  options: { skipDecisionImpact?: boolean } = {},
 ): Promise<RetirementPlanRunResult> {
   const finishPerf = perfStart('retirement-plan', 'analyze-retirement-plan', {
     stressorCount: plan.scenarioToggles.stressors.length,
@@ -535,12 +701,83 @@ export async function analyzeRetirementPlan(
     narrative: buildNarrative(plan, solver, decision, irmaa),
   };
 
+  let decisionImpact: DecisionImpactAssessment | null = null;
+  const decisionInput =
+    options.skipDecisionImpact ? undefined : plan.decisionImpactRequest;
+  if (decisionInput && decisionInput.decisionCost > 0) {
+    const decisionAppliedData = applyDecisionToData(plan, decisionInput);
+    const decisionPlan: RetirementPlan = {
+      ...plan,
+      effectiveData: decisionAppliedData,
+      modelCompleteness: 'reconstructed',
+      inferredAssumptions: Array.from(
+        new Set([
+          ...plan.inferredAssumptions,
+          `Applied one-time decision: ${decisionInput.decisionFundingSource} ${Math.round(
+            decisionInput.decisionCost,
+          ).toLocaleString('en-US', {
+            style: 'currency',
+            currency: 'USD',
+            maximumFractionDigits: 0,
+          })} at ${decisionInput.decisionTiming}.`,
+        ]),
+      ),
+      decisionImpactRequest: undefined,
+    };
+    const decisionRun = await analyzeRetirementPlan(decisionPlan, {
+      skipDecisionImpact: true,
+    });
+    const sourceTaxRate = getSourceTaxRate(decisionInput.decisionFundingSource);
+    const sourceIrmaaImpact = getSourceIrmaaImpact(decisionInput.decisionFundingSource);
+    const sourceAcaImpact = getSourceAcaImpact(decisionInput.decisionFundingSource);
+    const decisionSuccessDelta =
+      decisionRun.decision.baseline.successRate - decision.baseline.successRate;
+    const decisionLegacyDelta =
+      decisionRun.solver.projectedLegacyOutcomeTodayDollars -
+      solver.projectedLegacyOutcomeTodayDollars;
+    const decisionTaxDelta =
+      decisionRun.solver.annualFederalTaxEstimate -
+      solver.annualFederalTaxEstimate +
+      decisionInput.decisionCost * sourceTaxRate;
+    const decisionIRMAADelta =
+      decisionRun.baselinePath.irmaaExposureRate -
+      baselinePath.irmaaExposureRate +
+      sourceIrmaaImpact;
+    const decisionACADelta =
+      averageAnnualAcaNetCost(decisionRun.baselinePath) -
+      averageAnnualAcaNetCost(baselinePath) +
+      decisionInput.decisionCost * sourceAcaImpact * 0.01;
+    const decisionFeasible = isDecisionFeasible(plan, decisionRun.solver);
+    const decisionPrimaryConstraintHit = decisionRun.solver.bindingGuardrail;
+    decisionImpact = {
+      decisionFeasible,
+      decisionPrimaryConstraintHit,
+      decisionSuccessDelta,
+      decisionLegacyDelta,
+      decisionTaxDelta,
+      decisionIRMAADelta,
+      decisionACADelta,
+      suggestedMitigationLever: getMitigationSuggestion({
+        decision: decisionInput,
+        feasible: decisionFeasible,
+        decisionPrimaryConstraintHit,
+        decisionSuccessDelta,
+        decisionLegacyDelta,
+        decisionTaxDelta,
+        decisionIRMAADelta,
+      }),
+      bindingGuardrail: decisionRun.solver.bindingGuardrail,
+      bindingGuardrailExplanation: decisionRun.solver.bindingGuardrailExplanation,
+    };
+  }
+
   const result: RetirementPlanRunResult = {
     plan,
     baselinePath,
     solver,
     autopilot,
     decision,
+    decisionImpact,
     irmaa,
     summary,
   };
