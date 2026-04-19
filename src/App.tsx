@@ -530,6 +530,7 @@ export function App() {
   const primaryPath = displayedPathResults[2] ?? displayedPathResults[0];
   const cashReserve = data.accounts.cash.balance;
   const investedAssets = totalPortfolio - cashReserve;
+  const showSidebarSnapshot = currentScreen !== 'overview' && currentScreen !== 'insights';
 
   return (
     <div className="min-h-screen bg-[radial-gradient(circle_at_top_left,_rgba(96,165,250,0.22),_transparent_30%),linear-gradient(135deg,#f6fbff_0%,#edf5fb_42%,#dce9f5_100%)] text-slate-900">
@@ -569,7 +570,8 @@ export function App() {
             ))}
           </nav>
 
-          <div className="mt-6 hidden rounded-[28px] bg-stone-900 p-5 text-stone-50 xl:block">
+          {showSidebarSnapshot ? (
+            <div className="mt-6 hidden rounded-[28px] bg-stone-900 p-5 text-stone-50 xl:block">
             <p className="text-xs uppercase tracking-[0.22em] text-stone-300">
               Current plan snapshot
             </p>
@@ -603,7 +605,8 @@ export function App() {
                 <dd>{data.rules.irmaaAware ? 'Aware' : 'Off'}</dd>
               </div>
             </dl>
-          </div>
+            </div>
+          ) : null}
         </aside>
 
         <main className="flex-1 px-4 py-4 sm:px-6 lg:px-8 lg:flex lg:max-h-screen lg:flex-col lg:overflow-hidden">
@@ -3353,45 +3356,29 @@ function EditDrawer({
   if (useUnifiedPlanControlSurface) {
     return (
       <aside className="rounded-[32px] border border-white/70 bg-stone-950 p-5 text-stone-50 shadow-xl shadow-stone-900/20">
-        <div className="mb-6">
+        <div className="mb-4">
           <p className="text-xs uppercase tracking-[0.22em] text-stone-400">Edit drawer</p>
-          <h2 className="mt-2 font-serif text-3xl leading-tight">
-            Plan controls moved to the main Plan panel.
-          </h2>
-          <p className="mt-2 text-sm leading-6 text-stone-400">
-            Stressors, responses, plan settings, and recommendation modifiers are now managed in
-            one unified control surface in the main content area.
-          </p>
+          <h2 className="mt-2 font-serif text-2xl leading-tight">Plan controls are in the main panel.</h2>
         </div>
 
-        <div className="space-y-4">
-          <section className="rounded-[24px] border border-stone-800 bg-stone-900/70 p-4">
-            <p className="text-sm font-medium text-stone-300">Simulation status</p>
-            {isSimulationRunning ? (
-              <button
-                type="button"
-                onClick={onCancelSimulation}
-                className="mt-3 w-full rounded-2xl border border-stone-700 px-4 py-2 text-sm font-semibold text-stone-200 transition hover:border-stone-500 hover:text-stone-100"
-              >
-                Cancel Simulation
-              </button>
-            ) : null}
-            <p className="mt-2 text-xs text-stone-400">
-              {simulationError
-                ? `Simulation error: ${simulationError}`
-                : isSimulationRunning
-                  ? `Simulation running... ${Math.round(simulationProgress * 100)}%`
-                  : 'Simulation is idle. It reruns automatically when inputs change.'}
-            </p>
-          </section>
-
-          <section className="rounded-[24px] bg-stone-900 p-4">
-            <p className="text-sm font-medium text-stone-300">Current planning spend</p>
-            <p className="mt-2 text-3xl font-semibold">{formatCurrency(annualStretchSpend)}</p>
-            <p className="mt-2 text-sm leading-6 text-stone-400">
-              This uses essential, optional, taxes/insurance, and early-retirement travel amounts.
-            </p>
-          </section>
+        <div className="rounded-[24px] border border-stone-800 bg-stone-900/70 p-4">
+          <p className="text-sm font-medium text-stone-300">Simulation status</p>
+          <p className="mt-2 text-xs text-stone-400">
+            {simulationError
+              ? `Error: ${simulationError}`
+              : isSimulationRunning
+                ? `Running... ${Math.round(simulationProgress * 100)}%`
+                : 'Idle'}
+          </p>
+          {isSimulationRunning ? (
+            <button
+              type="button"
+              onClick={onCancelSimulation}
+              className="mt-3 w-full rounded-2xl border border-stone-700 px-4 py-2 text-sm font-semibold text-stone-200 transition hover:border-stone-500 hover:text-stone-100"
+            >
+              Cancel Simulation
+            </button>
+          ) : null}
         </div>
       </aside>
     );
