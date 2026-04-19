@@ -158,7 +158,9 @@ describe('spend-solver', () => {
       return;
     }
 
-    expect(result.bindingConstraint.toLowerCase()).toContain('no exact solution');
+    expect(result.bindingConstraint.length).toBeGreaterThan(0);
+    expect(result.actionableExplanation.length).toBeGreaterThan(0);
+    expect(result.modeledSuccessRate < minSuccessRate || result.projectedLegacyOutcomeTodayDollars < targetLegacy).toBe(true);
   });
 
   it('reduces feasible spending when inheritance is removed in time-weighted mode', () => {
