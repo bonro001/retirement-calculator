@@ -961,7 +961,7 @@ export function UnifiedPlanScreen({
         biggestRisk: currentEvaluation.summary.biggestRisk,
         primaryBindingConstraint: currentEvaluation.responsePolicy.primaryBindingConstraint,
       })
-    : 'Plan verdict explanation will appear once the live guidance refresh completes.';
+    : 'Plan verdict explanation will appear once the latest plan analysis completes.';
   const hardConstraints = currentRun
     ? [
         `Success floor: ${formatPercent(currentRun.plan.targets.minSuccessRate)}`,
@@ -1027,14 +1027,14 @@ export function UnifiedPlanScreen({
         <div className="flex flex-wrap items-center gap-3">
           <span className="rounded-full bg-stone-100 px-3 py-1 text-xs font-semibold text-stone-700">
             {isRunning
-              ? 'Refreshing guidance'
+              ? 'Analysis running'
               : error
-                ? 'Guidance error'
+                ? 'Analysis error'
                 : planAnalysisStatus === 'stale'
-                  ? 'Guidance outdated'
+                  ? 'Analysis outdated'
                 : currentEvaluation
-                  ? 'Guidance ready'
-                  : 'Guidance loading'}
+                  ? 'Analysis current'
+                  : 'Analysis pending'}
           </span>
           <button
             type="button"
@@ -1042,7 +1042,7 @@ export function UnifiedPlanScreen({
             disabled={isRunning}
             className="rounded-full bg-blue-700 px-3 py-1 text-xs font-semibold text-white transition hover:bg-blue-600 disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {isRunning ? 'Running Plan Analysis…' : 'Run Plan Analysis'}
+            Run Plan Analysis
           </button>
           <span
             className={`rounded-full px-3 py-1 text-xs font-semibold ${
@@ -1069,7 +1069,7 @@ export function UnifiedPlanScreen({
       ) : null}
       {!error && planAnalysisStatus === 'stale' ? (
         <p className="mb-4 rounded-2xl bg-amber-50 px-4 py-3 text-sm text-amber-800">
-          Plan guidance is outdated relative to current inputs. Run Plan Analysis to refresh.
+          Plan analysis is outdated relative to current inputs. Run Plan Analysis to update results.
         </p>
       ) : null}
 
