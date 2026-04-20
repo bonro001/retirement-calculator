@@ -18,6 +18,14 @@ export type PlanAnalysisWorkerRequest =
 
 export type PlanAnalysisWorkerResponse =
   | {
+      type: 'progress';
+      requestId: string;
+      phase: string;
+      status: 'start' | 'end';
+      durationMs?: number;
+      meta?: Record<string, unknown>;
+    }
+  | {
       type: 'result';
       requestId: string;
       evaluation: PlanEvaluation;

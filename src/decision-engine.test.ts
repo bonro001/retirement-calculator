@@ -87,6 +87,14 @@ function buildStubRecommendation(
   };
 }
 
+function withoutRuntimeDiagnostics<T extends { runtimeDiagnostics?: unknown }>(value: T) {
+  const clone = JSON.parse(JSON.stringify(value)) as T;
+  if ('runtimeDiagnostics' in clone) {
+    delete (clone as { runtimeDiagnostics?: unknown }).runtimeDiagnostics;
+  }
+  return clone;
+}
+
 describe('decision-engine layer', () => {
   it('produces baseline + scenario metrics and ranked recommendation slices', async () => {
     const report = await evaluateDecisionLevers(buildInput());
@@ -141,7 +149,7 @@ describe('decision-engine layer', () => {
       simulationRunsOverride: 80,
     });
 
-    expect(second).toEqual(first);
+    expect(withoutRuntimeDiagnostics(second)).toEqual(withoutRuntimeDiagnostics(first));
   });
 
   it('defaults to shared seed strategy for apples-to-apples scenario deltas', async () => {
@@ -155,7 +163,9 @@ describe('decision-engine layer', () => {
       seedStrategy: 'shared',
       simulationRunsOverride: 90,
     });
-    expect(defaultSeedReport).toEqual(explicitSharedSeedReport);
+    expect(withoutRuntimeDiagnostics(defaultSeedReport)).toEqual(
+      withoutRuntimeDiagnostics(explicitSharedSeedReport),
+    );
   });
 
   it('ranking penalizes high disruption and complexity', async () => {

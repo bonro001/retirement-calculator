@@ -70,8 +70,6 @@ const navigation: { id: ScreenId; label: string; shortLabel: string }[] = [
   { id: 'overview', label: 'Plan', shortLabel: 'Plan' },
   { id: 'paths', label: 'Path Comparison', shortLabel: 'Paths' },
   { id: 'compare', label: 'Scenario Compare', shortLabel: 'Compare' },
-  { id: 'solver', label: 'Spend Solver', shortLabel: 'Solver' },
-  { id: 'autopilot', label: 'Autopilot Plan', shortLabel: 'Autopilot' },
   { id: 'accounts', label: 'Accounts', shortLabel: 'Accounts' },
   { id: 'spending', label: 'Spending', shortLabel: 'Spending' },
   { id: 'income', label: 'Income', shortLabel: 'Income' },
@@ -406,6 +404,12 @@ export function App() {
   const hasPendingSimulationChanges = useAppStore((state) => state.hasPendingSimulationChanges);
   const currentScreen = useAppStore((state) => state.currentScreen);
   const setCurrentScreen = useAppStore((state) => state.setCurrentScreen);
+
+  useEffect(() => {
+    if (currentScreen === 'solver' || currentScreen === 'autopilot') {
+      setCurrentScreen('overview');
+    }
+  }, [currentScreen, setCurrentScreen]);
 
   const workerRef = useRef<Worker | null>(null);
   const activeRequestIdRef = useRef<string | null>(null);
@@ -944,11 +948,6 @@ export function App() {
                   description="Latest known plan snapshot from the most recent completed simulation run."
                 />
                 <SummaryStatCard
-                  title="Median ending wealth"
-                  value={formatCurrency(planPrimaryPath.medianEndingWealth)}
-                  description="Median result across the latest Monte Carlo run."
-                />
-                <SummaryStatCard
                   title="Starting runway"
                   value={`${planPrimaryPath.yearsFunded} yrs`}
                   description={`Current assets divided by current annual spending. Planning horizon is ${horizonYears} years.`}
@@ -972,7 +971,7 @@ export function App() {
                   selectedStressors={currentPlanSelectedStressors}
                   selectedResponses={currentPlanSelectedResponses}
                   pathResults={displayedPlanPathResults}
-                  showPlanControls={false}
+                  showPlanControls
                 />
               )}
               {currentScreen === 'paths' && (
@@ -984,22 +983,6 @@ export function App() {
               )}
               {currentScreen === 'compare' && (
                 <ScenarioCompareScreen
-                  data={currentPlan}
-                  assumptions={currentPlanAssumptions}
-                  selectedStressors={currentPlanSelectedStressors}
-                  selectedResponses={currentPlanSelectedResponses}
-                />
-              )}
-              {currentScreen === 'solver' && (
-                <SpendSolverScreen
-                  data={currentPlan}
-                  assumptions={currentPlanAssumptions}
-                  selectedStressors={currentPlanSelectedStressors}
-                  selectedResponses={currentPlanSelectedResponses}
-                />
-              )}
-              {currentScreen === 'autopilot' && (
-                <AutopilotPlanScreen
                   data={currentPlan}
                   assumptions={currentPlanAssumptions}
                   selectedStressors={currentPlanSelectedStressors}
@@ -1492,10 +1475,10 @@ function SpendSolverScreen({
   selectedResponses: string[];
 }) {
   const [targetLegacy, setTargetLegacy] = useState(1_000_000);
-  const [minSuccessRatePercent, setMinSuccessRatePercent] = useState(80);
-  const [useSuccessRange, setUseSuccessRange] = useState(true);
-  const [successRangeMinPercent, setSuccessRangeMinPercent] = useState(80);
-  const [successRangeMaxPercent, setSuccessRangeMaxPercent] = useState(90);
+  const [minSuccessRatePercent, setMinSuccessRatePercent] = useState(92);
+  const [useSuccessRange, setUseSuccessRange] = useState(false);
+  const [successRangeMinPercent, setSuccessRangeMinPercent] = useState(92);
+  const [successRangeMaxPercent, setSuccessRangeMaxPercent] = useState(95);
   const [doNotSellPrimaryResidence, setDoNotSellPrimaryResidence] = useState(false);
   const [spendingFloorAnnual, setSpendingFloorAnnual] = useState('');
   const [spendingCeilingAnnual, setSpendingCeilingAnnual] = useState('');
@@ -1798,10 +1781,11 @@ function SpendSolverScreen({
                   </div>
                   <div>
                     <p className="text-xs uppercase tracking-[0.16em] text-stone-500">
-                      Median ending wealth
+                      Approx 1σ range (today $)
                     </p>
                     <p className="mt-1 font-semibold">
-                      {formatCurrency(result.medianEndingWealth)}
+                      {formatCurrency(result.endingWealthOneSigmaLowerTodayDollars)} to{' '}
+                      {formatCurrency(result.endingWealthOneSigmaUpperTodayDollars)}
                     </p>
                   </div>
                   <div>
@@ -2259,7 +2243,7 @@ function AutopilotPlanScreen({
   selectedResponses: string[];
 }) {
   const [targetLegacy, setTargetLegacy] = useState(1_000_000);
-  const [minSuccessRatePercent, setMinSuccessRatePercent] = useState(80);
+  const [minSuccessRatePercent, setMinSuccessRatePercent] = useState(92);
   const [doNotSellPrimaryResidence, setDoNotSellPrimaryResidence] = useState(false);
   const [result, setResult] = useState<AutopilotPlanResult | null>(null);
   const [isRunning, setIsRunning] = useState(false);
@@ -2284,10 +2268,7 @@ function AutopilotPlanScreen({
           targetLegacyTodayDollars: Math.max(0, targetLegacy),
           minSuccessRate: clampRate(minSuccessRatePercent / 100),
           doNotSellPrimaryResidence,
-          successRateRange: {
-            min: clampRate(minSuccessRatePercent / 100),
-            max: clampRate(Math.min(99, minSuccessRatePercent + 10) / 100),
-          },
+          successRateRange: undefined,
         });
         setResult(plan);
       } catch (autopilotError) {

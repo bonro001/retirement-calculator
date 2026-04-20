@@ -7,11 +7,14 @@ import {
   type Plan,
   type LegacyPriority,
   type PlanEvaluation,
+  type SuccessFloorMode,
+  SUCCESS_FLOOR_MODE_TARGETS,
 } from './plan-evaluation';
 import type {
   PlanAnalysisWorkerRequest,
   PlanAnalysisWorkerResponse,
 } from './plan-analysis-worker-types';
+import { getRmdStartAgeForBirthYear } from './retirement-rules';
 import type { IrmaaPosture } from './retirement-plan';
 import { useAppStore } from './store';
 import { formatCurrency, formatPercent } from './utils';
@@ -19,6 +22,19 @@ import { formatCurrency, formatPercent } from './utils';
 const INTERACTIVE_UNIFIED_PLAN_MAX_RUNS = 250;
 const PLAN_ANALYSIS_TIMEOUT_MS = 45_000;
 const PLAN_ANALYSIS_REQUEST_PREFIX = 'plan-analysis-request';
+const INTERACTIVE_RUNTIME_BUDGETS = {
+  timeoutMs: 60_000,
+  finalEvaluationSimulationRuns: 180,
+  solverSearchSimulationRuns: 90,
+  solverFinalSimulationRuns: 180,
+  solverMaxIterations: 14,
+  solverDiagnosticsMode: 'core' as const,
+  solverEnableSuccessRelaxationProbe: false,
+  decisionSimulationRuns: 72,
+  decisionScenarioEvaluationLimit: 12,
+  decisionEvaluateExcludedScenarios: false,
+  stressTestComplexity: 'reduced' as const,
+};
 type PlanSimulationStatus = 'fresh' | 'stale' | 'running';
 type PlanAnalysisStatus = 'fresh' | 'stale' | 'running';
 
@@ -71,6 +87,26 @@ const DEFAULT_TIME_PREFERENCE_PROFILE = {
   ages80plus: 'low',
 } as const;
 
+function formatSuccessFloorModeLabel(mode: SuccessFloorMode) {
+  if (mode === 'conservative') {
+    return 'Conservative (95%)';
+  }
+  if (mode === 'balanced') {
+    return 'Balanced (92%)';
+  }
+  if (mode === 'aggressive') {
+    return 'Aggressive (85%)';
+  }
+  return 'Custom';
+}
+
+function resolveModeTargetSuccessPercent(mode: SuccessFloorMode) {
+  if (mode === 'custom') {
+    return Math.round(SUCCESS_FLOOR_MODE_TARGETS.balanced * 100);
+  }
+  return Math.round(SUCCESS_FLOOR_MODE_TARGETS[mode] * 100);
+}
+
 function getInteractiveUnifiedPlanAssumptions(
   assumptions: MarketAssumptions,
 ): MarketAssumptions {
@@ -116,14 +152,14 @@ function buildRunDelta(
     return null;
   }
   const successDelta =
-    currentRun.raw.decision.baseline.successRate - previousRun.raw.decision.baseline.successRate;
+    currentRun.calibration.achievedSuccessRate - previousRun.calibration.achievedSuccessRate;
   const currentTop = currentRun.raw.decision.rankedRecommendations[0]?.name ?? null;
   const previousTop = previousRun.raw.decision.rankedRecommendations[0]?.name ?? null;
   const currentDriver = currentRun.raw.decision.biggestDriver?.scenarioName ?? null;
   const previousDriver = previousRun.raw.decision.biggestDriver?.scenarioName ?? null;
-  const medianWealthDelta =
-    currentRun.raw.decision.baseline.medianEndingWealth -
-    previousRun.raw.decision.baseline.medianEndingWealth;
+  const projectedLegacyTodayDollarsDelta =
+    currentRun.calibration.projectedLegacyTodayDollars -
+    previousRun.calibration.projectedLegacyTodayDollars;
 
   return {
     successDelta,
@@ -135,7 +171,7 @@ function buildRunDelta(
       currentDriver === previousDriver
         ? 'Biggest driver unchanged.'
         : `Biggest driver changed from ${previousDriver ?? 'none'} to ${currentDriver ?? 'none'}.`,
-    medianWealthDelta,
+    projectedLegacyTodayDollarsDelta,
   };
 }
 
@@ -198,6 +234,165 @@ function formatPhaseLabel(value: 'go_go' | 'slow_go' | 'late') {
     return '70s (Slow-Go)';
   }
   return '80+ (Late)';
+}
+
+interface FlightPathTimelineEvent {
+  id: string;
+  when: Date;
+  category: 'retirement' | 'medicare' | 'social_security' | 'irmaa' | 'rmd';
+  title: string;
+  why: string;
+  prepLeadMonths: number;
+  actionNow: string;
+  ageLabel?: string;
+}
+
+interface StrategicPrepRecommendation {
+  id: string;
+  priority: 'now' | 'soon' | 'watch';
+  title: string;
+  action: string;
+  why: string;
+  amountHint?: string;
+}
+
+const FLIGHT_PATH_EVENT_VISUAL: Record<
+  FlightPathTimelineEvent['category'],
+  { label: string; markerClassName: string; softClassName: string }
+> = {
+  retirement: {
+    label: 'Retirement',
+    markerClassName: 'bg-indigo-600',
+    softClassName: 'bg-indigo-100 text-indigo-700',
+  },
+  medicare: {
+    label: 'Medicare',
+    markerClassName: 'bg-cyan-600',
+    softClassName: 'bg-cyan-100 text-cyan-700',
+  },
+  social_security: {
+    label: 'Social Security',
+    markerClassName: 'bg-emerald-600',
+    softClassName: 'bg-emerald-100 text-emerald-700',
+  },
+  irmaa: {
+    label: 'IRMAA',
+    markerClassName: 'bg-amber-600',
+    softClassName: 'bg-amber-100 text-amber-700',
+  },
+  rmd: {
+    label: 'RMD',
+    markerClassName: 'bg-rose-600',
+    softClassName: 'bg-rose-100 text-rose-700',
+  },
+};
+
+function parseDateSafe(value: string) {
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return null;
+  }
+  return parsed;
+}
+
+function addYears(base: Date, years: number) {
+  const next = new Date(base.getTime());
+  next.setFullYear(next.getFullYear() + years);
+  return next;
+}
+
+function addMonths(base: Date, months: number) {
+  const next = new Date(base.getTime());
+  next.setMonth(next.getMonth() + months);
+  return next;
+}
+
+function formatMonthYear(value: Date) {
+  return value.toLocaleDateString('en-US', {
+    month: 'short',
+    year: 'numeric',
+  });
+}
+
+function formatTimelineDate(value: Date) {
+  return value.toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  });
+}
+
+function ageAtDate(birthDate: string, when: Date) {
+  const birth = parseDateSafe(birthDate);
+  if (!birth) {
+    return null;
+  }
+
+  let age = when.getFullYear() - birth.getFullYear();
+  const hasBirthdayThisYear =
+    when.getMonth() > birth.getMonth() ||
+    (when.getMonth() === birth.getMonth() && when.getDate() >= birth.getDate());
+  if (!hasBirthdayThisYear) {
+    age -= 1;
+  }
+
+  return age;
+}
+
+function resolveBirthDateForPerson(data: SeedData, person: string | undefined) {
+  const normalized = (person ?? '').toLowerCase();
+  if (normalized.includes('deb')) {
+    return data.household.debbieBirthDate;
+  }
+  if (normalized.includes('rob')) {
+    return data.household.robBirthDate;
+  }
+  return data.household.robBirthDate;
+}
+
+function resolvePersonName(person: string | undefined) {
+  const normalized = (person ?? '').toLowerCase();
+  if (normalized.includes('deb')) {
+    return 'Debbie';
+  }
+  if (normalized.includes('rob')) {
+    return 'Rob';
+  }
+  return formatPersonLabel(person ?? 'Rob');
+}
+
+function formatPrepWindow(months: number) {
+  if (months >= 24) {
+    return `${Math.round(months / 12)} years`;
+  }
+  if (months >= 12) {
+    return '12 months';
+  }
+  return `${months} months`;
+}
+
+function clampPercent(value: number) {
+  return Math.max(0, Math.min(100, value));
+}
+
+function priorityClasses(value: StrategicPrepRecommendation['priority']) {
+  if (value === 'now') {
+    return 'bg-rose-100 text-rose-700';
+  }
+  if (value === 'soon') {
+    return 'bg-amber-100 text-amber-700';
+  }
+  return 'bg-blue-100 text-blue-700';
+}
+
+function priorityLabel(value: StrategicPrepRecommendation['priority']) {
+  if (value === 'now') {
+    return 'Do now';
+  }
+  if (value === 'soon') {
+    return 'Do soon';
+  }
+  return 'Watch';
 }
 
 function SectionCard({
@@ -321,6 +516,7 @@ function buildPlanAnalysisFingerprint(input: {
   selectedResponses: string[];
   legacyTargetTodayDollars: number;
   legacyPriority: LegacyPriority;
+  successFloorMode: SuccessFloorMode;
   optimizationObjective: OptimizationObjective;
   targetSuccessRatePercent: number;
   irmaaPosture: IrmaaPosture;
@@ -330,6 +526,7 @@ function buildPlanAnalysisFingerprint(input: {
   optionalFlexPercent: number;
   travelFlexPercent: number;
   preserveRothPreference: boolean;
+  runtimeBudgets: typeof INTERACTIVE_RUNTIME_BUDGETS;
 }) {
   return JSON.stringify({
     data: input.data,
@@ -339,6 +536,7 @@ function buildPlanAnalysisFingerprint(input: {
     calibration: {
       legacyTargetTodayDollars: input.legacyTargetTodayDollars,
       legacyPriority: input.legacyPriority,
+      successFloorMode: input.successFloorMode,
       optimizationObjective: input.optimizationObjective,
       targetSuccessRatePercent: input.targetSuccessRatePercent,
     },
@@ -351,6 +549,7 @@ function buildPlanAnalysisFingerprint(input: {
       travelFlexPercent: input.travelFlexPercent,
       preserveRothPreference: input.preserveRothPreference,
     },
+    runtimeBudgets: input.runtimeBudgets,
   });
 }
 
@@ -364,12 +563,14 @@ function buildPlanForAnalysis(input: {
   irmaaPosture: IrmaaPosture;
   legacyTargetTodayDollars: number;
   legacyPriority: LegacyPriority;
+  successFloorMode: SuccessFloorMode;
   optimizationObjective: OptimizationObjective;
   targetSuccessRatePercent: number;
   autopilotDefensive: boolean;
   autopilotOptionalCutsAllowed: boolean;
   optionalFlexPercent: number;
   travelFlexPercent: number;
+  runtimeBudgets: typeof INTERACTIVE_RUNTIME_BUDGETS;
 }): Plan {
   return {
     data: input.data,
@@ -391,15 +592,10 @@ function buildPlanForAnalysis(input: {
       calibration: {
         targetLegacyTodayDollars: Math.max(0, input.legacyTargetTodayDollars),
         legacyPriority: input.legacyPriority,
+        successFloorMode: input.successFloorMode,
         optimizationObjective: input.optimizationObjective,
         minSuccessRate: Math.max(0, Math.min(1, input.targetSuccessRatePercent / 100)),
-        successRateRange: {
-          min: Math.max(0, Math.min(1, input.targetSuccessRatePercent / 100)),
-          max: Math.max(
-            0,
-            Math.min(1, (Math.min(99, input.targetSuccessRatePercent + 10)) / 100),
-          ),
-        },
+        successRateRange: undefined,
       },
       responsePolicy: {
         posture: input.autopilotDefensive ? 'defensive' : 'balanced',
@@ -408,6 +604,7 @@ function buildPlanForAnalysis(input: {
         travelFlexPercent: input.travelFlexPercent,
         preserveRothPreference: input.preserveRothPreference,
       },
+      runtime: input.runtimeBudgets,
     },
   };
 }
@@ -439,9 +636,13 @@ export function UnifiedPlanScreen({
 
   const [legacyTargetTodayDollars, setLegacyTargetTodayDollars] = useState(1_000_000);
   const [legacyPriority, setLegacyPriority] = useState<LegacyPriority>('important');
+  const [successFloorMode, setSuccessFloorMode] =
+    useState<SuccessFloorMode>('balanced');
   const [optimizationObjective, setOptimizationObjective] =
     useState<OptimizationObjective>('maximize_time_weighted_spending');
-  const [targetSuccessRatePercent, setTargetSuccessRatePercent] = useState(80);
+  const [targetSuccessRatePercent, setTargetSuccessRatePercent] = useState(
+    resolveModeTargetSuccessPercent('balanced'),
+  );
   const [irmaaPosture, setIrmaaPosture] = useState<IrmaaPosture>('balanced');
   const [draftConstraintModifiers, setDraftConstraintModifiers] = useState<ConstraintModifiers>(
     DEFAULT_CONSTRAINT_MODIFIERS,
@@ -474,9 +675,40 @@ export function UnifiedPlanScreen({
   const hasInitializedRef = useRef(false);
   const lastRunFingerprintRef = useRef<string | null>(null);
   const latestFingerprintRef = useRef<string>('');
+  const lastPhaseByRequestRef = useRef(
+    new Map<
+      string,
+      { phase: string; status: 'start' | 'end'; durationMs?: number; meta?: Record<string, unknown> }
+    >(),
+  );
   const [controlsSectionState, setControlsSectionState] = useState<PlanControlsSectionState>(
     DEFAULT_PLAN_CONTROLS_SECTION_STATE,
   );
+
+  const setSuccessFloorModeAndTarget = useCallback((mode: SuccessFloorMode) => {
+    setSuccessFloorMode(mode);
+    if (mode !== 'custom') {
+      setTargetSuccessRatePercent(resolveModeTargetSuccessPercent(mode));
+    }
+  }, []);
+
+  const updateTargetSuccessRatePercent = useCallback((nextPercent: number) => {
+    const normalized = Math.max(1, Math.min(99, Math.round(nextPercent || 0)));
+    setTargetSuccessRatePercent(normalized);
+    if (normalized === resolveModeTargetSuccessPercent('conservative')) {
+      setSuccessFloorMode('conservative');
+      return;
+    }
+    if (normalized === resolveModeTargetSuccessPercent('balanced')) {
+      setSuccessFloorMode('balanced');
+      return;
+    }
+    if (normalized === resolveModeTargetSuccessPercent('aggressive')) {
+      setSuccessFloorMode('aggressive');
+      return;
+    }
+    setSuccessFloorMode('custom');
+  }, []);
 
   const primaryPath = pathResults[2] ?? pathResults[0];
   const constraintSummary = summarizeSelectedModifiers(draftConstraintModifiers);
@@ -508,6 +740,7 @@ export function UnifiedPlanScreen({
         selectedResponses,
         legacyTargetTodayDollars,
         legacyPriority,
+        successFloorMode,
         optimizationObjective,
         targetSuccessRatePercent,
         irmaaPosture,
@@ -517,6 +750,7 @@ export function UnifiedPlanScreen({
         optionalFlexPercent,
         travelFlexPercent,
         preserveRothPreference,
+        runtimeBudgets: INTERACTIVE_RUNTIME_BUDGETS,
       }),
     [
       appliedConstraintModifiers,
@@ -532,8 +766,10 @@ export function UnifiedPlanScreen({
       preserveRothPreference,
       selectedResponses,
       selectedStressors,
+      successFloorMode,
       targetSuccessRatePercent,
       travelFlexPercent,
+      INTERACTIVE_RUNTIME_BUDGETS,
     ],
   );
 
@@ -589,8 +825,19 @@ export function UnifiedPlanScreen({
         return;
       }
 
+      if (message.type === 'progress') {
+        lastPhaseByRequestRef.current.set(message.requestId, {
+          phase: message.phase,
+          status: message.status,
+          durationMs: message.durationMs,
+          meta: message.meta,
+        });
+        return;
+      }
+
       if (message.type === 'cancelled') {
         requestFingerprintByIdRef.current.delete(message.requestId);
+        lastPhaseByRequestRef.current.delete(message.requestId);
         clearTrackedPlanAnalysisTimeout(message.requestId);
         stopTrackedPlanAnalysis(message.requestId, 'cancelled');
         activeRequestIdRef.current = null;
@@ -604,6 +851,7 @@ export function UnifiedPlanScreen({
 
       if (message.type === 'error') {
         requestFingerprintByIdRef.current.delete(message.requestId);
+        lastPhaseByRequestRef.current.delete(message.requestId);
         clearTrackedPlanAnalysisTimeout(message.requestId);
         stopTrackedPlanAnalysis(message.requestId, 'error', { error: message.error });
         activeRequestIdRef.current = null;
@@ -620,6 +868,7 @@ export function UnifiedPlanScreen({
         requestFingerprintByIdRef.current.get(message.requestId) ??
         latestFingerprintRef.current;
       requestFingerprintByIdRef.current.delete(message.requestId);
+      lastPhaseByRequestRef.current.delete(message.requestId);
       clearTrackedPlanAnalysisTimeout(message.requestId);
       activeRequestIdRef.current = null;
       analysisInFlightRef.current = false;
@@ -650,6 +899,7 @@ export function UnifiedPlanScreen({
           requestId: activeRequestId,
         };
         worker.postMessage(cancelMessage);
+        lastPhaseByRequestRef.current.delete(activeRequestId);
         stopTrackedPlanAnalysis(activeRequestId, 'cancelled', { reason: 'component-unmount' });
       }
       worker.terminate();
@@ -659,6 +909,7 @@ export function UnifiedPlanScreen({
       analysisTimeoutsRef.current.forEach((timeoutId) => clearTimeout(timeoutId));
       analysisTimeoutsRef.current.clear();
       requestFingerprintByIdRef.current.clear();
+      lastPhaseByRequestRef.current.clear();
     };
   }, [clearTrackedPlanAnalysisTimeout, stopTrackedPlanAnalysis]);
 
@@ -673,6 +924,7 @@ export function UnifiedPlanScreen({
       selectedResponses,
       legacyTargetTodayDollars,
       legacyPriority,
+      successFloorMode,
       optimizationObjective,
       targetSuccessRatePercent,
       irmaaPosture,
@@ -682,6 +934,7 @@ export function UnifiedPlanScreen({
       optionalFlexPercent,
       travelFlexPercent,
       preserveRothPreference,
+      runtimeBudgets: INTERACTIVE_RUNTIME_BUDGETS,
     });
 
     if (analysisInFlightRef.current) {
@@ -713,6 +966,10 @@ export function UnifiedPlanScreen({
     analysisRunCountRef.current += 1;
     activeRequestIdRef.current = requestId;
     requestFingerprintByIdRef.current.set(requestId, runFingerprint);
+    lastPhaseByRequestRef.current.set(requestId, {
+      phase: 'queued',
+      status: 'start',
+    });
     analysisTimersRef.current.set(requestId, finishPerf);
     latestFingerprintRef.current = runFingerprint;
     setError(null);
@@ -734,24 +991,31 @@ export function UnifiedPlanScreen({
       irmaaPosture,
       legacyTargetTodayDollars,
       legacyPriority,
+      successFloorMode,
       optimizationObjective,
       targetSuccessRatePercent,
       autopilotDefensive,
       autopilotOptionalCutsAllowed,
       optionalFlexPercent,
       travelFlexPercent,
+      runtimeBudgets: INTERACTIVE_RUNTIME_BUDGETS,
     });
+    const timeoutMs =
+      planToAnalyze.preferences?.runtime?.timeoutMs ?? PLAN_ANALYSIS_TIMEOUT_MS;
     const worker = workerRef.current;
     const timeoutId = setTimeout(() => {
       if (activeRequestIdRef.current !== requestId) {
         return;
       }
+      const latestPhase = lastPhaseByRequestRef.current.get(requestId);
       perfLog('unified-plan', 'simulation timeout', {
         requestId,
-        timeoutMs: PLAN_ANALYSIS_TIMEOUT_MS,
+        timeoutMs,
         runCount: analysisRunCountRef.current,
+        phase: latestPhase?.phase,
       });
       requestFingerprintByIdRef.current.delete(requestId);
+      lastPhaseByRequestRef.current.delete(requestId);
       clearTrackedPlanAnalysisTimeout(requestId);
       stopTrackedPlanAnalysis(requestId, 'cancelled', { reason: 'timeout' });
       const timeoutCancelMessage: PlanAnalysisWorkerRequest = {
@@ -763,12 +1027,12 @@ export function UnifiedPlanScreen({
       analysisInFlightRef.current = false;
       setIsRunning(false);
       setError(
-        'Plan analysis timed out. Try "Run Plan Analysis" again after reducing stressors or simulation complexity.',
+        `Plan analysis timed out during ${latestPhase?.phase ?? 'an unknown phase'}. Settings: runs=${planToAnalyze.preferences?.runtime?.finalEvaluationSimulationRuns ?? planToAnalyze.assumptions.simulationRuns}, stressors=${selectedStressors.length}, objective=${optimizationObjective}, diagnostics=${planToAnalyze.preferences?.runtime?.solverDiagnosticsMode ?? 'full'}, scenarioLimit=${planToAnalyze.preferences?.runtime?.decisionScenarioEvaluationLimit ?? 'full'}, timeoutMs=${timeoutMs}.`,
       );
       setPlanAnalysisStatus(
         lastRunFingerprintRef.current === latestFingerprintRef.current ? 'fresh' : 'stale',
       );
-    }, PLAN_ANALYSIS_TIMEOUT_MS);
+    }, timeoutMs);
     analysisTimeoutsRef.current.set(requestId, timeoutId);
 
     if (worker) {
@@ -803,12 +1067,22 @@ export function UnifiedPlanScreen({
     nextPaint(() => {
       void (async () => {
         try {
-          const evaluation = await evaluatePlan(planToAnalyze);
+          const evaluation = await evaluatePlan(planToAnalyze, {
+            onPhaseProgress: (progress) => {
+              lastPhaseByRequestRef.current.set(requestId, {
+                phase: progress.phase,
+                status: progress.status,
+                durationMs: progress.durationMs,
+                meta: progress.meta,
+              });
+            },
+          });
           if (activeRequestIdRef.current !== requestId) {
             stopTrackedPlanAnalysis(requestId, 'cancelled', {
               reason: 'superseded',
             });
             clearTrackedPlanAnalysisTimeout(requestId);
+            lastPhaseByRequestRef.current.delete(requestId);
             return;
           }
           setPreviousEvaluation(latestEvaluationRef.current);
@@ -823,6 +1097,7 @@ export function UnifiedPlanScreen({
             fallback: true,
           });
           clearTrackedPlanAnalysisTimeout(requestId);
+          lastPhaseByRequestRef.current.delete(requestId);
           perfLog('unified-plan', 'simulation end', {
             runCount: analysisRunCountRef.current,
             successRate: evaluation.summary.successRate,
@@ -836,6 +1111,7 @@ export function UnifiedPlanScreen({
               fallback: true,
             });
             clearTrackedPlanAnalysisTimeout(requestId);
+            lastPhaseByRequestRef.current.delete(requestId);
             return;
           }
           const message = runError instanceof Error ? runError.message : 'Unified plan analysis failed.';
@@ -848,6 +1124,7 @@ export function UnifiedPlanScreen({
             fallback: true,
           });
           clearTrackedPlanAnalysisTimeout(requestId);
+          lastPhaseByRequestRef.current.delete(requestId);
         } finally {
           if (activeRequestIdRef.current === requestId) {
             activeRequestIdRef.current = null;
@@ -871,6 +1148,7 @@ export function UnifiedPlanScreen({
     preserveRothPreference,
     selectedResponses,
     selectedStressors,
+    successFloorMode,
     stopTrackedPlanAnalysis,
     currentEvaluation,
     clearTrackedPlanAnalysisTimeout,
@@ -890,6 +1168,7 @@ export function UnifiedPlanScreen({
       }
       if (activeRequestIdRef.current) {
         requestFingerprintByIdRef.current.delete(activeRequestIdRef.current);
+        lastPhaseByRequestRef.current.delete(activeRequestIdRef.current);
         clearTrackedPlanAnalysisTimeout(activeRequestIdRef.current);
         stopTrackedPlanAnalysis(activeRequestIdRef.current, 'cancelled', {
           reason: 'stale-running-state-guard',
@@ -1011,8 +1290,9 @@ export function UnifiedPlanScreen({
     : 'Plan verdict explanation will appear once the latest plan analysis completes.';
   const hardConstraints = currentRun
     ? [
-        `Success floor: ${formatPercent(currentRun.plan.targets.minSuccessRate)}`,
-        `Legacy floor: ${formatCurrency(currentRun.plan.targets.exitTargetTodayDollars)} (today's dollars)`,
+        `Success floor: ${formatPercent(currentEvaluation?.calibration.minimumSuccessRateTarget ?? currentRun.plan.targets.minSuccessRate)}`,
+        `Legacy floor: ${formatCurrency(currentEvaluation?.calibration.legacyFloorTodayDollars ?? currentRun.plan.targets.exitTargetTodayDollars)} (today's dollars)`,
+        `Legacy target band: ${formatCurrency(currentEvaluation?.calibration.legacyTargetBandLowerTodayDollars ?? currentRun.plan.targets.exitTargetTodayDollars)} to ${formatCurrency(currentEvaluation?.calibration.legacyTargetBandUpperTodayDollars ?? currentRun.plan.targets.exitTargetTodayDollars)} (today's dollars)`,
         'Preserve essential spending floor',
         ...(currentRun.plan.constraints.doNotSellHouse ? ['Keep house (no primary residence sale)'] : []),
         ...(currentRun.plan.constraints.doNotRetireLater ? ['Do not retire later'] : []),
@@ -1034,19 +1314,431 @@ export function UnifiedPlanScreen({
     ? currentEvaluation.recommendations.top.map((item) => item.name)
     : ['No lever available yet'];
   const solverDiagnostics = currentEvaluation?.raw.spendingCalibration;
+  const solverDiagnosticsRecord = solverDiagnostics as unknown as Record<string, unknown> | undefined;
+  const debugDiagnosticsPayload = solverDiagnosticsRecord
+    ? {
+        activeOptimizationObjective: solverDiagnosticsRecord.activeOptimizationObjective ?? null,
+        minimumSuccessRateTarget: solverDiagnosticsRecord.minimumSuccessRateTarget ?? null,
+        achievedSuccessRate: solverDiagnosticsRecord.achievedSuccessRate ?? null,
+        bindingGuardrail: solverDiagnosticsRecord.bindingGuardrail ?? null,
+        bindingGuardrailExplanation: solverDiagnosticsRecord.bindingGuardrailExplanation ?? null,
+        nextUnlock: solverDiagnosticsRecord.nextUnlock ?? null,
+        nextUnlockImpactMonthly:
+          solverDiagnosticsRecord.nextUnlockImpactMonthly ??
+          solverDiagnosticsRecord.successFloorRelaxationDeltaMonthly ??
+          null,
+        projectedLegacyTodayDollars:
+          solverDiagnosticsRecord.projectedLegacyTodayDollars ??
+          solverDiagnosticsRecord.projectedLegacyOutcomeTodayDollars ??
+          null,
+        overReservedAmount: solverDiagnosticsRecord.overReservedAmount ?? null,
+        runtimeDiagnostics:
+          solverDiagnosticsRecord.runtimeDiagnostics ??
+          currentEvaluation?.raw.run.runtimeDiagnostics ??
+          null,
+      }
+    : null;
+  const requiredDebugFields = [
+    'activeOptimizationObjective',
+    'minimumSuccessRateTarget',
+    'achievedSuccessRate',
+    'bindingGuardrail',
+    'bindingGuardrailExplanation',
+    'nextUnlock',
+    'nextUnlockImpactMonthly',
+    'projectedLegacyTodayDollars',
+    'overReservedAmount',
+  ];
+  const missingDebugFields = solverDiagnosticsRecord
+    ? requiredDebugFields.filter(
+        (field) => !Object.prototype.hasOwnProperty.call(solverDiagnosticsRecord, field),
+      )
+    : [];
   const acaExposureYears = currentEvaluation
     ? currentEvaluation.raw.run.autopilot.years.filter(
         (year) => year.acaStatus === 'Above subsidy range' || year.acaStatus === 'Bridge breached',
       ).length
     : 0;
+  const flightPathTimeline = useMemo(() => {
+    const now = new Date();
+    const nowMs = now.getTime();
+    const events: FlightPathTimelineEvent[] = [];
+    const pushEvent = (event: FlightPathTimelineEvent | null) => {
+      if (!event || Number.isNaN(event.when.getTime())) {
+        return;
+      }
+      events.push(event);
+    };
+
+    const robBirthDate = parseDateSafe(data.household.robBirthDate);
+    const debbieBirthDate = parseDateSafe(data.household.debbieBirthDate);
+    const retirementDate = parseDateSafe(data.income.salaryEndDate);
+    const medicareDates: Date[] = [];
+
+    if (retirementDate) {
+      const robAge = ageAtDate(data.household.robBirthDate, retirementDate);
+      const debbieAge = ageAtDate(data.household.debbieBirthDate, retirementDate);
+      pushEvent({
+        id: 'retirement',
+        when: retirementDate,
+        category: 'retirement',
+        title: 'Retirement',
+        why: 'Salary income ends and withdrawals become the primary funding source.',
+        prepLeadMonths: 24,
+        actionNow:
+          'Lock the monthly spending target and confirm the first 24 months of withdrawal liquidity.',
+        ageLabel:
+          robAge !== null && debbieAge !== null
+            ? `Rob ${robAge} · Debbie ${debbieAge}`
+            : undefined,
+      });
+    }
+
+    const medicarePeople = [
+      { id: 'rob', label: 'Rob', birthDate: robBirthDate, birthDateRaw: data.household.robBirthDate },
+      {
+        id: 'debbie',
+        label: 'Debbie',
+        birthDate: debbieBirthDate,
+        birthDateRaw: data.household.debbieBirthDate,
+      },
+    ];
+    medicarePeople.forEach((person) => {
+      if (!person.birthDate) {
+        return;
+      }
+      const medicareDate = addYears(person.birthDate, 65);
+      medicareDates.push(medicareDate);
+      pushEvent({
+        id: `${person.id}-medicare-65`,
+        when: medicareDate,
+        category: 'medicare',
+        title: `${person.label} turns 65 (Medicare window)`,
+        why: 'Coverage and premium decisions start to affect healthcare cost and MAGI strategy.',
+        prepLeadMonths: 12,
+        actionNow: 'Confirm enrollment timing and pick the Medicare path before penalties can apply.',
+        ageLabel: `Age ${ageAtDate(person.birthDateRaw, medicareDate) ?? 65}`,
+      });
+    });
+
+    data.income.socialSecurity.forEach((entry, index) => {
+      const claimAge = Math.max(0, Math.round(entry.claimAge));
+      const birthDateRaw = resolveBirthDateForPerson(data, entry.person);
+      const birthDate = parseDateSafe(birthDateRaw);
+      if (!birthDate) {
+        return;
+      }
+      const claimDate = addYears(birthDate, claimAge);
+      const personLabel = resolvePersonName(entry.person);
+      pushEvent({
+        id: `ss-${personLabel.toLowerCase()}-${claimAge}-${index}`,
+        when: claimDate,
+        category: 'social_security',
+        title: `${personLabel} starts Social Security`,
+        why: 'Guaranteed income begins and can reduce portfolio draw pressure.',
+        prepLeadMonths: 12,
+        actionNow: 'Reconfirm claiming age against taxes, IRMAA, and cash-flow needs.',
+        ageLabel: `Age ${claimAge}`,
+      });
+    });
+
+    const autopilotYears = currentEvaluation?.raw.run.autopilot.years ?? [];
+    const firstIrmaaPressureYear = autopilotYears.find((year) => {
+      const hasMedicareMembers = year.robAge >= 65 || year.debbieAge >= 65;
+      if (!hasMedicareMembers) {
+        return false;
+      }
+      const status = year.irmaaStatus.toLowerCase();
+      return status.includes('surcharge') || (typeof year.irmaaHeadroom === 'number' && year.irmaaHeadroom < 8_000);
+    });
+
+    if (firstIrmaaPressureYear) {
+      const lookbackYear = firstIrmaaPressureYear.year - 2;
+      pushEvent({
+        id: `irmaa-watch-${lookbackYear}`,
+        when: new Date(lookbackYear, 0, 1),
+        category: 'irmaa',
+        title: 'IRMAA watch zone begins',
+        why: `First modeled Medicare surcharge pressure appears in ${firstIrmaaPressureYear.year}, and IRMAA uses a 2-year MAGI lookback.`,
+        prepLeadMonths: 0,
+        actionNow: 'Start smoothing MAGI now by coordinating withdrawals and Roth conversion pace.',
+        ageLabel: `Rob ${Math.max(0, firstIrmaaPressureYear.robAge - 2)} · Debbie ${Math.max(0, firstIrmaaPressureYear.debbieAge - 2)}`,
+      });
+    } else if (medicareDates.length) {
+      const earliestMedicareDate = medicareDates.reduce((earliest, candidate) =>
+        candidate.getTime() < earliest.getTime() ? candidate : earliest,
+      );
+      const irmaaLookbackDate = addYears(earliestMedicareDate, -2);
+      pushEvent({
+        id: 'irmaa-lookback',
+        when: irmaaLookbackDate,
+        category: 'irmaa',
+        title: 'IRMAA lookback window begins',
+        why: 'Medicare surcharges are based on MAGI from two tax years earlier.',
+        prepLeadMonths: 6,
+        actionNow: 'Pre-plan taxable income and conversion steps before Medicare eligibility arrives.',
+      });
+    }
+
+    const firstRmdYear = autopilotYears.find((year) => year.rmdAmount > 1);
+    if (firstRmdYear) {
+      pushEvent({
+        id: `rmd-${firstRmdYear.year}`,
+        when: new Date(firstRmdYear.year, 0, 1),
+        category: 'rmd',
+        title: 'RMD phase starts',
+        why: 'Required distributions force taxable income and can increase guardrail pressure.',
+        prepLeadMonths: 18,
+        actionNow: 'Set a withholding and withdrawal plan so forced income does not create avoidable spikes.',
+        ageLabel: `Rob ${firstRmdYear.robAge} · Debbie ${firstRmdYear.debbieAge}`,
+      });
+    } else {
+      const rmdCandidates = medicarePeople
+        .filter((person) => person.birthDate)
+        .map((person) => {
+          const birthYear = person.birthDate?.getFullYear() ?? 0;
+          const startAge = getRmdStartAgeForBirthYear(birthYear);
+          const when = addYears(person.birthDate as Date, startAge);
+          return {
+            personLabel: person.label,
+            startAge,
+            when,
+          };
+        });
+      if (rmdCandidates.length) {
+        const earliestRmd = rmdCandidates.reduce((earliest, candidate) =>
+          candidate.when.getTime() < earliest.when.getTime() ? candidate : earliest,
+        );
+        pushEvent({
+          id: `rmd-estimate-${earliestRmd.personLabel.toLowerCase()}`,
+          when: earliestRmd.when,
+          category: 'rmd',
+          title: 'Estimated RMD start',
+          why: 'Required minimum distributions are expected to begin and raise taxable income.',
+          prepLeadMonths: 18,
+          actionNow: 'Model conversion timing before RMDs begin to reduce later tax and IRMAA pressure.',
+          ageLabel: `${earliestRmd.personLabel} age ${earliestRmd.startAge}`,
+        });
+      }
+    }
+
+    const uniqueSortedEvents = events
+      .filter((event, index, collection) =>
+        index === collection.findIndex((candidate) => candidate.id === event.id),
+      )
+      .sort((left, right) => left.when.getTime() - right.when.getTime());
+    const shortHorizonEvents = uniqueSortedEvents.filter((event) => event.category !== 'rmd');
+    const recentThresholdMs = addMonths(now, -18).getTime();
+    const timelineEvents = shortHorizonEvents.filter((event) => event.when.getTime() >= recentThresholdMs);
+    const limitedEvents = (timelineEvents.length ? timelineEvents : shortHorizonEvents).slice(0, 8);
+    const nextEventIndex = limitedEvents.findIndex((event) => event.when.getTime() >= nowMs);
+
+    const earliestEventMs = limitedEvents[0]?.when.getTime() ?? nowMs;
+    const latestEventMs = limitedEvents[limitedEvents.length - 1]?.when.getTime() ?? nowMs;
+    const timelineStartMs = Math.min(addMonths(now, -6).getTime(), addMonths(new Date(earliestEventMs), -3).getTime());
+    const timelineEndMs = Math.max(addMonths(now, 24).getTime(), addMonths(new Date(latestEventMs), 3).getTime());
+    const timelineSpanMs = Math.max(1, timelineEndMs - timelineStartMs);
+
+    const displayEvents = limitedEvents.map((event, index) => {
+      const prepStart = addMonths(event.when, -event.prepLeadMonths);
+      const prepStartsLabel =
+        prepStart.getTime() <= nowMs
+          ? `Now (${formatPrepWindow(event.prepLeadMonths)} lead)`
+          : `${formatMonthYear(prepStart)} (${formatPrepWindow(event.prepLeadMonths)} lead)`;
+      return {
+        ...event,
+        isPast: event.when.getTime() < nowMs,
+        isNext: nextEventIndex >= 0 ? index === nextEventIndex : index === limitedEvents.length - 1,
+        markerRow: index % 2,
+        positionPct: clampPercent(((event.when.getTime() - timelineStartMs) / timelineSpanMs) * 100),
+        whenLabel: formatTimelineDate(event.when),
+        prepStartsLabel,
+      };
+    });
+
+    return {
+      events: displayEvents,
+      nextEvent: nextEventIndex >= 0 ? displayEvents[nextEventIndex] : null,
+      legendCategories: Array.from(new Set(displayEvents.map((event) => event.category))),
+      rangeStartLabel: formatMonthYear(new Date(timelineStartMs)),
+      rangeEndLabel: formatMonthYear(new Date(timelineEndMs)),
+      nowPositionPct: clampPercent(((nowMs - timelineStartMs) / timelineSpanMs) * 100),
+    };
+  }, [currentEvaluation, data]);
+  const strategicPrepRecommendations = useMemo(() => {
+    const recommendations: StrategicPrepRecommendation[] = [];
+    const nowYear = new Date().getFullYear();
+    const autopilotYears = currentEvaluation?.raw.run.autopilot.years ?? [];
+    const nearYears = autopilotYears.filter((year) => year.year >= nowYear && year.year <= nowYear + 3);
+    const firstNearYear = nearYears[0] ?? autopilotYears[0];
+
+    if (currentEvaluation) {
+      const spendGapMonthly =
+        currentEvaluation.calibration.userTargetMonthlySpendNow -
+        currentEvaluation.calibration.supportedMonthlySpendNow;
+      if (spendGapMonthly > 150) {
+        recommendations.push({
+          id: 'spend-gap-reduce',
+          priority: 'now',
+          title: 'Align spending to supported level',
+          action: `Trim monthly spending by about ${formatCurrency(spendGapMonthly)} to match today’s supported level.`,
+          why: 'This closes the current funding gap and improves plan durability under the active guardrails.',
+          amountHint: `${formatCurrency(spendGapMonthly)} per month reduction`,
+        });
+      } else if (spendGapMonthly < -150) {
+        const room = Math.abs(spendGapMonthly);
+        recommendations.push({
+          id: 'spend-gap-room',
+          priority: 'watch',
+          title: 'You have near-term spending room',
+          action: `You can increase monthly spending by up to about ${formatCurrency(room)} and stay inside the current supported path.`,
+          why: 'The current plan run indicates over-reserved room relative to your stated target spend.',
+          amountHint: `${formatCurrency(room)} per month potential increase`,
+        });
+      }
+    }
+
+    const essentialMonthlyWithFixed =
+      data.spending.essentialMonthly + data.spending.annualTaxesInsurance / 12;
+    const currentCash = data.accounts.cash.balance;
+    const recommendedCashBuffer = essentialMonthlyWithFixed * 18;
+    if (currentCash < recommendedCashBuffer * 0.9) {
+      recommendations.push({
+        id: 'cash-buffer-top-up',
+        priority: 'now',
+        title: 'Top up cash buffer runway',
+        action: `Move about ${formatCurrency(recommendedCashBuffer - currentCash)} into cash to reach an 18-month essential runway.`,
+        why: 'A stronger liquid buffer helps absorb early-sequence shocks without forcing poor-timing sales.',
+        amountHint: `Current cash ${formatCurrency(currentCash)} vs target ${formatCurrency(recommendedCashBuffer)}`,
+      });
+    } else if (currentCash > recommendedCashBuffer * 1.6) {
+      recommendations.push({
+        id: 'cash-buffer-redeploy',
+        priority: 'watch',
+        title: 'Excess cash drag check',
+        action: `Consider redeploying around ${formatCurrency(currentCash - recommendedCashBuffer)} from cash to your intended allocation.`,
+        why: 'Large excess cash can reduce long-run supportable spending by lowering expected growth.',
+        amountHint: `Cash above 18-month buffer: ${formatCurrency(currentCash - recommendedCashBuffer)}`,
+      });
+    }
+
+    const irmaaPressureYear = nearYears.find((year) => {
+      const hasMedicareMembers = year.robAge >= 65 || year.debbieAge >= 65;
+      if (!hasMedicareMembers) {
+        return false;
+      }
+      const status = year.irmaaStatus.toLowerCase();
+      return status.includes('surcharge') || (typeof year.irmaaHeadroom === 'number' && year.irmaaHeadroom < 10_000);
+    });
+    if (irmaaPressureYear) {
+      const headroom = irmaaPressureYear.irmaaHeadroom ?? 0;
+      const reductionNeeded = headroom < 0 ? Math.abs(headroom) : Math.max(0, 10_000 - headroom);
+      const targetMagiCap = Math.max(0, irmaaPressureYear.estimatedMAGI - reductionNeeded);
+      recommendations.push({
+        id: 'irmaa-cap',
+        priority: headroom <= 2_500 ? 'now' : 'soon',
+        title: 'Set an IRMAA MAGI cap',
+        action: `For tax year ${irmaaPressureYear.year - 2}, plan MAGI near ${formatCurrency(targetMagiCap)} and avoid crossing current IRMAA thresholds.`,
+        why: 'Modeled Medicare surcharge pressure appears in your near-term route.',
+        amountHint: `Approx MAGI reduction need: ${formatCurrency(reductionNeeded)}`,
+      });
+    }
+
+    const acaPressureYear = nearYears.find(
+      (year) =>
+        year.regime === 'aca_bridge' &&
+        typeof year.acaFriendlyMagiCeiling === 'number' &&
+        year.estimatedMAGI > year.acaFriendlyMagiCeiling,
+    );
+    if (acaPressureYear && typeof acaPressureYear.acaFriendlyMagiCeiling === 'number') {
+      const overage = acaPressureYear.estimatedMAGI - acaPressureYear.acaFriendlyMagiCeiling;
+      recommendations.push({
+        id: 'aca-bridge-cap',
+        priority: 'now',
+        title: 'Protect ACA bridge eligibility',
+        action: `In ${acaPressureYear.year}, keep MAGI near or below ${formatCurrency(
+          acaPressureYear.acaFriendlyMagiCeiling,
+        )} by shifting withdrawals away from ordinary-income sources where possible.`,
+        why: 'Your modeled bridge year exceeds the subsidy-friendly MAGI zone.',
+        amountHint: `Current modeled overage: ${formatCurrency(overage)}`,
+      });
+    }
+
+    const plannedConversions = nearYears
+      .map((year) => year.suggestedRothConversion)
+      .filter((value) => value > 1_000);
+    if (plannedConversions.length) {
+      const averageConversion =
+        plannedConversions.reduce((sum, value) => sum + value, 0) / plannedConversions.length;
+      recommendations.push({
+        id: 'roth-conversion-program',
+        priority: 'soon',
+        title: 'Run an annual Roth conversion program',
+        action: `Plan annual conversions around ${formatCurrency(averageConversion)} while staying below ACA/IRMAA guardrails.`,
+        why: 'Near-term conversion capacity appears in the current route and can reduce later forced-income pressure.',
+        amountHint: `Average suggested conversion (${plannedConversions.length} yrs): ${formatCurrency(
+          averageConversion,
+        )}/yr`,
+      });
+    }
+
+    if (firstNearYear) {
+      const bucketWithdrawals = [
+        { key: 'cash', value: firstNearYear.withdrawalCash },
+        { key: 'taxable', value: firstNearYear.withdrawalTaxable },
+        { key: 'pretax', value: firstNearYear.withdrawalIra401k },
+        { key: 'roth', value: firstNearYear.withdrawalRoth },
+      ];
+      const totalWithdrawals = bucketWithdrawals.reduce((sum, item) => sum + item.value, 0);
+      const dominant = [...bucketWithdrawals].sort((left, right) => right.value - left.value)[0];
+      if (dominant && totalWithdrawals > 0 && dominant.value / totalWithdrawals >= 0.6) {
+        recommendations.push({
+          id: 'withdrawal-concentration',
+          priority: 'watch',
+          title: 'Balance withdrawal source concentration',
+          action: `Current route leans heavily on ${dominant.key} (~${Math.round(
+            (dominant.value / totalWithdrawals) * 100,
+          )}% of ${firstNearYear.year} withdrawals). Keep source mix diversified to manage taxes and guardrail cliffs.`,
+          why: 'Heavy reliance on one bucket can reduce flexibility when conditions change.',
+          amountHint: `${formatCurrency(dominant.value)} from ${dominant.key} in ${firstNearYear.year}`,
+        });
+      }
+    }
+
+    if (currentEvaluation?.calibration.nextUnlock) {
+      recommendations.push({
+        id: 'next-unlock',
+        priority: currentEvaluation.calibration.successConstraintBinding ? 'soon' : 'watch',
+        title: 'Next unlock path',
+        action: currentEvaluation.calibration.nextUnlock,
+        why:
+          currentEvaluation.calibration.successFloorRelaxationTradeoff ??
+          'This is the modeled next lever with the best tradeoff for more supported spending.',
+        amountHint: `Estimated monthly impact: ${formatCurrency(
+          currentEvaluation.calibration.nextUnlockImpactMonthly,
+        )}`,
+      });
+    }
+
+    const priorityOrder: Record<StrategicPrepRecommendation['priority'], number> = {
+      now: 0,
+      soon: 1,
+      watch: 2,
+    };
+    return recommendations
+      .sort((left, right) => priorityOrder[left.priority] - priorityOrder[right.priority])
+      .slice(0, 6);
+  }, [currentEvaluation, data]);
   const substantialWealthReasons = solverDiagnostics
     ? [
         solverDiagnostics.surplusPreservedBecause,
         `Binding constraint: ${toReadableConstraint(solverDiagnostics.bindingConstraint)}.`,
-        `Legacy target: ${formatCurrency(solverDiagnostics.targetLegacyTodayDollars)}; projected ending wealth: ${formatCurrency(solverDiagnostics.projectedLegacyOutcomeTodayDollars)}; gap: ${formatCurrency(solverDiagnostics.legacyGapToTarget)}.`,
+        `Legacy floor: ${formatCurrency(solverDiagnostics.legacyFloorTodayDollars)}; target band: ${formatCurrency(solverDiagnostics.legacyTargetBandLowerTodayDollars)} to ${formatCurrency(solverDiagnostics.legacyTargetBandUpperTodayDollars)}; projected ending wealth: ${formatCurrency(solverDiagnostics.projectedLegacyOutcomeTodayDollars)}.`,
         solverDiagnostics.overReservedAmount > 0
           ? `Over-reserved amount versus legacy target: ${formatCurrency(solverDiagnostics.overReservedAmount)}.`
-          : 'Projected ending wealth is at or below the legacy target band.',
+          : solverDiagnostics.legacyWithinTargetBand
+            ? 'Projected ending wealth is inside the legacy target band.'
+            : 'Projected ending wealth is at or below the legacy target band.',
         `Flexible spending target/min: ${formatCurrency(solverDiagnostics.flexibleSpendingTarget)} / ${formatCurrency(solverDiagnostics.flexibleSpendingMinimum)} per year.`,
         `Travel spending target/min: ${formatCurrency(solverDiagnostics.travelSpendingTarget)} / ${formatCurrency(solverDiagnostics.travelSpendingMinimum)} per year.`,
         solverDiagnostics.constrainedBySpendingFloors
@@ -1144,6 +1836,153 @@ export function UnifiedPlanScreen({
               {formatTimePreferenceLabel(timePreference.profile.ages80plus)}
             </p>
           ) : null}
+
+          {flightPathTimeline.events.length ? (
+            <div className="mt-4 rounded-xl border border-stone-200 bg-stone-50/70 p-3">
+              <p className="text-xs uppercase tracking-[0.14em] text-stone-500">
+                Major Event Timeline (MVP)
+              </p>
+              <div className="mt-2 rounded-lg border border-stone-200 bg-white px-3 py-2">
+                <div className="flex items-center justify-between text-[10px] uppercase tracking-[0.12em] text-stone-500">
+                  <span>{flightPathTimeline.rangeStartLabel}</span>
+                  <span>Now Marker</span>
+                  <span>{flightPathTimeline.rangeEndLabel}</span>
+                </div>
+                <div className="relative mt-2 h-20">
+                  <div className="absolute left-0 right-0 top-9 h-2 rounded-full bg-gradient-to-r from-slate-300 via-slate-200 to-slate-300" />
+                  <div
+                    className="absolute top-5 h-10 w-[2px] bg-stone-400"
+                    style={{ left: `${flightPathTimeline.nowPositionPct}%` }}
+                  />
+                  {flightPathTimeline.events.map((event) => (
+                    <div
+                      key={`${event.id}-marker`}
+                      className="absolute"
+                      style={{
+                        left: `${event.positionPct}%`,
+                        top: event.markerRow === 0 ? '4px' : '38px',
+                        transform: 'translateX(-50%)',
+                      }}
+                    >
+                      <div
+                        className={`h-3 w-3 rounded-full ring-2 ring-white shadow ${
+                          FLIGHT_PATH_EVENT_VISUAL[event.category].markerClassName
+                        } ${event.isNext ? 'h-4 w-4' : ''}`}
+                        title={event.title}
+                      />
+                      <p className="mt-1 w-24 truncate text-[10px] leading-4 text-stone-600">
+                        {event.title}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {flightPathTimeline.legendCategories.map((category) => (
+                    <span
+                      key={category}
+                      className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                        FLIGHT_PATH_EVENT_VISUAL[category].softClassName
+                      }`}
+                    >
+                      <span
+                        className={`h-2 w-2 rounded-full ${
+                          FLIGHT_PATH_EVENT_VISUAL[category].markerClassName
+                        }`}
+                      />
+                      {FLIGHT_PATH_EVENT_VISUAL[category].label}
+                    </span>
+                  ))}
+                </div>
+              </div>
+              {flightPathTimeline.nextEvent ? (
+                <p className="mt-2 rounded-lg bg-blue-50 px-3 py-2 text-xs text-blue-900">
+                  Next milestone: {flightPathTimeline.nextEvent.title} ({flightPathTimeline.nextEvent.whenLabel})
+                </p>
+              ) : null}
+              <ol className="mt-3 space-y-2">
+                {flightPathTimeline.events.map((event) => (
+                  <li
+                    key={event.id}
+                    className={`rounded-lg border px-3 py-2 ${
+                      event.isNext
+                        ? 'border-blue-200 bg-blue-50/70'
+                        : 'border-stone-200 bg-white'
+                    }`}
+                  >
+                    <div className="flex flex-wrap items-start justify-between gap-2">
+                      <div>
+                        <p className="text-sm font-semibold text-stone-900">{event.title}</p>
+                        <p className="text-xs text-stone-500">
+                          {event.whenLabel}
+                          {event.ageLabel ? ` · ${event.ageLabel}` : ''}
+                        </p>
+                        <span
+                          className={`mt-1 inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                            FLIGHT_PATH_EVENT_VISUAL[event.category].softClassName
+                          }`}
+                        >
+                          {FLIGHT_PATH_EVENT_VISUAL[event.category].label}
+                        </span>
+                      </div>
+                      <span
+                        className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] ${
+                          event.isNext
+                            ? 'bg-blue-100 text-blue-700'
+                            : event.isPast
+                              ? 'bg-stone-200 text-stone-600'
+                              : 'bg-emerald-100 text-emerald-700'
+                        }`}
+                      >
+                        {event.isNext ? 'Next' : event.isPast ? 'Started' : 'Upcoming'}
+                      </span>
+                    </div>
+                    <p className="mt-1 text-xs text-stone-700">{event.why}</p>
+                    <p className="mt-1 text-xs text-stone-600">
+                      <span className="font-semibold">Prep starts:</span> {event.prepStartsLabel}
+                    </p>
+                    <p className="mt-1 text-xs text-stone-600">
+                      <span className="font-semibold">Action now:</span> {event.actionNow}
+                    </p>
+                  </li>
+                ))}
+              </ol>
+            </div>
+          ) : null}
+
+          {strategicPrepRecommendations.length ? (
+            <div className="mt-4 rounded-xl border border-stone-200 bg-white p-3">
+              <p className="text-xs uppercase tracking-[0.14em] text-stone-500">
+                Strategic Prep Recommendations
+              </p>
+              <div className="mt-2 space-y-2">
+                {strategicPrepRecommendations.map((item) => (
+                  <div key={item.id} className="rounded-lg border border-stone-200 bg-stone-50/70 p-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <p className="text-sm font-semibold text-stone-900">{item.title}</p>
+                      <span
+                        className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] ${priorityClasses(
+                          item.priority,
+                        )}`}
+                      >
+                        {priorityLabel(item.priority)}
+                      </span>
+                    </div>
+                    <p className="mt-1 text-xs text-stone-700">
+                      <span className="font-semibold">Action:</span> {item.action}
+                    </p>
+                    <p className="mt-1 text-xs text-stone-600">
+                      <span className="font-semibold">Why:</span> {item.why}
+                    </p>
+                    {item.amountHint ? (
+                      <p className="mt-1 text-xs text-stone-600">
+                        <span className="font-semibold">Amount guide:</span> {item.amountHint}
+                      </p>
+                    ) : null}
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
         </div>
       </SectionCard>
 
@@ -1198,6 +2037,42 @@ export function UnifiedPlanScreen({
               </p>
             </div>
           </div>
+          {currentEvaluation ? (
+            <div className="mt-3 rounded-xl bg-white p-4 text-sm text-stone-700">
+              <p className="text-xs uppercase tracking-[0.12em] text-stone-500">
+                Safe Spending Band
+              </p>
+              <div className="mt-2 grid gap-3 md:grid-cols-3">
+                <div className="rounded-lg bg-stone-100 px-3 py-2">
+                  <p className="text-xs text-stone-500">Conservative</p>
+                  <p className="mt-1 font-semibold">
+                    {formatCurrency(currentEvaluation.calibration.safeBandAnnual.lower)}/yr
+                  </p>
+                  <p className="text-xs text-stone-600">
+                    {formatCurrency(currentEvaluation.calibration.safeBandAnnual.lower / 12)}/mo
+                  </p>
+                </div>
+                <div className="rounded-lg bg-blue-50 px-3 py-2">
+                  <p className="text-xs text-blue-700">Target</p>
+                  <p className="mt-1 font-semibold text-blue-900">
+                    {formatCurrency(currentEvaluation.calibration.safeBandAnnual.target)}/yr
+                  </p>
+                  <p className="text-xs text-blue-700">
+                    {formatCurrency(currentEvaluation.calibration.safeBandAnnual.target / 12)}/mo
+                  </p>
+                </div>
+                <div className="rounded-lg bg-emerald-50 px-3 py-2">
+                  <p className="text-xs text-emerald-700">Stretch</p>
+                  <p className="mt-1 font-semibold text-emerald-900">
+                    {formatCurrency(currentEvaluation.calibration.safeBandAnnual.upper)}/yr
+                  </p>
+                  <p className="text-xs text-emerald-700">
+                    {formatCurrency(currentEvaluation.calibration.safeBandAnnual.upper / 12)}/mo
+                  </p>
+                </div>
+              </div>
+            </div>
+          ) : null}
         </SectionCard>
       </div>
 
@@ -1212,15 +2087,46 @@ export function UnifiedPlanScreen({
                   {formatPercent(currentEvaluation.summary.successRate)} success.
                 </p>
                 <p className="mt-2">
+                  Supported annual spending now: {formatCurrency(currentEvaluation.calibration.supportedAnnualSpendNow)}/year.
+                </p>
+                <p className="mt-2">
+                  Success floor target: {formatPercent(currentEvaluation.calibration.minimumSuccessRateTarget)} · achieved{' '}
+                  {formatPercent(currentEvaluation.calibration.achievedSuccessRate)}.
+                </p>
+                <p className="mt-2">
+                  Binding guardrail: {toReadableConstraint(currentEvaluation.calibration.bindingGuardrail)}.
+                </p>
+                <p className="mt-2">
                   Binding constraint: {toReadableConstraint(currentEvaluation.calibration.bindingConstraint)}.
                 </p>
                 <p className="mt-2">
                   Primary tradeoff: {currentEvaluation.calibration.primaryTradeoff}
                 </p>
+                {currentEvaluation.calibration.nextUnlock ? (
+                  <p className="mt-2 rounded-lg bg-blue-50 px-3 py-2 text-blue-900">
+                    Next unlock: {currentEvaluation.calibration.nextUnlock}
+                  </p>
+                ) : null}
+                {currentEvaluation.calibration.successConstraintBinding ? (
+                  <p className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-amber-900">
+                    {currentEvaluation.calibration.successFloorNextUnlock ??
+                      'Success floor is binding. Relaxing the floor can increase supported spending with a tradeoff in robustness.'}
+                  </p>
+                ) : null}
+                {currentEvaluation.calibration.successConstraintBinding &&
+                currentEvaluation.calibration.successFloorRelaxationTradeoff ? (
+                  <p className="mt-2 text-xs text-stone-600">
+                    {currentEvaluation.calibration.successFloorRelaxationTradeoff}
+                  </p>
+                ) : null}
                 <ul className="mt-3 space-y-1 text-stone-600">
                   <li>
                     • Reducing flexible spending toward its floor ({formatCurrency(currentEvaluation.calibration.flexibleSpendingMinimum)}/yr)
                     can improve resilience without cutting core needs.
+                  </li>
+                  <li>
+                    • Supported spend at current floor: {formatCurrency(currentEvaluation.calibration.supportedSpendAtCurrentSuccessFloor)}/yr.{' '}
+                    If floor is relaxed: {formatCurrency(currentEvaluation.calibration.supportedSpendIfSuccessFloorRelaxed)}/yr.
                   </li>
                   <li>
                     • Supported spend by phase: 60s {formatCurrency(currentEvaluation.calibration.supportedSpend60s)}/yr, 70s{' '}
@@ -1243,7 +2149,12 @@ export function UnifiedPlanScreen({
                   ACA exposure: {acaExposureYears > 0 ? `${acaExposureYears} years above subsidy-safe range.` : 'No ACA breach years in current route.'}
                 </p>
                 <p className="mt-2">
-                  Legacy landing: {formatCurrency(currentEvaluation.raw.spendingCalibration.projectedLegacyOutcomeTodayDollars)} vs target {formatCurrency(currentEvaluation.raw.spendingCalibration.targetLegacyTodayDollars)}.
+                  Legacy landing (today $): center {formatCurrency(currentEvaluation.calibration.projectedLegacyTodayDollars)} with
+                  approx 1σ robust range {formatCurrency(currentEvaluation.calibration.endingWealthOneSigmaLowerTodayDollars)} to{' '}
+                  {formatCurrency(currentEvaluation.calibration.endingWealthOneSigmaUpperTodayDollars)}. Target band is{' '}
+                  {formatCurrency(currentEvaluation.calibration.legacyTargetBandLowerTodayDollars)} to{' '}
+                  {formatCurrency(currentEvaluation.calibration.legacyTargetBandUpperTodayDollars)} (floor{' '}
+                  {formatCurrency(currentEvaluation.calibration.legacyFloorTodayDollars)}).
                 </p>
                 {currentEvaluation.calibration.overReservedAmount > 0 ? (
                   <p className="mt-2">
@@ -1254,6 +2165,35 @@ export function UnifiedPlanScreen({
                   {currentEvaluation.calibration.whySupportedSpendIsNotHigher}
                 </p>
               </div>
+            </div>
+          </SectionCard>
+        </div>
+      ) : null}
+
+      {currentEvaluation ? (
+        <div className="mt-4">
+          <SectionCard title="Year-By-Year Supported Spending">
+            <div className="overflow-x-auto rounded-xl bg-white p-3">
+              <table className="min-w-full text-left text-sm text-stone-700">
+                <thead className="text-xs uppercase tracking-[0.12em] text-stone-500">
+                  <tr>
+                    <th className="px-2 py-2">Year</th>
+                    <th className="px-2 py-2">Age</th>
+                    <th className="px-2 py-2">Annual</th>
+                    <th className="px-2 py-2">Monthly</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {currentEvaluation.calibration.supportedSpendingSchedule.map((point) => (
+                    <tr key={`${point.year}-${point.age}`} className="border-t border-stone-100">
+                      <td className="px-2 py-2">{point.year}</td>
+                      <td className="px-2 py-2">{point.age}</td>
+                      <td className="px-2 py-2">{formatCurrency(point.annualSpend)}</td>
+                      <td className="px-2 py-2">{formatCurrency(point.monthlySpend)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           </SectionCard>
         </div>
@@ -1689,7 +2629,7 @@ export function UnifiedPlanScreen({
 
           <ControlSection
             title="Plan Settings"
-            summary={`Objective ${formatOptimizationObjectiveLabel(optimizationObjective)} · IRMAA ${irmaaPosture} · Autopilot ${autopilotDefensive ? 'defensive' : 'balanced'} · Target success ${targetSuccessRatePercent}%`}
+            summary={`Objective ${formatOptimizationObjectiveLabel(optimizationObjective)} · IRMAA ${irmaaPosture} · Autopilot ${autopilotDefensive ? 'defensive' : 'balanced'} · Success floor ${targetSuccessRatePercent}% (${formatSuccessFloorModeLabel(successFloorMode)})`}
             isOpen={controlsSectionState.planSettings}
             onToggle={() => setControlsSectionOpen('planSettings', !controlsSectionState.planSettings)}
           >
@@ -1712,6 +2652,19 @@ export function UnifiedPlanScreen({
                 </select>
               </label>
               <label className="text-sm text-stone-700">
+                Success floor mode
+                <select
+                  value={successFloorMode}
+                  onChange={(event) => setSuccessFloorModeAndTarget(event.target.value as SuccessFloorMode)}
+                  className="mt-1 w-full rounded-xl border border-stone-300 bg-white px-3 py-2"
+                >
+                  <option value="conservative">Conservative (95%)</option>
+                  <option value="balanced">Balanced (92%)</option>
+                  <option value="aggressive">Aggressive (85%)</option>
+                  <option value="custom">Custom</option>
+                </select>
+              </label>
+              <label className="text-sm text-stone-700">
                 Target success rate (%)
                 <input
                   type="number"
@@ -1719,7 +2672,7 @@ export function UnifiedPlanScreen({
                   min={1}
                   max={99}
                   step={1}
-                  onChange={(event) => setTargetSuccessRatePercent(Number(event.target.value) || 0)}
+                  onChange={(event) => updateTargetSuccessRatePercent(Number(event.target.value) || 0)}
                   className="mt-1 w-full rounded-xl border border-stone-300 bg-white px-3 py-2"
                 />
               </label>
@@ -1876,9 +2829,13 @@ export function UnifiedPlanScreen({
               <p className="text-xs uppercase tracking-[0.14em] text-stone-500">IRMAA + legacy read</p>
               <p className="mt-2 text-sm text-stone-700">{currentEvaluation.irmaa.explanation}</p>
               <p className="mt-2 text-sm text-stone-700">
-                Legacy target {formatCurrency(currentEvaluation.calibration.targetLegacyTodayDollars)} (
-                {formatLegacyPriorityLabel(currentEvaluation.calibration.legacyPriority)}) vs projected{' '}
-                {formatCurrency(currentEvaluation.calibration.projectedLegacyTodayDollars)}.
+                Legacy floor {formatCurrency(currentEvaluation.calibration.legacyFloorTodayDollars)} · target band{' '}
+                {formatCurrency(currentEvaluation.calibration.legacyTargetBandLowerTodayDollars)} to{' '}
+                {formatCurrency(currentEvaluation.calibration.legacyTargetBandUpperTodayDollars)} (
+                {formatLegacyPriorityLabel(currentEvaluation.calibration.legacyPriority)}) · projected{' '}
+                {formatCurrency(currentEvaluation.calibration.projectedLegacyTodayDollars)} · approx 1σ robust range{' '}
+                {formatCurrency(currentEvaluation.calibration.endingWealthOneSigmaLowerTodayDollars)} to{' '}
+                {formatCurrency(currentEvaluation.calibration.endingWealthOneSigmaUpperTodayDollars)}.
               </p>
             </div>
 
@@ -1897,8 +2854,10 @@ export function UnifiedPlanScreen({
                   <p>{runDelta.topRecommendationMessage}</p>
                   <p>{runDelta.biggestDriverMessage}</p>
                   <p>
-                    Median ending wealth change:{' '}
-                    <span className="font-semibold">{formatCurrency(runDelta.medianWealthDelta)}</span>
+                    Projected legacy (today $) change:{' '}
+                    <span className="font-semibold">
+                      {formatCurrency(runDelta.projectedLegacyTodayDollarsDelta)}
+                    </span>
                   </p>
                 </div>
               )}
@@ -1915,6 +2874,23 @@ export function UnifiedPlanScreen({
               Model completeness: <span className="font-semibold">{currentRun.plan.modelCompleteness}</span>
             </p>
           )}
+        </SectionCard>
+      ) : null}
+
+      {debugDiagnosticsPayload ? (
+        <SectionCard title="Diagnostics">
+          <details className="rounded-xl bg-white p-4">
+            <summary className="cursor-pointer text-sm font-semibold text-stone-800">
+              Diagnostics (temporary debug)
+            </summary>
+            <p className="mt-3 text-xs text-stone-600">
+              Missing expected fields in spendingCalibration:{' '}
+              {missingDebugFields.length ? missingDebugFields.join(', ') : 'none'}
+            </p>
+            <pre className="mt-3 max-h-80 overflow-auto rounded-lg bg-stone-900 p-3 text-[11px] leading-5 text-stone-100">
+              <code>{JSON.stringify(debugDiagnosticsPayload, null, 2)}</code>
+            </pre>
+          </details>
         </SectionCard>
       ) : null}
     </section>

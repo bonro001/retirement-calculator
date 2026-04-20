@@ -106,6 +106,14 @@ export interface AutopilotPlanInputs {
   spendingCeilingAnnual?: number;
   toleranceAnnual?: number;
   doNotSellPrimaryResidence?: boolean;
+  precomputedSpendSolver?: SpendSolverResult;
+  solverRuntimeBudget?: {
+    searchSimulationRuns?: number;
+    finalSimulationRuns?: number;
+    maxIterations?: number;
+    diagnosticsMode?: 'core' | 'full';
+    enableSuccessRelaxationProbe?: boolean;
+  };
 }
 
 export interface AutopilotYearPlan {
@@ -1316,21 +1324,24 @@ function analyzePlanBindingConstraints({
 
 export function generateAutopilotPlan(input: AutopilotPlanInputs): AutopilotPlanResult {
   const route = normalizeRouteContext(input);
-  const spendSolver = solveSpendByReverseTimeline({
-    data: input.data,
-    assumptions: input.assumptions,
-    selectedStressors: input.selectedStressors,
-    selectedResponses: input.selectedResponses,
-    targetLegacyTodayDollars: input.targetLegacyTodayDollars,
-    minSuccessRate: input.minSuccessRate,
-    successRateRange: input.successRateRange,
-    spendingFloorAnnual: input.spendingFloorAnnual,
-    spendingCeilingAnnual: input.spendingCeilingAnnual,
-    toleranceAnnual: input.toleranceAnnual,
-    housingFundingPolicy: route.doNotSellPrimaryResidence
-      ? 'do_not_sell_primary_residence'
-      : 'allow_primary_residence_sale',
-  });
+  const spendSolver =
+    input.precomputedSpendSolver ??
+    solveSpendByReverseTimeline({
+      data: input.data,
+      assumptions: input.assumptions,
+      selectedStressors: input.selectedStressors,
+      selectedResponses: input.selectedResponses,
+      targetLegacyTodayDollars: input.targetLegacyTodayDollars,
+      minSuccessRate: input.minSuccessRate,
+      successRateRange: input.successRateRange,
+      spendingFloorAnnual: input.spendingFloorAnnual,
+      spendingCeilingAnnual: input.spendingCeilingAnnual,
+      toleranceAnnual: input.toleranceAnnual,
+      housingFundingPolicy: route.doNotSellPrimaryResidence
+        ? 'do_not_sell_primary_residence'
+        : 'allow_primary_residence_sale',
+      runtimeBudget: input.solverRuntimeBudget,
+    });
   const spendSolverBindingCategory = mapSpendSolverBindingConstraintToCategory(
     spendSolver.bindingConstraint,
   );

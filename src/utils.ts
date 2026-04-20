@@ -1723,6 +1723,7 @@ export function buildPathResults(
         options?.onProgress?.((offset + localProgress) / totalRunsForMode);
       },
       annualSpendTarget: options?.annualSpendTarget,
+      annualSpendScheduleByYear: options?.annualSpendScheduleByYear,
       strategyMode: options?.strategyMode,
     });
     completedPathRuns += 1;

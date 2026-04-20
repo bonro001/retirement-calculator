@@ -11,6 +11,7 @@ import {
   type DecisionImpactAssessment,
   type PlanDecisionInput,
   type IrmaaPosture,
+  type RuntimeDiagnosticsMode,
   type RetirementPlanRunResult,
 } from './retirement-plan';
 import type { SpendSolverResult, SpendSolverSuccessRange } from './spend-solver';
@@ -18,6 +19,16 @@ import type { MarketAssumptions, PathResult, SeedData } from './types';
 
 export type LegacyPriority = 'off' | 'nice_to_have' | 'important' | 'must_preserve';
 export type TimePreferenceValue = 'high' | 'medium' | 'low';
+export type SuccessFloorMode = 'conservative' | 'balanced' | 'aggressive' | 'custom';
+
+export const SUCCESS_FLOOR_MODE_TARGETS: Record<
+  Exclude<SuccessFloorMode, 'custom'>,
+  number
+> = {
+  conservative: 0.95,
+  balanced: 0.92,
+  aggressive: 0.85,
+};
 
 export interface TimePreferenceProfile {
   ages60to69: TimePreferenceValue;
@@ -43,6 +54,7 @@ export interface PlanPreferences {
   calibration?: {
     targetLegacyTodayDollars?: number;
     legacyPriority?: LegacyPriority;
+    successFloorMode?: SuccessFloorMode;
     minSuccessRate?: number;
     successRateRange?: SpendSolverSuccessRange;
     optimizationObjective?: OptimizationObjective;
@@ -56,6 +68,19 @@ export interface PlanPreferences {
     preserveRothPreference?: boolean;
   };
   decisionImpact?: PlanDecisionInput;
+  runtime?: {
+    timeoutMs?: number;
+    finalEvaluationSimulationRuns?: number;
+    solverSearchSimulationRuns?: number;
+    solverFinalSimulationRuns?: number;
+    solverMaxIterations?: number;
+    solverDiagnosticsMode?: RuntimeDiagnosticsMode;
+    solverEnableSuccessRelaxationProbe?: boolean;
+    decisionSimulationRuns?: number;
+    decisionScenarioEvaluationLimit?: number;
+    decisionEvaluateExcludedScenarios?: boolean;
+    stressTestComplexity?: 'full' | 'reduced';
+  };
 }
 
 export interface Plan {
@@ -115,8 +140,34 @@ export interface PlanEvaluation {
     };
     targetLegacyTodayDollars: number;
     effectiveLegacyTargetTodayDollars: number;
+    legacyFloorTodayDollars: number;
+    legacyTargetBandLowerTodayDollars: number;
+    legacyTargetBandUpperTodayDollars: number;
+    legacyWithinTargetBand: boolean;
     legacyPriority: LegacyPriority;
+    successFloorMode: SuccessFloorMode;
+    minimumSuccessRateTarget: number;
+    achievedSuccessRate: number;
+    successConstraintBinding: boolean;
+    supportedSpendAtCurrentSuccessFloor: number;
+    supportedSpendIfSuccessFloorRelaxed: number;
+    successFloorRelaxationTarget: number | null;
+    successFloorRelaxationDeltaAnnual: number;
+    successFloorRelaxationDeltaMonthly: number;
+    nextUnlockImpactMonthly: number;
+    successFloorNextUnlock: string | null;
+    successFloorRelaxationTradeoff: string | null;
+    nextUnlock: string | null;
+    supportedSpendingSchedule: Array<{
+      year: number;
+      age: number;
+      annualSpend: number;
+      monthlySpend: number;
+    }>;
     projectedLegacyTodayDollars: number;
+    endingWealthOneSigmaApproxTodayDollars: number;
+    endingWealthOneSigmaLowerTodayDollars: number;
+    endingWealthOneSigmaUpperTodayDollars: number;
     distanceFromTarget: number;
     overTargetPenalty: number;
     isTargetBinding: boolean;
@@ -190,6 +241,12 @@ export interface PlanEvaluation {
 
 export interface EvaluatePlanOptions {
   previousEvaluation?: PlanEvaluation | null;
+  onPhaseProgress?: (event: {
+    phase: string;
+    status: 'start' | 'end';
+    durationMs?: number;
+    meta?: Record<string, unknown>;
+  }) => void;
 }
 
 function clampRate(value: number) {
@@ -211,6 +268,42 @@ function resolveLegacyPriority(value: LegacyPriority | undefined): LegacyPriorit
     return 'important';
   }
   return value;
+}
+
+function resolveSuccessFloorMode(input: {
+  mode?: SuccessFloorMode;
+  minSuccessRate?: number;
+}): SuccessFloorMode {
+  if (input.mode) {
+    return input.mode;
+  }
+  if (input.minSuccessRate === undefined) {
+    return 'balanced';
+  }
+  const value = clampRate(input.minSuccessRate);
+  if (Math.abs(value - SUCCESS_FLOOR_MODE_TARGETS.conservative) < 0.0001) {
+    return 'conservative';
+  }
+  if (Math.abs(value - SUCCESS_FLOOR_MODE_TARGETS.balanced) < 0.0001) {
+    return 'balanced';
+  }
+  if (Math.abs(value - SUCCESS_FLOOR_MODE_TARGETS.aggressive) < 0.0001) {
+    return 'aggressive';
+  }
+  return 'custom';
+}
+
+function resolveRequestedMinSuccessRate(input: {
+  minSuccessRate?: number;
+  successFloorMode: SuccessFloorMode;
+}) {
+  if (input.minSuccessRate !== undefined) {
+    return clampRate(input.minSuccessRate);
+  }
+  if (input.successFloorMode === 'custom') {
+    return SUCCESS_FLOOR_MODE_TARGETS.balanced;
+  }
+  return SUCCESS_FLOOR_MODE_TARGETS[input.successFloorMode];
 }
 
 function formatLegacyPriority(value: LegacyPriority) {
@@ -245,7 +338,7 @@ function applyLegacyPriorityToTargets(input: {
   if (legacyPriority === 'must_preserve') {
     return {
       effectiveLegacyTargetTodayDollars: requestedLegacyTargetTodayDollars * 1.15,
-      effectiveMinSuccessRate: clampRate(requestedMinSuccessRate + 0.03),
+      effectiveMinSuccessRate: requestedMinSuccessRate,
     };
   }
 
@@ -505,13 +598,20 @@ export async function evaluatePlan(
   const autopilotPosture = preferences.responsePolicy?.posture ?? 'defensive';
   const irmaaPosture = preferences.irmaaPosture ?? 'balanced';
   const optimizationObjective =
-    preferences.calibration?.optimizationObjective ?? 'maximize_flat_spending';
+    preferences.calibration?.optimizationObjective ?? 'maximize_time_weighted_spending';
   const legacyPriority = resolveLegacyPriority(preferences.calibration?.legacyPriority);
+  const successFloorMode = resolveSuccessFloorMode({
+    mode: preferences.calibration?.successFloorMode,
+    minSuccessRate: preferences.calibration?.minSuccessRate,
+  });
   const requestedLegacyTargetTodayDollars = Math.max(
     0,
     preferences.calibration?.targetLegacyTodayDollars ?? 1_000_000,
   );
-  const requestedMinSuccessRate = clampRate(preferences.calibration?.minSuccessRate ?? 0.8);
+  const requestedMinSuccessRate = resolveRequestedMinSuccessRate({
+    minSuccessRate: preferences.calibration?.minSuccessRate,
+    successFloorMode,
+  });
   const {
     effectiveLegacyTargetTodayDollars,
     effectiveMinSuccessRate,
@@ -520,55 +620,110 @@ export async function evaluatePlan(
     requestedMinSuccessRate,
     legacyPriority,
   });
+  const runtimePreferences = preferences.runtime;
+  options.onPhaseProgress?.({
+    phase: 'plan_evaluation_start',
+    status: 'start',
+    meta: {
+      stressorCount: plan.controls.selectedStressorIds.length,
+      responseCount: plan.controls.selectedResponseIds.length,
+    },
+  });
+  options.onPhaseProgress?.({
+    phase: 'build_plan',
+    status: 'start',
+  });
+
+  const builtPlan = buildRetirementPlan({
+    data: plan.data,
+    assumptions: plan.assumptions,
+    selectedStressors: [...plan.controls.selectedStressorIds],
+    selectedResponses,
+    constraints: {
+      doNotRetireLater: noDelayRetirement,
+      doNotSellHouse: noSellHouse,
+      minimumTravelBudgetAnnual: Math.max(
+        0,
+        plan.data.spending.travelEarlyRetirementAnnual * (1 - travelFlexPercent / 100),
+      ),
+    },
+    autopilotPolicy: {
+      posture: autopilotPosture,
+      optionalSpendingCutsAllowed,
+      optionalSpendingFlexPercent,
+      travelFlexPercent,
+      defensiveResponses: autopilotPosture === 'defensive' ? ['cut_spending'] : [],
+    },
+    withdrawalPolicy: {
+      preserveRothPreference: preferences.responsePolicy?.preserveRothPreference ?? false,
+      dynamicDefenseOrdering: autopilotPosture === 'defensive',
+      irmaaAware: irmaaPosture !== 'ignore',
+    },
+    targets: {
+      exitTargetTodayDollars: effectiveLegacyTargetTodayDollars,
+      spendingTargetAnnual:
+        plan.data.spending.essentialMonthly * 12 +
+        plan.data.spending.optionalMonthly * 12 +
+        plan.data.spending.annualTaxesInsurance +
+        plan.data.spending.travelEarlyRetirementAnnual,
+      minSuccessRate: effectiveMinSuccessRate,
+      successRateRange: preferences.calibration?.successRateRange,
+      optimizationObjective,
+      timePreferenceWeights: preferences.calibration?.timePreferenceWeights,
+    },
+    irmaaPolicy: {
+      posture: irmaaPosture,
+    },
+    decisionEngineSettings: {
+      strategyMode: 'planner_enhanced',
+      seedStrategy: 'shared',
+      simulationRunsOverride: runtimePreferences?.decisionSimulationRuns,
+      scenarioEvaluationLimit: runtimePreferences?.decisionScenarioEvaluationLimit,
+      evaluateExcludedScenarios: runtimePreferences?.decisionEvaluateExcludedScenarios,
+    },
+    runtimeBudgets: runtimePreferences
+      ? {
+          timeoutMs: runtimePreferences.timeoutMs,
+          finalEvaluationSimulationRuns: runtimePreferences.finalEvaluationSimulationRuns,
+          solverSearchSimulationRuns: runtimePreferences.solverSearchSimulationRuns,
+          solverFinalSimulationRuns: runtimePreferences.solverFinalSimulationRuns,
+          solverMaxIterations: runtimePreferences.solverMaxIterations,
+          solverDiagnosticsMode: runtimePreferences.solverDiagnosticsMode,
+          solverEnableSuccessRelaxationProbe:
+            runtimePreferences.solverEnableSuccessRelaxationProbe,
+          decisionSimulationRuns: runtimePreferences.decisionSimulationRuns,
+          decisionScenarioEvaluationLimit:
+            runtimePreferences.decisionScenarioEvaluationLimit,
+          decisionEvaluateExcludedScenarios:
+            runtimePreferences.decisionEvaluateExcludedScenarios,
+          stressTestComplexity: runtimePreferences.stressTestComplexity,
+        }
+      : undefined,
+    decisionImpactRequest: preferences.decisionImpact,
+  });
+  options.onPhaseProgress?.({
+    phase: 'build_plan',
+    status: 'end',
+  });
+  options.onPhaseProgress?.({
+    phase: 'retirement_analysis',
+    status: 'start',
+  });
 
   const planRun = await analyzeRetirementPlan(
-    buildRetirementPlan({
-      data: plan.data,
-      assumptions: plan.assumptions,
-      selectedStressors: [...plan.controls.selectedStressorIds],
-      selectedResponses,
-      constraints: {
-        doNotRetireLater: noDelayRetirement,
-        doNotSellHouse: noSellHouse,
-        minimumTravelBudgetAnnual: Math.max(
-          0,
-          plan.data.spending.travelEarlyRetirementAnnual * (1 - travelFlexPercent / 100),
-        ),
-      },
-      autopilotPolicy: {
-        posture: autopilotPosture,
-        optionalSpendingCutsAllowed,
-        optionalSpendingFlexPercent,
-        travelFlexPercent,
-        defensiveResponses: autopilotPosture === 'defensive' ? ['cut_spending'] : [],
-      },
-      withdrawalPolicy: {
-        preserveRothPreference: preferences.responsePolicy?.preserveRothPreference ?? false,
-        dynamicDefenseOrdering: autopilotPosture === 'defensive',
-        irmaaAware: irmaaPosture !== 'ignore',
-      },
-      targets: {
-        exitTargetTodayDollars: effectiveLegacyTargetTodayDollars,
-        spendingTargetAnnual:
-          plan.data.spending.essentialMonthly * 12 +
-          plan.data.spending.optionalMonthly * 12 +
-          plan.data.spending.annualTaxesInsurance +
-          plan.data.spending.travelEarlyRetirementAnnual,
-        minSuccessRate: effectiveMinSuccessRate,
-        successRateRange: preferences.calibration?.successRateRange,
-        optimizationObjective,
-        timePreferenceWeights: preferences.calibration?.timePreferenceWeights,
-      },
-      irmaaPolicy: {
-        posture: irmaaPosture,
-      },
-      decisionEngineSettings: {
-        strategyMode: 'planner_enhanced',
-        seedStrategy: 'shared',
-      },
-      decisionImpactRequest: preferences.decisionImpact,
-    }),
+    builtPlan,
+    {
+      onPhaseProgress: options.onPhaseProgress,
+    },
   );
+  options.onPhaseProgress?.({
+    phase: 'retirement_analysis',
+    status: 'end',
+  });
+  options.onPhaseProgress?.({
+    phase: 'result_shaping',
+    status: 'start',
+  });
 
   const decision = planRun.decision;
   const topRecommendations = decision.rankedRecommendations.slice(0, 3).map(toPlanRecommendation);
@@ -625,12 +780,12 @@ export async function evaluatePlan(
     summary: {
       planSupportsAnnual: planRun.solver.supportedAnnualSpendNow,
       planSupportsMonthly: planRun.solver.supportedMonthlySpendNow,
-      successRate: decision.baseline.successRate,
-      planVerdict: toPlanVerdict(decision.baseline.successRate),
+      successRate: planRun.solver.modeledSuccessRate,
+      planVerdict: toPlanVerdict(planRun.solver.modeledSuccessRate),
       biggestDriver,
       biggestRisk,
       bestAction,
-      activeOptimizationObjective: optimizationObjective,
+      activeOptimizationObjective: planRun.solver.activeOptimizationObjective,
       irmaaOutlook: `${planRun.irmaa.exposureLevel} exposure${
         planRun.irmaa.likelyYearsAtRisk.length
           ? ` (${planRun.irmaa.likelyYearsAtRisk.length} years at risk)`
@@ -659,8 +814,32 @@ export async function evaluatePlan(
       },
       targetLegacyTodayDollars: requestedLegacyTargetTodayDollars,
       effectiveLegacyTargetTodayDollars,
+      legacyFloorTodayDollars: planRun.solver.legacyFloorTodayDollars,
+      legacyTargetBandLowerTodayDollars: planRun.solver.legacyTargetBandLowerTodayDollars,
+      legacyTargetBandUpperTodayDollars: planRun.solver.legacyTargetBandUpperTodayDollars,
+      legacyWithinTargetBand: planRun.solver.legacyWithinTargetBand,
       legacyPriority,
+      successFloorMode,
+      minimumSuccessRateTarget: planRun.solver.minimumSuccessRateTarget,
+      achievedSuccessRate: planRun.solver.achievedSuccessRate,
+      successConstraintBinding: planRun.solver.successConstraintBinding,
+      supportedSpendAtCurrentSuccessFloor: planRun.solver.supportedSpendAtCurrentSuccessFloor,
+      supportedSpendIfSuccessFloorRelaxed: planRun.solver.supportedSpendIfSuccessFloorRelaxed,
+      successFloorRelaxationTarget: planRun.solver.successFloorRelaxationTarget,
+      successFloorRelaxationDeltaAnnual: planRun.solver.successFloorRelaxationDeltaAnnual,
+      successFloorRelaxationDeltaMonthly: planRun.solver.successFloorRelaxationDeltaMonthly,
+      nextUnlockImpactMonthly: planRun.solver.nextUnlockImpactMonthly,
+      successFloorNextUnlock: planRun.solver.successFloorNextUnlock,
+      successFloorRelaxationTradeoff: planRun.solver.successFloorRelaxationTradeoff,
+      nextUnlock: planRun.solver.nextUnlock,
+      supportedSpendingSchedule: planRun.solver.supportedSpendingSchedule,
       projectedLegacyTodayDollars: planRun.solver.projectedLegacyOutcomeTodayDollars,
+      endingWealthOneSigmaApproxTodayDollars:
+        planRun.solver.endingWealthOneSigmaApproxTodayDollars,
+      endingWealthOneSigmaLowerTodayDollars:
+        planRun.solver.endingWealthOneSigmaLowerTodayDollars,
+      endingWealthOneSigmaUpperTodayDollars:
+        planRun.solver.endingWealthOneSigmaUpperTodayDollars,
       distanceFromTarget: planRun.solver.distanceFromTarget,
       overTargetPenalty: planRun.solver.overTargetPenalty,
       isTargetBinding: planRun.solver.isTargetBinding,
@@ -735,6 +914,18 @@ export async function evaluatePlan(
       run: planRun,
     },
   };
+  options.onPhaseProgress?.({
+    phase: 'result_shaping',
+    status: 'end',
+  });
+  options.onPhaseProgress?.({
+    phase: 'plan_evaluation_complete',
+    status: 'end',
+    meta: {
+      successRate: decision.baseline.successRate,
+      objective: optimizationObjective,
+    },
+  });
   finishPerf('ok', {
     successRate: decision.baseline.successRate,
     objective: optimizationObjective,

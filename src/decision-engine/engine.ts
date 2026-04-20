@@ -29,6 +29,13 @@ import type {
 } from './types';
 
 const DEFAULT_SEED = 20260416;
+function nowMs() {
+  if (typeof performance !== 'undefined' && typeof performance.now === 'function') {
+    return performance.now();
+  }
+  return Date.now();
+}
+
 function deriveScenarioSeed(baseSeed: number, scenarioId: string, strategy: 'shared' | 'scenario_derived') {
   if (strategy === 'shared') {
     return baseSeed;
@@ -103,6 +110,7 @@ export async function evaluateDecisionLevers(
   baselineInput: PlannerInput,
   options: DecisionEngineOptions = {},
 ): Promise<DecisionEngineReport> {
+  const startedAt = nowMs();
   const input = clonePlannerInput({
     ...baselineInput,
     strategyMode: options.strategyMode ?? baselineInput.strategyMode ?? 'planner_enhanced',
@@ -112,8 +120,21 @@ export async function evaluateDecisionLevers(
   const seedStrategy = options.seedStrategy ?? 'shared';
   const maxRecommendations = options.maxRecommendations ?? 10;
   const evaluateExcludedScenarios = Boolean(options.evaluateExcludedScenarios);
+  const skipExcludedScenarioSimulation = Boolean(options.skipExcludedScenarioSimulation);
+  const maxScenarioEvaluations = Math.max(
+    1,
+    Math.round(options.maxScenarioEvaluations ?? Number.MAX_SAFE_INTEGER),
+  );
+  const simulationRunsUsed = Math.max(
+    1,
+    Math.round(options.simulationRunsOverride ?? input.assumptions.simulationRuns),
+  );
 
-  const baselinePath = runSimulation(input, seedBase, options.simulationRunsOverride);
+  const baselineStartedAt = nowMs();
+  const baselinePath =
+    options.baselinePathOverride ??
+    runSimulation(input, seedBase, options.simulationRunsOverride);
+  const baselineSimulationMs = Number((nowMs() - baselineStartedAt).toFixed(1));
   const baselineMetrics = toScenarioMetrics(baselinePath, input);
 
   const scenarioDefinitions = buildLeverScenarioLibrary();
@@ -128,6 +149,10 @@ export async function evaluateDecisionLevers(
   const scenarioUniverse = evaluateExcludedScenarios
     ? scenarioDefinitions
     : scenarioConstraintEvaluation.allowedScenarios;
+  const scenariosToEvaluate = scenarioUniverse.slice(0, maxScenarioEvaluations);
+  const scenarioCountSkippedByBudget = Math.max(0, scenarioUniverse.length - scenariosToEvaluate.length);
+  const simulationCache = new Map<string, PathResult>();
+  let scenarioSimulationTotalMs = 0;
 
   function evaluateScenarioResult(
     scenario: (typeof scenarioDefinitions)[number],
@@ -135,7 +160,22 @@ export async function evaluateDecisionLevers(
   ): LeverScenarioResult {
     const scenarioInput = scenario.apply(clonePlannerInput(input));
     const scenarioSeed = deriveScenarioSeed(seedBase, scenario.id, seedStrategy);
-    const scenarioPath = runSimulation(scenarioInput, scenarioSeed, options.simulationRunsOverride);
+    const scenarioKey = JSON.stringify({
+      seed: scenarioSeed,
+      simulationRunsOverride: options.simulationRunsOverride ?? null,
+      strategyMode: scenarioInput.strategyMode ?? 'planner_enhanced',
+      stressors: [...scenarioInput.selectedStressors].sort(),
+      responses: [...scenarioInput.selectedResponses].sort(),
+      data: scenarioInput.data,
+      assumptions: scenarioInput.assumptions,
+    });
+    let scenarioPath = simulationCache.get(scenarioKey);
+    if (!scenarioPath) {
+      const scenarioStartedAt = nowMs();
+      scenarioPath = runSimulation(scenarioInput, scenarioSeed, options.simulationRunsOverride);
+      scenarioSimulationTotalMs += nowMs() - scenarioStartedAt;
+      simulationCache.set(scenarioKey, scenarioPath);
+    }
     const scenarioMetrics = toScenarioMetrics(scenarioPath, scenarioInput);
     const scenarioDelta = toScenarioDelta(baselineMetrics, scenarioMetrics);
     const score = calculateRecommendationScore({
@@ -166,7 +206,7 @@ export async function evaluateDecisionLevers(
     return result;
   }
 
-  const allScenarioResults: LeverScenarioResult[] = scenarioUniverse.map((scenario) => {
+  const allScenarioResults: LeverScenarioResult[] = scenariosToEvaluate.map((scenario) => {
     const exclusion = excludedScenarioById.get(scenario.id);
     return evaluateScenarioResult(scenario, exclusion?.reasons ?? []);
   });
@@ -174,11 +214,22 @@ export async function evaluateDecisionLevers(
   const excludedScenarioResults: LeverScenarioResult[] =
     evaluateExcludedScenarios
       ? allScenarioResults.filter((scenario) => scenario.excludedByConstraints)
-      : scenarioConstraintEvaluation.excludedScenarios.map((entry) =>
-          evaluateScenarioResult(entry.scenario, entry.reasons),
-        );
+      : skipExcludedScenarioSimulation
+        ? []
+        : scenarioConstraintEvaluation.excludedScenarios.map((entry) =>
+            evaluateScenarioResult(entry.scenario, entry.reasons),
+          );
 
   const rankedRecommendations = toRankedRecommendations(allScenarioResults, maxRecommendations);
+  const runtimeDiagnostics = {
+    totalMs: Number((nowMs() - startedAt).toFixed(1)),
+    baselineSimulationMs,
+    scenarioSimulationTotalMs: Number(scenarioSimulationTotalMs.toFixed(1)),
+    scenarioCountEvaluated: allScenarioResults.length,
+    scenarioCountTotal: scenarioUniverse.length,
+    scenarioCountSkippedByBudget,
+    simulationRunsUsed,
+  };
   const report: DecisionEngineReport = {
     activeOptimizationObjective: input.optimizationObjective ?? 'maximize_flat_spending',
     baseline: baselineMetrics,
@@ -213,7 +264,13 @@ export async function evaluateDecisionLevers(
     topDefensiveCombos: toTopDefensiveCombos(rankedRecommendations),
     worstSensitivityScenarios: toWorstSensitivityScenarios(allScenarioResults),
     notes: [],
+    runtimeDiagnostics,
   };
   report.notes = buildTopLevelNotes(report);
+  if (scenarioCountSkippedByBudget > 0) {
+    report.notes.push(
+      `Runtime budget limited evaluated scenarios to ${allScenarioResults.length} of ${scenarioUniverse.length}.`,
+    );
+  }
   return report;
 }

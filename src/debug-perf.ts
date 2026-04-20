@@ -19,12 +19,10 @@ function nowMs() {
 }
 
 function debugEnabled() {
-  const meta = import.meta as ImportMeta & { env?: { DEV?: boolean } };
-  const devMode = Boolean(meta.env?.DEV);
   const forcedFlag =
     typeof globalThis !== 'undefined' &&
     Boolean((globalThis as { __RETIRE_DEBUG_PERF__?: boolean }).__RETIRE_DEBUG_PERF__);
-  return devMode || forcedFlag;
+  return forcedFlag;
 }
 
 export function perfLog(scope: PerfScope, message: string, meta?: PerfMeta) {

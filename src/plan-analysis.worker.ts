@@ -26,7 +26,21 @@ workerScope.onmessage = (event: MessageEvent<PlanAnalysisWorkerRequest>) => {
 
   void (async () => {
     try {
-      const evaluation = await evaluatePlan(plan);
+      const evaluation = await evaluatePlan(plan, {
+        onPhaseProgress: (progress) => {
+          if (cancelledRequests.has(requestId)) {
+            return;
+          }
+          postMessageToMainThread({
+            type: 'progress',
+            requestId,
+            phase: progress.phase,
+            status: progress.status,
+            durationMs: progress.durationMs,
+            meta: progress.meta,
+          });
+        },
+      });
 
       if (cancelledRequests.has(requestId)) {
         cancelledRequests.delete(requestId);

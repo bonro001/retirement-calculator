@@ -1,4 +1,4 @@
-import type { MarketAssumptions, SimulationStrategyMode, SeedData } from '../types';
+import type { MarketAssumptions, PathResult, SimulationStrategyMode, SeedData } from '../types';
 import type { OptimizationObjective } from '../optimization-objective';
 
 export type LeverCategory =
@@ -140,9 +140,22 @@ export interface DecisionEngineOptions {
   seedBase?: number;
   seedStrategy?: 'shared' | 'scenario_derived';
   maxRecommendations?: number;
+  maxScenarioEvaluations?: number;
   weights?: Partial<RecommendationScoreWeights>;
   constraints?: RecommendationConstraints;
   evaluateExcludedScenarios?: boolean;
+  skipExcludedScenarioSimulation?: boolean;
+  baselinePathOverride?: PathResult;
+}
+
+export interface DecisionEngineRuntimeDiagnostics {
+  totalMs: number;
+  baselineSimulationMs: number;
+  scenarioSimulationTotalMs: number;
+  scenarioCountEvaluated: number;
+  scenarioCountTotal: number;
+  scenarioCountSkippedByBudget: number;
+  simulationRunsUsed: number;
 }
 
 export interface DecisionEngineReport {
@@ -163,4 +176,5 @@ export interface DecisionEngineReport {
   topDefensiveCombos: LeverScenarioResult[];
   worstSensitivityScenarios: LeverScenarioResult[];
   notes: string[];
+  runtimeDiagnostics: DecisionEngineRuntimeDiagnostics;
 }

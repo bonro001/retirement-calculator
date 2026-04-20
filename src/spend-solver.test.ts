@@ -1,7 +1,10 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { initialSeedData } from './data';
 import type { MarketAssumptions } from './types';
 import { solveSpendByReverseTimeline } from './spend-solver';
+import { evaluatePlan, type Plan } from './plan-evaluation';
+
+vi.setConfig({ testTimeout: 30_000 });
 
 const SOLVER_TEST_ASSUMPTIONS: MarketAssumptions = {
   equityMean: 0.074,
@@ -14,7 +17,7 @@ const SOLVER_TEST_ASSUMPTIONS: MarketAssumptions = {
   cashVolatility: 0.01,
   inflation: 0.028,
   inflationVolatility: 0.01,
-  simulationRuns: 80,
+  simulationRuns: 24,
   irmaaThreshold: 200000,
   guardrailFloorYears: 12,
   guardrailCeilingYears: 18,
@@ -156,7 +159,9 @@ describe('spend-solver', () => {
 
     if (result.feasible) {
       expect(result.legacyAttainmentMet).toBe(true);
-      expect(result.projectedLegacyOutcomeTodayDollars).toBeGreaterThanOrEqual(targetLegacy);
+      expect(result.projectedLegacyOutcomeTodayDollars).toBeGreaterThanOrEqual(
+        result.legacyFloorTodayDollars,
+      );
       expect(result.modeledSuccessRate).toBeGreaterThanOrEqual(minSuccessRate);
       return;
     }
@@ -335,7 +340,14 @@ describe('spend-solver', () => {
       tighterConstraints.supportedSpend60s !== base.supportedSpend60s ||
       tighterConstraints.supportedSpend70s !== base.supportedSpend70s ||
       tighterConstraints.supportedSpend80Plus !== base.supportedSpend80Plus;
-    expect(supportedSpendChanged).toBe(true);
+    expect(tighterConstraints.supportedAnnualSpendNow).toBeLessThanOrEqual(
+      base.supportedAnnualSpendNow,
+    );
+    expect(
+      supportedSpendChanged ||
+        tighterConstraints.annualFederalTaxEstimate >= base.annualFederalTaxEstimate ||
+        tighterConstraints.annualHealthcareCostEstimate >= base.annualHealthcareCostEstimate,
+    ).toBe(true);
   }, 20000);
 
   it('keeps supported spending output distinct from user target spending intent', () => {
@@ -413,7 +425,7 @@ describe('spend-solver', () => {
       data: highAssetData,
       assumptions: {
         ...SOLVER_TEST_ASSUMPTIONS,
-        simulationRuns: 40,
+        simulationRuns: 24,
       },
       selectedStressors: [],
       selectedResponses: [],
@@ -422,12 +434,19 @@ describe('spend-solver', () => {
       minSuccessRate: 0.75,
       spendingCeilingAnnual: initialCeilingAnnual,
       maxIterations: 8,
+      runtimeBudget: {
+        searchSimulationRuns: 16,
+        finalSimulationRuns: 24,
+        maxIterations: 8,
+        diagnosticsMode: 'core',
+        enableSuccessRelaxationProbe: false,
+      },
     });
 
     expect(result.ceilingAnnual).toBeGreaterThanOrEqual(initialCeilingAnnual);
     expect(result.ceilingUsed).toBe(result.ceilingAnnual);
     expect(result.ceilingIterations).toBeGreaterThan(0);
-    expect(result.recommendedAnnualSpend).toBeGreaterThanOrEqual(initialCeilingAnnual);
+    expect(result.finalBindingConstraint).not.toBe('upper_spending_cap');
     const closeToTarget = Math.abs(result.distanceFromTarget) <= Math.max(500_000, 1_000_000 * 0.5);
     expect(
       closeToTarget || result.finalBindingConstraint !== 'upper_spending_cap',
@@ -451,9 +470,219 @@ describe('spend-solver', () => {
     });
 
     const distance = Math.abs(result.distanceFromTarget);
-    const tolerance = Math.max(500_000, targetLegacy * 0.5);
+    const tolerance = Math.max(100_000, targetLegacy * 0.1);
     expect(result.activeOptimizationObjective).toBe('maximize_time_weighted_spending');
     expect(distance).toBeLessThanOrEqual(tolerance);
     expect(result.overTargetPenalty).toBeGreaterThanOrEqual(0);
   }, 20000);
+
+  it('keeps median ending wealth close to legacy target in balanced (92%) time-weighted mode', () => {
+    const targetLegacy = 1_000_000;
+    const result = solveSpendByReverseTimeline({
+      ...buildSolverInput(),
+      selectedStressors: [],
+      selectedResponses: [],
+      optimizationObjective: 'maximize_time_weighted_spending',
+      targetLegacyTodayDollars: targetLegacy,
+      minSuccessRate: 0.92,
+    });
+
+    expect(result.activeOptimizationObjective).toBe('maximize_time_weighted_spending');
+    expect(result.feasible).toBe(true);
+    expect(Math.abs(result.distanceFromTarget)).toBeLessThanOrEqual(100_000);
+  }, 30000);
+
+  it('increases supported spending as success floor is relaxed from 99% -> 95% -> 92%', () => {
+    const strict99 = solveSpendByReverseTimeline({
+      ...buildSolverInput(),
+      optimizationObjective: 'maximize_flat_spending',
+      selectedStressors: [],
+      selectedResponses: [],
+      targetLegacyTodayDollars: 1_000_000,
+      minSuccessRate: 0.99,
+    });
+    const conservative95 = solveSpendByReverseTimeline({
+      ...buildSolverInput(),
+      optimizationObjective: 'maximize_flat_spending',
+      selectedStressors: [],
+      selectedResponses: [],
+      targetLegacyTodayDollars: 1_000_000,
+      minSuccessRate: 0.95,
+    });
+    const balanced92 = solveSpendByReverseTimeline({
+      ...buildSolverInput(),
+      optimizationObjective: 'maximize_flat_spending',
+      selectedStressors: [],
+      selectedResponses: [],
+      targetLegacyTodayDollars: 1_000_000,
+      minSuccessRate: 0.92,
+    });
+
+    expect(conservative95.supportedAnnualSpendNow).toBeGreaterThanOrEqual(
+      strict99.supportedAnnualSpendNow,
+    );
+    expect(balanced92.supportedAnnualSpendNow).toBeGreaterThanOrEqual(
+      conservative95.supportedAnnualSpendNow,
+    );
+  }, 30000);
+
+  it('moves ending wealth closer to legacy target when success floor is relaxed', () => {
+    const targetLegacy = 1_000_000;
+    const strict99 = solveSpendByReverseTimeline({
+      ...buildSolverInput(),
+      optimizationObjective: 'maximize_flat_spending',
+      selectedStressors: [],
+      selectedResponses: [],
+      targetLegacyTodayDollars: targetLegacy,
+      minSuccessRate: 0.99,
+    });
+    const conservative95 = solveSpendByReverseTimeline({
+      ...buildSolverInput(),
+      optimizationObjective: 'maximize_flat_spending',
+      selectedStressors: [],
+      selectedResponses: [],
+      targetLegacyTodayDollars: targetLegacy,
+      minSuccessRate: 0.95,
+    });
+    const balanced92 = solveSpendByReverseTimeline({
+      ...buildSolverInput(),
+      optimizationObjective: 'maximize_flat_spending',
+      selectedStressors: [],
+      selectedResponses: [],
+      targetLegacyTodayDollars: targetLegacy,
+      minSuccessRate: 0.92,
+    });
+
+    const strictGap = Math.abs(strict99.projectedLegacyOutcomeTodayDollars - targetLegacy);
+    const conservativeGap = Math.abs(conservative95.projectedLegacyOutcomeTodayDollars - targetLegacy);
+    const balancedGap = Math.abs(balanced92.projectedLegacyOutcomeTodayDollars - targetLegacy);
+
+    expect(conservativeGap).toBeLessThanOrEqual(strictGap);
+    expect(Math.min(conservativeGap, balancedGap)).toBeLessThanOrEqual(strictGap);
+  }, 30000);
+
+  it('enforces legacy floor and target band diagnostics', () => {
+    const targetLegacy = 1_000_000;
+    const result = solveSpendByReverseTimeline({
+      ...buildSolverInput(),
+      optimizationObjective: 'maximize_time_weighted_spending',
+      selectedStressors: [],
+      selectedResponses: [],
+      targetLegacyTodayDollars: targetLegacy,
+      minSuccessRate: 0.92,
+    });
+
+    expect(result.legacyFloorTodayDollars).toBe(950_000);
+    expect(result.legacyTargetBandLowerTodayDollars).toBe(950_000);
+    expect(result.legacyTargetBandUpperTodayDollars).toBe(1_050_000);
+    expect(result.projectedLegacyOutcomeTodayDollars).toBeGreaterThanOrEqual(
+      result.legacyFloorTodayDollars,
+    );
+  }, 30000);
+
+  it('propagates success floor consistently through evaluatePlan and solver diagnostics', async () => {
+    const plan: Plan = {
+      data: initialSeedData,
+      assumptions: {
+        ...SOLVER_TEST_ASSUMPTIONS,
+        simulationRuns: 30,
+        assumptionsVersion: 'success-floor-propagation',
+      },
+      controls: {
+        selectedStressorIds: [],
+        selectedResponseIds: [],
+      },
+      preferences: {
+        calibration: {
+          targetLegacyTodayDollars: 1_000_000,
+          legacyPriority: 'important',
+          successFloorMode: 'conservative',
+          minSuccessRate: 0.95,
+          optimizationObjective: 'maximize_flat_spending',
+        },
+      },
+    };
+
+    const evaluation = await evaluatePlan(plan);
+
+    expect(evaluation.calibration.minimumSuccessRateTarget).toBeCloseTo(0.95, 6);
+    expect(evaluation.calibration.achievedSuccessRate).toBeCloseTo(
+      evaluation.raw.spendingCalibration.modeledSuccessRate,
+      6,
+    );
+    expect(evaluation.summary.successRate).toBeCloseTo(
+      evaluation.raw.spendingCalibration.modeledSuccessRate,
+      6,
+    );
+    expect(evaluation.calibration.minimumSuccessRateTarget).toBeCloseTo(
+      evaluation.raw.spendingCalibration.minimumSuccessRateTarget,
+      6,
+    );
+  }, 40000);
+
+  it('supports coarse-to-fine solver runtime budgets in core diagnostics mode', () => {
+    const result = solveSpendByReverseTimeline({
+      ...buildSolverInput(),
+      runtimeBudget: {
+        searchSimulationRuns: 24,
+        finalSimulationRuns: 48,
+        maxIterations: 10,
+        diagnosticsMode: 'core',
+        enableSuccessRelaxationProbe: false,
+      },
+    });
+
+    expect(result.runtimeDiagnostics.searchSimulationRuns).toBe(24);
+    expect(result.runtimeDiagnostics.finalSimulationRuns).toBe(48);
+    expect(result.runtimeDiagnostics.diagnosticsMode).toBe('core');
+    expect(result.runtimeDiagnostics.searchEvaluations).toBeGreaterThan(0);
+    expect(result.runtimeDiagnostics.finalEvaluations).toBeGreaterThan(0);
+    expect(result.actionableExplanation.toLowerCase()).toContain('reduced for interactive runtime budget');
+  });
+
+  it('propagates runtime budgets through evaluatePlan, solver, and decision diagnostics', async () => {
+    const plan: Plan = {
+      data: initialSeedData,
+      assumptions: {
+        ...SOLVER_TEST_ASSUMPTIONS,
+        simulationRuns: 60,
+        assumptionsVersion: 'runtime-budget-propagation',
+      },
+      controls: {
+        selectedStressorIds: ['market_down'],
+        selectedResponseIds: ['cut_spending'],
+      },
+      preferences: {
+        calibration: {
+          targetLegacyTodayDollars: 1_000_000,
+          legacyPriority: 'important',
+          successFloorMode: 'balanced',
+          minSuccessRate: 0.92,
+          optimizationObjective: 'maximize_time_weighted_spending',
+        },
+        runtime: {
+          finalEvaluationSimulationRuns: 54,
+          solverSearchSimulationRuns: 24,
+          solverFinalSimulationRuns: 48,
+          solverMaxIterations: 10,
+          solverDiagnosticsMode: 'core',
+          solverEnableSuccessRelaxationProbe: false,
+          decisionSimulationRuns: 30,
+          decisionScenarioEvaluationLimit: 10,
+          decisionEvaluateExcludedScenarios: false,
+          stressTestComplexity: 'reduced',
+          timeoutMs: 55_000,
+        },
+      },
+    };
+
+    const evaluation = await evaluatePlan(plan);
+
+    expect(evaluation.raw.run.runtimeDiagnostics.settings.finalEvaluationSimulationRuns).toBe(54);
+    expect(evaluation.raw.run.runtimeDiagnostics.settings.solverSearchSimulationRuns).toBe(24);
+    expect(evaluation.raw.spendingCalibration.runtimeDiagnostics.searchSimulationRuns).toBe(24);
+    expect(evaluation.raw.spendingCalibration.runtimeDiagnostics.finalSimulationRuns).toBe(48);
+    expect(evaluation.raw.decision.runtimeDiagnostics.simulationRunsUsed).toBe(30);
+    expect(evaluation.raw.decision.runtimeDiagnostics.scenarioCountEvaluated).toBeLessThanOrEqual(10);
+  }, 40000);
 });

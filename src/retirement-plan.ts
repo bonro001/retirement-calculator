@@ -65,6 +65,24 @@ export interface DecisionEngineSettingsModel {
   strategyMode: 'planner_enhanced';
   simulationRunsOverride?: number;
   seedStrategy: 'shared' | 'scenario_derived';
+  scenarioEvaluationLimit?: number;
+  evaluateExcludedScenarios?: boolean;
+}
+
+export type RuntimeDiagnosticsMode = 'core' | 'full';
+
+export interface RuntimeBudgetModel {
+  finalEvaluationSimulationRuns: number;
+  solverSearchSimulationRuns: number;
+  solverFinalSimulationRuns: number;
+  solverMaxIterations: number;
+  solverDiagnosticsMode: RuntimeDiagnosticsMode;
+  solverEnableSuccessRelaxationProbe: boolean;
+  decisionSimulationRuns: number;
+  decisionScenarioEvaluationLimit: number;
+  decisionEvaluateExcludedScenarios: boolean;
+  stressTestComplexity: 'full' | 'reduced';
+  timeoutMs: number;
 }
 
 export interface PlanDecisionInput {
@@ -103,6 +121,7 @@ export interface RetirementPlan {
   targets: ExitSpendingTargets;
   irmaaPolicy: IrmaaPolicyModel;
   decisionEngineSettings: DecisionEngineSettingsModel;
+  runtimeBudgets: RuntimeBudgetModel;
   decisionImpactRequest?: PlanDecisionInput;
   assumptions: MarketAssumptions;
   baseData: SeedData;
@@ -139,6 +158,12 @@ export interface RetirementPlanRunResult {
   decisionImpact: DecisionImpactAssessment | null;
   irmaa: IrmaaExposureAnalysis;
   summary: UnifiedPlanSummary;
+  runtimeDiagnostics: {
+    totalMs: number;
+    phaseDurationsMs: Record<string, number>;
+    phaseOrder: string[];
+    settings: RuntimeBudgetModel;
+  };
 }
 
 export interface BuildRetirementPlanInput {
@@ -152,12 +177,22 @@ export interface BuildRetirementPlanInput {
   targets: Partial<ExitSpendingTargets>;
   irmaaPolicy: Partial<IrmaaPolicyModel>;
   decisionEngineSettings?: Partial<DecisionEngineSettingsModel>;
+  runtimeBudgets?: Partial<RuntimeBudgetModel>;
   decisionImpactRequest?: PlanDecisionInput;
 }
 
 const DEFAULT_EXIT_TARGET = 1_000_000;
-const DEFAULT_MIN_SUCCESS_RATE = 0.8;
-const DEFAULT_OPTIMIZATION_OBJECTIVE: OptimizationObjective = 'maximize_flat_spending';
+const DEFAULT_MIN_SUCCESS_RATE = 0.92;
+const DEFAULT_OPTIMIZATION_OBJECTIVE: OptimizationObjective = 'maximize_time_weighted_spending';
+const DEFAULT_PLAN_TIMEOUT_MS = 45_000;
+const DEFAULT_RUNTIME_DIAGNOSTICS_MODE: RuntimeDiagnosticsMode = 'full';
+
+function nowMs() {
+  if (typeof performance !== 'undefined' && typeof performance.now === 'function') {
+    return performance.now();
+  }
+  return Date.now();
+}
 
 function cloneSeedData(data: SeedData): SeedData {
   return JSON.parse(JSON.stringify(data)) as SeedData;
@@ -184,6 +219,57 @@ function applyAssumptionOverrides(
     };
   }
   return next;
+}
+
+function resolveRuntimeBudgets(input: {
+  assumptions: MarketAssumptions;
+  decisionEngineSettings?: Partial<DecisionEngineSettingsModel>;
+  runtimeBudgets?: Partial<RuntimeBudgetModel>;
+}): RuntimeBudgetModel {
+  const baselineRuns = Math.max(1, Math.round(input.assumptions.simulationRuns));
+  const requestedFinalRuns = Math.max(
+    1,
+    Math.round(input.runtimeBudgets?.finalEvaluationSimulationRuns ?? baselineRuns),
+  );
+  const requestedSearchRuns = Math.max(
+    1,
+    Math.round(input.runtimeBudgets?.solverSearchSimulationRuns ?? requestedFinalRuns),
+  );
+  const solverFinalSimulationRuns = Math.max(
+    requestedSearchRuns,
+    Math.round(input.runtimeBudgets?.solverFinalSimulationRuns ?? requestedFinalRuns),
+  );
+  const solverSearchSimulationRuns = Math.min(requestedSearchRuns, solverFinalSimulationRuns);
+  const decisionSimulationRuns = Math.max(
+    1,
+    Math.round(
+      input.runtimeBudgets?.decisionSimulationRuns ??
+        input.decisionEngineSettings?.simulationRunsOverride ??
+        requestedFinalRuns,
+    ),
+  );
+  const decisionScenarioEvaluationLimit = Math.max(
+    1,
+    Math.round(input.runtimeBudgets?.decisionScenarioEvaluationLimit ?? Number.MAX_SAFE_INTEGER),
+  );
+  const timeoutMs = Math.max(10_000, Math.round(input.runtimeBudgets?.timeoutMs ?? DEFAULT_PLAN_TIMEOUT_MS));
+
+  return {
+    finalEvaluationSimulationRuns: requestedFinalRuns,
+    solverSearchSimulationRuns,
+    solverFinalSimulationRuns,
+    solverMaxIterations: Math.max(6, Math.round(input.runtimeBudgets?.solverMaxIterations ?? 22)),
+    solverDiagnosticsMode:
+      input.runtimeBudgets?.solverDiagnosticsMode ?? DEFAULT_RUNTIME_DIAGNOSTICS_MODE,
+    solverEnableSuccessRelaxationProbe:
+      input.runtimeBudgets?.solverEnableSuccessRelaxationProbe ?? true,
+    decisionSimulationRuns,
+    decisionScenarioEvaluationLimit,
+    decisionEvaluateExcludedScenarios:
+      input.runtimeBudgets?.decisionEvaluateExcludedScenarios ?? true,
+    stressTestComplexity: input.runtimeBudgets?.stressTestComplexity ?? 'full',
+    timeoutMs,
+  };
 }
 
 function getDecisionYear(decisionTiming: DecisionTiming, startYear: number) {
@@ -511,6 +597,11 @@ function buildNarrative(
 
 export function buildRetirementPlan(input: BuildRetirementPlanInput): RetirementPlan {
   const inferredAssumptions: string[] = [];
+  const runtimeBudgets = resolveRuntimeBudgets({
+    assumptions: input.assumptions,
+    decisionEngineSettings: input.decisionEngineSettings,
+    runtimeBudgets: input.runtimeBudgets,
+  });
   const targets: ExitSpendingTargets = {
     exitTargetTodayDollars: input.targets.exitTargetTodayDollars ?? DEFAULT_EXIT_TARGET,
     spendingTargetAnnual:
@@ -525,13 +616,13 @@ export function buildRetirementPlan(input: BuildRetirementPlanInput): Retirement
     inferredAssumptions.push('Defaulted exit target to $1,000,000.');
   }
   if (input.targets.minSuccessRate === undefined) {
-    inferredAssumptions.push('Defaulted minimum success rate to 80%.');
+    inferredAssumptions.push('Defaulted minimum success rate to 92% (balanced mode).');
   }
   if (input.targets.spendingTargetAnnual === undefined) {
     inferredAssumptions.push('Defaulted spending target to current annual stretch spending.');
   }
   if (input.targets.optimizationObjective === undefined) {
-    inferredAssumptions.push('Defaulted optimization objective to maximize_flat_spending.');
+    inferredAssumptions.push('Defaulted optimization objective to maximize_time_weighted_spending.');
   }
 
   const irmaaPolicy: IrmaaPolicyModel = {
@@ -583,8 +674,17 @@ export function buildRetirementPlan(input: BuildRetirementPlanInput): Retirement
     decisionEngineSettings: {
       strategyMode: 'planner_enhanced',
       seedStrategy: input.decisionEngineSettings?.seedStrategy ?? 'shared',
-      simulationRunsOverride: input.decisionEngineSettings?.simulationRunsOverride,
+      simulationRunsOverride:
+        input.decisionEngineSettings?.simulationRunsOverride ??
+        runtimeBudgets.decisionSimulationRuns,
+      scenarioEvaluationLimit:
+        input.decisionEngineSettings?.scenarioEvaluationLimit ??
+        runtimeBudgets.decisionScenarioEvaluationLimit,
+      evaluateExcludedScenarios:
+        input.decisionEngineSettings?.evaluateExcludedScenarios ??
+        runtimeBudgets.decisionEvaluateExcludedScenarios,
     },
+    runtimeBudgets,
     decisionImpactRequest: input.decisionImpactRequest,
     assumptions: input.assumptions,
     baseData: cloneSeedData(input.data),
@@ -594,102 +694,197 @@ export function buildRetirementPlan(input: BuildRetirementPlanInput): Retirement
 
 export async function analyzeRetirementPlan(
   plan: RetirementPlan,
-  options: { skipDecisionImpact?: boolean } = {},
+  options: {
+    skipDecisionImpact?: boolean;
+    onPhaseProgress?: (event: {
+      phase: string;
+      status: 'start' | 'end';
+      durationMs?: number;
+      meta?: Record<string, unknown>;
+    }) => void;
+  } = {},
 ): Promise<RetirementPlanRunResult> {
   const finishPerf = perfStart('retirement-plan', 'analyze-retirement-plan', {
     stressorCount: plan.scenarioToggles.stressors.length,
     responseCount: plan.scenarioToggles.responses.length,
     objective: plan.targets.optimizationObjective,
   });
-  const baselinePath = buildPathResults(
-    plan.effectiveData,
-    plan.assumptions,
-    plan.scenarioToggles.stressors,
-    plan.scenarioToggles.responses,
-    {
-      pathMode: 'selected_only',
-      strategyMode: plan.decisionEngineSettings.strategyMode,
-    },
-  )[0];
+  const startedAt = nowMs();
+  const phaseDurationsMs: Record<string, number> = {};
+  const phaseOrder: string[] = [];
+  const emitPhase = (
+    phase: string,
+    status: 'start' | 'end',
+    durationMs?: number,
+    meta?: Record<string, unknown>,
+  ) => {
+    options.onPhaseProgress?.({
+      phase,
+      status,
+      durationMs,
+      meta,
+    });
+  };
+  const runPhase = async <T>(
+    phase: string,
+    work: () => Promise<T> | T,
+    meta?: Record<string, unknown>,
+  ): Promise<T> => {
+    const phaseStart = nowMs();
+    emitPhase(phase, 'start', undefined, meta);
+    phaseOrder.push(phase);
+    const value = await work();
+    const durationMs = Number((nowMs() - phaseStart).toFixed(1));
+    phaseDurationsMs[phase] = durationMs;
+    emitPhase(phase, 'end', durationMs, meta);
+    return value;
+  };
 
+  const finalEvaluationAssumptions = {
+    ...plan.assumptions,
+    simulationRuns: Math.max(1, plan.runtimeBudgets.finalEvaluationSimulationRuns),
+  };
   const recommendationConstraints = toRecommendationConstraints(plan.constraints);
-  const finishDecisionPerf = perfStart('retirement-plan', 'decision-engine');
-  const decision = await evaluateDecisionLevers(
+  const stressComplexityIsReduced = plan.runtimeBudgets.stressTestComplexity === 'reduced';
+  const scenarioEvaluationLimit = stressComplexityIsReduced
+    ? Math.min(
+        Math.max(1, plan.runtimeBudgets.decisionScenarioEvaluationLimit),
+        12,
+      )
+    : Math.max(1, plan.runtimeBudgets.decisionScenarioEvaluationLimit);
+  const evaluateExcludedScenarios = stressComplexityIsReduced
+    ? false
+    : Boolean(
+        plan.decisionEngineSettings.evaluateExcludedScenarios ??
+          plan.runtimeBudgets.decisionEvaluateExcludedScenarios,
+      );
+  const spendingMinimums = deriveSpendingMinimums(plan);
+  const spendingFloorAnnual = deriveSpendingFloorAnnual(plan);
+  const spendingCeilingAnnual = plan.targets.spendingTargetAnnual * 1.4;
+
+  const baselinePath = await runPhase(
+    'baseline_simulation',
+    () =>
+      buildPathResults(
+        plan.effectiveData,
+        finalEvaluationAssumptions,
+        plan.scenarioToggles.stressors,
+        plan.scenarioToggles.responses,
+        {
+          pathMode: 'selected_only',
+          strategyMode: plan.decisionEngineSettings.strategyMode,
+        },
+      )[0],
     {
-      data: plan.effectiveData,
-      assumptions: plan.assumptions,
-      selectedStressors: plan.scenarioToggles.stressors,
-      selectedResponses: plan.scenarioToggles.responses,
-      strategyMode: plan.decisionEngineSettings.strategyMode,
-    },
-    {
-      strategyMode: plan.decisionEngineSettings.strategyMode,
-      simulationRunsOverride: plan.decisionEngineSettings.simulationRunsOverride,
-      seedBase: plan.assumptions.simulationSeed,
-      seedStrategy: plan.decisionEngineSettings.seedStrategy,
-      constraints: recommendationConstraints,
-      evaluateExcludedScenarios: true,
+      simulationRuns: finalEvaluationAssumptions.simulationRuns,
     },
   );
-  finishDecisionPerf('ok', {
-    successRate: decision.baseline.successRate,
-  });
 
-  const finishSolverPerf = perfStart('retirement-plan', 'spend-solver');
-  const spendingMinimums = deriveSpendingMinimums(plan);
-  const solver = solveSpendByReverseTimeline({
-    data: plan.effectiveData,
-    assumptions: plan.assumptions,
-    selectedStressors: plan.scenarioToggles.stressors,
-    selectedResponses: plan.scenarioToggles.responses,
-    optimizationObjective: plan.targets.optimizationObjective,
-    timePreferenceWeights: plan.targets.timePreferenceWeights,
-    targetLegacyTodayDollars: plan.targets.exitTargetTodayDollars,
-    minSuccessRate: plan.targets.minSuccessRate,
-    successRateRange: plan.targets.successRateRange,
-    spendingFloorAnnual: deriveSpendingFloorAnnual(plan),
-    spendingCeilingAnnual: plan.targets.spendingTargetAnnual * 1.4,
-    spendingMinimums: {
-      essentialAnnualMinimum: spendingMinimums.essentialAnnualMinimum,
-      flexibleAnnualMinimum: spendingMinimums.flexibleAnnualMinimum,
-      travelAnnualMinimum: spendingMinimums.travelAnnualMinimum,
+  const decision = await runPhase(
+    'decision_engine',
+    async () =>
+      evaluateDecisionLevers(
+        {
+          data: plan.effectiveData,
+          assumptions: finalEvaluationAssumptions,
+          selectedStressors: plan.scenarioToggles.stressors,
+          selectedResponses: plan.scenarioToggles.responses,
+          strategyMode: plan.decisionEngineSettings.strategyMode,
+        },
+        {
+          strategyMode: plan.decisionEngineSettings.strategyMode,
+          simulationRunsOverride: Math.max(1, plan.runtimeBudgets.decisionSimulationRuns),
+          seedBase: plan.assumptions.simulationSeed,
+          seedStrategy: plan.decisionEngineSettings.seedStrategy,
+          constraints: recommendationConstraints,
+          evaluateExcludedScenarios,
+          maxScenarioEvaluations: scenarioEvaluationLimit,
+          baselinePathOverride: baselinePath,
+          skipExcludedScenarioSimulation: stressComplexityIsReduced,
+        },
+      ),
+    {
+      simulationRuns: Math.max(1, plan.runtimeBudgets.decisionSimulationRuns),
+      scenarioEvaluationLimit,
+      evaluateExcludedScenarios,
     },
-    toleranceAnnual: 250,
-    housingFundingPolicy: plan.constraints.doNotSellHouse
-      ? 'do_not_sell_primary_residence'
-      : 'allow_primary_residence_sale',
-  });
-  finishSolverPerf('ok', {
-    recommendedAnnualSpend: solver.recommendedAnnualSpend,
-    objective: solver.activeOptimizationObjective,
-  });
+  );
 
-  const finishAutopilotPerf = perfStart('retirement-plan', 'autopilot');
-  const autopilot = generateAutopilotPlan({
-    data: plan.effectiveData,
-    assumptions: plan.assumptions,
-    selectedStressors: plan.scenarioToggles.stressors,
-    selectedResponses: plan.scenarioToggles.responses,
-    targetLegacyTodayDollars: plan.targets.exitTargetTodayDollars,
-    minSuccessRate: plan.targets.minSuccessRate,
-    successRateRange: plan.targets.successRateRange,
-    spendingFloorAnnual: deriveSpendingFloorAnnual(plan),
-    spendingCeilingAnnual: plan.targets.spendingTargetAnnual * 1.4,
-    doNotSellPrimaryResidence: plan.constraints.doNotSellHouse,
-  });
-  finishAutopilotPerf('ok', {
-    years: autopilot.years.length,
-  });
+  const solver = await runPhase(
+    'solver',
+    () =>
+      solveSpendByReverseTimeline({
+        data: plan.effectiveData,
+        assumptions: finalEvaluationAssumptions,
+        selectedStressors: plan.scenarioToggles.stressors,
+        selectedResponses: plan.scenarioToggles.responses,
+        optimizationObjective: plan.targets.optimizationObjective,
+        timePreferenceWeights: plan.targets.timePreferenceWeights,
+        targetLegacyTodayDollars: plan.targets.exitTargetTodayDollars,
+        minSuccessRate: plan.targets.minSuccessRate,
+        successRateRange: plan.targets.successRateRange,
+        spendingFloorAnnual,
+        spendingCeilingAnnual,
+        spendingMinimums: {
+          essentialAnnualMinimum: spendingMinimums.essentialAnnualMinimum,
+          flexibleAnnualMinimum: spendingMinimums.flexibleAnnualMinimum,
+          travelAnnualMinimum: spendingMinimums.travelAnnualMinimum,
+        },
+        toleranceAnnual: 250,
+        maxIterations: plan.runtimeBudgets.solverMaxIterations,
+        housingFundingPolicy: plan.constraints.doNotSellHouse
+          ? 'do_not_sell_primary_residence'
+          : 'allow_primary_residence_sale',
+        runtimeBudget: {
+          searchSimulationRuns: plan.runtimeBudgets.solverSearchSimulationRuns,
+          finalSimulationRuns: plan.runtimeBudgets.solverFinalSimulationRuns,
+          maxIterations: plan.runtimeBudgets.solverMaxIterations,
+          diagnosticsMode: plan.runtimeBudgets.solverDiagnosticsMode,
+          enableSuccessRelaxationProbe: plan.runtimeBudgets.solverEnableSuccessRelaxationProbe,
+        },
+      }),
+    {
+      searchRuns: plan.runtimeBudgets.solverSearchSimulationRuns,
+      finalRuns: plan.runtimeBudgets.solverFinalSimulationRuns,
+      maxIterations: plan.runtimeBudgets.solverMaxIterations,
+      diagnosticsMode: plan.runtimeBudgets.solverDiagnosticsMode,
+    },
+  );
 
-  const irmaa = analyzeIrmaaExposure(plan, autopilot);
+  const autopilot = await runPhase(
+    'autopilot',
+    () =>
+      generateAutopilotPlan({
+        data: plan.effectiveData,
+        assumptions: finalEvaluationAssumptions,
+        selectedStressors: plan.scenarioToggles.stressors,
+        selectedResponses: plan.scenarioToggles.responses,
+        targetLegacyTodayDollars: plan.targets.exitTargetTodayDollars,
+        minSuccessRate: plan.targets.minSuccessRate,
+        successRateRange: plan.targets.successRateRange,
+        spendingFloorAnnual,
+        spendingCeilingAnnual,
+        doNotSellPrimaryResidence: plan.constraints.doNotSellHouse,
+        precomputedSpendSolver: solver,
+        solverRuntimeBudget: {
+          searchSimulationRuns: plan.runtimeBudgets.solverSearchSimulationRuns,
+          finalSimulationRuns: plan.runtimeBudgets.solverFinalSimulationRuns,
+          maxIterations: plan.runtimeBudgets.solverMaxIterations,
+          diagnosticsMode: plan.runtimeBudgets.solverDiagnosticsMode,
+          enableSuccessRelaxationProbe: plan.runtimeBudgets.solverEnableSuccessRelaxationProbe,
+        },
+      }),
+  );
 
-  const summary: UnifiedPlanSummary = {
-    supportedAnnualSpending: solver.recommendedAnnualSpend,
-    supportedMonthlySpending: solver.recommendedMonthlySpend,
+  const irmaa = await runPhase('diagnostics_generation', () => analyzeIrmaaExposure(plan, autopilot));
+
+  const summary = await runPhase('result_shaping', () => ({
+    supportedAnnualSpending: solver.supportedAnnualSpendNow,
+    supportedMonthlySpending: solver.supportedMonthlySpendNow,
     exitTargetTodayDollars: plan.targets.exitTargetTodayDollars,
     projectedExitTodayDollars: solver.projectedLegacyOutcomeTodayDollars,
-    successRate: decision.baseline.successRate,
-    planVerdict: toVerdict(decision.baseline.successRate),
+    successRate: solver.modeledSuccessRate,
+    planVerdict: toVerdict(solver.modeledSuccessRate),
     biggestDriverOfImprovement:
       decision.biggestDriver?.summary ?? 'No clear single lever currently dominates.',
     biggestRisk:
@@ -699,78 +894,86 @@ export async function analyzeRetirementPlan(
       decision.recommendationSummary.summary ||
       'No single low-impact change materially improves the plan. Consider combining smaller adjustments.',
     narrative: buildNarrative(plan, solver, decision, irmaa),
-  };
+  } satisfies UnifiedPlanSummary));
 
   let decisionImpact: DecisionImpactAssessment | null = null;
   const decisionInput =
     options.skipDecisionImpact ? undefined : plan.decisionImpactRequest;
   if (decisionInput && decisionInput.decisionCost > 0) {
-    const decisionAppliedData = applyDecisionToData(plan, decisionInput);
-    const decisionPlan: RetirementPlan = {
-      ...plan,
-      effectiveData: decisionAppliedData,
-      modelCompleteness: 'reconstructed',
-      inferredAssumptions: Array.from(
-        new Set([
-          ...plan.inferredAssumptions,
-          `Applied one-time decision: ${decisionInput.decisionFundingSource} ${Math.round(
-            decisionInput.decisionCost,
-          ).toLocaleString('en-US', {
-            style: 'currency',
-            currency: 'USD',
-            maximumFractionDigits: 0,
-          })} at ${decisionInput.decisionTiming}.`,
-        ]),
-      ),
-      decisionImpactRequest: undefined,
-    };
-    const decisionRun = await analyzeRetirementPlan(decisionPlan, {
-      skipDecisionImpact: true,
-    });
-    const sourceTaxRate = getSourceTaxRate(decisionInput.decisionFundingSource);
-    const sourceIrmaaImpact = getSourceIrmaaImpact(decisionInput.decisionFundingSource);
-    const sourceAcaImpact = getSourceAcaImpact(decisionInput.decisionFundingSource);
-    const decisionSuccessDelta =
-      decisionRun.decision.baseline.successRate - decision.baseline.successRate;
-    const decisionLegacyDelta =
-      decisionRun.solver.projectedLegacyOutcomeTodayDollars -
-      solver.projectedLegacyOutcomeTodayDollars;
-    const decisionTaxDelta =
-      decisionRun.solver.annualFederalTaxEstimate -
-      solver.annualFederalTaxEstimate +
-      decisionInput.decisionCost * sourceTaxRate;
-    const decisionIRMAADelta =
-      decisionRun.baselinePath.irmaaExposureRate -
-      baselinePath.irmaaExposureRate +
-      sourceIrmaaImpact;
-    const decisionACADelta =
-      averageAnnualAcaNetCost(decisionRun.baselinePath) -
-      averageAnnualAcaNetCost(baselinePath) +
-      decisionInput.decisionCost * sourceAcaImpact * 0.01;
-    const decisionFeasible = isDecisionFeasible(plan, decisionRun.solver);
-    const decisionPrimaryConstraintHit = decisionRun.solver.bindingGuardrail;
-    decisionImpact = {
-      decisionFeasible,
-      decisionPrimaryConstraintHit,
-      decisionSuccessDelta,
-      decisionLegacyDelta,
-      decisionTaxDelta,
-      decisionIRMAADelta,
-      decisionACADelta,
-      suggestedMitigationLever: getMitigationSuggestion({
-        decision: decisionInput,
-        feasible: decisionFeasible,
+    decisionImpact = await runPhase('decision_impact', async () => {
+      const decisionAppliedData = applyDecisionToData(plan, decisionInput);
+      const decisionPlan: RetirementPlan = {
+        ...plan,
+        effectiveData: decisionAppliedData,
+        modelCompleteness: 'reconstructed',
+        inferredAssumptions: Array.from(
+          new Set([
+            ...plan.inferredAssumptions,
+            `Applied one-time decision: ${decisionInput.decisionFundingSource} ${Math.round(
+              decisionInput.decisionCost,
+            ).toLocaleString('en-US', {
+              style: 'currency',
+              currency: 'USD',
+              maximumFractionDigits: 0,
+            })} at ${decisionInput.decisionTiming}.`,
+          ]),
+        ),
+        decisionImpactRequest: undefined,
+      };
+      const decisionRun = await analyzeRetirementPlan(decisionPlan, {
+        skipDecisionImpact: true,
+      });
+      const sourceTaxRate = getSourceTaxRate(decisionInput.decisionFundingSource);
+      const sourceIrmaaImpact = getSourceIrmaaImpact(decisionInput.decisionFundingSource);
+      const sourceAcaImpact = getSourceAcaImpact(decisionInput.decisionFundingSource);
+      const decisionSuccessDelta =
+        decisionRun.decision.baseline.successRate - decision.baseline.successRate;
+      const decisionLegacyDelta =
+        decisionRun.solver.projectedLegacyOutcomeTodayDollars -
+        solver.projectedLegacyOutcomeTodayDollars;
+      const decisionTaxDelta =
+        decisionRun.solver.annualFederalTaxEstimate -
+        solver.annualFederalTaxEstimate +
+        decisionInput.decisionCost * sourceTaxRate;
+      const decisionIRMAADelta =
+        decisionRun.baselinePath.irmaaExposureRate -
+        baselinePath.irmaaExposureRate +
+        sourceIrmaaImpact;
+      const decisionACADelta =
+        averageAnnualAcaNetCost(decisionRun.baselinePath) -
+        averageAnnualAcaNetCost(baselinePath) +
+        decisionInput.decisionCost * sourceAcaImpact * 0.01;
+      const decisionFeasible = isDecisionFeasible(plan, decisionRun.solver);
+      const decisionPrimaryConstraintHit = decisionRun.solver.bindingGuardrail;
+      return {
+        decisionFeasible,
         decisionPrimaryConstraintHit,
         decisionSuccessDelta,
         decisionLegacyDelta,
         decisionTaxDelta,
         decisionIRMAADelta,
-      }),
-      bindingGuardrail: decisionRun.solver.bindingGuardrail,
-      bindingGuardrailExplanation: decisionRun.solver.bindingGuardrailExplanation,
-    };
+        decisionACADelta,
+        suggestedMitigationLever: getMitigationSuggestion({
+          decision: decisionInput,
+          feasible: decisionFeasible,
+          decisionPrimaryConstraintHit,
+          decisionSuccessDelta,
+          decisionLegacyDelta,
+          decisionTaxDelta,
+          decisionIRMAADelta,
+        }),
+        bindingGuardrail: decisionRun.solver.bindingGuardrail,
+        bindingGuardrailExplanation: decisionRun.solver.bindingGuardrailExplanation,
+      };
+    });
   }
 
+  const runtimeDiagnostics = {
+    totalMs: Number((nowMs() - startedAt).toFixed(1)),
+    phaseDurationsMs,
+    phaseOrder,
+    settings: plan.runtimeBudgets,
+  };
   const result: RetirementPlanRunResult = {
     plan,
     baselinePath,
@@ -780,10 +983,12 @@ export async function analyzeRetirementPlan(
     decisionImpact,
     irmaa,
     summary,
+    runtimeDiagnostics,
   };
   finishPerf('ok', {
     successRate: decision.baseline.successRate,
     verdict: summary.planVerdict,
+    totalMs: runtimeDiagnostics.totalMs,
   });
   return result;
 }
