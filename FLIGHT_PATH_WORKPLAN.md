@@ -41,8 +41,11 @@ Execution protocol:
   - Files: `src/flight-path-policy.ts`, `src/UnifiedPlanScreen.tsx`.
   - Verification: `npm run build` passed.
 
-5. [ ] Enforce hard-constraint gating
+5. [x] Enforce hard-constraint gating
 - Reject candidates that violate success floor, legacy floor/band, spending minima, or explicit user constraints.
+  - Done: added hard-constraint gate to policy output filtering for success floor, legacy floor/target-band floor, spending minima, and explicit user constraints (`doNotRetireLater`, `doNotSellHouse`).
+  - Files: `src/flight-path-policy.ts`.
+  - Verification: `npm run build` passed.
 
 6. [ ] Add confidence scoring
 - Score confidence from effect size, stability across sensitivity runs, and model completeness.

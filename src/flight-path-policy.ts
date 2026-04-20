@@ -2,7 +2,7 @@ import type { PlanEvaluation } from './plan-evaluation';
 import type { MarketAssumptions, PathResult, SeedData } from './types';
 import { buildPathResults, formatCurrency } from './utils';
 
-export const FLIGHT_PATH_POLICY_VERSION = 'v0.2.0';
+export const FLIGHT_PATH_POLICY_VERSION = 'v0.2.1';
 
 export type StrategicPrepPriority = 'now' | 'soon' | 'watch';
 export type StrategicPrepConfidenceLabel = 'low' | 'medium' | 'high';
@@ -71,6 +71,11 @@ interface CounterfactualPatch {
   travelAnnualDelta?: number;
   transferToCashFromTaxable?: number;
   transferFromCashToTaxable?: number;
+}
+
+interface EvaluatedCandidateResult {
+  recommendation: StrategicPrepRecommendation;
+  patchedDataUsed: SeedData | null;
 }
 
 export interface FlightPathPolicyInput {
@@ -486,6 +491,7 @@ function evaluateCandidateCounterfactual(input: {
   selectedStressors: string[];
   selectedResponses: string[];
 }): {
+  patchedDataUsed: SeedData | null;
   estimatedImpact: StrategicPrepImpactEstimate | null;
   evidence: StrategicPrepEvidence;
   confidence: StrategicPrepConfidence;
@@ -496,6 +502,7 @@ function evaluateCandidateCounterfactual(input: {
 
   if (!input.candidate.counterfactualPatch) {
     return {
+      patchedDataUsed: null,
       estimatedImpact: null,
       evidence: {
         baseline: baselineSnapshot,
@@ -518,6 +525,7 @@ function evaluateCandidateCounterfactual(input: {
   const impact = estimateImpactFromPaths(input.baselinePath, counterfactualPath);
 
   return {
+    patchedDataUsed: patchedData,
     estimatedImpact: impact,
     evidence: {
       baseline: baselineSnapshot,
@@ -528,6 +536,68 @@ function evaluateCandidateCounterfactual(input: {
     },
     confidence: scoreConfidenceFromImpact(impact, true),
   };
+}
+
+function detectHardConstraintViolation(input: {
+  candidate: StrategicPrepCandidate;
+  evaluated: EvaluatedCandidateResult;
+  evaluation: PlanEvaluation;
+}): string | null {
+  const { candidate, evaluated, evaluation } = input;
+
+  const actionText = `${candidate.id} ${candidate.title} ${candidate.action}`.toLowerCase();
+  const constraints = evaluation.raw.run.plan.constraints;
+  if (
+    constraints.doNotRetireLater &&
+    (actionText.includes('retire later') || actionText.includes('delay retirement'))
+  ) {
+    return 'Blocked by explicit user constraint: do not retire later.';
+  }
+  if (
+    constraints.doNotSellHouse &&
+    (actionText.includes('sell home') || actionText.includes('sell house'))
+  ) {
+    return 'Blocked by explicit user constraint: do not sell house.';
+  }
+
+  const patchedData = evaluated.patchedDataUsed;
+  if (patchedData) {
+    const optionalMinimum = patchedData.spending.optionalMinimumMonthly ?? 0;
+    if (patchedData.spending.optionalMonthly < optionalMinimum) {
+      return 'Blocked by spending minimum: optional spending would fall below minimum.';
+    }
+    const travelMinimum = patchedData.spending.travelMinimumAnnual ?? 0;
+    if (patchedData.spending.travelEarlyRetirementAnnual < travelMinimum) {
+      return 'Blocked by spending minimum: travel spending would fall below minimum.';
+    }
+  }
+
+  const counterfactual = evaluated.recommendation.evidence.counterfactual;
+  if (counterfactual) {
+    if (counterfactual.successRate + 1e-9 < evaluation.calibration.minimumSuccessRateTarget) {
+      return 'Blocked by hard guardrail: counterfactual falls below minimum success floor.';
+    }
+
+    const legacyDelta = evaluated.recommendation.estimatedImpact?.medianEndingWealthDelta ?? 0;
+    const projectedLegacyTodayApprox =
+      evaluation.calibration.projectedLegacyTodayDollars + legacyDelta;
+    if (projectedLegacyTodayApprox + 1 < evaluation.calibration.legacyFloorTodayDollars) {
+      return 'Blocked by hard guardrail: projected legacy falls below legacy floor.';
+    }
+
+    const baselineInOrAboveBand =
+      evaluation.calibration.projectedLegacyTodayDollars >=
+      evaluation.calibration.legacyTargetBandLowerTodayDollars;
+    if (
+      baselineInOrAboveBand &&
+      projectedLegacyTodayApprox + 1 <
+        evaluation.calibration.legacyTargetBandLowerTodayDollars
+    ) {
+      return 'Blocked by hard guardrail: projected legacy falls below target landing band.';
+    }
+  }
+
+  return null;
 }
 
 export function buildFlightPathStrategicPrepRecommendations(
@@ -545,6 +615,7 @@ export function buildFlightPathStrategicPrepRecommendations(
       recommendations: [],
     };
   }
+  const evaluation = input.evaluation;
 
   const counterfactualAssumptions = resolveCounterfactualAssumptions(
     input.assumptions,
@@ -557,7 +628,7 @@ export function buildFlightPathStrategicPrepRecommendations(
     selectedResponses: input.selectedResponses,
   });
 
-  const enriched = candidates.map((candidate) => {
+  const evaluatedCandidates = candidates.map((candidate) => {
     const evaluated = evaluateCandidateCounterfactual({
       candidate,
       baselinePath,
@@ -566,7 +637,7 @@ export function buildFlightPathStrategicPrepRecommendations(
       selectedStressors: input.selectedStressors,
       selectedResponses: input.selectedResponses,
     });
-    return {
+    const recommendation = {
       id: candidate.id,
       priority: candidate.priority,
       title: candidate.title,
@@ -578,7 +649,28 @@ export function buildFlightPathStrategicPrepRecommendations(
       evidence: evaluated.evidence,
       amountHint: candidate.amountHint,
     } satisfies StrategicPrepRecommendation;
+
+    return {
+      recommendation,
+      patchedDataUsed: evaluated.patchedDataUsed,
+    } satisfies EvaluatedCandidateResult;
   });
+
+  const candidateById = new Map(candidates.map((candidate) => [candidate.id, candidate]));
+  const acceptedRecommendations = evaluatedCandidates
+    .filter((evaluated) => {
+      const candidate = candidateById.get(evaluated.recommendation.id);
+      if (!candidate) {
+        return false;
+      }
+      const reason = detectHardConstraintViolation({
+        candidate,
+        evaluated,
+        evaluation,
+      });
+      return !reason;
+    })
+    .map((evaluated) => evaluated.recommendation);
 
   const priorityOrder: Record<StrategicPrepPriority, number> = {
     now: 0,
@@ -588,7 +680,7 @@ export function buildFlightPathStrategicPrepRecommendations(
 
   return {
     policyVersion: FLIGHT_PATH_POLICY_VERSION,
-    recommendations: enriched
+    recommendations: acceptedRecommendations
       .sort((left, right) => {
         const priorityDelta = priorityOrder[left.priority] - priorityOrder[right.priority];
         if (priorityDelta !== 0) {
