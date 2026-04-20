@@ -13,9 +13,12 @@ Execution protocol:
 
 ## Steps
 
-1. [ ] Extract policy engine from UI
+1. [x] Extract policy engine from UI
 - Move strategic prep rule logic out of `src/UnifiedPlanScreen.tsx` into `src/flight-path-policy.ts`.
 - Define typed inputs/outputs and a version field.
+  - Done: moved recommendation generation into `buildFlightPathStrategicPrepRecommendations` with typed `FlightPathPolicyInput`/`FlightPathPolicyResult` and `FLIGHT_PATH_POLICY_VERSION`.
+  - Files: `src/flight-path-policy.ts`, `src/UnifiedPlanScreen.tsx`.
+  - Verification: `npm run build` passed.
 
 2. [ ] Define recommendation schema
 - Add structured fields for action, triggerReason, estimatedImpact, tradeoffs, confidence, evidence.
