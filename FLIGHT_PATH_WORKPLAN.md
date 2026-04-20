@@ -91,6 +91,10 @@ Execution protocol:
   - Files: `src/flight-path-policy.ts`, `src/flight-path-policy-thresholds.test.ts`, `docs/flight-path-threshold-calibration.md`.
   - Verification: `npm run test -- src/flight-path-policy.test.ts src/flight-path-policy-thresholds.test.ts`; `npm run build` passed.
 
-12. [ ] Rollout and cleanup
+12. [x] Rollout and cleanup
 - Run in shadow mode first, compare with current panel.
 - Switch default once validated and remove obsolete heuristic path.
+  - Done: added strategic-prep shadow comparison (policy vs legacy recommendation names) to diagnostics for rollout validation, including overlap and policy-only/legacy-only deltas.
+  - Done: switched UI default levers and “Best improvement lever” to the strategic-prep policy output, removing legacy recommendation panel dependency from displayed lever lists.
+  - Files: `src/UnifiedPlanScreen.tsx`.
+  - Verification: `npm run test -- src/flight-path-policy.test.ts src/flight-path-policy-thresholds.test.ts`; `npm run build` passed.

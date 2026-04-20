@@ -39,6 +39,7 @@ const INTERACTIVE_RUNTIME_BUDGETS = {
   decisionEvaluateExcludedScenarios: false,
   stressTestComplexity: 'reduced' as const,
 };
+const STRATEGIC_PREP_ROLLOUT_MODE = 'policy_default_shadow_validated' as const;
 type PlanSimulationStatus = 'fresh' | 'stale' | 'running';
 type PlanAnalysisStatus = 'fresh' | 'stale' | 'running';
 
@@ -238,6 +239,54 @@ function formatPhaseLabel(value: 'go_go' | 'slow_go' | 'late') {
     return '70s (Slow-Go)';
   }
   return '80+ (Late)';
+}
+
+interface StrategicPrepShadowComparison {
+  rolloutMode: typeof STRATEGIC_PREP_ROLLOUT_MODE;
+  policyCount: number;
+  legacyCount: number;
+  overlapCount: number;
+  overlapRate: number;
+  policyOnly: string[];
+  legacyOnly: string[];
+}
+
+function normalizeRecommendationLabel(value: string) {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+}
+
+function buildStrategicPrepShadowComparison(input: {
+  policyRecommendations: StrategicPrepRecommendation[];
+  legacyRecommendationNames: string[];
+}): StrategicPrepShadowComparison {
+  const policyLabels = input.policyRecommendations.map((item) => item.title);
+  const policySet = new Set(policyLabels.map(normalizeRecommendationLabel));
+  const legacySet = new Set(input.legacyRecommendationNames.map(normalizeRecommendationLabel));
+
+  const overlapCount = [...policySet].filter((value) => legacySet.has(value)).length;
+  const overlapRate = policySet.size
+    ? Number((overlapCount / policySet.size).toFixed(2))
+    : 0;
+
+  const policyOnly = policyLabels.filter(
+    (label) => !legacySet.has(normalizeRecommendationLabel(label)),
+  );
+  const legacyOnly = input.legacyRecommendationNames.filter(
+    (label) => !policySet.has(normalizeRecommendationLabel(label)),
+  );
+
+  return {
+    rolloutMode: STRATEGIC_PREP_ROLLOUT_MODE,
+    policyCount: policyLabels.length,
+    legacyCount: input.legacyRecommendationNames.length,
+    overlapCount,
+    overlapRate,
+    policyOnly,
+    legacyOnly,
+  };
 }
 
 interface FlightPathTimelineEvent {
@@ -1305,9 +1354,6 @@ export function UnifiedPlanScreen({
           : 'Travel floor: none',
       ]
     : [];
-  const suggestedLevers = currentEvaluation?.recommendations.top.length
-    ? currentEvaluation.recommendations.top.map((item) => item.name)
-    : ['No lever available yet'];
   const solverDiagnostics = currentEvaluation?.raw.spendingCalibration;
   const solverDiagnosticsRecord = solverDiagnostics as unknown as Record<string, unknown> | undefined;
   const debugDiagnosticsPayload = solverDiagnosticsRecord
@@ -1573,6 +1619,29 @@ export function UnifiedPlanScreen({
     [assumptions, currentEvaluation, data, selectedResponses, selectedStressors],
   );
   const strategicPrepRecommendations = strategicPrepPolicy.recommendations;
+  const legacySuggestedLevers = currentEvaluation?.recommendations.top.length
+    ? currentEvaluation.recommendations.top.map((item) => item.name)
+    : [];
+  const strategicPrepShadowComparison = useMemo(
+    () =>
+      buildStrategicPrepShadowComparison({
+        policyRecommendations: strategicPrepRecommendations,
+        legacyRecommendationNames: legacySuggestedLevers,
+      }),
+    [legacySuggestedLevers, strategicPrepRecommendations],
+  );
+  const bestImprovementLeverLabel =
+    strategicPrepRecommendations[0]?.title ?? 'Waiting for strategic prep pass';
+  const suggestedLevers = strategicPrepRecommendations.length
+    ? strategicPrepRecommendations.map((item) => item.title)
+    : ['No lever available yet'];
+  const debugDiagnosticsPayloadWithStrategicPrep = debugDiagnosticsPayload
+    ? {
+        ...debugDiagnosticsPayload,
+        strategicPrepRollout: strategicPrepShadowComparison,
+        strategicPrepDiagnostics: strategicPrepPolicy.diagnostics,
+      }
+    : null;
   const substantialWealthReasons = solverDiagnostics
     ? [
         solverDiagnostics.surplusPreservedBecause,
@@ -1670,7 +1739,7 @@ export function UnifiedPlanScreen({
           </p>
           <p className="mt-1">
             <span className="font-semibold">Best improvement lever:</span>{' '}
-            {topRecommendation?.name ?? 'Waiting for recommendation pass'}
+            {bestImprovementLeverLabel}
           </p>
           {timePreference ? (
             <p className="mt-1">
@@ -2777,7 +2846,7 @@ export function UnifiedPlanScreen({
         </SectionCard>
       ) : null}
 
-      {debugDiagnosticsPayload ? (
+      {debugDiagnosticsPayloadWithStrategicPrep ? (
         <SectionCard title="Diagnostics">
           <details className="rounded-xl bg-white p-4">
             <summary className="cursor-pointer text-sm font-semibold text-stone-800">
@@ -2788,7 +2857,7 @@ export function UnifiedPlanScreen({
               {missingDebugFields.length ? missingDebugFields.join(', ') : 'none'}
             </p>
             <pre className="mt-3 max-h-80 overflow-auto rounded-lg bg-stone-900 p-3 text-[11px] leading-5 text-stone-100">
-              <code>{JSON.stringify(debugDiagnosticsPayload, null, 2)}</code>
+              <code>{JSON.stringify(debugDiagnosticsPayloadWithStrategicPrep, null, 2)}</code>
             </pre>
           </details>
         </SectionCard>
