@@ -47,9 +47,12 @@ Execution protocol:
   - Files: `src/flight-path-policy.ts`.
   - Verification: `npm run build` passed.
 
-6. [ ] Add confidence scoring
+6. [x] Add confidence scoring
 - Score confidence from effect size, stability across sensitivity runs, and model completeness.
 - Provide confidence labels with rationale.
+  - Done: confidence now combines effect signal, sensitivity stability (adverse/benign perturbed seeded scenarios), and model completeness assessment.
+  - Files: `src/flight-path-policy.ts`.
+  - Verification: `npm run build` passed.
 
 7. [ ] Rank and filter recommendations
 - Rank by net benefit and user-goal alignment.

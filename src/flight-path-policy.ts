@@ -2,7 +2,7 @@ import type { PlanEvaluation } from './plan-evaluation';
 import type { MarketAssumptions, PathResult, SeedData } from './types';
 import { buildPathResults, formatCurrency } from './utils';
 
-export const FLIGHT_PATH_POLICY_VERSION = 'v0.2.1';
+export const FLIGHT_PATH_POLICY_VERSION = 'v0.3.0';
 
 export type StrategicPrepPriority = 'now' | 'soon' | 'watch';
 export type StrategicPrepConfidenceLabel = 'low' | 'medium' | 'high';
@@ -96,6 +96,29 @@ export interface FlightPathPolicyResult {
 
 const DEFAULT_MAX_RECOMMENDATIONS = 6;
 const DEFAULT_COUNTERFACTUAL_SIMULATION_RUNS = 72;
+const DEFAULT_SENSITIVITY_SIMULATION_RUNS = 36;
+
+interface ModelCompletenessAssessment {
+  indicator: 'faithful' | 'reconstructed';
+  score: number;
+  rationale: string;
+  missingInputs: string[];
+  inferredAssumptions: string[];
+}
+
+interface SensitivityScenarioResult {
+  name: string;
+  supportedMonthlyDelta: number;
+  successRateDelta: number;
+}
+
+interface SensitivityStabilityAssessment {
+  score: number;
+  consistentScenarioCount: number;
+  totalScenarioCount: number;
+  rationale: string;
+  scenarios: SensitivityScenarioResult[];
+}
 
 function cloneSeedData(data: SeedData): SeedData {
   return JSON.parse(JSON.stringify(data)) as SeedData;
@@ -103,6 +126,77 @@ function cloneSeedData(data: SeedData): SeedData {
 
 function clampMin(value: number, minimum: number) {
   return value < minimum ? minimum : value;
+}
+
+function parseDateSafe(value: string) {
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return null;
+  }
+  return parsed;
+}
+
+function signWithTolerance(value: number, tolerance: number) {
+  if (value > tolerance) {
+    return 1;
+  }
+  if (value < -tolerance) {
+    return -1;
+  }
+  return 0;
+}
+
+function assessModelCompleteness(input: FlightPathPolicyInput): ModelCompletenessAssessment {
+  const missingInputs: string[] = [];
+  const inferredAssumptions: string[] = [];
+
+  if (!parseDateSafe(input.data.household.robBirthDate)) {
+    missingInputs.push('household.robBirthDate');
+  }
+  if (!parseDateSafe(input.data.household.debbieBirthDate)) {
+    missingInputs.push('household.debbieBirthDate');
+  }
+  if (!parseDateSafe(input.data.income.salaryEndDate)) {
+    missingInputs.push('income.salaryEndDate');
+  }
+  if (!input.data.income.socialSecurity.length) {
+    missingInputs.push('income.socialSecurity');
+  } else {
+    input.data.income.socialSecurity.forEach((entry, index) => {
+      if (!(entry.fraMonthly > 0)) {
+        missingInputs.push(`income.socialSecurity[${index}].fraMonthly`);
+      }
+      if (!(entry.claimAge > 0)) {
+        missingInputs.push(`income.socialSecurity[${index}].claimAge`);
+      }
+    });
+  }
+
+  if (input.assumptions.simulationSeed === undefined) {
+    inferredAssumptions.push('assumptions.simulationSeed(defaulted)');
+  }
+  if (!input.assumptions.assumptionsVersion) {
+    inferredAssumptions.push('assumptions.assumptionsVersion(defaulted)');
+  }
+
+  const hasMissing = missingInputs.length > 0;
+  const hasInferred = inferredAssumptions.length > 0;
+  const indicator: 'faithful' | 'reconstructed' =
+    hasMissing || hasInferred ? 'reconstructed' : 'faithful';
+  const score = hasMissing ? 0.35 : hasInferred ? 0.7 : 1;
+  const rationale = hasMissing
+    ? 'Core plan inputs are missing or invalid, so recommendations rely on reconstructed assumptions.'
+    : hasInferred
+      ? 'Core inputs are present but one or more assumptions were defaulted by the model.'
+      : 'All required core inputs and assumptions are explicitly provided.';
+
+  return {
+    indicator,
+    score,
+    rationale,
+    missingInputs,
+    inferredAssumptions,
+  };
 }
 
 function firstYearSupportedMonthly(path: PathResult) {
@@ -212,41 +306,170 @@ function estimateImpactFromPaths(
   };
 }
 
-function scoreConfidenceFromImpact(
-  impact: StrategicPrepImpactEstimate | null,
-  hasCounterfactual: boolean,
-): StrategicPrepConfidence {
-  if (!impact || !hasCounterfactual) {
-    return {
-      label: 'low',
-      score: 0.25,
-      rationale: 'No seeded counterfactual run was available for this recommendation.',
-    };
+function scoreEffectSignal(impact: StrategicPrepImpactEstimate | null) {
+  if (!impact) {
+    return 0;
   }
-
   const successSignal = Math.min(1, Math.abs(impact.successRateDelta) / 0.03);
   const spendSignal = Math.min(1, Math.abs(impact.supportedMonthlyDelta) / 400);
   const fundedSignal = Math.min(1, Math.abs(impact.yearsFundedDelta) / 2);
-  const score = Number((0.45 * successSignal + 0.4 * spendSignal + 0.15 * fundedSignal).toFixed(2));
+  return Number((0.45 * successSignal + 0.4 * spendSignal + 0.15 * fundedSignal).toFixed(2));
+}
 
-  if (score >= 0.7) {
+function resolveSensitivityAssumptions(
+  assumptions: MarketAssumptions,
+  baseRuns: number,
+) {
+  const sensitivityRuns = Math.max(
+    24,
+    Math.min(baseRuns, DEFAULT_SENSITIVITY_SIMULATION_RUNS),
+  );
+  return [
+    {
+      name: 'adverse-macro',
+      assumptions: {
+        ...assumptions,
+        simulationRuns: sensitivityRuns,
+        equityMean: assumptions.equityMean - 0.01,
+        inflation: Math.max(-0.98, assumptions.inflation + 0.005),
+        assumptionsVersion: assumptions.assumptionsVersion
+          ? `${assumptions.assumptionsVersion}-sens-adverse`
+          : 'sens-adverse',
+      } satisfies MarketAssumptions,
+    },
+    {
+      name: 'benign-macro',
+      assumptions: {
+        ...assumptions,
+        simulationRuns: sensitivityRuns,
+        equityMean: assumptions.equityMean + 0.005,
+        inflation: Math.max(-0.98, assumptions.inflation - 0.003),
+        assumptionsVersion: assumptions.assumptionsVersion
+          ? `${assumptions.assumptionsVersion}-sens-benign`
+          : 'sens-benign',
+      } satisfies MarketAssumptions,
+    },
+  ];
+}
+
+function assessSensitivityStability(input: {
+  baseImpact: StrategicPrepImpactEstimate | null;
+  hasCounterfactual: boolean;
+  baselineData: SeedData;
+  counterfactualData: SeedData | null;
+  assumptions: MarketAssumptions;
+  selectedStressors: string[];
+  selectedResponses: string[];
+}): SensitivityStabilityAssessment {
+  if (!input.baseImpact || !input.hasCounterfactual || !input.counterfactualData) {
+    return {
+      score: 0,
+      consistentScenarioCount: 0,
+      totalScenarioCount: 0,
+      rationale: 'No counterfactual patch available for sensitivity stability analysis.',
+      scenarios: [],
+    };
+  }
+
+  const basePrimary =
+    Math.abs(input.baseImpact.supportedMonthlyDelta) >= 25
+      ? input.baseImpact.supportedMonthlyDelta
+      : input.baseImpact.successRateDelta * 100;
+  const baseDirection = signWithTolerance(basePrimary, 0.05);
+
+  const scenarios = resolveSensitivityAssumptions(
+    input.assumptions,
+    input.assumptions.simulationRuns,
+  );
+  const scenarioResults: SensitivityScenarioResult[] = scenarios.map((scenario) => {
+    const baselinePath = runSeededPath({
+      data: input.baselineData,
+      assumptions: scenario.assumptions,
+      selectedStressors: input.selectedStressors,
+      selectedResponses: input.selectedResponses,
+    });
+    const counterfactualPath = runSeededPath({
+      data: input.counterfactualData as SeedData,
+      assumptions: scenario.assumptions,
+      selectedStressors: input.selectedStressors,
+      selectedResponses: input.selectedResponses,
+    });
+
+    return {
+      name: scenario.name,
+      supportedMonthlyDelta:
+        firstYearSupportedMonthly(counterfactualPath) -
+        firstYearSupportedMonthly(baselinePath),
+      successRateDelta: counterfactualPath.successRate - baselinePath.successRate,
+    };
+  });
+
+  const consistentScenarioCount = scenarioResults.filter((scenario) => {
+    const primary =
+      Math.abs(scenario.supportedMonthlyDelta) >= 25
+        ? scenario.supportedMonthlyDelta
+        : scenario.successRateDelta * 100;
+    const direction = signWithTolerance(primary, 0.05);
+    if (baseDirection === 0) {
+      return direction === 0;
+    }
+    return direction === baseDirection;
+  }).length;
+
+  const totalScenarioCount = scenarioResults.length;
+  const score =
+    totalScenarioCount > 0 ? consistentScenarioCount / totalScenarioCount : 0;
+  const rationale =
+    totalScenarioCount > 0
+      ? `${consistentScenarioCount}/${totalScenarioCount} sensitivity scenarios kept the same impact direction.`
+      : 'No sensitivity scenarios were executed.';
+
+  return {
+    score: Number(score.toFixed(2)),
+    consistentScenarioCount,
+    totalScenarioCount,
+    rationale,
+    scenarios: scenarioResults,
+  };
+}
+
+function scoreConfidenceFromSignals(input: {
+  impact: StrategicPrepImpactEstimate | null;
+  hasCounterfactual: boolean;
+  stability: SensitivityStabilityAssessment;
+  modelCompleteness: ModelCompletenessAssessment;
+}): StrategicPrepConfidence {
+  if (!input.hasCounterfactual || !input.impact) {
+    return {
+      label: 'low',
+      score: Number((0.2 * input.modelCompleteness.score).toFixed(2)),
+      rationale: `No seeded counterfactual run was available. Model completeness: ${input.modelCompleteness.indicator}.`,
+    };
+  }
+
+  const effectScore = scoreEffectSignal(input.impact);
+  const score = Number(
+    (0.5 * effectScore + 0.3 * input.stability.score + 0.2 * input.modelCompleteness.score).toFixed(2),
+  );
+
+  if (score >= 0.72) {
     return {
       label: 'high',
       score,
-      rationale: 'Counterfactual run shows a material, consistent impact in core plan metrics.',
+      rationale: `Strong effect, stable across sensitivities (${input.stability.rationale}), and ${input.modelCompleteness.indicator} model inputs.`,
     };
   }
-  if (score >= 0.4) {
+  if (score >= 0.45) {
     return {
       label: 'medium',
       score,
-      rationale: 'Counterfactual run shows moderate directional impact in core plan metrics.',
+      rationale: `Moderate net signal from effect + sensitivity stability (${input.stability.rationale}); model completeness is ${input.modelCompleteness.indicator}.`,
     };
   }
   return {
     label: 'low',
     score,
-    rationale: 'Counterfactual run shows only small movement in core plan metrics.',
+    rationale: `Limited confidence from effect/stability; ${input.modelCompleteness.indicator} model inputs reduce certainty.`,
   };
 }
 
@@ -494,7 +717,7 @@ function evaluateCandidateCounterfactual(input: {
   patchedDataUsed: SeedData | null;
   estimatedImpact: StrategicPrepImpactEstimate | null;
   evidence: StrategicPrepEvidence;
-  confidence: StrategicPrepConfidence;
+  stability: SensitivityStabilityAssessment;
 } {
   const baselineSnapshot = toPathSnapshot(input.baselinePath);
   const runs = input.assumptions.simulationRuns;
@@ -511,7 +734,13 @@ function evaluateCandidateCounterfactual(input: {
         simulationSeedUsed: seed,
         notes: ['No deterministic patch defined; recommendation remains directional.'],
       },
-      confidence: scoreConfidenceFromImpact(null, false),
+      stability: {
+        score: 0,
+        consistentScenarioCount: 0,
+        totalScenarioCount: 0,
+        rationale: 'No counterfactual patch available for sensitivity stability analysis.',
+        scenarios: [],
+      },
     };
   }
 
@@ -523,6 +752,15 @@ function evaluateCandidateCounterfactual(input: {
     selectedResponses: input.selectedResponses,
   });
   const impact = estimateImpactFromPaths(input.baselinePath, counterfactualPath);
+  const stability = assessSensitivityStability({
+    baseImpact: impact,
+    hasCounterfactual: true,
+    baselineData: input.data,
+    counterfactualData: patchedData,
+    assumptions: input.assumptions,
+    selectedStressors: input.selectedStressors,
+    selectedResponses: input.selectedResponses,
+  });
 
   return {
     patchedDataUsed: patchedData,
@@ -532,9 +770,12 @@ function evaluateCandidateCounterfactual(input: {
       counterfactual: toPathSnapshot(counterfactualPath),
       simulationRunsUsed: runs,
       simulationSeedUsed: seed,
-      notes: ['Impact estimated via seeded planner-enhanced path counterfactual.'],
+      notes: [
+        'Impact estimated via seeded planner-enhanced path counterfactual.',
+        `Sensitivity stability: ${stability.rationale}`,
+      ],
     },
-    confidence: scoreConfidenceFromImpact(impact, true),
+    stability,
   };
 }
 
@@ -616,6 +857,7 @@ export function buildFlightPathStrategicPrepRecommendations(
     };
   }
   const evaluation = input.evaluation;
+  const modelCompleteness = assessModelCompleteness(input);
 
   const counterfactualAssumptions = resolveCounterfactualAssumptions(
     input.assumptions,
@@ -645,8 +887,19 @@ export function buildFlightPathStrategicPrepRecommendations(
       triggerReason: candidate.triggerReason,
       estimatedImpact: evaluated.estimatedImpact,
       tradeoffs: candidate.tradeoffs,
-      confidence: evaluated.confidence,
-      evidence: evaluated.evidence,
+      confidence: scoreConfidenceFromSignals({
+        impact: evaluated.estimatedImpact,
+        hasCounterfactual: Boolean(candidate.counterfactualPatch),
+        stability: evaluated.stability,
+        modelCompleteness,
+      }),
+      evidence: {
+        ...evaluated.evidence,
+        notes: [
+          ...evaluated.evidence.notes,
+          `Model completeness: ${modelCompleteness.indicator}. ${modelCompleteness.rationale}`,
+        ],
+      },
       amountHint: candidate.amountHint,
     } satisfies StrategicPrepRecommendation;
 
