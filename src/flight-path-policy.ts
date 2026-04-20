@@ -3,7 +3,9 @@ import type { OptimizationObjective } from './optimization-objective';
 import type { MarketAssumptions, PathResult, SeedData } from './types';
 import { buildPathResults, formatCurrency } from './utils';
 
-export const FLIGHT_PATH_POLICY_VERSION = 'v0.4.0';
+export const FLIGHT_PATH_POLICY_VERSION = 'v0.5.0';
+export const FLIGHT_PATH_THRESHOLD_PROFILE_VERSION = '2026-04-20';
+export const FLIGHT_PATH_THRESHOLD_PROFILE_REVIEW_DATE = '2026-07-20';
 
 export type StrategicPrepPriority = 'now' | 'soon' | 'watch';
 export type StrategicPrepConfidenceLabel = 'low' | 'medium' | 'high';
@@ -135,6 +137,8 @@ export interface FlightPathPolicyRankedCandidate {
 
 export interface FlightPathPolicyDiagnostics {
   policyVersion: string;
+  thresholdProfileVersion: string;
+  thresholdProfileReviewDate: string;
   activeOptimizationObjective: OptimizationObjective | null;
   counterfactualSimulationRuns: number | null;
   counterfactualSimulationSeed: number | null;
@@ -152,6 +156,30 @@ export interface FlightPathPolicyDiagnostics {
 const DEFAULT_MAX_RECOMMENDATIONS = 6;
 const DEFAULT_COUNTERFACTUAL_SIMULATION_RUNS = 72;
 const DEFAULT_SENSITIVITY_SIMULATION_RUNS = 36;
+
+export const FLIGHT_PATH_POLICY_THRESHOLDS = {
+  spendGapTriggerMonthly: 200,
+  recommendedCashBufferMonths: 18,
+  cashBufferLowerBoundRatio: 0.92,
+  cashBufferUpperBoundRatio: 1.5,
+  irmaaHeadroomPressureDollars: 8_000,
+  irmaaUrgentHeadroomDollars: 3_000,
+  plannedConversionSuggestionMinimumAnnual: 2_500,
+  withdrawalConcentrationRatio: 0.65,
+  effectSignalNormalization: {
+    successRateDelta: 0.025,
+    supportedMonthlyDelta: 350,
+    yearsFundedDelta: 1.5,
+  },
+  sensitivityDirection: {
+    supportedMonthlyDeltaFloor: 40,
+    signTolerance: 0.08,
+  },
+  confidenceScoreThresholds: {
+    high: 0.7,
+    medium: 0.42,
+  },
+} as const;
 
 interface ModelCompletenessAssessment {
   indicator: 'faithful' | 'reconstructed';
@@ -414,9 +442,21 @@ function scoreEffectSignal(impact: StrategicPrepImpactEstimate | null) {
   if (!impact) {
     return 0;
   }
-  const successSignal = Math.min(1, Math.abs(impact.successRateDelta) / 0.03);
-  const spendSignal = Math.min(1, Math.abs(impact.supportedMonthlyDelta) / 400);
-  const fundedSignal = Math.min(1, Math.abs(impact.yearsFundedDelta) / 2);
+  const successSignal = Math.min(
+    1,
+    Math.abs(impact.successRateDelta) /
+      FLIGHT_PATH_POLICY_THRESHOLDS.effectSignalNormalization.successRateDelta,
+  );
+  const spendSignal = Math.min(
+    1,
+    Math.abs(impact.supportedMonthlyDelta) /
+      FLIGHT_PATH_POLICY_THRESHOLDS.effectSignalNormalization.supportedMonthlyDelta,
+  );
+  const fundedSignal = Math.min(
+    1,
+    Math.abs(impact.yearsFundedDelta) /
+      FLIGHT_PATH_POLICY_THRESHOLDS.effectSignalNormalization.yearsFundedDelta,
+  );
   return Number((0.45 * successSignal + 0.4 * spendSignal + 0.15 * fundedSignal).toFixed(2));
 }
 
@@ -476,10 +516,14 @@ function assessSensitivityStability(input: {
   }
 
   const basePrimary =
-    Math.abs(input.baseImpact.supportedMonthlyDelta) >= 25
+    Math.abs(input.baseImpact.supportedMonthlyDelta) >=
+    FLIGHT_PATH_POLICY_THRESHOLDS.sensitivityDirection.supportedMonthlyDeltaFloor
       ? input.baseImpact.supportedMonthlyDelta
       : input.baseImpact.successRateDelta * 100;
-  const baseDirection = signWithTolerance(basePrimary, 0.05);
+  const baseDirection = signWithTolerance(
+    basePrimary,
+    FLIGHT_PATH_POLICY_THRESHOLDS.sensitivityDirection.signTolerance,
+  );
 
   const scenarios = resolveSensitivityAssumptions(
     input.assumptions,
@@ -510,10 +554,14 @@ function assessSensitivityStability(input: {
 
   const consistentScenarioCount = scenarioResults.filter((scenario) => {
     const primary =
-      Math.abs(scenario.supportedMonthlyDelta) >= 25
+      Math.abs(scenario.supportedMonthlyDelta) >=
+      FLIGHT_PATH_POLICY_THRESHOLDS.sensitivityDirection.supportedMonthlyDeltaFloor
         ? scenario.supportedMonthlyDelta
         : scenario.successRateDelta * 100;
-    const direction = signWithTolerance(primary, 0.05);
+    const direction = signWithTolerance(
+      primary,
+      FLIGHT_PATH_POLICY_THRESHOLDS.sensitivityDirection.signTolerance,
+    );
     if (baseDirection === 0) {
       return direction === 0;
     }
@@ -556,14 +604,14 @@ function scoreConfidenceFromSignals(input: {
     (0.5 * effectScore + 0.3 * input.stability.score + 0.2 * input.modelCompleteness.score).toFixed(2),
   );
 
-  if (score >= 0.72) {
+  if (score >= FLIGHT_PATH_POLICY_THRESHOLDS.confidenceScoreThresholds.high) {
     return {
       label: 'high',
       score,
       rationale: `Strong effect, stable across sensitivities (${input.stability.rationale}), and ${input.modelCompleteness.indicator} model inputs.`,
     };
   }
-  if (score >= 0.45) {
+  if (score >= FLIGHT_PATH_POLICY_THRESHOLDS.confidenceScoreThresholds.medium) {
     return {
       label: 'medium',
       score,
@@ -590,7 +638,7 @@ export function buildStrategicPrepCandidates(
     const spendGapMonthly =
       input.evaluation.calibration.userTargetMonthlySpendNow -
       input.evaluation.calibration.supportedMonthlySpendNow;
-    if (spendGapMonthly > 150) {
+    if (spendGapMonthly > FLIGHT_PATH_POLICY_THRESHOLDS.spendGapTriggerMonthly) {
       const monthlyTrim = Math.min(spendGapMonthly, input.data.spending.optionalMonthly);
       candidates.push({
         id: 'spend-gap-reduce',
@@ -608,7 +656,7 @@ export function buildStrategicPrepCandidates(
           optionalMonthlyDelta: -monthlyTrim,
         },
       });
-    } else if (spendGapMonthly < -150) {
+    } else if (spendGapMonthly < -FLIGHT_PATH_POLICY_THRESHOLDS.spendGapTriggerMonthly) {
       const room = Math.abs(spendGapMonthly);
       candidates.push({
         id: 'spend-gap-room',
@@ -632,14 +680,18 @@ export function buildStrategicPrepCandidates(
   const essentialMonthlyWithFixed =
     input.data.spending.essentialMonthly + input.data.spending.annualTaxesInsurance / 12;
   const currentCash = input.data.accounts.cash.balance;
-  const recommendedCashBuffer = essentialMonthlyWithFixed * 18;
-  if (currentCash < recommendedCashBuffer * 0.9) {
+  const recommendedCashBuffer =
+    essentialMonthlyWithFixed * FLIGHT_PATH_POLICY_THRESHOLDS.recommendedCashBufferMonths;
+  if (
+    currentCash <
+    recommendedCashBuffer * FLIGHT_PATH_POLICY_THRESHOLDS.cashBufferLowerBoundRatio
+  ) {
     const transferNeeded = recommendedCashBuffer - currentCash;
     candidates.push({
       id: 'cash-buffer-top-up',
       priority: 'now',
       title: 'Top up cash buffer runway',
-      action: `Move about ${formatCurrency(transferNeeded)} into cash to reach an 18-month essential runway.`,
+      action: `Move about ${formatCurrency(transferNeeded)} into cash to reach an ${FLIGHT_PATH_POLICY_THRESHOLDS.recommendedCashBufferMonths}-month essential runway.`,
       triggerReason:
         'Current liquid buffer is below the near-term runway target for rough early-retirement weather.',
       amountHint: `Current cash ${formatCurrency(currentCash)} vs target ${formatCurrency(recommendedCashBuffer)}`,
@@ -651,7 +703,10 @@ export function buildStrategicPrepCandidates(
         transferToCashFromTaxable: transferNeeded,
       },
     });
-  } else if (currentCash > recommendedCashBuffer * 1.6) {
+  } else if (
+    currentCash >
+    recommendedCashBuffer * FLIGHT_PATH_POLICY_THRESHOLDS.cashBufferUpperBoundRatio
+  ) {
     const excessCash = currentCash - recommendedCashBuffer;
     candidates.push({
       id: 'cash-buffer-redeploy',
@@ -660,7 +715,7 @@ export function buildStrategicPrepCandidates(
       action: `Consider redeploying around ${formatCurrency(excessCash)} from cash to your intended allocation.`,
       triggerReason:
         'Cash reserves are materially above near-term runway needs and may be creating return drag.',
-      amountHint: `Cash above 18-month buffer: ${formatCurrency(excessCash)}`,
+      amountHint: `Cash above ${FLIGHT_PATH_POLICY_THRESHOLDS.recommendedCashBufferMonths}-month buffer: ${formatCurrency(excessCash)}`,
       tradeoffs: [
         'Lower cash can reduce flexibility during a sharp short-term downturn.',
         'Can improve long-run supportable spend if invested prudently.',
@@ -679,16 +734,23 @@ export function buildStrategicPrepCandidates(
     const status = year.irmaaStatus.toLowerCase();
     return (
       status.includes('surcharge') ||
-      (typeof year.irmaaHeadroom === 'number' && year.irmaaHeadroom < 10_000)
+      (typeof year.irmaaHeadroom === 'number' &&
+        year.irmaaHeadroom < FLIGHT_PATH_POLICY_THRESHOLDS.irmaaHeadroomPressureDollars)
     );
   });
   if (irmaaPressureYear) {
     const headroom = irmaaPressureYear.irmaaHeadroom ?? 0;
-    const reductionNeeded = headroom < 0 ? Math.abs(headroom) : Math.max(0, 10_000 - headroom);
+    const reductionNeeded =
+      headroom < 0
+        ? Math.abs(headroom)
+        : Math.max(0, FLIGHT_PATH_POLICY_THRESHOLDS.irmaaHeadroomPressureDollars - headroom);
     const targetMagiCap = Math.max(0, irmaaPressureYear.estimatedMAGI - reductionNeeded);
     candidates.push({
       id: 'irmaa-cap',
-      priority: headroom <= 2_500 ? 'now' : 'soon',
+      priority:
+        headroom <= FLIGHT_PATH_POLICY_THRESHOLDS.irmaaUrgentHeadroomDollars
+          ? 'now'
+          : 'soon',
       title: 'Set an IRMAA MAGI cap',
       action: `For tax year ${irmaaPressureYear.year - 2}, plan MAGI near ${formatCurrency(targetMagiCap)} and avoid crossing current IRMAA thresholds.`,
       triggerReason:
@@ -740,7 +802,10 @@ export function buildStrategicPrepCandidates(
 
   const plannedConversions = nearYears
     .map((year) => year.suggestedRothConversion)
-    .filter((value) => value > 1_000);
+    .filter(
+      (value) =>
+        value > FLIGHT_PATH_POLICY_THRESHOLDS.plannedConversionSuggestionMinimumAnnual,
+    );
   if (plannedConversions.length) {
     const averageConversion =
       plannedConversions.reduce((sum, value) => sum + value, 0) / plannedConversions.length;
@@ -770,7 +835,12 @@ export function buildStrategicPrepCandidates(
     ];
     const totalWithdrawals = bucketWithdrawals.reduce((sum, item) => sum + item.value, 0);
     const dominant = [...bucketWithdrawals].sort((left, right) => right.value - left.value)[0];
-    if (dominant && totalWithdrawals > 0 && dominant.value / totalWithdrawals >= 0.6) {
+    if (
+      dominant &&
+      totalWithdrawals > 0 &&
+      dominant.value / totalWithdrawals >=
+        FLIGHT_PATH_POLICY_THRESHOLDS.withdrawalConcentrationRatio
+    ) {
       candidates.push({
         id: 'withdrawal-concentration',
         priority: 'watch',
@@ -1161,6 +1231,8 @@ export function buildFlightPathStrategicPrepRecommendations(
       recommendations: [],
       diagnostics: {
         policyVersion: FLIGHT_PATH_POLICY_VERSION,
+        thresholdProfileVersion: FLIGHT_PATH_THRESHOLD_PROFILE_VERSION,
+        thresholdProfileReviewDate: FLIGHT_PATH_THRESHOLD_PROFILE_REVIEW_DATE,
         activeOptimizationObjective: input.evaluation?.summary.activeOptimizationObjective ?? null,
         counterfactualSimulationRuns: null,
         counterfactualSimulationSeed: null,
@@ -1273,6 +1345,8 @@ export function buildFlightPathStrategicPrepRecommendations(
     recommendations: rankedDistinct.recommendations,
     diagnostics: {
       policyVersion: FLIGHT_PATH_POLICY_VERSION,
+      thresholdProfileVersion: FLIGHT_PATH_THRESHOLD_PROFILE_VERSION,
+      thresholdProfileReviewDate: FLIGHT_PATH_THRESHOLD_PROFILE_REVIEW_DATE,
       activeOptimizationObjective: evaluation.summary.activeOptimizationObjective,
       counterfactualSimulationRuns: counterfactualAssumptions.simulationRuns,
       counterfactualSimulationSeed: counterfactualAssumptions.simulationSeed ?? 20260416,

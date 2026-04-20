@@ -83,9 +83,13 @@ Execution protocol:
   - Files: `src/flight-path-policy.test.ts`.
   - Verification: `npm run test -- src/flight-path-policy.test.ts`; `npm run build` passed.
 
-11. [ ] Calibrate thresholds
+11. [x] Calibrate thresholds
 - Tune thresholds using scenario suite outcomes.
 - Document threshold rationale and review date.
+  - Done: extracted trigger/scoring thresholds into `FLIGHT_PATH_POLICY_THRESHOLDS`, tuned values against a deterministic scenario suite, and surfaced threshold profile version/review date in policy diagnostics.
+  - Done: added threshold calibration documentation with rationale, active values, and review date.
+  - Files: `src/flight-path-policy.ts`, `src/flight-path-policy-thresholds.test.ts`, `docs/flight-path-threshold-calibration.md`.
+  - Verification: `npm run test -- src/flight-path-policy.test.ts src/flight-path-policy-thresholds.test.ts`; `npm run build` passed.
 
 12. [ ] Rollout and cleanup
 - Run in shadow mode first, compare with current panel.
