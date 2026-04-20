@@ -62,9 +62,12 @@ Execution protocol:
   - Files: `src/flight-path-policy.ts`.
   - Verification: `npm run build` passed.
 
-8. [ ] Wire UI to evidence-backed output
+8. [x] Wire UI to evidence-backed output
 - Update `UnifiedPlanScreen` to consume policy output.
 - Display action, impact, tradeoff, confidence, and supporting evidence.
+  - Done: enhanced recommendation cards with explicit supporting evidence block showing baseline/counterfactual metrics, simulation runs/seed, and evidence notes from the policy engine.
+  - Files: `src/UnifiedPlanScreen.tsx`.
+  - Verification: `npm run build` passed.
 
 9. [ ] Add diagnostics and transparency
 - Add diagnostics payload: policy version, candidates considered, filter reasons, accepted recommendations, metric deltas.

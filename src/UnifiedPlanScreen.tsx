@@ -1846,6 +1846,38 @@ export function UnifiedPlanScreen({
                         <span className="font-semibold">Tradeoffs:</span> {item.tradeoffs.join(' ')}
                       </p>
                     ) : null}
+                    <div className="mt-2 rounded-md border border-stone-200 bg-white px-2 py-2 text-xs text-stone-600">
+                      <p className="font-semibold text-stone-700">Supporting evidence</p>
+                      {item.evidence.baseline ? (
+                        <p className="mt-1">
+                          Baseline: {formatPercent(item.evidence.baseline.successRate)} success ·{' '}
+                          {formatCurrency(item.evidence.baseline.supportedMonthlySpendApprox)}/mo spend ·{' '}
+                          {formatCurrency(item.evidence.baseline.medianEndingWealth)} ending wealth.
+                        </p>
+                      ) : null}
+                      {item.evidence.counterfactual ? (
+                        <p className="mt-1">
+                          Counterfactual: {formatPercent(item.evidence.counterfactual.successRate)} success ·{' '}
+                          {formatCurrency(item.evidence.counterfactual.supportedMonthlySpendApprox)}/mo spend ·{' '}
+                          {formatCurrency(item.evidence.counterfactual.medianEndingWealth)} ending wealth.
+                        </p>
+                      ) : (
+                        <p className="mt-1">Counterfactual: not modeled for this recommendation.</p>
+                      )}
+                      {item.evidence.simulationRunsUsed !== null || item.evidence.simulationSeedUsed !== null ? (
+                        <p className="mt-1">
+                          Runs/seed: {item.evidence.simulationRunsUsed ?? 'n/a'} /{' '}
+                          {item.evidence.simulationSeedUsed ?? 'n/a'}.
+                        </p>
+                      ) : null}
+                      {item.evidence.notes.length ? (
+                        <ul className="mt-1 space-y-1">
+                          {item.evidence.notes.map((note, noteIndex) => (
+                            <li key={`${item.id}-evidence-${noteIndex}`}>- {note}</li>
+                          ))}
+                        </ul>
+                      ) : null}
+                    </div>
                   </div>
                 ))}
               </div>
