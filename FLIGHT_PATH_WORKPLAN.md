@@ -75,10 +75,13 @@ Execution protocol:
   - Files: `src/flight-path-policy.ts`.
   - Verification: `npm run build` passed.
 
-10. [ ] Add deterministic tests
+10. [x] Add deterministic tests
 - Unit tests for policy triggers.
 - Integration tests for seeded counterfactual recommendations.
 - Regression tests for recommendation stability.
+  - Done: added deterministic `flight-path-policy` test coverage for trigger generation, seeded counterfactual recommendation diagnostics, and repeat-run stability with a mocked deterministic path engine.
+  - Files: `src/flight-path-policy.test.ts`.
+  - Verification: `npm run test -- src/flight-path-policy.test.ts`; `npm run build` passed.
 
 11. [ ] Calibrate thresholds
 - Tune thresholds using scenario suite outcomes.
