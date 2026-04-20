@@ -3,7 +3,7 @@ import type { OptimizationObjective } from './optimization-objective';
 import type { MarketAssumptions, PathResult, SeedData } from './types';
 import { buildPathResults, formatCurrency } from './utils';
 
-export const FLIGHT_PATH_POLICY_VERSION = 'v0.3.0';
+export const FLIGHT_PATH_POLICY_VERSION = 'v0.4.0';
 
 export type StrategicPrepPriority = 'now' | 'soon' | 'watch';
 export type StrategicPrepConfidenceLabel = 'low' | 'medium' | 'high';
@@ -103,6 +103,50 @@ export interface FlightPathPolicyInput {
 export interface FlightPathPolicyResult {
   policyVersion: string;
   recommendations: StrategicPrepRecommendation[];
+  diagnostics: FlightPathPolicyDiagnostics;
+}
+
+export interface FlightPathPolicyNumericSummary {
+  min: number;
+  median: number;
+  max: number;
+  mean: number;
+}
+
+export interface FlightPathPolicyImpactDeltaSummary {
+  candidateCount: number;
+  supportedMonthlyDelta: FlightPathPolicyNumericSummary | null;
+  successRateDelta: FlightPathPolicyNumericSummary | null;
+  medianEndingWealthDelta: FlightPathPolicyNumericSummary | null;
+  annualFederalTaxDelta: FlightPathPolicyNumericSummary | null;
+  yearsFundedDelta: FlightPathPolicyNumericSummary | null;
+}
+
+export interface FlightPathPolicyFilterReason {
+  recommendationId: string;
+  reason: string;
+}
+
+export interface FlightPathPolicyRankedCandidate {
+  recommendationId: string;
+  category: string;
+  score: number;
+}
+
+export interface FlightPathPolicyDiagnostics {
+  policyVersion: string;
+  activeOptimizationObjective: OptimizationObjective | null;
+  counterfactualSimulationRuns: number | null;
+  counterfactualSimulationSeed: number | null;
+  candidatesConsidered: number;
+  candidatesEvaluated: number;
+  hardConstraintFiltered: FlightPathPolicyFilterReason[];
+  acceptedAfterHardConstraints: number;
+  rankedCandidates: FlightPathPolicyRankedCandidate[];
+  rankingFiltered: FlightPathPolicyFilterReason[];
+  acceptedRecommendationIds: string[];
+  impactDeltaSummaryAcceptedCandidates: FlightPathPolicyImpactDeltaSummary;
+  impactDeltaSummaryReturnedRecommendations: FlightPathPolicyImpactDeltaSummary;
 }
 
 const DEFAULT_MAX_RECOMMENDATIONS = 6;
@@ -131,6 +175,12 @@ interface SensitivityStabilityAssessment {
   scenarios: SensitivityScenarioResult[];
 }
 
+interface RankedDistinctRecommendationsResult {
+  recommendations: StrategicPrepRecommendation[];
+  rankedCandidates: FlightPathPolicyRankedCandidate[];
+  rankingFiltered: FlightPathPolicyFilterReason[];
+}
+
 function cloneSeedData(data: SeedData): SeedData {
   return JSON.parse(JSON.stringify(data)) as SeedData;
 }
@@ -155,6 +205,49 @@ function signWithTolerance(value: number, tolerance: number) {
     return -1;
   }
   return 0;
+}
+
+function summarizeNumericDeltas(values: number[]): FlightPathPolicyNumericSummary | null {
+  if (!values.length) {
+    return null;
+  }
+  const sorted = [...values].sort((left, right) => left - right);
+  const middle = Math.floor(sorted.length / 2);
+  const median =
+    sorted.length % 2 === 0
+      ? (sorted[middle - 1] + sorted[middle]) / 2
+      : sorted[middle];
+  const mean = sorted.reduce((sum, value) => sum + value, 0) / sorted.length;
+
+  return {
+    min: sorted[0],
+    median,
+    max: sorted[sorted.length - 1],
+    mean,
+  };
+}
+
+function buildImpactDeltaSummary(
+  recommendations: StrategicPrepRecommendation[],
+): FlightPathPolicyImpactDeltaSummary {
+  const impacts = recommendations
+    .map((recommendation) => recommendation.estimatedImpact)
+    .filter((impact): impact is StrategicPrepImpactEstimate => Boolean(impact));
+
+  return {
+    candidateCount: impacts.length,
+    supportedMonthlyDelta: summarizeNumericDeltas(
+      impacts.map((impact) => impact.supportedMonthlyDelta),
+    ),
+    successRateDelta: summarizeNumericDeltas(impacts.map((impact) => impact.successRateDelta)),
+    medianEndingWealthDelta: summarizeNumericDeltas(
+      impacts.map((impact) => impact.medianEndingWealthDelta),
+    ),
+    annualFederalTaxDelta: summarizeNumericDeltas(
+      impacts.map((impact) => impact.annualFederalTaxDelta),
+    ),
+    yearsFundedDelta: summarizeNumericDeltas(impacts.map((impact) => impact.yearsFundedDelta)),
+  };
 }
 
 function assessModelCompleteness(input: FlightPathPolicyInput): ModelCompletenessAssessment {
@@ -986,7 +1079,7 @@ function rankAndFilterDistinctRecommendations(input: {
   evaluatedCandidates: EvaluatedCandidateResult[];
   candidateById: Map<string, StrategicPrepCandidate>;
   maxRecommendations: number;
-}) {
+}): RankedDistinctRecommendationsResult {
   const scored = input.evaluatedCandidates
     .map((evaluated) => {
       const candidate = input.candidateById.get(evaluated.recommendation.id);
@@ -1019,18 +1112,38 @@ function rankAndFilterDistinctRecommendations(input: {
 
   const usedCategories = new Set<RecommendationCategory>();
   const distinct: StrategicPrepRecommendation[] = [];
+  const rankingFiltered: FlightPathPolicyFilterReason[] = [];
+  const rankedCandidates: FlightPathPolicyRankedCandidate[] = [];
   for (const item of scored) {
+    rankedCandidates.push({
+      recommendationId: item.recommendation.id,
+      category: item.category,
+      score: item.score,
+    });
+
     if (usedCategories.has(item.category)) {
+      rankingFiltered.push({
+        recommendationId: item.recommendation.id,
+        reason: `Filtered out to keep one recommendation per category (${item.category}).`,
+      });
+      continue;
+    }
+    if (distinct.length >= input.maxRecommendations) {
+      rankingFiltered.push({
+        recommendationId: item.recommendation.id,
+        reason: `Filtered out by max recommendation cap (${input.maxRecommendations}).`,
+      });
       continue;
     }
     usedCategories.add(item.category);
     distinct.push(item.recommendation);
-    if (distinct.length >= input.maxRecommendations) {
-      break;
-    }
   }
 
-  return distinct;
+  return {
+    recommendations: distinct,
+    rankedCandidates,
+    rankingFiltered,
+  };
 }
 
 export function buildFlightPathStrategicPrepRecommendations(
@@ -1046,6 +1159,21 @@ export function buildFlightPathStrategicPrepRecommendations(
     return {
       policyVersion: FLIGHT_PATH_POLICY_VERSION,
       recommendations: [],
+      diagnostics: {
+        policyVersion: FLIGHT_PATH_POLICY_VERSION,
+        activeOptimizationObjective: input.evaluation?.summary.activeOptimizationObjective ?? null,
+        counterfactualSimulationRuns: null,
+        counterfactualSimulationSeed: null,
+        candidatesConsidered: candidates.length,
+        candidatesEvaluated: 0,
+        hardConstraintFiltered: [],
+        acceptedAfterHardConstraints: 0,
+        rankedCandidates: [],
+        rankingFiltered: [],
+        acceptedRecommendationIds: [],
+        impactDeltaSummaryAcceptedCandidates: buildImpactDeltaSummary([]),
+        impactDeltaSummaryReturnedRecommendations: buildImpactDeltaSummary([]),
+      },
     };
   }
   const evaluation = input.evaluation;
@@ -1102,29 +1230,63 @@ export function buildFlightPathStrategicPrepRecommendations(
   });
 
   const candidateById = new Map(candidates.map((candidate) => [candidate.id, candidate]));
-  const acceptedEvaluatedCandidates = evaluatedCandidates
-    .filter((evaluated) => {
-      const candidate = candidateById.get(evaluated.recommendation.id);
-      if (!candidate) {
-        return false;
-      }
-      const reason = detectHardConstraintViolation({
-        candidate,
-        evaluated,
-        evaluation,
+  const hardConstraintFiltered: FlightPathPolicyFilterReason[] = [];
+  const acceptedEvaluatedCandidates = evaluatedCandidates.filter((evaluated) => {
+    const candidate = candidateById.get(evaluated.recommendation.id);
+    if (!candidate) {
+      hardConstraintFiltered.push({
+        recommendationId: evaluated.recommendation.id,
+        reason: 'Candidate metadata missing during evaluation.',
       });
-      return !reason;
+      return false;
+    }
+    const reason = detectHardConstraintViolation({
+      candidate,
+      evaluated,
+      evaluation,
     });
+    if (reason) {
+      hardConstraintFiltered.push({
+        recommendationId: evaluated.recommendation.id,
+        reason,
+      });
+      return false;
+    }
+    return true;
+  });
 
-  const rankedDistinctRecommendations = rankAndFilterDistinctRecommendations({
+  const rankedDistinct = rankAndFilterDistinctRecommendations({
     evaluation,
     evaluatedCandidates: acceptedEvaluatedCandidates,
     candidateById,
     maxRecommendations,
   });
+  const acceptedRecommendationIds = rankedDistinct.recommendations.map(
+    (recommendation) => recommendation.id,
+  );
+  const acceptedRecommendationsPreRank = acceptedEvaluatedCandidates.map(
+    (item) => item.recommendation,
+  );
 
   return {
     policyVersion: FLIGHT_PATH_POLICY_VERSION,
-    recommendations: rankedDistinctRecommendations,
+    recommendations: rankedDistinct.recommendations,
+    diagnostics: {
+      policyVersion: FLIGHT_PATH_POLICY_VERSION,
+      activeOptimizationObjective: evaluation.summary.activeOptimizationObjective,
+      counterfactualSimulationRuns: counterfactualAssumptions.simulationRuns,
+      counterfactualSimulationSeed: counterfactualAssumptions.simulationSeed ?? 20260416,
+      candidatesConsidered: candidates.length,
+      candidatesEvaluated: evaluatedCandidates.length,
+      hardConstraintFiltered,
+      acceptedAfterHardConstraints: acceptedEvaluatedCandidates.length,
+      rankedCandidates: rankedDistinct.rankedCandidates,
+      rankingFiltered: rankedDistinct.rankingFiltered,
+      acceptedRecommendationIds,
+      impactDeltaSummaryAcceptedCandidates: buildImpactDeltaSummary(acceptedRecommendationsPreRank),
+      impactDeltaSummaryReturnedRecommendations: buildImpactDeltaSummary(
+        rankedDistinct.recommendations,
+      ),
+    },
   };
 }

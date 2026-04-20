@@ -69,8 +69,11 @@ Execution protocol:
   - Files: `src/UnifiedPlanScreen.tsx`.
   - Verification: `npm run build` passed.
 
-9. [ ] Add diagnostics and transparency
+9. [x] Add diagnostics and transparency
 - Add diagnostics payload: policy version, candidates considered, filter reasons, accepted recommendations, metric deltas.
+  - Done: added `diagnostics` payload to policy output with policy/version objective context, candidate/evaluation counts, hard-constraint filter reasons, ranking filters/scores, accepted recommendation IDs, and impact-delta summaries for accepted vs returned recommendations.
+  - Files: `src/flight-path-policy.ts`.
+  - Verification: `npm run build` passed.
 
 10. [ ] Add deterministic tests
 - Unit tests for policy triggers.
