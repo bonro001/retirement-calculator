@@ -54,9 +54,13 @@ Execution protocol:
   - Files: `src/flight-path-policy.ts`.
   - Verification: `npm run build` passed.
 
-7. [ ] Rank and filter recommendations
+7. [x] Rank and filter recommendations
 - Rank by net benefit and user-goal alignment.
 - Keep top distinct recommendations to avoid noisy duplicates.
+  - Done: added net-benefit ranking that combines objective alignment (`activeOptimizationObjective`), binding-constraint alignment, priority boost, and confidence score.
+  - Done: added distinct filtering by recommendation category to prevent duplicate/noisy actions in the final top set.
+  - Files: `src/flight-path-policy.ts`.
+  - Verification: `npm run build` passed.
 
 8. [ ] Wire UI to evidence-backed output
 - Update `UnifiedPlanScreen` to consume policy output.

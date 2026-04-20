@@ -1,4 +1,5 @@
 import type { PlanEvaluation } from './plan-evaluation';
+import type { OptimizationObjective } from './optimization-objective';
 import type { MarketAssumptions, PathResult, SeedData } from './types';
 import { buildPathResults, formatCurrency } from './utils';
 
@@ -77,6 +78,16 @@ interface EvaluatedCandidateResult {
   recommendation: StrategicPrepRecommendation;
   patchedDataUsed: SeedData | null;
 }
+
+type RecommendationCategory =
+  | 'spending'
+  | 'liquidity'
+  | 'irmaa'
+  | 'aca'
+  | 'conversion'
+  | 'withdrawal_mix'
+  | 'unlock'
+  | 'other';
 
 export interface FlightPathPolicyInput {
   evaluation: PlanEvaluation | null;
@@ -841,6 +852,187 @@ function detectHardConstraintViolation(input: {
   return null;
 }
 
+function classifyRecommendationCategory(candidate: StrategicPrepCandidate): RecommendationCategory {
+  if (candidate.id.includes('spend-gap')) {
+    return 'spending';
+  }
+  if (candidate.id.includes('cash-buffer')) {
+    return 'liquidity';
+  }
+  if (candidate.id.includes('irmaa')) {
+    return 'irmaa';
+  }
+  if (candidate.id.includes('aca')) {
+    return 'aca';
+  }
+  if (candidate.id.includes('conversion')) {
+    return 'conversion';
+  }
+  if (candidate.id.includes('withdrawal')) {
+    return 'withdrawal_mix';
+  }
+  if (candidate.id.includes('unlock')) {
+    return 'unlock';
+  }
+  return 'other';
+}
+
+function priorityBoost(priority: StrategicPrepPriority) {
+  if (priority === 'now') {
+    return 0.6;
+  }
+  if (priority === 'soon') {
+    return 0.35;
+  }
+  return 0.1;
+}
+
+function objectiveAlignedScore(input: {
+  objective: OptimizationObjective;
+  impact: StrategicPrepImpactEstimate | null;
+}) {
+  if (!input.impact) {
+    return 0;
+  }
+  const spend = input.impact.supportedMonthlyDelta;
+  const successPts = input.impact.successRateDelta * 100;
+  const legacy = input.impact.medianEndingWealthDelta;
+  const tax = input.impact.annualFederalTaxDelta;
+  const funded = input.impact.yearsFundedDelta;
+
+  if (input.objective === 'minimize_failure_risk') {
+    return (
+      successPts * 0.11 +
+      funded * 0.35 +
+      spend / 700 +
+      legacy / 800_000 -
+      Math.max(0, tax) / 25_000
+    );
+  }
+  if (input.objective === 'preserve_legacy') {
+    return (
+      legacy / 250_000 +
+      successPts * 0.06 +
+      spend / 2_000 -
+      Math.max(0, tax) / 20_000
+    );
+  }
+  if (input.objective === 'maximize_time_weighted_spending') {
+    return (
+      spend / 180 +
+      successPts * 0.05 +
+      funded * 0.08 -
+      Math.max(0, -legacy) / 500_000 -
+      Math.max(0, tax) / 40_000
+    );
+  }
+  return (
+    spend / 220 +
+    successPts * 0.045 +
+    funded * 0.06 -
+    Math.max(0, -legacy) / 450_000 -
+    Math.max(0, tax) / 40_000
+  );
+}
+
+function bindingAlignmentBonus(input: {
+  category: RecommendationCategory;
+  evaluation: PlanEvaluation;
+  impact: StrategicPrepImpactEstimate | null;
+}) {
+  const binding = input.evaluation.calibration.bindingConstraint.toLowerCase();
+  let bonus = 0;
+  if (binding.includes('success') && (input.impact?.successRateDelta ?? 0) > 0) {
+    bonus += 0.45;
+  }
+  if (binding.includes('legacy') && (input.impact?.medianEndingWealthDelta ?? 0) > 0) {
+    bonus += 0.45;
+  }
+  if ((binding.includes('irmaa') && input.category === 'irmaa') || (binding.includes('aca') && input.category === 'aca')) {
+    bonus += 0.4;
+  }
+  if (binding.includes('spending') && input.category === 'spending') {
+    bonus += 0.3;
+  }
+  return bonus;
+}
+
+function netBenefitScore(input: {
+  candidate: StrategicPrepCandidate;
+  recommendation: StrategicPrepRecommendation;
+  evaluation: PlanEvaluation;
+}) {
+  const category = classifyRecommendationCategory(input.candidate);
+  const objectiveScore = objectiveAlignedScore({
+    objective: input.evaluation.summary.activeOptimizationObjective,
+    impact: input.recommendation.estimatedImpact,
+  });
+  const alignmentBonus = bindingAlignmentBonus({
+    category,
+    evaluation: input.evaluation,
+    impact: input.recommendation.estimatedImpact,
+  });
+  const confidenceScore = input.recommendation.confidence.score;
+  const score =
+    objectiveScore + alignmentBonus + priorityBoost(input.recommendation.priority) + confidenceScore * 0.35;
+  return {
+    category,
+    score: Number(score.toFixed(3)),
+  };
+}
+
+function rankAndFilterDistinctRecommendations(input: {
+  evaluation: PlanEvaluation;
+  evaluatedCandidates: EvaluatedCandidateResult[];
+  candidateById: Map<string, StrategicPrepCandidate>;
+  maxRecommendations: number;
+}) {
+  const scored = input.evaluatedCandidates
+    .map((evaluated) => {
+      const candidate = input.candidateById.get(evaluated.recommendation.id);
+      if (!candidate) {
+        return null;
+      }
+      const rank = netBenefitScore({
+        candidate,
+        recommendation: evaluated.recommendation,
+        evaluation: input.evaluation,
+      });
+      return {
+        candidate,
+        recommendation: {
+          ...evaluated.recommendation,
+          evidence: {
+            ...evaluated.recommendation.evidence,
+            notes: [
+              ...evaluated.recommendation.evidence.notes,
+              `Ranking: netBenefit=${rank.score.toFixed(3)} category=${rank.category} objective=${input.evaluation.summary.activeOptimizationObjective}.`,
+            ],
+          },
+        } satisfies StrategicPrepRecommendation,
+        category: rank.category,
+        score: rank.score,
+      };
+    })
+    .filter((item): item is NonNullable<typeof item> => Boolean(item))
+    .sort((left, right) => right.score - left.score);
+
+  const usedCategories = new Set<RecommendationCategory>();
+  const distinct: StrategicPrepRecommendation[] = [];
+  for (const item of scored) {
+    if (usedCategories.has(item.category)) {
+      continue;
+    }
+    usedCategories.add(item.category);
+    distinct.push(item.recommendation);
+    if (distinct.length >= input.maxRecommendations) {
+      break;
+    }
+  }
+
+  return distinct;
+}
+
 export function buildFlightPathStrategicPrepRecommendations(
   input: FlightPathPolicyInput,
 ): FlightPathPolicyResult {
@@ -910,7 +1102,7 @@ export function buildFlightPathStrategicPrepRecommendations(
   });
 
   const candidateById = new Map(candidates.map((candidate) => [candidate.id, candidate]));
-  const acceptedRecommendations = evaluatedCandidates
+  const acceptedEvaluatedCandidates = evaluatedCandidates
     .filter((evaluated) => {
       const candidate = candidateById.get(evaluated.recommendation.id);
       if (!candidate) {
@@ -922,25 +1114,17 @@ export function buildFlightPathStrategicPrepRecommendations(
         evaluation,
       });
       return !reason;
-    })
-    .map((evaluated) => evaluated.recommendation);
+    });
 
-  const priorityOrder: Record<StrategicPrepPriority, number> = {
-    now: 0,
-    soon: 1,
-    watch: 2,
-  };
+  const rankedDistinctRecommendations = rankAndFilterDistinctRecommendations({
+    evaluation,
+    evaluatedCandidates: acceptedEvaluatedCandidates,
+    candidateById,
+    maxRecommendations,
+  });
 
   return {
     policyVersion: FLIGHT_PATH_POLICY_VERSION,
-    recommendations: acceptedRecommendations
-      .sort((left, right) => {
-        const priorityDelta = priorityOrder[left.priority] - priorityOrder[right.priority];
-        if (priorityDelta !== 0) {
-          return priorityDelta;
-        }
-        return right.confidence.score - left.confidence.score;
-      })
-      .slice(0, maxRecommendations),
+    recommendations: rankedDistinctRecommendations,
   };
 }
