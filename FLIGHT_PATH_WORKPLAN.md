@@ -20,17 +20,26 @@ Execution protocol:
   - Files: `src/flight-path-policy.ts`, `src/UnifiedPlanScreen.tsx`.
   - Verification: `npm run build` passed.
 
-2. [ ] Define recommendation schema
+2. [x] Define recommendation schema
 - Add structured fields for action, triggerReason, estimatedImpact, tradeoffs, confidence, evidence.
 - Keep output deterministic and machine-readable.
+  - Done: expanded `StrategicPrepRecommendation` with `triggerReason`, `estimatedImpact`, `tradeoffs`, `confidence`, and `evidence`.
+  - Files: `src/flight-path-policy.ts`, `src/UnifiedPlanScreen.tsx`.
+  - Verification: `npm run build` passed.
 
-3. [ ] Build candidate generator
+3. [x] Build candidate generator
 - Generate recommendation candidates from plan state (spending, MAGI, conversions, liquidity, withdrawal mix).
 - No render/UI concerns in candidate generation.
+  - Done: added `buildStrategicPrepCandidates(input)` in policy module, isolated from rendering concerns.
+  - Files: `src/flight-path-policy.ts`.
+  - Verification: `npm run build` passed.
 
-4. [ ] Add counterfactual evaluator
+4. [x] Add counterfactual evaluator
 - For each candidate, run seeded before/after evaluation.
 - Record metric deltas: supported spending, success, legacy, IRMAA/ACA exposure.
+  - Done: added seeded counterfactual path evaluation per candidate via `buildPathResults` with fixed seed/runs and before/after deltas (`supportedMonthlyDelta`, `successRateDelta`, `medianEndingWealthDelta`, `annualFederalTaxDelta`, `yearsFundedDelta`).
+  - Files: `src/flight-path-policy.ts`, `src/UnifiedPlanScreen.tsx`.
+  - Verification: `npm run build` passed.
 
 5. [ ] Enforce hard-constraint gating
 - Reject candidates that violate success floor, legacy floor/band, spending minima, or explicit user constraints.

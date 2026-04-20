@@ -1565,8 +1565,12 @@ export function UnifiedPlanScreen({
       buildFlightPathStrategicPrepRecommendations({
         evaluation: currentEvaluation,
         data,
+        assumptions,
+        selectedStressors,
+        selectedResponses,
+        counterfactualSimulationRuns: 72,
       }),
-    [currentEvaluation, data],
+    [assumptions, currentEvaluation, data, selectedResponses, selectedStressors],
   );
   const strategicPrepRecommendations = strategicPrepPolicy.recommendations;
   const substantialWealthReasons = solverDiagnostics
@@ -1791,9 +1795,14 @@ export function UnifiedPlanScreen({
 
           {strategicPrepRecommendations.length ? (
             <div className="mt-4 rounded-xl border border-stone-200 bg-white p-3">
-              <p className="text-xs uppercase tracking-[0.14em] text-stone-500">
-                Strategic Prep Recommendations
-              </p>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="text-xs uppercase tracking-[0.14em] text-stone-500">
+                  Strategic Prep Recommendations
+                </p>
+                <span className="rounded-full bg-stone-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-stone-600">
+                  {strategicPrepPolicy.policyVersion}
+                </span>
+              </div>
               <div className="mt-2 space-y-2">
                 {strategicPrepRecommendations.map((item) => (
                   <div key={item.id} className="rounded-lg border border-stone-200 bg-stone-50/70 p-3">
@@ -1811,11 +1820,30 @@ export function UnifiedPlanScreen({
                       <span className="font-semibold">Action:</span> {item.action}
                     </p>
                     <p className="mt-1 text-xs text-stone-600">
-                      <span className="font-semibold">Why:</span> {item.why}
+                      <span className="font-semibold">Trigger:</span> {item.triggerReason}
                     </p>
                     {item.amountHint ? (
                       <p className="mt-1 text-xs text-stone-600">
                         <span className="font-semibold">Amount guide:</span> {item.amountHint}
+                      </p>
+                    ) : null}
+                    {item.estimatedImpact ? (
+                      <p className="mt-1 text-xs text-stone-600">
+                        <span className="font-semibold">Estimated impact:</span>{' '}
+                        spend {item.estimatedImpact.supportedMonthlyDelta >= 0 ? '+' : ''}
+                        {formatCurrency(item.estimatedImpact.supportedMonthlyDelta)}/mo · success{' '}
+                        {(item.estimatedImpact.successRateDelta * 100).toFixed(1)} pts · ending wealth{' '}
+                        {item.estimatedImpact.medianEndingWealthDelta >= 0 ? '+' : ''}
+                        {formatCurrency(item.estimatedImpact.medianEndingWealthDelta)}
+                      </p>
+                    ) : null}
+                    <p className="mt-1 text-xs text-stone-600">
+                      <span className="font-semibold">Confidence:</span>{' '}
+                      {item.confidence.label} ({Math.round(item.confidence.score * 100)}%) - {item.confidence.rationale}
+                    </p>
+                    {item.tradeoffs.length ? (
+                      <p className="mt-1 text-xs text-stone-600">
+                        <span className="font-semibold">Tradeoffs:</span> {item.tradeoffs.join(' ')}
                       </p>
                     ) : null}
                   </div>
