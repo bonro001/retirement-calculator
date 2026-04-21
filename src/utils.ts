@@ -1,5 +1,7 @@
 import type {
   AccountBucketType,
+  ClosedLoopConvergenceThresholds,
+  FutureReturnModelExtensionPoint,
   MarketAssumptions,
   PathResult,
   PathYearResult,
@@ -11,11 +13,18 @@ import type {
   SimulationParityReport,
   SimulationParityModeSummary,
   SimulationReturnGenerationAssumptions,
+  SimulationRiskMetrics,
   SimulationStrategyMode,
   SimulationTimingConventions,
   SocialSecurityEntry,
   Stressor,
+  WindfallTaxTreatment,
 } from './types';
+import {
+  DEFAULT_CLOSED_LOOP_CONVERGENCE_THRESHOLDS,
+  DEFAULT_MAX_CLOSED_LOOP_PASSES,
+  type ClosedLoopStopReason,
+} from './closed-loop-config';
 import { calculateFederalTax } from './tax-engine';
 import type { YearTaxInputs, YearTaxOutputs } from './tax-engine';
 import {
@@ -30,10 +39,15 @@ import {
   calculateIrmaaTier,
   calculateRequiredMinimumDistribution,
   DEFAULT_IRMAA_CONFIG,
+  getRmdStartAgeForBirthYear,
 } from './retirement-rules';
 import { calculatePreRetirementContributions } from './contribution-engine';
 import { calculateHealthcarePremiums } from './healthcare-premium-engine';
-import { getHoldingExposure } from './asset-class-mapper';
+import {
+  deriveAssetClassMappingAssumptionsFromAccounts,
+  getHoldingExposure,
+  type AssetClassMappingAssumptions,
+} from './asset-class-mapper';
 
 const CURRENT_DATE = new Date('2026-04-16T12:00:00');
 const CURRENT_YEAR = CURRENT_DATE.getFullYear();
@@ -51,6 +65,15 @@ interface SimWindfall {
   name: string;
   year: number;
   amount: number;
+  taxTreatment?: WindfallTaxTreatment;
+  certainty?: 'certain' | 'estimated' | 'uncertain';
+  timingUncertaintyYears?: number;
+  amountUncertaintyPercent?: number;
+  liquidityAmount?: number;
+  costBasis?: number;
+  sellingCostPercent?: number;
+  exclusionAmount?: number;
+  distributionYears?: number;
 }
 
 interface SimPlan {
@@ -66,6 +89,7 @@ interface SimPlan {
   travelPhaseYears: number;
   socialSecurity: SocialSecurityEntry[];
   windfalls: SimWindfall[];
+  assetClassMappingAssumptions: Required<AssetClassMappingAssumptions>;
   accounts: Record<AccountBucketType, SimBucketConfig>;
   preserveRoth: boolean;
   irmaaAware: boolean;
@@ -74,9 +98,32 @@ interface SimPlan {
     ceilingYears: number;
     cutPercent: number;
   };
+  rothConversionPolicy: {
+    enabled: boolean;
+    strategy: 'aca_then_irmaa_headroom' | 'irmaa_headroom_only';
+    minAnnualDollars: number;
+    maxPretaxBalancePercent: number;
+    magiBufferDollars: number;
+    source: 'rules' | 'default';
+  };
   healthcarePremiums: {
     baselineAcaPremiumAnnual: number;
     baselineMedicarePremiumAnnual: number;
+    medicalInflationAnnual: number;
+  };
+  hsaStrategy: {
+    enabled: boolean;
+    annualQualifiedExpenseWithdrawalCap: number;
+    prioritizeHighMagiYears: boolean;
+    highMagiThreshold: number;
+  };
+  ltcAssumptions: {
+    enabled: boolean;
+    startAge: number;
+    annualCostToday: number;
+    durationYears: number;
+    inflationAnnual: number;
+    eventProbability: number;
   };
   activeStressors: string[];
   activeResponses: string[];
@@ -94,6 +141,52 @@ interface RunTrace {
   withdrawalIra401k: number;
   withdrawalRoth: number;
   rothConversion: number;
+  rothConversionReason: string;
+  rothConversionSimulationModeUsed: SimulationStrategyMode;
+  rothConversionPlannerLogicActiveAtConversion: boolean;
+  rothConversionEngineInvoked: boolean;
+  rothConversionCandidateAmounts: number[];
+  rothConversionBestCandidateAmount: number;
+  rothConversionBestScore: number;
+  rothConversionRawMAGI: number;
+  rothConversionIrmaaThreshold: number | null;
+  rothConversionComputedHeadroom: number;
+  rothConversionMagiBuffer: number;
+  rothConversionHeadroomComputed: boolean;
+  rothConversionCandidateAmountsGenerated: boolean;
+  rothConversionEligibilityBlockedReason: string | null;
+  rothConversionMagiEffect: number;
+  rothConversionTaxEffect: number;
+  rothConversionAcaEffect: number;
+  rothConversionIrmaaEffect: number;
+  rothConversionPretaxBalanceEffect: number;
+  rothConversionEligible: boolean;
+  rothConversionTargetMagiCeiling: number | null;
+  rothConversionMagiHeadroom: number;
+  rothConversionMagiBefore: number;
+  rothConversionMagiAfter: number;
+  rothConversionPretaxBalanceBefore: number;
+  rothConversionBalanceCap: number;
+  rothConversionScore: number;
+  rothConversionOpportunityScore: number;
+  rothConversionFutureTaxReduction: number;
+  rothConversionFutureTaxBurdenReduction: number;
+  rothConversionIrmaaAvoidanceValue: number;
+  rothConversionRmdReductionValue: number;
+  rothConversionRothOptionalityValue: number;
+  rothConversionFutureTaxReductionValue: number;
+  rothConversionCurrentTaxCost: number;
+  rothConversionSuppressedReason: string | null;
+  rothConversionProjectedFutureMagiPeak: number;
+  rothConversionProjectedRmdPressure: number;
+  rothConversionProjectedIrmaaExposure: number;
+  rothConversionProjectedRothShareAfter: number;
+  rothBalanceStart: number;
+  rothBalanceEnd: number;
+  rothContributionFlow: number;
+  rothMarketGainLoss: number;
+  rothNetChange: number;
+  rothBalanceReconciliationDelta: number;
   taxableIncome: number;
   magi: number;
   irmaaTier: string;
@@ -111,6 +204,26 @@ interface RunTrace {
   medicarePremiumEstimate: number;
   irmaaSurcharge: number;
   totalHealthcarePremiumCost: number;
+  windfallCashInflow: number;
+  windfallOrdinaryIncome: number;
+  windfallLtcgIncome: number;
+  hsaOffsetUsed: number;
+  ltcCost: number;
+  withdrawalRationale: string;
+  withdrawalScoreSpendingNeed: number;
+  withdrawalScoreMarginalTaxCost: number;
+  withdrawalScoreMagiTarget: number;
+  withdrawalScoreAcaCliffAvoidance: number;
+  withdrawalScoreIrmaaCliffAvoidance: number;
+  withdrawalScoreRothOptionality: number;
+  withdrawalScoreSequenceDefense: number;
+  closedLoopConverged: boolean;
+  closedLoopConvergedBeforeMaxPasses: boolean;
+  closedLoopPassesUsed: number;
+  closedLoopStopReason: ClosedLoopStopReason;
+  closedLoopLastMagiDelta: number;
+  closedLoopLastFederalTaxDelta: number;
+  closedLoopLastHealthcarePremiumDelta: number;
 }
 
 interface SimulationRunResult {
@@ -122,7 +235,21 @@ interface SimulationRunResult {
   homeSaleDependent: boolean;
   inheritanceDependent: boolean;
   rothDepletedEarly: boolean;
+  forcedEquitySalesInAdverseEarlyYears: boolean;
+  failureShortfallAmount: number;
+  downsideSpendingCutRequired: number;
   failureReason: string;
+  closedLoopYearsConverged: number;
+  closedLoopYearsEvaluated: number;
+  closedLoopPassesUsedMax: number;
+  closedLoopStopReasonCounts: {
+    converged_thresholds_met: number;
+    max_pass_limit_reached: number;
+    no_change: number;
+  };
+  closedLoopFinalMagiDeltaMax: number;
+  closedLoopFinalFederalTaxDeltaMax: number;
+  closedLoopFinalHealthcarePremiumDeltaMax: number;
   yearly: RunTrace[];
 }
 
@@ -172,7 +299,88 @@ interface SimulationSummary {
   flexibilityScore: number;
   cornerRiskScore: number;
   failureMode: string;
+  riskMetrics: SimulationRiskMetrics;
   yearlySeries: PathYearResult[];
+}
+
+interface ClosedLoopIterationState {
+  attempt: ReturnType<typeof withdrawForNeed>;
+  endingBalances: Record<AccountBucketType, number>;
+  magi: number;
+  federalTax: number;
+  healthcarePremiumCost: number;
+  hsaOffset: number;
+  irmaaTier: ReturnType<typeof calculateIrmaaTier>;
+  nextNeeded: number;
+}
+
+interface ClosedLoopSolveResult {
+  finalState: ClosedLoopIterationState;
+  converged: boolean;
+  passesUsed: number;
+  stopReason: ClosedLoopStopReason;
+  lastDeltas: {
+    magi: number;
+    federalTax: number;
+    healthcarePremium: number;
+  };
+}
+
+interface WithdrawalDecisionTrace {
+  rationale: string;
+  objectiveScores: {
+    spendingNeed: number;
+    marginalTaxCost: number;
+    magiTarget: number;
+    acaCliffAvoidance: number;
+    irmaaCliffAvoidance: number;
+    rothOptionality: number;
+    sequenceDefense: number;
+  };
+}
+
+interface RothConversionTrace {
+  amount: number;
+  reason: string;
+  simulationModeUsedForConversion: SimulationStrategyMode;
+  plannerLogicActiveAtConversion: boolean;
+  conversionEngineInvoked: boolean;
+  evaluatedCandidateAmounts: number[];
+  bestCandidateAmount: number;
+  bestScore: number;
+  rawMAGI: number;
+  irmaaThreshold: number | null;
+  computedHeadroom: number;
+  magiBuffer: number;
+  headroomComputed: boolean;
+  candidateAmountsGenerated: boolean;
+  eligibilityBlockedReason: string | null;
+  magiEffect: number;
+  taxEffect: number;
+  acaEffect: number;
+  irmaaEffect: number;
+  pretaxBalanceEffect: number;
+  eligible: boolean;
+  targetMagiCeiling: number | null;
+  magiHeadroom: number;
+  magiBefore: number;
+  magiAfter: number;
+  pretaxBalanceBefore: number;
+  balanceCap: number;
+  conversionScore: number;
+  conversionOpportunityScore: number;
+  futureTaxReduction: number;
+  futureTaxBurdenReduction: number;
+  irmaaAvoidanceValue: number;
+  rmdReductionValue: number;
+  rothOptionalityValue: number;
+  futureTaxReductionValue: number;
+  currentTaxCost: number;
+  conversionSuppressedReason: string | null;
+  projectedFutureMagiPeak: number;
+  projectedRmdPressure: number;
+  projectedIrmaaExposure: number;
+  projectedRothShareAfter: number;
 }
 
 interface SimulationExecutionOptions {
@@ -426,6 +634,33 @@ function buildPlan(
       ? annualSpendTarget / baselineAnnualSpend
       : 1;
 
+  const assetClassMappingAssumptions = deriveAssetClassMappingAssumptionsFromAccounts(
+    data.accounts,
+    data.rules.assetClassMappingAssumptions,
+  );
+  const configuredRothPolicy = data.rules.rothConversionPolicy;
+  const rothConversionPolicy = {
+    enabled: configuredRothPolicy?.enabled ?? true,
+    strategy: configuredRothPolicy?.strategy ?? 'aca_then_irmaa_headroom',
+    minAnnualDollars: Math.max(
+      0,
+      configuredRothPolicy?.minAnnualDollars ?? DEFAULT_ROTH_CONVERSION_MIN_DOLLARS,
+    ),
+    maxPretaxBalancePercent: Math.max(
+      0,
+      Math.min(
+        1,
+        configuredRothPolicy?.maxPretaxBalancePercent ??
+          DEFAULT_ROTH_CONVERSION_BALANCE_RATIO_CAP,
+      ),
+    ),
+    magiBufferDollars: Math.max(
+      0,
+      configuredRothPolicy?.magiBufferDollars ?? DEFAULT_ROTH_CONVERSION_MAGI_BUFFER,
+    ),
+    source: configuredRothPolicy ? 'rules' : 'default',
+  } as const;
+
   return {
     startYear: CURRENT_YEAR,
     planningEndYear: CURRENT_YEAR + horizonYears,
@@ -439,6 +674,7 @@ function buildPlan(
     travelPhaseYears: assumptions.travelPhaseYears,
     socialSecurity: data.income.socialSecurity.map((entry) => ({ ...entry })),
     windfalls: data.income.windfalls.map((item) => ({ ...item })),
+    assetClassMappingAssumptions,
     accounts: {
       pretax: {
         balance: pretaxTotal,
@@ -468,6 +704,7 @@ function buildPlan(
       ceilingYears: assumptions.guardrailCeilingYears,
       cutPercent: assumptions.guardrailCutPercent,
     },
+    rothConversionPolicy,
     healthcarePremiums: {
       baselineAcaPremiumAnnual:
         data.rules.healthcarePremiums?.baselineAcaPremiumAnnual ??
@@ -475,6 +712,36 @@ function buildPlan(
       baselineMedicarePremiumAnnual:
         data.rules.healthcarePremiums?.baselineMedicarePremiumAnnual ??
         DEFAULT_BASELINE_MEDICARE_PREMIUM_ANNUAL,
+      medicalInflationAnnual:
+        data.rules.healthcarePremiums?.medicalInflationAnnual ??
+        DEFAULT_MEDICAL_INFLATION_ANNUAL,
+    },
+    hsaStrategy: {
+      enabled: data.rules.hsaStrategy?.enabled ?? false,
+      annualQualifiedExpenseWithdrawalCap:
+        data.rules.hsaStrategy?.annualQualifiedExpenseWithdrawalCap ??
+        Number.POSITIVE_INFINITY,
+      prioritizeHighMagiYears: data.rules.hsaStrategy?.prioritizeHighMagiYears ?? false,
+      highMagiThreshold:
+        data.rules.hsaStrategy?.highMagiThreshold ??
+        DEFAULT_HSA_HIGH_MAGI_THRESHOLD,
+    },
+    ltcAssumptions: {
+      enabled: data.rules.ltcAssumptions?.enabled ?? false,
+      startAge: data.rules.ltcAssumptions?.startAge ?? DEFAULT_LTC_START_AGE,
+      annualCostToday:
+        data.rules.ltcAssumptions?.annualCostToday ?? DEFAULT_LTC_ANNUAL_COST_TODAY,
+      durationYears:
+        data.rules.ltcAssumptions?.durationYears ?? DEFAULT_LTC_DURATION_YEARS,
+      inflationAnnual:
+        data.rules.ltcAssumptions?.inflationAnnual ?? DEFAULT_LTC_INFLATION_ANNUAL,
+      eventProbability: Math.max(
+        0,
+        Math.min(
+          1,
+          data.rules.ltcAssumptions?.eventProbability ?? DEFAULT_LTC_EVENT_PROBABILITY,
+        ),
+      ),
     },
     activeStressors: [],
     activeResponses: [],
@@ -584,16 +851,20 @@ function applyResponses(plan: SimPlan, responses: ResponseOption[]) {
   return nextPlan;
 }
 
-function getAssetExposure(symbol: string) {
-  return getHoldingExposure(symbol);
+function getAssetExposure(
+  symbol: string,
+  assumptions?: AssetClassMappingAssumptions,
+) {
+  return getHoldingExposure(symbol, assumptions);
 }
 
 function getBucketReturn(
   allocation: Record<string, number>,
   assetReturns: Record<AssetClass, number>,
+  assumptions?: AssetClassMappingAssumptions,
 ) {
   return Object.entries(allocation).reduce((total, [symbol, weight]) => {
-    const exposure = getAssetExposure(symbol);
+    const exposure = getAssetExposure(symbol, assumptions);
     const symbolReturn = Object.entries(exposure).reduce(
       (innerTotal, [assetClass, assetWeight]) =>
         innerTotal + (assetReturns[assetClass as AssetClass] ?? 0) * assetWeight,
@@ -604,9 +875,12 @@ function getBucketReturn(
   }, 0);
 }
 
-function getDefenseScore(allocation: Record<string, number>) {
+function getDefenseScore(
+  allocation: Record<string, number>,
+  assumptions?: AssetClassMappingAssumptions,
+) {
   return Object.entries(allocation).reduce((total, [symbol, weight]) => {
-    const exposure = getAssetExposure(symbol);
+    const exposure = getAssetExposure(symbol, assumptions);
     return total + ((exposure.BONDS ?? 0) + (exposure.CASH ?? 0)) * weight;
   }, 0);
 }
@@ -652,6 +926,152 @@ function getSocialSecurityIncome(
 
     return total + entry.fraMonthly * 12 * getBenefitFactor(entry.claimAge) * inflationIndex;
   }, 0);
+}
+
+interface WindfallRealization {
+  cashInflow: number;
+  ordinaryIncome: number;
+  ltcgIncome: number;
+}
+
+function inferWindfallTaxTreatment(windfall: SimWindfall): WindfallTaxTreatment {
+  if (windfall.taxTreatment) {
+    return windfall.taxTreatment;
+  }
+  if (windfall.name === 'home_sale') {
+    return 'primary_home_sale';
+  }
+  if (windfall.name === 'inheritance') {
+    return 'cash_non_taxable';
+  }
+  return 'cash_non_taxable';
+}
+
+function getDefaultPrimaryHomeSaleExclusion(filingStatus: string) {
+  return filingStatus === 'married_filing_jointly' ? 500_000 : 250_000;
+}
+
+function buildWindfallRealizationForYear(
+  windfall: SimWindfall,
+  year: number,
+  filingStatus: string,
+): WindfallRealization {
+  const treatment = inferWindfallTaxTreatment(windfall);
+  const amount = Math.max(0, windfall.amount);
+  const modeledSellingCost = windfall.name === 'home_sale'
+    ? amount * Math.max(0, Math.min(1, windfall.sellingCostPercent ?? 0))
+    : 0;
+  const defaultLiquidity = Math.max(0, amount - modeledSellingCost);
+  const liquidityAmount = Math.max(0, windfall.liquidityAmount ?? defaultLiquidity);
+  if (amount <= 0) {
+    return { cashInflow: 0, ordinaryIncome: 0, ltcgIncome: 0 };
+  }
+
+  if (treatment === 'inherited_ira_10y') {
+    const distributionYears = Math.max(1, Math.round(windfall.distributionYears ?? 10));
+    if (year < windfall.year || year >= windfall.year + distributionYears) {
+      return { cashInflow: 0, ordinaryIncome: 0, ltcgIncome: 0 };
+    }
+    const annualDistribution = amount / distributionYears;
+    return {
+      cashInflow: annualDistribution,
+      ordinaryIncome: annualDistribution,
+      ltcgIncome: 0,
+    };
+  }
+
+  if (year !== windfall.year) {
+    return { cashInflow: 0, ordinaryIncome: 0, ltcgIncome: 0 };
+  }
+
+  if (treatment === 'ordinary_income') {
+    return {
+      cashInflow: liquidityAmount,
+      ordinaryIncome: amount,
+      ltcgIncome: 0,
+    };
+  }
+
+  if (treatment === 'ltcg') {
+    const costBasis = Math.max(0, windfall.costBasis ?? amount);
+    const taxableGain = Math.max(0, amount - costBasis);
+    return {
+      cashInflow: liquidityAmount,
+      ordinaryIncome: 0,
+      ltcgIncome: taxableGain,
+    };
+  }
+
+  if (treatment === 'primary_home_sale') {
+    const costBasis = Math.max(0, windfall.costBasis ?? amount);
+    const realizedGain = Math.max(0, amount - costBasis);
+    const exclusion = Math.max(
+      0,
+      windfall.exclusionAmount ?? getDefaultPrimaryHomeSaleExclusion(filingStatus),
+    );
+    return {
+      cashInflow: liquidityAmount,
+      ordinaryIncome: 0,
+      ltcgIncome: Math.max(0, realizedGain - exclusion),
+    };
+  }
+
+  return {
+    cashInflow: liquidityAmount,
+    ordinaryIncome: 0,
+    ltcgIncome: 0,
+  };
+}
+
+function calculateLtcCostForYear(
+  plan: SimPlan,
+  ages: { rob: number; debbie: number },
+  eventOccurs: boolean,
+) {
+  if (
+    !eventOccurs ||
+    !plan.ltcAssumptions.enabled ||
+    plan.ltcAssumptions.annualCostToday <= 0
+  ) {
+    return 0;
+  }
+
+  const householdAge = Math.max(ages.rob, ages.debbie);
+  if (householdAge < plan.ltcAssumptions.startAge) {
+    return 0;
+  }
+
+  const yearsIntoLtc = householdAge - plan.ltcAssumptions.startAge;
+  if (yearsIntoLtc >= Math.max(1, Math.round(plan.ltcAssumptions.durationYears))) {
+    return 0;
+  }
+
+  return (
+    plan.ltcAssumptions.annualCostToday *
+    Math.pow(1 + plan.ltcAssumptions.inflationAnnual, yearsIntoLtc)
+  );
+}
+
+function calculateHsaOffsetForYear(input: {
+  plan: SimPlan;
+  hsaBalance: number;
+  magi: number;
+  healthcareAndLtcCost: number;
+}) {
+  if (!input.plan.hsaStrategy.enabled || input.hsaBalance <= 0 || input.healthcareAndLtcCost <= 0) {
+    return 0;
+  }
+  if (
+    input.plan.hsaStrategy.prioritizeHighMagiYears &&
+    input.magi < input.plan.hsaStrategy.highMagiThreshold
+  ) {
+    return 0;
+  }
+  const cap = Math.max(0, input.plan.hsaStrategy.annualQualifiedExpenseWithdrawalCap);
+  const cappedNeed = Number.isFinite(cap)
+    ? Math.min(input.healthcareAndLtcCost, cap)
+    : input.healthcareAndLtcCost;
+  return Math.min(input.hsaBalance, cappedNeed);
 }
 
 function createBaseYearTaxInputs(
@@ -779,6 +1199,21 @@ function sumBalances(balances: Record<AccountBucketType, number>) {
 const DEFAULT_TAXABLE_WITHDRAWAL_LTCG_RATIO = 0.25;
 const DEFAULT_BASELINE_ACA_PREMIUM_ANNUAL = 14_400;
 const DEFAULT_BASELINE_MEDICARE_PREMIUM_ANNUAL = 2_220;
+const DEFAULT_MEDICAL_INFLATION_ANNUAL = 0.055;
+const ACA_FRIENDLY_MAGI_BUFFER = 2_000;
+const ACA_FPL_BY_HOUSEHOLD_SIZE: Record<number, number> = {
+  1: 15_650,
+  2: 21_150,
+};
+const DEFAULT_HSA_HIGH_MAGI_THRESHOLD = 200_000;
+const DEFAULT_LTC_START_AGE = 82;
+const DEFAULT_LTC_ANNUAL_COST_TODAY = 0;
+const DEFAULT_LTC_DURATION_YEARS = 4;
+const DEFAULT_LTC_INFLATION_ANNUAL = 0.055;
+const DEFAULT_LTC_EVENT_PROBABILITY = 0.45;
+const DEFAULT_ROTH_CONVERSION_MIN_DOLLARS = 500;
+const DEFAULT_ROTH_CONVERSION_BALANCE_RATIO_CAP = 0.12;
+const DEFAULT_ROTH_CONVERSION_MAGI_BUFFER = 2_000;
 const RAW_WITHDRAWAL_ORDER: AccountBucketType[] = ['cash', 'taxable', 'pretax', 'roth'];
 
 const RETURN_GENERATION_ASSUMPTIONS: SimulationReturnGenerationAssumptions = {
@@ -797,6 +1232,19 @@ const RETURN_GENERATION_ASSUMPTIONS: SimulationReturnGenerationAssumptions = {
   ],
 };
 
+const RETURN_MODEL_EXTENSION_POINTS: FutureReturnModelExtensionPoint[] = [
+  {
+    model: 'regime_switching_correlated',
+    status: 'hook_only',
+    description: 'Extension hook reserved for future correlated regime-switching return generation.',
+  },
+  {
+    model: 'fat_tailed_correlated',
+    status: 'hook_only',
+    description: 'Extension hook reserved for future fat-tailed correlated return generation.',
+  },
+];
+
 const TIMING_CONVENTIONS: SimulationTimingConventions = {
   currentPlanningYear: CURRENT_YEAR,
   salaryProrationRule: 'month_fraction',
@@ -812,6 +1260,16 @@ interface StrategyBehavior {
   preserveRothPreference: boolean;
   withdrawalOrderLabel: string[];
   acaAwareWithdrawalOptimization: boolean;
+}
+
+function resolveAcaFriendlyMagiCeiling(
+  filingStatus: string,
+  inflationIndex: number,
+) {
+  const householdSize = filingStatus === 'married_filing_jointly' ? 2 : 1;
+  const baselineFpl = ACA_FPL_BY_HOUSEHOLD_SIZE[householdSize] ?? ACA_FPL_BY_HOUSEHOLD_SIZE[1];
+  const cliffIncome = baselineFpl * 4;
+  return Math.max(0, cliffIncome * inflationIndex - ACA_FRIENDLY_MAGI_BUFFER);
 }
 
 function getStrategyBehavior(
@@ -841,7 +1299,7 @@ function getStrategyBehavior(
     irmaaAwareWithdrawalBuffer: plan.irmaaAware,
     preserveRothPreference: plan.preserveRoth,
     withdrawalOrderLabel: ['cash', 'taxable', 'pretax', 'roth (conditional)'],
-    acaAwareWithdrawalOptimization: false,
+    acaAwareWithdrawalOptimization: true,
   };
 }
 
@@ -860,9 +1318,15 @@ function buildWithdrawalOrder(
       return plan.accounts[left].withdrawalPriority - plan.accounts[right].withdrawalPriority;
     }
 
-    const rightScore = getDefenseScore(plan.accounts[right].targetAllocation);
-    const leftScore = getDefenseScore(plan.accounts[left].targetAllocation);
-    return rightScore - leftScore;
+    const leftScore = getDefenseScore(
+      plan.accounts[left].targetAllocation,
+      plan.assetClassMappingAssumptions,
+    );
+    const rightResolvedScore = getDefenseScore(
+      plan.accounts[right].targetAllocation,
+      plan.assetClassMappingAssumptions,
+    );
+    return rightResolvedScore - leftScore;
   });
 
   const ordered: AccountBucketType[] = ['cash', ...base];
@@ -870,6 +1334,89 @@ function buildWithdrawalOrder(
     ordered.push('roth');
   }
   return ordered;
+}
+
+function clamp01(value: number) {
+  return Math.max(0, Math.min(1, value));
+}
+
+function buildWithdrawalDecisionTrace(input: {
+  needed: number;
+  withdrawals: Record<AccountBucketType, number>;
+  taxResult: YearTaxOutputs;
+  assumptions: MarketAssumptions;
+  strategy: StrategyBehavior;
+  marketState: 'normal' | 'down' | 'up';
+  acaFriendlyMagiCeiling: number | null;
+}): WithdrawalDecisionTrace {
+  const totalWithdrawal =
+    input.withdrawals.cash +
+    input.withdrawals.taxable +
+    input.withdrawals.pretax +
+    input.withdrawals.roth;
+  const weightedTaxCost =
+    input.withdrawals.cash * 0.05 +
+    input.withdrawals.taxable * 0.35 +
+    input.withdrawals.pretax * 0.9 +
+    input.withdrawals.roth * 0.1;
+  const marginalTaxCostScore =
+    totalWithdrawal > 0
+      ? clamp01(1 - weightedTaxCost / Math.max(1, totalWithdrawal * 0.9))
+      : 1;
+
+  const magiTargetCeiling = Math.min(
+    input.acaFriendlyMagiCeiling ?? Number.POSITIVE_INFINITY,
+    input.strategy.irmaaAwareWithdrawalBuffer ? input.assumptions.irmaaThreshold : Number.POSITIVE_INFINITY,
+  );
+  const magiTargetScore = Number.isFinite(magiTargetCeiling)
+    ? clamp01(1 - Math.max(0, input.taxResult.MAGI - magiTargetCeiling) / 20_000)
+    : 0.5;
+  const acaCliffAvoidance =
+    input.acaFriendlyMagiCeiling === null
+      ? 0.5
+      : clamp01(1 - Math.max(0, input.taxResult.MAGI - input.acaFriendlyMagiCeiling) / 15_000);
+  const irmaaCliffAvoidance = input.strategy.irmaaAwareWithdrawalBuffer
+    ? clamp01(1 - Math.max(0, input.taxResult.MAGI - input.assumptions.irmaaThreshold) / 15_000)
+    : 0.5;
+  const rothOptionality = input.strategy.preserveRothPreference && totalWithdrawal > 0
+    ? clamp01(1 - input.withdrawals.roth / totalWithdrawal)
+    : 0.5;
+  const sequenceDefense = input.marketState === 'down'
+    ? totalWithdrawal > 0
+      ? clamp01((input.withdrawals.cash + input.withdrawals.taxable) / totalWithdrawal)
+      : 0.5
+    : 0.6;
+  const spendingNeed = input.needed > 0 ? 1 : 0;
+
+  const factorLabels: Array<{ key: keyof WithdrawalDecisionTrace['objectiveScores']; label: string }> = [
+    { key: 'spendingNeed', label: 'spending need coverage' },
+    { key: 'marginalTaxCost', label: 'marginal tax cost control' },
+    { key: 'magiTarget', label: 'MAGI target control' },
+    { key: 'acaCliffAvoidance', label: 'ACA cliff avoidance' },
+    { key: 'irmaaCliffAvoidance', label: 'IRMAA cliff avoidance' },
+    { key: 'rothOptionality', label: 'Roth optionality preservation' },
+    { key: 'sequenceDefense', label: 'sequence-risk defense' },
+  ];
+  const objectiveScores = {
+    spendingNeed,
+    marginalTaxCost: marginalTaxCostScore,
+    magiTarget: magiTargetScore,
+    acaCliffAvoidance,
+    irmaaCliffAvoidance,
+    rothOptionality,
+    sequenceDefense,
+  };
+  const topFactors = [...factorLabels]
+    .sort(
+      (left, right) => objectiveScores[right.key] - objectiveScores[left.key],
+    )
+    .slice(0, 2)
+    .map((entry) => entry.label);
+
+  return {
+    rationale: `Source mix prioritized ${topFactors.join(' + ')}.`,
+    objectiveScores,
+  };
 }
 
 function withdrawForNeed(
@@ -881,6 +1428,7 @@ function withdrawForNeed(
   baseTaxInputs: YearTaxInputs,
   assumptions: MarketAssumptions,
   strategy: StrategyBehavior,
+  acaFriendlyMagiCeiling: number | null,
 ) {
   const withdrawals: Record<AccountBucketType, number> = {
     pretax: 0,
@@ -922,18 +1470,31 @@ function withdrawForNeed(
       return;
     }
 
-    if (bucket === 'pretax' && strategy.irmaaAwareWithdrawalBuffer && balances.roth > 0) {
-      const room = Math.max(assumptions.irmaaThreshold - taxResult.MAGI, 0);
-      const bufferedTake = Math.min(balances.pretax, room, remaining);
-      if (bufferedTake > 0) {
-        balances.pretax -= bufferedTake;
-        withdrawals.pretax += bufferedTake;
-        taxInputs.ira401kWithdrawals += bufferedTake;
-        recalculateTax();
-        remaining -= bufferedTake;
+    if (remaining <= 0) {
+      return;
+    }
+
+    let available = balances[bucket];
+    if (available <= 0) {
+      return;
+    }
+
+    if (bucket === 'pretax') {
+      if (strategy.acaAwareWithdrawalOptimization && acaFriendlyMagiCeiling !== null) {
+        const acaHeadroom = Math.max(acaFriendlyMagiCeiling - taxResult.MAGI, 0);
+        available = Math.min(available, acaHeadroom);
+      }
+      if (strategy.irmaaAwareWithdrawalBuffer) {
+        const irmaaHeadroom = Math.max(assumptions.irmaaThreshold - taxResult.MAGI, 0);
+        available = Math.min(available, irmaaHeadroom);
       }
 
-      if (remaining > 0 && strategy.preserveRothPreference) {
+      if (
+        available <= 0 &&
+        strategy.preserveRothPreference &&
+        balances.roth > 0 &&
+        remaining > 0
+      ) {
         const rothTake = Math.min(balances.roth, remaining);
         balances.roth -= rothTake;
         withdrawals.roth += rothTake;
@@ -943,12 +1504,7 @@ function withdrawForNeed(
       }
     }
 
-    if (remaining <= 0) {
-      return;
-    }
-
-    const available = balances[bucket];
-    if (available <= 0) {
+    if (available <= 0 || remaining <= 0) {
       return;
     }
 
@@ -968,7 +1524,510 @@ function withdrawForNeed(
     }
   });
 
-  return { remaining, withdrawals, taxInputs, taxResult, rmdWithdrawn };
+  const decisionTrace = buildWithdrawalDecisionTrace({
+    needed,
+    withdrawals,
+    taxResult,
+    assumptions,
+    strategy,
+    marketState,
+    acaFriendlyMagiCeiling,
+  });
+  return { remaining, withdrawals, taxInputs, taxResult, rmdWithdrawn, decisionTrace };
+}
+
+function applyProactiveRothConversion(input: {
+  balances: Record<AccountBucketType, number>;
+  withdrawalResult: ReturnType<typeof withdrawForNeed>;
+  strategy: StrategyBehavior;
+  plan: SimPlan;
+  assumptions: MarketAssumptions;
+  requiredRmdAmount: number;
+  yearsUntilRmdStart: number | null;
+  isRetired: boolean;
+  acaFriendlyMagiCeiling: number | null;
+  medicareEligibleCount: number;
+}): RothConversionTrace {
+  const rawMAGI = Math.max(0, input.withdrawalResult.taxResult.MAGI);
+  const irmaaThreshold = Number.isFinite(input.assumptions.irmaaThreshold)
+    ? input.assumptions.irmaaThreshold
+    : null;
+  const magiBuffer = Math.max(0, input.plan.rothConversionPolicy.magiBufferDollars);
+  const headroomComputed = irmaaThreshold !== null;
+  const computedHeadroom = headroomComputed ? irmaaThreshold - rawMAGI - magiBuffer : 0;
+  const mapSuppressedReason = (reason: string): string | null => {
+    if (
+      reason === 'blocked_by_aca_threshold' ||
+      reason === 'blocked_by_irmaa_threshold' ||
+      reason === 'blocked_by_irmaa_threshold_context' ||
+      reason === 'blocked_by_other_planner_constraint_target_unavailable'
+    ) {
+      return 'no_headroom';
+    }
+    if (reason.startsWith('no_economic_benefit')) {
+      return 'negative_score';
+    }
+    if (
+      reason === 'blocked_by_available_pretax_balance' ||
+      reason === 'not_eligible_pre_retirement' ||
+      reason === 'planner_logic_inactive' ||
+      reason === 'blocked_by_other_planner_constraint_policy_disabled'
+    ) {
+      return 'already_optimal';
+    }
+    return null;
+  };
+  const evaluateConversionScore = (
+    conversionAmount: number,
+    taxAfterConversion: ReturnType<typeof calculateFederalTax>,
+  ) => {
+    const pretaxBalance = Math.max(0, input.balances.pretax);
+    const rothBalance = Math.max(0, input.balances.roth);
+    const totalTaxAdvantagedBalance = Math.max(1, pretaxBalance + rothBalance);
+    const yearsUntilRmd = Math.max(0, input.yearsUntilRmdStart ?? 8);
+    const rmdProximity = clamp01((10 - yearsUntilRmd) / 10);
+    const projectedRmdPressure = input.requiredRmdAmount > 0
+      ? input.requiredRmdAmount
+      : pretaxBalance / Math.max(14, yearsUntilRmd + 14);
+    const projectedFutureMAGI =
+      Math.max(0, input.withdrawalResult.taxResult.MAGI) +
+      projectedRmdPressure +
+      Math.max(0, pretaxBalance * 0.01);
+    const currentTaxCost = Math.max(0, taxAfterConversion.federalTax - federalTaxBefore);
+    const marginalTaxRate = conversionAmount > 0 ? currentTaxCost / conversionAmount : 0;
+    const currentTaxRate = marginalTaxRate;
+    const expectedFutureTaxRateLift =
+      Math.min(0.12, projectedRmdPressure / Math.max(1, pretaxBalance)) +
+      rmdProximity * 0.04;
+    const expectedFutureTaxRate = Math.min(
+      0.45,
+      Math.max(currentTaxRate, currentTaxRate + expectedFutureTaxRateLift),
+    );
+    const futureTaxReduction = Math.max(
+      0,
+      (expectedFutureTaxRate - currentTaxRate) * conversionAmount * 0.85,
+    );
+    const irmaaAvoidanceValue =
+      projectedFutureMAGI > input.assumptions.irmaaThreshold ? 0.15 * conversionAmount : 0;
+    const rmdReductionValue = 0.12 * conversionAmount;
+    const rothOptionalityValue = 0.05 * conversionAmount;
+    const conversionScore =
+      futureTaxReduction +
+      irmaaAvoidanceValue +
+      rmdReductionValue +
+      rothOptionalityValue -
+      currentTaxCost;
+    const projectedPeakMagiReductionFromConversion = conversionAmount * (0.04 + rmdProximity * 0.12);
+    const projectedFutureMagiPeak = Math.max(
+      0,
+      projectedFutureMAGI - projectedPeakMagiReductionFromConversion,
+    );
+    const projectedIrmaaExposure = Math.max(
+      0,
+      projectedFutureMagiPeak - input.assumptions.irmaaThreshold,
+    );
+    const rothShareBefore = rothBalance / totalTaxAdvantagedBalance;
+    const rothShareAfter = clamp01((rothBalance + conversionAmount) / totalTaxAdvantagedBalance);
+    return {
+      conversionScore,
+      conversionOpportunityScore: conversionScore,
+      futureTaxReduction,
+      futureTaxBurdenReduction: futureTaxReduction,
+      irmaaAvoidanceValue,
+      rmdReductionValue,
+      rothOptionalityValue,
+      futureTaxReductionValue: futureTaxReduction,
+      currentTaxCost,
+      projectedFutureMagiPeak,
+      projectedRmdPressure,
+      projectedIrmaaExposure,
+      projectedRothShareAfter: rothShareAfter,
+      rothShareBefore,
+      rmdProximity,
+      projectedFutureMAGI,
+    };
+  };
+  const magiBaseline = input.withdrawalResult.taxResult.MAGI;
+  const pretaxBalanceBaseline = input.balances.pretax;
+  const noConversion = (
+    reason: string,
+    overrides?: Partial<Omit<RothConversionTrace, 'amount' | 'reason'>>,
+  ): RothConversionTrace => ({
+    amount: 0,
+    reason,
+    simulationModeUsedForConversion: input.strategy.mode,
+    plannerLogicActiveAtConversion: input.strategy.plannerLogicActive,
+    conversionEngineInvoked: true,
+    evaluatedCandidateAmounts: [],
+    bestCandidateAmount: 0,
+    bestScore: 0,
+    rawMAGI,
+    irmaaThreshold,
+    computedHeadroom,
+    magiBuffer,
+    headroomComputed,
+    candidateAmountsGenerated: false,
+    eligibilityBlockedReason: reason,
+    magiEffect: 0,
+    taxEffect: 0,
+    acaEffect: 0,
+    irmaaEffect: 0,
+    pretaxBalanceEffect: 0,
+    eligible: false,
+    targetMagiCeiling: null,
+    magiHeadroom: 0,
+    magiBefore: magiBaseline,
+    magiAfter: magiBaseline,
+    pretaxBalanceBefore: pretaxBalanceBaseline,
+    balanceCap: 0,
+    conversionScore: 0,
+    conversionOpportunityScore: 0,
+    futureTaxReduction: 0,
+    futureTaxBurdenReduction: 0,
+    irmaaAvoidanceValue: 0,
+    rmdReductionValue: 0,
+    rothOptionalityValue: 0,
+    futureTaxReductionValue: 0,
+    currentTaxCost: 0,
+    conversionSuppressedReason: mapSuppressedReason(reason),
+    projectedFutureMagiPeak: magiBaseline,
+    projectedRmdPressure: 0,
+    projectedIrmaaExposure: 0,
+    projectedRothShareAfter: 0,
+    ...overrides,
+  });
+
+  if (!input.strategy.plannerLogicActive) {
+    return noConversion('planner_logic_inactive');
+  }
+  if (!input.isRetired) {
+    return noConversion('not_eligible_pre_retirement');
+  }
+  if (!input.plan.rothConversionPolicy.enabled) {
+    return noConversion('blocked_by_other_planner_constraint_policy_disabled');
+  }
+  if (input.balances.pretax <= 0) {
+    return noConversion('blocked_by_available_pretax_balance');
+  }
+
+  let targetMagiCeiling: number | null = null;
+  let conversionReason = 'executed_irmaa_headroom_fill';
+  let thresholdType: 'aca' | 'irmaa' | null = null;
+  if (irmaaThreshold !== null) {
+    targetMagiCeiling = Math.max(0, irmaaThreshold - magiBuffer);
+    thresholdType = 'irmaa';
+  }
+  if (targetMagiCeiling === null) {
+    return noConversion('blocked_by_other_planner_constraint_target_unavailable');
+  }
+
+  const magiBefore = rawMAGI;
+  const federalTaxBefore = input.withdrawalResult.taxResult.federalTax;
+  const pretaxBalanceBefore = input.balances.pretax;
+  const acaOverageBefore =
+    input.acaFriendlyMagiCeiling === null
+      ? 0
+      : Math.max(0, magiBefore - input.acaFriendlyMagiCeiling);
+  const irmaaOverageBefore = input.strategy.irmaaAwareWithdrawalBuffer
+    ? Math.max(0, magiBefore - input.assumptions.irmaaThreshold)
+    : 0;
+  const acaThreshold = input.acaFriendlyMagiCeiling;
+  const alreadyAboveIrmaaThreshold = irmaaThreshold !== null && magiBefore > irmaaThreshold;
+
+  const baselineBalanceCap =
+    Math.max(0, input.balances.pretax) * input.plan.rothConversionPolicy.maxPretaxBalancePercent;
+  let effectiveBalanceCap = baselineBalanceCap;
+  const yearsUntilRmdStart = input.yearsUntilRmdStart;
+  if (yearsUntilRmdStart !== null && yearsUntilRmdStart <= 8) {
+    const targetDepletionYears = Math.max(2, yearsUntilRmdStart + 3);
+    const smoothDepletionCap = Math.max(0, input.balances.pretax) / targetDepletionYears;
+    if ((irmaaThreshold !== null && !alreadyAboveIrmaaThreshold) || yearsUntilRmdStart <= 3) {
+      // Near RMD years we let the scorer consider more of the available pretax balance.
+      effectiveBalanceCap = Math.max(effectiveBalanceCap, smoothDepletionCap);
+    }
+  }
+  effectiveBalanceCap = Math.min(Math.max(0, input.balances.pretax), effectiveBalanceCap);
+
+  const magiHeadroom = headroomComputed ? Math.max(0, computedHeadroom) : 0;
+  const availableHeadroom = Math.min(
+    Math.max(0, magiHeadroom),
+    effectiveBalanceCap,
+    Math.max(0, input.balances.pretax),
+  );
+
+  if (availableHeadroom <= 0) {
+    return noConversion(
+      'blocked_by_irmaa_threshold',
+      {
+        eligible: true,
+        targetMagiCeiling,
+        magiHeadroom: availableHeadroom,
+        magiBefore,
+        magiAfter: magiBefore,
+        pretaxBalanceBefore,
+        balanceCap: effectiveBalanceCap,
+        eligibilityBlockedReason: 'no_headroom',
+        conversionSuppressedReason: 'no_headroom',
+      },
+    );
+  }
+
+  const calculateTaxForConversion = (conversionAmount: number) =>
+    calculateFederalTax({
+      ...input.withdrawalResult.taxInputs,
+      ira401kWithdrawals: input.withdrawalResult.taxInputs.ira401kWithdrawals + conversionAmount,
+    });
+
+  const MAGI_TOLERANCE_DOLLARS = 0.01;
+  const evaluatedCandidateAmounts = [...new Set(
+    [0.25, 0.5, 0.75, 1]
+      .map((fraction) =>
+        Number(Math.min(availableHeadroom * fraction, effectiveBalanceCap, input.balances.pretax).toFixed(2)))
+      .filter((amount) => amount > 0),
+  )].sort((left, right) => left - right);
+  const candidateAmountsGenerated = evaluatedCandidateAmounts.length > 0;
+  if (input.strategy.plannerLogicActive && availableHeadroom > 0 && !candidateAmountsGenerated) {
+    throw new Error(
+      'Roth conversion candidate generation failed in planner-enhanced mode despite positive headroom.',
+    );
+  }
+
+  const candidateResults = evaluatedCandidateAmounts
+    .filter((amount) => amount >= input.plan.rothConversionPolicy.minAnnualDollars)
+    .map((amount) => {
+      const taxAfterConversion = calculateTaxForConversion(amount);
+      if (
+        targetMagiCeiling !== null &&
+        !(thresholdType === 'irmaa' && alreadyAboveIrmaaThreshold) &&
+        taxAfterConversion.MAGI > targetMagiCeiling + MAGI_TOLERANCE_DOLLARS
+      ) {
+        return null;
+      }
+      return {
+        amount,
+        taxAfterConversion,
+        evaluation: evaluateConversionScore(amount, taxAfterConversion),
+      };
+    })
+    .filter((candidate): candidate is {
+      amount: number;
+      taxAfterConversion: ReturnType<typeof calculateFederalTax>;
+      evaluation: ReturnType<typeof evaluateConversionScore>;
+    } => candidate !== null);
+
+  const bestCandidate = candidateResults.reduce<{
+    amount: number;
+    taxAfterConversion: ReturnType<typeof calculateFederalTax>;
+    evaluation: ReturnType<typeof evaluateConversionScore>;
+  } | null>((best, candidate) => {
+    if (!best || candidate.evaluation.conversionScore > best.evaluation.conversionScore) {
+      return candidate;
+    }
+    return best;
+  }, null);
+
+  const bestCandidateAmount = bestCandidate?.amount ?? 0;
+  const bestEvaluation = bestCandidate?.evaluation ?? {
+    conversionScore: 0,
+    conversionOpportunityScore: 0,
+    futureTaxReduction: 0,
+    futureTaxBurdenReduction: 0,
+    irmaaAvoidanceValue: 0,
+    rmdReductionValue: 0,
+    rothOptionalityValue: 0,
+    futureTaxReductionValue: 0,
+    currentTaxCost: 0,
+    projectedFutureMagiPeak: magiBefore,
+    projectedRmdPressure: 0,
+    projectedIrmaaExposure: 0,
+    projectedRothShareAfter: 0,
+    rothShareBefore: 0,
+    rmdProximity: 0,
+    projectedFutureMAGI: magiBefore,
+  };
+  const bestScore = bestEvaluation.conversionScore;
+  const currentTaxCost = bestEvaluation.currentTaxCost;
+  const alreadyOptimal =
+    Math.max(0, input.balances.pretax) <= 25_000 &&
+    bestEvaluation.projectedIrmaaExposure <= 1 &&
+    bestEvaluation.rmdProximity < 0.1 &&
+    bestEvaluation.rothShareBefore >= 0.65;
+
+  if (alreadyOptimal) {
+    return noConversion('no_economic_benefit_already_optimal', {
+        eligible: true,
+        targetMagiCeiling,
+        magiHeadroom: availableHeadroom,
+        magiBefore,
+        magiAfter: magiBefore,
+        pretaxBalanceBefore,
+        balanceCap: effectiveBalanceCap,
+        evaluatedCandidateAmounts,
+        candidateAmountsGenerated,
+        bestCandidateAmount,
+        bestScore,
+        conversionScore: bestEvaluation.conversionScore,
+      conversionOpportunityScore: bestEvaluation.conversionOpportunityScore,
+      futureTaxReduction: bestEvaluation.futureTaxReduction,
+      futureTaxBurdenReduction: bestEvaluation.futureTaxBurdenReduction,
+      irmaaAvoidanceValue: bestEvaluation.irmaaAvoidanceValue,
+      rmdReductionValue: bestEvaluation.rmdReductionValue,
+      rothOptionalityValue: bestEvaluation.rothOptionalityValue,
+        futureTaxReductionValue: bestEvaluation.futureTaxReductionValue,
+        currentTaxCost,
+        eligibilityBlockedReason: 'already_optimal',
+        conversionSuppressedReason: 'already_optimal',
+        projectedFutureMagiPeak: bestEvaluation.projectedFutureMagiPeak,
+        projectedRmdPressure: bestEvaluation.projectedRmdPressure,
+      projectedIrmaaExposure: bestEvaluation.projectedIrmaaExposure,
+      projectedRothShareAfter: bestEvaluation.projectedRothShareAfter,
+    });
+  }
+
+  if (!candidateResults.length || bestScore <= 0) {
+    return noConversion('no_economic_benefit_negative_score', {
+        eligible: true,
+        targetMagiCeiling,
+        magiHeadroom: availableHeadroom,
+        magiBefore,
+        magiAfter: magiBefore,
+        pretaxBalanceBefore,
+        balanceCap: effectiveBalanceCap,
+        evaluatedCandidateAmounts,
+        candidateAmountsGenerated,
+        bestCandidateAmount,
+        bestScore,
+        conversionScore: bestEvaluation.conversionScore,
+      conversionOpportunityScore: bestEvaluation.conversionOpportunityScore,
+      futureTaxReduction: bestEvaluation.futureTaxReduction,
+      futureTaxBurdenReduction: bestEvaluation.futureTaxBurdenReduction,
+      irmaaAvoidanceValue: bestEvaluation.irmaaAvoidanceValue,
+      rmdReductionValue: bestEvaluation.rmdReductionValue,
+      rothOptionalityValue: bestEvaluation.rothOptionalityValue,
+        futureTaxReductionValue: bestEvaluation.futureTaxReductionValue,
+        currentTaxCost,
+        eligibilityBlockedReason: candidateResults.length ? 'negative_score' : 'no_headroom',
+        conversionSuppressedReason: candidateResults.length ? 'negative_score' : 'no_headroom',
+        projectedFutureMagiPeak: bestEvaluation.projectedFutureMagiPeak,
+        projectedRmdPressure: bestEvaluation.projectedRmdPressure,
+      projectedIrmaaExposure: bestEvaluation.projectedIrmaaExposure,
+      projectedRothShareAfter: bestEvaluation.projectedRothShareAfter,
+    });
+  }
+
+  const conversionAmount = bestCandidateAmount;
+  const taxAfterConversion = bestCandidate!.taxAfterConversion;
+
+  input.balances.pretax -= conversionAmount;
+  input.balances.roth += conversionAmount;
+  input.withdrawalResult.taxInputs.ira401kWithdrawals += conversionAmount;
+  input.withdrawalResult.taxResult = taxAfterConversion;
+
+  const magiAfter = input.withdrawalResult.taxResult.MAGI;
+  const federalTaxAfter = input.withdrawalResult.taxResult.federalTax;
+  const acaOverageAfter =
+    input.acaFriendlyMagiCeiling === null
+      ? 0
+      : Math.max(0, magiAfter - input.acaFriendlyMagiCeiling);
+  const irmaaOverageAfter = input.strategy.irmaaAwareWithdrawalBuffer
+    ? Math.max(0, magiAfter - input.assumptions.irmaaThreshold)
+    : 0;
+
+  return {
+    amount: conversionAmount,
+    reason: conversionReason,
+    simulationModeUsedForConversion: input.strategy.mode,
+    plannerLogicActiveAtConversion: input.strategy.plannerLogicActive,
+    conversionEngineInvoked: true,
+    evaluatedCandidateAmounts,
+    bestCandidateAmount,
+    bestScore,
+    rawMAGI,
+    irmaaThreshold,
+    computedHeadroom,
+    magiBuffer,
+    headroomComputed,
+    candidateAmountsGenerated,
+    eligibilityBlockedReason: null,
+    magiEffect: magiAfter - magiBefore,
+    taxEffect: federalTaxAfter - federalTaxBefore,
+    acaEffect: acaOverageAfter - acaOverageBefore,
+    irmaaEffect: irmaaOverageAfter - irmaaOverageBefore,
+    pretaxBalanceEffect: input.balances.pretax - pretaxBalanceBefore,
+    eligible: true,
+    targetMagiCeiling,
+    magiHeadroom: availableHeadroom,
+    magiBefore,
+    magiAfter,
+    pretaxBalanceBefore,
+    balanceCap: effectiveBalanceCap,
+    conversionScore: bestEvaluation.conversionScore,
+    conversionOpportunityScore: bestEvaluation.conversionOpportunityScore,
+    futureTaxReduction: bestEvaluation.futureTaxReduction,
+    futureTaxBurdenReduction: bestEvaluation.futureTaxBurdenReduction,
+    irmaaAvoidanceValue: bestEvaluation.irmaaAvoidanceValue,
+    rmdReductionValue: bestEvaluation.rmdReductionValue,
+    rothOptionalityValue: bestEvaluation.rothOptionalityValue,
+    futureTaxReductionValue: bestEvaluation.futureTaxReductionValue,
+    currentTaxCost,
+    conversionSuppressedReason: null,
+    projectedFutureMagiPeak: bestEvaluation.projectedFutureMagiPeak,
+    projectedRmdPressure: bestEvaluation.projectedRmdPressure,
+    projectedIrmaaExposure: bestEvaluation.projectedIrmaaExposure,
+    projectedRothShareAfter: bestEvaluation.projectedRothShareAfter,
+  };
+}
+
+function buildInactiveRothConversionTrace(input: {
+  strategy: StrategyBehavior;
+  withdrawalResult: ReturnType<typeof withdrawForNeed>;
+  balances: Record<AccountBucketType, number>;
+}): RothConversionTrace {
+  const rawMAGI = Math.max(0, input.withdrawalResult.taxResult.MAGI);
+  const pretaxBalanceBefore = Math.max(0, input.balances.pretax);
+  return {
+    amount: 0,
+    reason: 'simulation_mode_raw',
+    simulationModeUsedForConversion: input.strategy.mode,
+    plannerLogicActiveAtConversion: input.strategy.plannerLogicActive,
+    conversionEngineInvoked: false,
+    evaluatedCandidateAmounts: [],
+    bestCandidateAmount: 0,
+    bestScore: 0,
+    rawMAGI,
+    irmaaThreshold: null,
+    computedHeadroom: 0,
+    magiBuffer: 0,
+    headroomComputed: false,
+    candidateAmountsGenerated: false,
+    eligibilityBlockedReason: 'simulation_mode_raw',
+    magiEffect: 0,
+    taxEffect: 0,
+    acaEffect: 0,
+    irmaaEffect: 0,
+    pretaxBalanceEffect: 0,
+    eligible: false,
+    targetMagiCeiling: null,
+    magiHeadroom: 0,
+    magiBefore: rawMAGI,
+    magiAfter: rawMAGI,
+    pretaxBalanceBefore,
+    balanceCap: 0,
+    conversionScore: 0,
+    conversionOpportunityScore: 0,
+    futureTaxReduction: 0,
+    futureTaxBurdenReduction: 0,
+    irmaaAvoidanceValue: 0,
+    rmdReductionValue: 0,
+    rothOptionalityValue: 0,
+    futureTaxReductionValue: 0,
+    currentTaxCost: 0,
+    conversionSuppressedReason: 'already_optimal',
+    projectedFutureMagiPeak: rawMAGI,
+    projectedRmdPressure: 0,
+    projectedIrmaaExposure: 0,
+    projectedRothShareAfter: 0,
+  };
 }
 
 function summarizeFailureMode(results: SimulationRunResult[], activeStressors: string[]) {
@@ -1015,11 +2074,13 @@ function getExposureLabel(rate: number): 'Low' | 'Medium' | 'High' {
 
 function buildSimulationConfigurationSnapshot({
   assumptions,
+  plan,
   stressors,
   responses,
   strategy,
 }: {
   assumptions: MarketAssumptions;
+  plan: SimPlan;
   stressors: Stressor[];
   responses: ResponseOption[];
   strategy: StrategyBehavior;
@@ -1035,11 +2096,22 @@ function buildSimulationConfigurationSnapshot({
       irmaaAware: strategy.irmaaAwareWithdrawalBuffer,
       acaAware: strategy.acaAwareWithdrawalOptimization,
       preserveRothPreference: strategy.preserveRothPreference,
+      closedLoopHealthcareTaxIteration: true,
+      maxClosedLoopPasses: DEFAULT_MAX_CLOSED_LOOP_PASSES,
+      closedLoopConvergenceThresholds: {
+        ...DEFAULT_CLOSED_LOOP_CONVERGENCE_THRESHOLDS,
+      } satisfies ClosedLoopConvergenceThresholds,
     },
     rothConversionPolicy: {
-      proactiveConversionsEnabled: false,
-      description:
-        'Simulation engine v1 does not run proactive Roth conversions; conversions are modeled in autopilot planning mode.',
+      proactiveConversionsEnabled: strategy.plannerLogicActive,
+      strategy: plan.rothConversionPolicy.strategy,
+      minAnnualDollars: plan.rothConversionPolicy.minAnnualDollars,
+      maxPretaxBalancePercent: plan.rothConversionPolicy.maxPretaxBalancePercent,
+      magiBufferDollars: plan.rothConversionPolicy.magiBufferDollars,
+      source: plan.rothConversionPolicy.source,
+      description: strategy.plannerLogicActive
+        ? 'Planner-enhanced simulation applies deterministic Roth conversion headroom rules in-year.'
+        : 'Raw simulation mode does not run proactive Roth conversions.',
     },
     liquidityFloorBehavior: {
       guardrailsEnabled: strategy.guardrailsEnabled,
@@ -1054,6 +2126,7 @@ function buildSimulationConfigurationSnapshot({
       highInflationStressorDurationYears: 10,
     },
     returnGeneration: RETURN_GENERATION_ASSUMPTIONS,
+    returnModelExtensionPoints: RETURN_MODEL_EXTENSION_POINTS.map((point) => ({ ...point })),
     timingConventions: TIMING_CONVENTIONS,
     simulationSettings: {
       seed: assumptions.simulationSeed ?? 20260416,
@@ -1066,10 +2139,378 @@ function buildSimulationConfigurationSnapshot({
 function buildSimulationModeDiagnostics({
   yearlySeries,
   failureYearDistribution,
+  runs,
 }: {
   yearlySeries: PathYearResult[];
   failureYearDistribution: Array<{ year: number; count: number; rate: number }>;
+  runs: SimulationRunResult[];
 }): SimulationModeDiagnostics {
+  const toStopReason = (value: string): ClosedLoopStopReason =>
+    value === 'converged_thresholds_met'
+      ? 'converged_thresholds_met'
+      : value === 'no_change'
+        ? 'no_change'
+        : 'max_pass_limit_reached';
+  const averageConvergedRate = yearlySeries.length
+    ? yearlySeries.reduce((sum, point) => sum + point.closedLoopConvergedRate, 0) /
+      yearlySeries.length
+    : 0;
+  const averageConvergedBeforeMaxPassesRate = yearlySeries.length
+    ? yearlySeries.reduce((sum, point) => sum + point.closedLoopConvergedBeforeMaxPassesRate, 0) /
+      yearlySeries.length
+    : 0;
+  const summaryPasses = yearlySeries.length
+    ? median(yearlySeries.map((point) => point.closedLoopPassesUsed))
+    : 0;
+  const summaryFinalMagiDelta = yearlySeries.length
+    ? median(yearlySeries.map((point) => point.finalMagiDelta))
+    : 0;
+  const summaryFinalFederalTaxDelta = yearlySeries.length
+    ? median(yearlySeries.map((point) => point.finalFederalTaxDelta))
+    : 0;
+  const summaryFinalHealthcareDelta = yearlySeries.length
+    ? median(yearlySeries.map((point) => point.finalHealthcarePremiumDelta))
+    : 0;
+  let rothDecisionYearCount = 0;
+  let rothExecutedYearCount = 0;
+  let rothBlockedYearCount = 0;
+  let rothNoEconomicBenefitYearCount = 0;
+  let rothNotEligibleYearCount = 0;
+  const rothDecisionReasonCounts = new Map<string, number>();
+  runs.forEach((run) => {
+    run.yearly.forEach((trace) => {
+      rothDecisionYearCount += 1;
+      rothDecisionReasonCounts.set(
+        trace.rothConversionReason,
+        (rothDecisionReasonCounts.get(trace.rothConversionReason) ?? 0) + 1,
+      );
+      if (trace.rothConversion > 0) {
+        rothExecutedYearCount += 1;
+      } else if (trace.rothConversionReason.startsWith('no_economic_benefit')) {
+        rothNoEconomicBenefitYearCount += 1;
+      } else if (trace.rothConversionReason.startsWith('not_eligible')) {
+        rothNotEligibleYearCount += 1;
+      } else {
+        rothBlockedYearCount += 1;
+      }
+    });
+  });
+  const rothDecisionReasons = [...rothDecisionReasonCounts.entries()]
+    .sort((left, right) => right[1] - left[1])
+    .map(([reason, count]) => ({
+      reason,
+      count,
+      rate: rothDecisionYearCount > 0 ? count / rothDecisionYearCount : 0,
+    }));
+  const tracesByYear = new Map<number, RunTrace[]>();
+  runs.forEach((run) => {
+    run.yearly.forEach((trace) => {
+      if (!tracesByYear.has(trace.year)) {
+        tracesByYear.set(trace.year, []);
+      }
+      tracesByYear.get(trace.year)?.push(trace);
+    });
+  });
+  const rothConversionEligibilityPath = yearlySeries.map((point) => {
+    const yearTraces = tracesByYear.get(point.year) ?? [];
+    if (!yearTraces.length) {
+      return {
+        year: point.year,
+        evaluatedCandidateAmounts: [],
+        bestCandidateAmount: 0,
+        bestScore: 0,
+        conversionExecuted: false,
+        simulationModeUsedForConversion: 'raw_simulation' as SimulationStrategyMode,
+        plannerLogicActiveAtConversion: false,
+        conversionEngineInvoked: false,
+        rawMAGI: 0,
+        irmaaThreshold: null,
+        computedHeadroom: 0,
+        magiBuffer: 0,
+        headroomComputed: false,
+        candidateAmountsGenerated: false,
+        eligibilityBlockedReason: 'simulation_mode_raw',
+        executedRunRate: 0,
+        eligibleRunRate: 0,
+        blockedRunRate: 0,
+        noEconomicBenefitRunRate: 0,
+        notEligibleRunRate: 0,
+        representativeAmount: 0,
+        representativeReason: 'simulation_mode_raw',
+        representativeMagiEffect: 0,
+        representativeTaxEffect: 0,
+        representativeAcaEffect: 0,
+        representativeIrmaaEffect: 0,
+        representativePretaxBalanceEffect: 0,
+        representativeWithdrawalRoth: 0,
+        representativeRothBalanceStart: 0,
+        representativeRothBalanceEnd: 0,
+        representativeRothContributionFlow: 0,
+        representativeRothMarketGainLoss: 0,
+        representativeRothNetChange: 0,
+        representativeRothBalanceReconciliationDelta: 0,
+        withdrawalRothMedianAllRuns: point.medianWithdrawalRoth,
+        conversionScore: 0,
+        conversionOpportunityScore: 0,
+        futureTaxReduction: 0,
+        futureTaxBurdenReduction: 0,
+        irmaaAvoidanceValue: 0,
+        rmdReductionValue: 0,
+        rothOptionalityValue: 0,
+        future_tax_reduction_value: 0,
+        currentTaxCost: 0,
+        conversionSuppressedReason: 'no_headroom',
+        projectedFutureMagiPeak: 0,
+        projectedRmdPressure: 0,
+        projectedIrmaaExposure: 0,
+        projectedRothShareAfter: 0,
+        medianMagiBefore: 0,
+        medianMagiAfter: 0,
+        medianTargetMagiCeiling: null,
+      };
+    }
+    const executedTraces = yearTraces.filter((trace) => trace.rothConversion > 0);
+    const noEconomicBenefitTraces = yearTraces.filter((trace) =>
+      trace.rothConversionReason.startsWith('no_economic_benefit'),
+    );
+    const notEligibleTraces = yearTraces.filter((trace) =>
+      trace.rothConversionReason.startsWith('not_eligible'),
+    );
+    const blockedTraces = yearTraces.filter((trace) =>
+      trace.rothConversion <= 0 &&
+      !trace.rothConversionReason.startsWith('no_economic_benefit') &&
+      !trace.rothConversionReason.startsWith('not_eligible'),
+    );
+    const representativeSet = executedTraces.length > 0 ? executedTraces : yearTraces;
+    const representativeAmountValue = executedTraces.length > 0
+      ? median(executedTraces.map((trace) => trace.rothConversion))
+      : 0;
+    const representativeTrace = representativeSet.reduce((best, trace) => {
+      if (!best) {
+        return trace;
+      }
+      const bestDistance = Math.abs(best.rothConversion - representativeAmountValue);
+      const traceDistance = Math.abs(trace.rothConversion - representativeAmountValue);
+      return traceDistance < bestDistance ? trace : best;
+    }, representativeSet[0]);
+    const targetMagiValues = representativeSet
+      .map((trace) => trace.rothConversionTargetMagiCeiling)
+      .filter((value): value is number => typeof value === 'number' && Number.isFinite(value));
+    return {
+      year: point.year,
+      evaluatedCandidateAmounts: representativeTrace?.rothConversionCandidateAmounts ?? [],
+      bestCandidateAmount: representativeTrace?.rothConversionBestCandidateAmount ?? 0,
+      bestScore: representativeTrace?.rothConversionBestScore ?? 0,
+      conversionExecuted: executedTraces.length > 0,
+      simulationModeUsedForConversion:
+        representativeTrace?.rothConversionSimulationModeUsed ?? 'raw_simulation',
+      plannerLogicActiveAtConversion:
+        representativeSet.filter((trace) => trace.rothConversionPlannerLogicActiveAtConversion).length /
+          representativeSet.length >= 0.5,
+      conversionEngineInvoked:
+        representativeSet.filter((trace) => trace.rothConversionEngineInvoked).length /
+          representativeSet.length >= 0.5,
+      rawMAGI: median(representativeSet.map((trace) => trace.rothConversionRawMAGI)),
+      irmaaThreshold: (() => {
+        const values = representativeSet
+          .map((trace) => trace.rothConversionIrmaaThreshold)
+          .filter((value): value is number => typeof value === 'number' && Number.isFinite(value));
+        return values.length > 0 ? median(values) : null;
+      })(),
+      computedHeadroom: median(
+        representativeSet.map((trace) => trace.rothConversionComputedHeadroom),
+      ),
+      magiBuffer: median(representativeSet.map((trace) => trace.rothConversionMagiBuffer)),
+      headroomComputed:
+        representativeSet.filter((trace) => trace.rothConversionHeadroomComputed).length /
+          representativeSet.length >= 0.5,
+      candidateAmountsGenerated:
+        representativeSet.filter((trace) => trace.rothConversionCandidateAmountsGenerated).length /
+          representativeSet.length >= 0.5,
+      eligibilityBlockedReason:
+        executedTraces.length > 0
+          ? null
+          : (() => {
+              const reasons = representativeSet
+                .map((trace) => trace.rothConversionEligibilityBlockedReason)
+                .filter((reason): reason is string => Boolean(reason));
+              return reasons.length > 0 ? dominantValue(reasons) : null;
+            })(),
+      executedRunRate: executedTraces.length / yearTraces.length,
+      eligibleRunRate: yearTraces.filter((trace) => trace.rothConversionEligible).length /
+        yearTraces.length,
+      blockedRunRate: blockedTraces.length / yearTraces.length,
+      noEconomicBenefitRunRate: noEconomicBenefitTraces.length / yearTraces.length,
+      notEligibleRunRate: notEligibleTraces.length / yearTraces.length,
+      representativeAmount: representativeAmountValue,
+      representativeReason:
+        executedTraces.length > 0
+          ? dominantValue(executedTraces.map((trace) => trace.rothConversionReason))
+          : dominantValue(yearTraces.map((trace) => trace.rothConversionReason)),
+      representativeMagiEffect:
+        executedTraces.length > 0
+          ? median(executedTraces.map((trace) => trace.rothConversionMagiEffect))
+          : 0,
+      representativeTaxEffect:
+        executedTraces.length > 0
+          ? median(executedTraces.map((trace) => trace.rothConversionTaxEffect))
+          : 0,
+      representativeAcaEffect:
+        executedTraces.length > 0
+          ? median(executedTraces.map((trace) => trace.rothConversionAcaEffect))
+          : 0,
+      representativeIrmaaEffect:
+        executedTraces.length > 0
+          ? median(executedTraces.map((trace) => trace.rothConversionIrmaaEffect))
+          : 0,
+      representativePretaxBalanceEffect:
+        executedTraces.length > 0
+          ? median(executedTraces.map((trace) => trace.rothConversionPretaxBalanceEffect))
+          : 0,
+      representativeWithdrawalRoth: median(
+        representativeSet.map((trace) => trace.withdrawalRoth),
+      ),
+      representativeRothBalanceStart: median(
+        representativeSet.map((trace) => trace.rothBalanceStart),
+      ),
+      representativeRothBalanceEnd: median(
+        representativeSet.map((trace) => trace.rothBalanceEnd),
+      ),
+      representativeRothContributionFlow: median(
+        representativeSet.map((trace) => trace.rothContributionFlow),
+      ),
+      representativeRothMarketGainLoss: median(
+        representativeSet.map((trace) => trace.rothMarketGainLoss),
+      ),
+      representativeRothNetChange: median(
+        representativeSet.map((trace) => trace.rothNetChange),
+      ),
+      representativeRothBalanceReconciliationDelta: median(
+        representativeSet.map((trace) => trace.rothBalanceReconciliationDelta),
+      ),
+      withdrawalRothMedianAllRuns: point.medianWithdrawalRoth,
+      conversionScore: median(
+        representativeSet.map((trace) => trace.rothConversionScore),
+      ),
+      conversionOpportunityScore: median(
+        representativeSet.map((trace) => trace.rothConversionOpportunityScore),
+      ),
+      futureTaxReduction: median(
+        representativeSet.map((trace) => trace.rothConversionFutureTaxReduction),
+      ),
+      futureTaxBurdenReduction: median(
+        representativeSet.map((trace) => trace.rothConversionFutureTaxBurdenReduction),
+      ),
+      irmaaAvoidanceValue: median(
+        representativeSet.map((trace) => trace.rothConversionIrmaaAvoidanceValue),
+      ),
+      rmdReductionValue: median(
+        representativeSet.map((trace) => trace.rothConversionRmdReductionValue),
+      ),
+      rothOptionalityValue: median(
+        representativeSet.map((trace) => trace.rothConversionRothOptionalityValue),
+      ),
+      future_tax_reduction_value: median(
+        representativeSet.map((trace) => trace.rothConversionFutureTaxReductionValue),
+      ),
+      currentTaxCost: median(
+        representativeSet.map((trace) => trace.rothConversionCurrentTaxCost),
+      ),
+      conversionSuppressedReason:
+        executedTraces.length > 0
+          ? null
+          : (() => {
+              const suppressedReasons = yearTraces
+                .map((trace) => trace.rothConversionSuppressedReason)
+                .filter((reason): reason is string => Boolean(reason));
+              return suppressedReasons.length > 0
+                ? dominantValue(suppressedReasons)
+                : 'already_optimal';
+            })(),
+      projectedFutureMagiPeak: median(
+        representativeSet.map((trace) => trace.rothConversionProjectedFutureMagiPeak),
+      ),
+      projectedRmdPressure: median(
+        representativeSet.map((trace) => trace.rothConversionProjectedRmdPressure),
+      ),
+      projectedIrmaaExposure: median(
+        representativeSet.map((trace) => trace.rothConversionProjectedIrmaaExposure),
+      ),
+      projectedRothShareAfter: median(
+        representativeSet.map((trace) => trace.rothConversionProjectedRothShareAfter),
+      ),
+      medianMagiBefore: median(representativeSet.map((trace) => trace.rothConversionMagiBefore)),
+      medianMagiAfter: median(representativeSet.map((trace) => trace.rothConversionMagiAfter)),
+      medianTargetMagiCeiling: targetMagiValues.length > 0 ? median(targetMagiValues) : null,
+    };
+  });
+  const runConvergence = runs.map((run, runIndex) => {
+    const converged = run.closedLoopYearsEvaluated > 0 &&
+      run.closedLoopYearsConverged === run.closedLoopYearsEvaluated;
+    return {
+      runIndex,
+      converged,
+      convergedYearRate:
+        run.closedLoopYearsEvaluated > 0
+          ? run.closedLoopYearsConverged / run.closedLoopYearsEvaluated
+          : 0,
+      yearsEvaluated: run.closedLoopYearsEvaluated,
+      passesUsedMax: run.closedLoopPassesUsedMax,
+      stopReasonCounts: {
+        converged_thresholds_met: run.closedLoopStopReasonCounts.converged_thresholds_met,
+        max_pass_limit_reached: run.closedLoopStopReasonCounts.max_pass_limit_reached,
+        no_change: run.closedLoopStopReasonCounts.no_change,
+      },
+      finalMagiDeltaMax: run.closedLoopFinalMagiDeltaMax,
+      finalFederalTaxDeltaMax: run.closedLoopFinalFederalTaxDeltaMax,
+      finalHealthcarePremiumDeltaMax: run.closedLoopFinalHealthcarePremiumDeltaMax,
+    };
+  });
+  const convergedRunCount = runConvergence.filter((run) => run.converged).length;
+  const allRunsConverged = runs.length > 0 && convergedRunCount === runs.length;
+  const convergedBeforeMaxPassesRunCount = runConvergence.filter(
+    (run) => run.converged && run.passesUsedMax < DEFAULT_MAX_CLOSED_LOOP_PASSES,
+  ).length;
+  const nonConvergedRunIndexes = runConvergence
+    .filter((run) => !run.converged)
+    .map((run) => run.runIndex);
+  const summaryStopReasonCounts = {
+    converged_thresholds_met: runs.reduce(
+      (sum, run) => sum + run.closedLoopStopReasonCounts.converged_thresholds_met,
+      0,
+    ),
+    max_pass_limit_reached: runs.reduce(
+      (sum, run) => sum + run.closedLoopStopReasonCounts.max_pass_limit_reached,
+      0,
+    ),
+    no_change: runs.reduce((sum, run) => sum + run.closedLoopStopReasonCounts.no_change, 0),
+  };
+  const dominantSummaryStopReason: ClosedLoopStopReason =
+    summaryStopReasonCounts.converged_thresholds_met >=
+      summaryStopReasonCounts.max_pass_limit_reached &&
+    summaryStopReasonCounts.converged_thresholds_met >= summaryStopReasonCounts.no_change
+      ? 'converged_thresholds_met'
+      : summaryStopReasonCounts.no_change >=
+            summaryStopReasonCounts.max_pass_limit_reached
+        ? 'no_change'
+        : 'max_pass_limit_reached';
+  const nonConvergedRuns = runConvergence.filter((run) => !run.converged);
+  const summaryFinalMagiDeltaValue = allRunsConverged
+    ? summaryFinalMagiDelta
+    : nonConvergedRuns.length
+      ? Math.max(...nonConvergedRuns.map((run) => run.finalMagiDeltaMax))
+      : summaryFinalMagiDelta;
+  const summaryFinalFederalTaxDeltaValue = allRunsConverged
+    ? summaryFinalFederalTaxDelta
+    : nonConvergedRuns.length
+      ? Math.max(...nonConvergedRuns.map((run) => run.finalFederalTaxDeltaMax))
+      : summaryFinalFederalTaxDelta;
+  const summaryFinalHealthcareDeltaValue = allRunsConverged
+    ? summaryFinalHealthcareDelta
+    : nonConvergedRuns.length
+      ? Math.max(...nonConvergedRuns.map((run) => run.finalHealthcarePremiumDeltaMax))
+      : summaryFinalHealthcareDelta;
+
   return {
     effectiveSpendPath: yearlySeries.map((point) => ({
       year: point.year,
@@ -1082,6 +2523,19 @@ function buildSimulationModeDiagnostics({
       ira401k: point.medianWithdrawalIra401k,
       roth: point.medianWithdrawalRoth,
     })),
+    withdrawalRationalePath: yearlySeries.map((point) => ({
+      year: point.year,
+      rationale: point.dominantWithdrawalRationale,
+      objectiveScores: {
+        spendingNeed: point.medianWithdrawalScoreSpendingNeed,
+        marginalTaxCost: point.medianWithdrawalScoreMarginalTaxCost,
+        magiTarget: point.medianWithdrawalScoreMagiTarget,
+        acaCliffAvoidance: point.medianWithdrawalScoreAcaCliffAvoidance,
+        irmaaCliffAvoidance: point.medianWithdrawalScoreIrmaaCliffAvoidance,
+        rothOptionality: point.medianWithdrawalScoreRothOptionality,
+        sequenceDefense: point.medianWithdrawalScoreSequenceDefense,
+      },
+    })),
     taxesPaidPath: yearlySeries.map((point) => ({
       year: point.year,
       value: point.medianFederalTax,
@@ -1090,11 +2544,93 @@ function buildSimulationModeDiagnostics({
       year: point.year,
       value: point.medianMagi,
     })),
-    conversionPath: yearlySeries.map((point) => ({
+    conversionPath: rothConversionEligibilityPath.map((point) => ({
       year: point.year,
-      value: point.medianRothConversion,
+      value: point.representativeAmount,
     })),
+    rothConversionTracePath: rothConversionEligibilityPath.map((point) => ({
+      year: point.year,
+      amount: point.representativeAmount,
+      reason: point.representativeReason,
+      simulationModeUsedForConversion: point.simulationModeUsedForConversion,
+      plannerLogicActiveAtConversion: point.plannerLogicActiveAtConversion,
+      conversionEngineInvoked: point.conversionEngineInvoked,
+      evaluatedCandidateAmounts: point.evaluatedCandidateAmounts,
+      bestCandidateAmount: point.bestCandidateAmount,
+      bestScore: point.bestScore,
+      conversionExecuted: point.conversionExecuted,
+      rawMAGI: point.rawMAGI,
+      irmaaThreshold: point.irmaaThreshold,
+      computedHeadroom: point.computedHeadroom,
+      magiBuffer: point.magiBuffer,
+      headroomComputed: point.headroomComputed,
+      candidateAmountsGenerated: point.candidateAmountsGenerated,
+      eligibilityBlockedReason: point.eligibilityBlockedReason,
+      conversionReason: point.representativeReason,
+      conversionScore: point.conversionScore,
+      currentTaxCost: point.currentTaxCost,
+      futureTaxReduction: point.futureTaxReduction,
+      irmaaAvoidanceValue: point.irmaaAvoidanceValue,
+      rmdReductionValue: point.rmdReductionValue,
+      rothOptionalityValue: point.rothOptionalityValue,
+      conversionSuppressedReason: point.conversionSuppressedReason,
+      magiEffect: point.representativeMagiEffect,
+      taxEffect: point.representativeTaxEffect,
+      acaEffect: point.representativeAcaEffect,
+      irmaaEffect: point.representativeIrmaaEffect,
+      pretaxBalanceEffect: point.representativePretaxBalanceEffect,
+      withdrawalRoth: point.withdrawalRothMedianAllRuns,
+      representativeWithdrawalRoth: point.representativeWithdrawalRoth,
+      rothBalanceStart: point.representativeRothBalanceStart,
+      rothBalanceEnd: point.representativeRothBalanceEnd,
+      rothContributionFlow: point.representativeRothContributionFlow,
+      rothMarketGainLoss: point.representativeRothMarketGainLoss,
+      rothNetChange: point.representativeRothNetChange,
+      rothBalanceReconciliationDelta: point.representativeRothBalanceReconciliationDelta,
+    })),
+    rothConversionEligibilityPath,
+    rothConversionDecisionSummary: {
+      executedYearCount: rothExecutedYearCount,
+      blockedYearCount: rothBlockedYearCount,
+      noEconomicBenefitYearCount: rothNoEconomicBenefitYearCount,
+      notEligibleYearCount: rothNotEligibleYearCount,
+      reasons: rothDecisionReasons,
+    },
     failureYearDistribution,
+    closedLoopConvergenceSummary: {
+      converged: allRunsConverged,
+      convergedRate: averageConvergedRate,
+      passesUsed: summaryPasses,
+      stopReason: dominantSummaryStopReason,
+      finalMagiDelta: summaryFinalMagiDeltaValue,
+      finalFederalTaxDelta: summaryFinalFederalTaxDeltaValue,
+      finalHealthcarePremiumDelta: summaryFinalHealthcareDeltaValue,
+      convergedBeforeMaxPasses:
+        runs.length > 0 && convergedBeforeMaxPassesRunCount === runs.length,
+      convergedBeforeMaxPassesRate:
+        runs.length > 0 ? convergedBeforeMaxPassesRunCount / runs.length : 0,
+    },
+    closedLoopConvergencePath: yearlySeries.map((point) => ({
+      year: point.year,
+      converged: point.closedLoopConverged,
+      convergedRate: point.closedLoopConvergedRate,
+      passesUsed: point.closedLoopPassesUsed,
+      stopReason: toStopReason(point.dominantClosedLoopStopReason),
+      finalMagiDelta: point.finalMagiDelta,
+      finalFederalTaxDelta: point.finalFederalTaxDelta,
+      finalHealthcarePremiumDelta: point.finalHealthcarePremiumDelta,
+      convergedBeforeMaxPasses: point.closedLoopConvergedBeforeMaxPasses,
+      convergedBeforeMaxPassesRate: point.closedLoopConvergedBeforeMaxPassesRate,
+    })),
+    closedLoopRunSummary: {
+      runCount: runs.length,
+      convergedRunCount,
+      nonConvergedRunCount: runs.length - convergedRunCount,
+      convergedRunRate: runs.length > 0 ? convergedRunCount / runs.length : 0,
+      stopReasonCounts: summaryStopReasonCounts,
+      nonConvergedRunIndexes,
+    },
+    closedLoopRunConvergence: runConvergence,
   };
 }
 
@@ -1133,6 +2669,7 @@ function simulatePath(
       failureYear: result.failureYear,
     }),
     runTrial: ({ random }) => {
+      let hsaBalance = data.accounts.hsa?.balance ?? 0;
       const balances = {
         pretax: effectivePlan.accounts.pretax.balance,
         roth: effectivePlan.accounts.roth.balance,
@@ -1144,11 +2681,26 @@ function simulatePath(
       let spendingCutsTriggered = 0;
       let failureYear: number | null = null;
       let failureReason = 'assets run short before the end of the planning horizon';
+      let failureShortfallAmount = 0;
+      let downsideSpendingCutRequired = 0;
       let inflationIndex = 1;
+      let medicalInflationIndex = 1;
       let homeSaleDependent = false;
       let inheritanceDependent = false;
       let irmaaTriggered = false;
       let rothDepletedEarly = false;
+      let forcedEquitySalesInAdverseEarlyYears = false;
+      let closedLoopYearsConverged = 0;
+      let closedLoopYearsEvaluated = 0;
+      let closedLoopPassesUsedMax = 0;
+      const closedLoopStopReasonCounts = {
+        converged_thresholds_met: 0,
+        max_pass_limit_reached: 0,
+        no_change: 0,
+      };
+      let closedLoopFinalMagiDeltaMax = 0;
+      let closedLoopFinalFederalTaxDeltaMax = 0;
+      let closedLoopFinalHealthcarePremiumDeltaMax = 0;
       let rothWasPositive = balances.roth > 0;
       const yearly: RunTrace[] = [];
       const magiHistory = new Map<number, number>();
@@ -1158,6 +2710,9 @@ function simulatePath(
         planningHorizonYears,
         random,
       );
+      const ltcEventOccurs =
+        effectivePlan.ltcAssumptions.enabled &&
+        random() < effectivePlan.ltcAssumptions.eventProbability;
 
       for (let year = effectivePlan.startYear; year <= effectivePlan.planningEndYear; year += 1) {
         throwIfSimulationCancelled(options?.isCancelled);
@@ -1165,6 +2720,16 @@ function simulatePath(
         const yearOffset = year - effectivePlan.startYear;
         const robAge = ages.rob + yearOffset;
         const debbieAge = ages.debbie + yearOffset;
+        const robRmdStartAge =
+          data.rules.rmdPolicy?.startAgeOverride ??
+          getRmdStartAgeForBirthYear(new Date(data.household.robBirthDate).getFullYear());
+        const debbieRmdStartAge =
+          data.rules.rmdPolicy?.startAgeOverride ??
+          getRmdStartAgeForBirthYear(new Date(data.household.debbieBirthDate).getFullYear());
+        const yearsUntilRmdStart = Math.max(
+          0,
+          Math.min(robRmdStartAge - robAge, debbieRmdStartAge - debbieAge),
+        );
         const isRetired = year >= effectivePlan.retirementYear;
         const marketPoint =
           marketPath[yearOffset] ??
@@ -1173,6 +2738,7 @@ function simulatePath(
         const pretaxBalanceForRmd = balances.pretax;
 
         const totalAssetsAtStart = sumBalances(balances);
+        const rothBalanceStartForYear = balances.roth;
         const yearsIntoRetirement = year - effectivePlan.retirementYear;
         const inTravelPhase =
           isRetired &&
@@ -1234,10 +2800,14 @@ function simulatePath(
           settings: data.income.preRetirementContributions,
           accountBalances: {
             pretax: balances.pretax,
-            hsa: data.accounts.hsa?.balance,
+            roth: balances.roth,
+            hsa: hsaBalance,
           },
         });
         balances.pretax = contributionResult.updatedAccountBalances.pretax;
+        balances.roth = contributionResult.updatedAccountBalances.roth ?? balances.roth;
+        hsaBalance = contributionResult.updatedAccountBalances.hsa ?? hsaBalance;
+        const rothContributionFlowForYear = balances.roth - rothBalanceStartForYear;
         const adjustedWages = contributionResult.adjustedWages;
         const socialSecurityIncome = getSocialSecurityIncome(
           effectivePlan,
@@ -1252,18 +2822,43 @@ function simulatePath(
               birthDate: data.household.robBirthDate,
               age: robAge,
               accountShare: 0.5,
+              startAgeOverride: data.rules.rmdPolicy?.startAgeOverride,
             },
             {
               birthDate: data.household.debbieBirthDate,
               age: debbieAge,
               accountShare: 0.5,
+              startAgeOverride: data.rules.rmdPolicy?.startAgeOverride,
             },
           ],
         });
 
-        const windfalls = effectivePlan.windfalls.filter((item) => item.year === year);
-        const windfallIncome = windfalls.reduce((total, item) => total + item.amount, 0);
-        windfalls.forEach((item) => {
+        const windfallRealizations = effectivePlan.windfalls
+          .map((item) => ({
+            item,
+            realized: buildWindfallRealizationForYear(item, year, data.household.filingStatus),
+          }))
+          .filter(
+            ({ realized }) =>
+              realized.cashInflow > 0 || realized.ordinaryIncome > 0 || realized.ltcgIncome > 0,
+          );
+        const windfallCashInflow = windfallRealizations.reduce(
+          (total, entry) => total + entry.realized.cashInflow,
+          0,
+        );
+        const windfallOrdinaryIncome = windfallRealizations.reduce(
+          (total, entry) => total + entry.realized.ordinaryIncome,
+          0,
+        );
+        const windfallLtcgIncome = windfallRealizations.reduce(
+          (total, entry) => total + entry.realized.ltcgIncome,
+          0,
+        );
+
+        windfallRealizations.forEach(({ item, realized }) => {
+          if (realized.cashInflow <= 0) {
+            return;
+          }
           const yearsFundedBeforeEvent = totalAssetsAtStart / Math.max(spendingBeforeHealthcare, 1);
           if (item.name === 'home_sale' && yearsFundedBeforeEvent < 5) {
             homeSaleDependent = true;
@@ -1273,22 +2868,40 @@ function simulatePath(
           }
         });
 
+        const rothBalanceBeforeReturnsForYear = balances.roth;
         SIM_BUCKETS.forEach((bucket) => {
           balances[bucket] *=
-            1 + getBucketReturn(effectivePlan.accounts[bucket].targetAllocation, assetReturns);
+            1 +
+            getBucketReturn(
+              effectivePlan.accounts[bucket].targetAllocation,
+              assetReturns,
+              effectivePlan.assetClassMappingAssumptions,
+            );
         });
+        const rothMarketGainLossForYear = balances.roth - rothBalanceBeforeReturnsForYear;
 
-        balances.cash += windfallIncome;
-        const baseIncome = adjustedWages + socialSecurityIncome + windfallIncome;
+        balances.cash += windfallCashInflow;
+        const baseIncome = adjustedWages + socialSecurityIncome + windfallCashInflow;
         const shortfallBeforeHealthcare = Math.max(spendingBeforeHealthcare - baseIncome, 0);
         const baseTaxInputs = createBaseYearTaxInputs(
           data.household.filingStatus,
           adjustedWages,
           socialSecurityIncome,
         );
+        baseTaxInputs.otherOrdinaryIncome += windfallOrdinaryIncome;
+        baseTaxInputs.realizedLTCG += windfallLtcgIncome;
         const balancesBeforeWithdrawal = { ...balances };
         const medicareEligibilityByPerson = [robAge >= 65, debbieAge >= 65];
         const medicareEligibleCount = medicareEligibilityByPerson.filter(Boolean).length;
+        const isLowEarnedIncome = salary <= effectivePlan.salaryAnnual * 0.35;
+        const hasNonMedicareMembers =
+          medicareEligibilityByPerson.filter((isEligible) => !isEligible).length > 0;
+        const acaFriendlyMagiCeilingForYear =
+          strategyBehavior.acaAwareWithdrawalOptimization &&
+          hasNonMedicareMembers &&
+          (isRetired || isLowEarnedIncome)
+            ? resolveAcaFriendlyMagiCeiling(data.household.filingStatus, inflationIndex)
+            : null;
 
         const runWithdrawalAttempt = (needed: number) => {
           const attemptBalances = { ...balancesBeforeWithdrawal };
@@ -1301,10 +2914,12 @@ function simulatePath(
             baseTaxInputs,
             assumptions,
             strategyBehavior,
+            acaFriendlyMagiCeilingForYear,
           );
           return {
             endingBalances: attemptBalances,
             result: attemptResult,
+            acaFriendlyMagiCeiling: acaFriendlyMagiCeilingForYear,
           };
         };
 
@@ -1314,75 +2929,238 @@ function simulatePath(
           retirementStatus: isRetired,
           medicareEligibilityByPerson,
           baselineAcaPremiumAnnual:
-            effectivePlan.healthcarePremiums.baselineAcaPremiumAnnual * inflationIndex,
+            effectivePlan.healthcarePremiums.baselineAcaPremiumAnnual * medicalInflationIndex,
           baselineMedicarePremiumAnnual:
-            effectivePlan.healthcarePremiums.baselineMedicarePremiumAnnual * inflationIndex,
+            effectivePlan.healthcarePremiums.baselineMedicarePremiumAnnual * medicalInflationIndex,
         };
-
-        const firstAttempt = runWithdrawalAttempt(shortfallBeforeHealthcare);
-        const firstAttemptMagi = firstAttempt.result.taxResult.MAGI;
-        const firstAttemptIrmaaReference =
-          magiHistory.get(year - DEFAULT_IRMAA_CONFIG.lookbackYears) ?? firstAttemptMagi;
-        const firstAttemptIrmaaTier = calculateIrmaaTier(
-          firstAttemptIrmaaReference,
-          data.household.filingStatus,
+        const ltcCostForYear = calculateLtcCostForYear(
+          effectivePlan,
+          {
+            rob: robAge,
+            debbie: debbieAge,
+          },
+          ltcEventOccurs,
         );
-        const firstAttemptHealthcare = calculateHealthcarePremiums({
-          ...baseHealthcareInputs,
-          MAGI: firstAttemptMagi,
-          irmaaSurchargeAnnualPerEligible: firstAttemptIrmaaTier.surchargeAnnual,
-        });
 
-        const secondAttemptNeeded =
-          shortfallBeforeHealthcare + firstAttemptHealthcare.totalHealthcarePremiumCost;
-        const secondAttempt = runWithdrawalAttempt(secondAttemptNeeded);
-        const secondAttemptMagi = secondAttempt.result.taxResult.MAGI;
-        const secondAttemptIrmaaReference =
-          magiHistory.get(year - DEFAULT_IRMAA_CONFIG.lookbackYears) ?? secondAttemptMagi;
-        const secondAttemptIrmaaTier = calculateIrmaaTier(
-          secondAttemptIrmaaReference,
-          data.household.filingStatus,
-        );
-        const secondAttemptHealthcare = calculateHealthcarePremiums({
-          ...baseHealthcareInputs,
-          MAGI: secondAttemptMagi,
-          irmaaSurchargeAnnualPerEligible: secondAttemptIrmaaTier.surchargeAnnual,
-        });
+        const lookbackMagi =
+          magiHistory.get(year - DEFAULT_IRMAA_CONFIG.lookbackYears) ?? null;
+        const convergenceThresholds = DEFAULT_CLOSED_LOOP_CONVERGENCE_THRESHOLDS;
+        let closedLoopPreviousState: ClosedLoopIterationState | null = null;
+        let closedLoopFinalState: ClosedLoopIterationState | null = null;
+        let closedLoopPassesUsed = 0;
+        let closedLoopConverged = false;
+        let closedLoopStopReason: ClosedLoopStopReason = 'max_pass_limit_reached';
+        let closedLoopLastDeltas = {
+          magi: 0,
+          federalTax: 0,
+          healthcarePremium: 0,
+        };
+        let closedLoopNeeded = shortfallBeforeHealthcare;
 
-        const needsThirdAttempt =
-          Math.abs(
-            secondAttemptHealthcare.totalHealthcarePremiumCost -
-              firstAttemptHealthcare.totalHealthcarePremiumCost,
-          ) >= 1;
+        for (let pass = 1; pass <= DEFAULT_MAX_CLOSED_LOOP_PASSES; pass += 1) {
+          const attempt = runWithdrawalAttempt(closedLoopNeeded);
+          const magi = attempt.result.taxResult.MAGI;
+          const irmaaReferenceMagi = lookbackMagi ?? magi;
+          const irmaaTierForPass = calculateIrmaaTier(
+            irmaaReferenceMagi,
+            data.household.filingStatus,
+          );
+          const healthcareForPass = calculateHealthcarePremiums({
+            ...baseHealthcareInputs,
+            MAGI: magi,
+            irmaaSurchargeAnnualPerEligible: irmaaTierForPass.surchargeAnnual,
+          });
+          const hsaOffsetForPass = calculateHsaOffsetForYear({
+            plan: effectivePlan,
+            hsaBalance,
+            magi,
+            healthcareAndLtcCost:
+              healthcareForPass.totalHealthcarePremiumCost + ltcCostForYear,
+          });
+          const nextNeeded = Math.max(
+            0,
+            shortfallBeforeHealthcare +
+              healthcareForPass.totalHealthcarePremiumCost +
+              ltcCostForYear -
+              hsaOffsetForPass,
+          );
 
-        const finalAttempt = needsThirdAttempt
-          ? runWithdrawalAttempt(
-              shortfallBeforeHealthcare + secondAttemptHealthcare.totalHealthcarePremiumCost,
-            )
-          : secondAttempt;
-        const magiForYear = finalAttempt.result.taxResult.MAGI;
-        const irmaaReferenceMagi =
+          const currentState: ClosedLoopIterationState = {
+            attempt: attempt.result,
+            endingBalances: attempt.endingBalances,
+            magi,
+            federalTax: attempt.result.taxResult.federalTax,
+            healthcarePremiumCost: healthcareForPass.totalHealthcarePremiumCost,
+            hsaOffset: hsaOffsetForPass,
+            irmaaTier: irmaaTierForPass,
+            nextNeeded,
+          };
+
+          closedLoopPassesUsed = pass;
+          closedLoopFinalState = currentState;
+          if (closedLoopPreviousState) {
+            closedLoopLastDeltas = {
+              magi: Math.abs(currentState.magi - closedLoopPreviousState.magi),
+              federalTax: Math.abs(
+                currentState.federalTax - closedLoopPreviousState.federalTax,
+              ),
+              healthcarePremium: Math.abs(
+                currentState.healthcarePremiumCost -
+                  closedLoopPreviousState.healthcarePremiumCost,
+              ),
+            };
+            const converged =
+              closedLoopLastDeltas.magi <= convergenceThresholds.magiDeltaDollars &&
+              closedLoopLastDeltas.federalTax <=
+                convergenceThresholds.federalTaxDeltaDollars &&
+              closedLoopLastDeltas.healthcarePremium <=
+                convergenceThresholds.healthcarePremiumDeltaDollars;
+            if (converged) {
+              closedLoopConverged = true;
+              closedLoopStopReason = 'converged_thresholds_met';
+              break;
+            }
+            const neededDelta = Math.abs(currentState.nextNeeded - closedLoopNeeded);
+            if (neededDelta <= 1) {
+              // Stationary/no-change is diagnostic information only. It does not
+              // imply threshold convergence unless explicit deltas also satisfy
+              // MAGI/tax/healthcare convergence tolerances.
+              closedLoopConverged = converged;
+              closedLoopStopReason = 'no_change';
+              break;
+            }
+          }
+
+          if (pass === DEFAULT_MAX_CLOSED_LOOP_PASSES) {
+            closedLoopStopReason = 'max_pass_limit_reached';
+            break;
+          }
+          closedLoopPreviousState = currentState;
+          // Damped needed update reduces oscillation near MAGI/healthcare cliffs so
+          // the 3-pass closed loop is more likely to settle without over-shooting.
+          closedLoopNeeded =
+            pass === 1 ? nextNeeded : (closedLoopNeeded + nextNeeded) / 2;
+        }
+
+        const resolvedClosedLoopState = closedLoopFinalState ?? (() => {
+          const fallback = runWithdrawalAttempt(shortfallBeforeHealthcare);
+          const fallbackMagi = fallback.result.taxResult.MAGI;
+          const fallbackIrmaaTier = calculateIrmaaTier(
+            lookbackMagi ?? fallbackMagi,
+            data.household.filingStatus,
+          );
+          const fallbackHealthcare = calculateHealthcarePremiums({
+            ...baseHealthcareInputs,
+            MAGI: fallbackMagi,
+            irmaaSurchargeAnnualPerEligible: fallbackIrmaaTier.surchargeAnnual,
+          });
+          const fallbackHsaOffset = calculateHsaOffsetForYear({
+            plan: effectivePlan,
+            hsaBalance,
+            magi: fallbackMagi,
+            healthcareAndLtcCost:
+              fallbackHealthcare.totalHealthcarePremiumCost + ltcCostForYear,
+          });
+          return {
+            attempt: fallback.result,
+            endingBalances: fallback.endingBalances,
+            magi: fallbackMagi,
+            federalTax: fallback.result.taxResult.federalTax,
+            healthcarePremiumCost: fallbackHealthcare.totalHealthcarePremiumCost,
+            hsaOffset: fallbackHsaOffset,
+            irmaaTier: fallbackIrmaaTier,
+            nextNeeded: Math.max(
+              0,
+              shortfallBeforeHealthcare +
+                fallbackHealthcare.totalHealthcarePremiumCost +
+                ltcCostForYear -
+                fallbackHsaOffset,
+            ),
+          } satisfies ClosedLoopIterationState;
+        })();
+
+        const withdrawalResult = resolvedClosedLoopState.attempt;
+        const rothConversionTrace = strategyBehavior.plannerLogicActive
+          ? applyProactiveRothConversion({
+              balances: resolvedClosedLoopState.endingBalances,
+              withdrawalResult,
+              strategy: strategyBehavior,
+              plan: effectivePlan,
+              assumptions,
+              requiredRmdAmount: rmdResult.amount,
+              yearsUntilRmdStart,
+              isRetired,
+              acaFriendlyMagiCeiling: acaFriendlyMagiCeilingForYear,
+              medicareEligibleCount,
+            })
+          : buildInactiveRothConversionTrace({
+              balances: resolvedClosedLoopState.endingBalances,
+              withdrawalResult,
+              strategy: strategyBehavior,
+            });
+        let magiForYear = withdrawalResult.taxResult.MAGI;
+        let irmaaReferenceMagi =
           magiHistory.get(year - DEFAULT_IRMAA_CONFIG.lookbackYears) ?? magiForYear;
-        const irmaaTier = calculateIrmaaTier(irmaaReferenceMagi, data.household.filingStatus);
-        const healthcarePremiums = calculateHealthcarePremiums({
+        let irmaaTier = calculateIrmaaTier(irmaaReferenceMagi, data.household.filingStatus);
+        let healthcarePremiums = calculateHealthcarePremiums({
           ...baseHealthcareInputs,
           MAGI: magiForYear,
           irmaaSurchargeAnnualPerEligible: irmaaTier.surchargeAnnual,
         });
+        let hsaOffsetUsed = calculateHsaOffsetForYear({
+          plan: effectivePlan,
+          hsaBalance,
+          magi: magiForYear,
+          healthcareAndLtcCost: healthcarePremiums.totalHealthcarePremiumCost + ltcCostForYear,
+        });
+        const closedLoopConvergedBeforeMaxPasses =
+          closedLoopConverged && closedLoopPassesUsed < DEFAULT_MAX_CLOSED_LOOP_PASSES;
+        closedLoopYearsEvaluated += 1;
+        if (closedLoopConverged) {
+          closedLoopYearsConverged += 1;
+        }
+        closedLoopPassesUsedMax = Math.max(closedLoopPassesUsedMax, closedLoopPassesUsed);
+        closedLoopStopReasonCounts[closedLoopStopReason] += 1;
+        closedLoopFinalMagiDeltaMax = Math.max(
+          closedLoopFinalMagiDeltaMax,
+          closedLoopLastDeltas.magi,
+        );
+        closedLoopFinalFederalTaxDeltaMax = Math.max(
+          closedLoopFinalFederalTaxDeltaMax,
+          closedLoopLastDeltas.federalTax,
+        );
+        closedLoopFinalHealthcarePremiumDeltaMax = Math.max(
+          closedLoopFinalHealthcarePremiumDeltaMax,
+          closedLoopLastDeltas.healthcarePremium,
+        );
 
-        balances.pretax = finalAttempt.endingBalances.pretax;
-        balances.roth = finalAttempt.endingBalances.roth;
-        balances.taxable = finalAttempt.endingBalances.taxable;
-        balances.cash = finalAttempt.endingBalances.cash;
+        balances.pretax = resolvedClosedLoopState.endingBalances.pretax;
+        balances.roth = resolvedClosedLoopState.endingBalances.roth;
+        balances.taxable = resolvedClosedLoopState.endingBalances.taxable;
+        balances.cash = resolvedClosedLoopState.endingBalances.cash;
+        if (hsaOffsetUsed > 0) {
+          const appliedOffset = Math.min(hsaOffsetUsed, hsaBalance, balances.pretax);
+          hsaBalance = Math.max(0, hsaBalance - appliedOffset);
+          balances.pretax = Math.max(0, balances.pretax - appliedOffset);
+        }
 
-        const withdrawalResult = finalAttempt.result;
         const federalTaxForYear = withdrawalResult.taxResult.federalTax;
         magiHistory.set(year, magiForYear);
         const spending =
-          spendingBeforeHealthcare + healthcarePremiums.totalHealthcarePremiumCost;
+          spendingBeforeHealthcare +
+          healthcarePremiums.totalHealthcarePremiumCost +
+          ltcCostForYear -
+          hsaOffsetUsed;
         const annualMedicareSurcharge = healthcarePremiums.irmaaSurcharge;
         const medicarePremiumEstimate = healthcarePremiums.medicarePremiumEstimate;
         const income = baseIncome + withdrawalResult.rmdWithdrawn;
+        const nonCashWithdrawalForYear =
+          withdrawalResult.withdrawals.taxable +
+          withdrawalResult.withdrawals.pretax +
+          withdrawalResult.withdrawals.roth;
+        if (marketState === 'down' && yearOffset <= 9 && nonCashWithdrawalForYear > 0) {
+          forcedEquitySalesInAdverseEarlyYears = true;
+        }
 
         if (irmaaTier.tier > 1 && medicareEligibleCount > 0) {
           irmaaTriggered = true;
@@ -1392,6 +3170,15 @@ function simulatePath(
           rothDepletedEarly = true;
         }
         rothWasPositive = balances.roth > 1;
+        const rothBalanceEndForYear = balances.roth;
+        const rothNetChangeForYear = rothBalanceEndForYear - rothBalanceStartForYear;
+        const rothBalanceReconciliationDeltaForYear =
+          rothBalanceEndForYear -
+          (rothBalanceStartForYear +
+            rothContributionFlowForYear +
+            rothMarketGainLossForYear -
+            withdrawalResult.withdrawals.roth +
+            rothConversionTrace.amount);
 
         const endingAssets = sumBalances(balances);
         yearly.push({
@@ -1405,7 +3192,89 @@ function simulatePath(
           withdrawalTaxable: roundSeriesValue(withdrawalResult.withdrawals.taxable),
           withdrawalIra401k: roundSeriesValue(withdrawalResult.withdrawals.pretax),
           withdrawalRoth: roundSeriesValue(withdrawalResult.withdrawals.roth),
-          rothConversion: 0,
+          rothConversion: roundSeriesValue(rothConversionTrace.amount),
+          rothConversionReason: rothConversionTrace.reason,
+          rothConversionSimulationModeUsed:
+            rothConversionTrace.simulationModeUsedForConversion,
+          rothConversionPlannerLogicActiveAtConversion:
+            rothConversionTrace.plannerLogicActiveAtConversion,
+          rothConversionEngineInvoked: rothConversionTrace.conversionEngineInvoked,
+          rothConversionCandidateAmounts: rothConversionTrace.evaluatedCandidateAmounts.map(
+            (amount) => roundSeriesValue(amount),
+          ),
+          rothConversionBestCandidateAmount: roundSeriesValue(
+            rothConversionTrace.bestCandidateAmount,
+          ),
+          rothConversionBestScore: roundSeriesValue(rothConversionTrace.bestScore),
+          rothConversionRawMAGI: roundSeriesValue(rothConversionTrace.rawMAGI),
+          rothConversionIrmaaThreshold: rothConversionTrace.irmaaThreshold === null
+            ? null
+            : roundSeriesValue(rothConversionTrace.irmaaThreshold),
+          rothConversionComputedHeadroom: roundSeriesValue(rothConversionTrace.computedHeadroom),
+          rothConversionMagiBuffer: roundSeriesValue(rothConversionTrace.magiBuffer),
+          rothConversionHeadroomComputed: rothConversionTrace.headroomComputed,
+          rothConversionCandidateAmountsGenerated:
+            rothConversionTrace.candidateAmountsGenerated,
+          rothConversionEligibilityBlockedReason:
+            rothConversionTrace.eligibilityBlockedReason,
+          rothConversionMagiEffect: roundSeriesValue(rothConversionTrace.magiEffect),
+          rothConversionTaxEffect: roundSeriesValue(rothConversionTrace.taxEffect),
+          rothConversionAcaEffect: roundSeriesValue(rothConversionTrace.acaEffect),
+          rothConversionIrmaaEffect: roundSeriesValue(rothConversionTrace.irmaaEffect),
+          rothConversionPretaxBalanceEffect: roundSeriesValue(
+            rothConversionTrace.pretaxBalanceEffect,
+          ),
+          rothConversionEligible: rothConversionTrace.eligible,
+          rothConversionTargetMagiCeiling: rothConversionTrace.targetMagiCeiling === null
+            ? null
+            : roundSeriesValue(rothConversionTrace.targetMagiCeiling),
+          rothConversionMagiHeadroom: roundSeriesValue(rothConversionTrace.magiHeadroom),
+          rothConversionMagiBefore: roundSeriesValue(rothConversionTrace.magiBefore),
+          rothConversionMagiAfter: roundSeriesValue(rothConversionTrace.magiAfter),
+          rothConversionPretaxBalanceBefore: roundSeriesValue(
+            rothConversionTrace.pretaxBalanceBefore,
+          ),
+          rothConversionBalanceCap: roundSeriesValue(rothConversionTrace.balanceCap),
+          rothConversionScore: roundSeriesValue(rothConversionTrace.conversionScore),
+          rothConversionOpportunityScore: rothConversionTrace.conversionOpportunityScore,
+          rothConversionFutureTaxReduction: roundSeriesValue(
+            rothConversionTrace.futureTaxReduction,
+          ),
+          rothConversionFutureTaxBurdenReduction: roundSeriesValue(
+            rothConversionTrace.futureTaxBurdenReduction,
+          ),
+          rothConversionIrmaaAvoidanceValue: roundSeriesValue(
+            rothConversionTrace.irmaaAvoidanceValue,
+          ),
+          rothConversionRmdReductionValue: roundSeriesValue(
+            rothConversionTrace.rmdReductionValue,
+          ),
+          rothConversionRothOptionalityValue: roundSeriesValue(
+            rothConversionTrace.rothOptionalityValue,
+          ),
+          rothConversionFutureTaxReductionValue: roundSeriesValue(
+            rothConversionTrace.futureTaxReductionValue,
+          ),
+          rothConversionCurrentTaxCost: roundSeriesValue(rothConversionTrace.currentTaxCost),
+          rothConversionSuppressedReason: rothConversionTrace.conversionSuppressedReason,
+          rothConversionProjectedFutureMagiPeak: roundSeriesValue(
+            rothConversionTrace.projectedFutureMagiPeak,
+          ),
+          rothConversionProjectedRmdPressure: roundSeriesValue(
+            rothConversionTrace.projectedRmdPressure,
+          ),
+          rothConversionProjectedIrmaaExposure: roundSeriesValue(
+            rothConversionTrace.projectedIrmaaExposure,
+          ),
+          rothConversionProjectedRothShareAfter: rothConversionTrace.projectedRothShareAfter,
+          rothBalanceStart: roundSeriesValue(rothBalanceStartForYear),
+          rothBalanceEnd: roundSeriesValue(rothBalanceEndForYear),
+          rothContributionFlow: roundSeriesValue(rothContributionFlowForYear),
+          rothMarketGainLoss: roundSeriesValue(rothMarketGainLossForYear),
+          rothNetChange: roundSeriesValue(rothNetChangeForYear),
+          rothBalanceReconciliationDelta: roundSeriesValue(
+            rothBalanceReconciliationDeltaForYear,
+          ),
           taxableIncome: roundSeriesValue(withdrawalResult.taxResult.totalTaxableIncome),
           magi: roundSeriesValue(magiForYear),
           irmaaTier: irmaaTier.tierLabel,
@@ -1418,6 +3287,26 @@ function simulatePath(
           totalHealthcarePremiumCost: roundSeriesValue(
             healthcarePremiums.totalHealthcarePremiumCost,
           ),
+          windfallCashInflow: roundSeriesValue(windfallCashInflow),
+          windfallOrdinaryIncome: roundSeriesValue(windfallOrdinaryIncome),
+          windfallLtcgIncome: roundSeriesValue(windfallLtcgIncome),
+          hsaOffsetUsed: roundSeriesValue(hsaOffsetUsed),
+          ltcCost: roundSeriesValue(ltcCostForYear),
+          withdrawalRationale: withdrawalResult.decisionTrace.rationale,
+          withdrawalScoreSpendingNeed:
+            withdrawalResult.decisionTrace.objectiveScores.spendingNeed,
+          withdrawalScoreMarginalTaxCost:
+            withdrawalResult.decisionTrace.objectiveScores.marginalTaxCost,
+          withdrawalScoreMagiTarget:
+            withdrawalResult.decisionTrace.objectiveScores.magiTarget,
+          withdrawalScoreAcaCliffAvoidance:
+            withdrawalResult.decisionTrace.objectiveScores.acaCliffAvoidance,
+          withdrawalScoreIrmaaCliffAvoidance:
+            withdrawalResult.decisionTrace.objectiveScores.irmaaCliffAvoidance,
+          withdrawalScoreRothOptionality:
+            withdrawalResult.decisionTrace.objectiveScores.rothOptionality,
+          withdrawalScoreSequenceDefense:
+            withdrawalResult.decisionTrace.objectiveScores.sequenceDefense,
           employee401kContribution: roundSeriesValue(contributionResult.employee401kContribution),
           employerMatchContribution: roundSeriesValue(
             contributionResult.employerMatchContribution,
@@ -1429,6 +3318,15 @@ function simulatePath(
           pretaxBalanceAfterContributions: roundSeriesValue(
             contributionResult.updatedPretaxBalance,
           ),
+          closedLoopConverged: closedLoopConverged,
+          closedLoopConvergedBeforeMaxPasses,
+          closedLoopPassesUsed: closedLoopPassesUsed,
+          closedLoopStopReason: closedLoopStopReason,
+          closedLoopLastMagiDelta: roundSeriesValue(closedLoopLastDeltas.magi),
+          closedLoopLastFederalTaxDelta: roundSeriesValue(closedLoopLastDeltas.federalTax),
+          closedLoopLastHealthcarePremiumDelta: roundSeriesValue(
+            closedLoopLastDeltas.healthcarePremium,
+          ),
         });
 
         if (!yearlyBuckets.has(year)) {
@@ -1438,11 +3336,16 @@ function simulatePath(
 
         if (withdrawalResult.remaining > 0 || endingAssets <= 0) {
           failureYear = year;
+          failureShortfallAmount = Math.max(0, withdrawalResult.remaining);
+          downsideSpendingCutRequired =
+            spending > 0 ? Math.max(0, Math.min(1, failureShortfallAmount / spending)) : 0;
           failureReason =
             spending <=
             effectivePlan.essentialAnnual * inflationIndex +
               effectivePlan.taxesInsuranceAnnual * inflationIndex +
-              healthcarePremiums.totalHealthcarePremiumCost
+              healthcarePremiums.totalHealthcarePremiumCost +
+              ltcCostForYear -
+              hsaOffsetUsed
               ? 'essential spending can no longer be covered from the remaining assets'
               : marketState === 'down'
                 ? 'sequence risk forces withdrawals after a weak early market'
@@ -1453,6 +3356,7 @@ function simulatePath(
         }
 
         inflationIndex *= 1 + inflation;
+        medicalInflationIndex *= 1 + effectivePlan.healthcarePremiums.medicalInflationAnnual;
       }
 
       return {
@@ -1464,7 +3368,17 @@ function simulatePath(
         homeSaleDependent,
         inheritanceDependent,
         rothDepletedEarly,
+        forcedEquitySalesInAdverseEarlyYears,
+        failureShortfallAmount,
+        downsideSpendingCutRequired,
         failureReason,
+        closedLoopYearsConverged,
+        closedLoopYearsEvaluated,
+        closedLoopPassesUsedMax,
+        closedLoopStopReasonCounts,
+        closedLoopFinalMagiDeltaMax,
+        closedLoopFinalFederalTaxDeltaMax,
+        closedLoopFinalHealthcarePremiumDeltaMax,
         yearly,
       };
     },
@@ -1492,6 +3406,24 @@ function simulatePath(
     medianWithdrawalIra401k: median(traces.map((trace) => trace.withdrawalIra401k)),
     medianWithdrawalRoth: median(traces.map((trace) => trace.withdrawalRoth)),
     medianRothConversion: median(traces.map((trace) => trace.rothConversion)),
+    dominantRothConversionReason: dominantValue(
+      traces.map((trace) => trace.rothConversionReason),
+    ),
+    medianRothConversionMagiEffect: median(
+      traces.map((trace) => trace.rothConversionMagiEffect),
+    ),
+    medianRothConversionTaxEffect: median(
+      traces.map((trace) => trace.rothConversionTaxEffect),
+    ),
+    medianRothConversionAcaEffect: median(
+      traces.map((trace) => trace.rothConversionAcaEffect),
+    ),
+    medianRothConversionIrmaaEffect: median(
+      traces.map((trace) => trace.rothConversionIrmaaEffect),
+    ),
+    medianRothConversionPretaxBalanceEffect: median(
+      traces.map((trace) => trace.rothConversionPretaxBalanceEffect),
+    ),
     medianTaxableIncome: median(traces.map((trace) => trace.taxableIncome)),
     medianMagi: median(traces.map((trace) => trace.magi)),
     dominantIrmaaTier: dominantValue(traces.map((trace) => trace.irmaaTier)),
@@ -1519,6 +3451,74 @@ function simulatePath(
     medianTotalHealthcarePremiumCost: median(
       traces.map((trace) => trace.totalHealthcarePremiumCost),
     ),
+    medianWindfallCashInflow: median(traces.map((trace) => trace.windfallCashInflow)),
+    medianWindfallOrdinaryIncome: median(
+      traces.map((trace) => trace.windfallOrdinaryIncome),
+    ),
+    medianWindfallLtcgIncome: median(traces.map((trace) => trace.windfallLtcgIncome)),
+    medianHsaOffsetUsed: median(traces.map((trace) => trace.hsaOffsetUsed)),
+    medianLtcCost: median(traces.map((trace) => trace.ltcCost)),
+    dominantWithdrawalRationale: dominantValue(
+      traces.map((trace) => trace.withdrawalRationale),
+    ),
+    medianWithdrawalScoreSpendingNeed: median(
+      traces.map((trace) => trace.withdrawalScoreSpendingNeed),
+    ),
+    medianWithdrawalScoreMarginalTaxCost: median(
+      traces.map((trace) => trace.withdrawalScoreMarginalTaxCost),
+    ),
+    medianWithdrawalScoreMagiTarget: median(
+      traces.map((trace) => trace.withdrawalScoreMagiTarget),
+    ),
+    medianWithdrawalScoreAcaCliffAvoidance: median(
+      traces.map((trace) => trace.withdrawalScoreAcaCliffAvoidance),
+    ),
+    medianWithdrawalScoreIrmaaCliffAvoidance: median(
+      traces.map((trace) => trace.withdrawalScoreIrmaaCliffAvoidance),
+    ),
+    medianWithdrawalScoreRothOptionality: median(
+      traces.map((trace) => trace.withdrawalScoreRothOptionality),
+    ),
+    medianWithdrawalScoreSequenceDefense: median(
+      traces.map((trace) => trace.withdrawalScoreSequenceDefense),
+    ),
+    closedLoopConverged:
+      traces.filter((trace) => trace.closedLoopConverged).length / traces.length >= 0.5,
+    closedLoopConvergedRate:
+      traces.filter((trace) => trace.closedLoopConverged).length / traces.length,
+    closedLoopConvergedBeforeMaxPasses:
+      traces.filter((trace) => trace.closedLoopConvergedBeforeMaxPasses).length / traces.length >=
+      0.5,
+    closedLoopConvergedBeforeMaxPassesRate:
+      traces.filter((trace) => trace.closedLoopConvergedBeforeMaxPasses).length / traces.length,
+    closedLoopPassesUsed: median(traces.map((trace) => trace.closedLoopPassesUsed)),
+    medianClosedLoopPassesUsed: median(
+      traces.map((trace) => trace.closedLoopPassesUsed),
+    ),
+    closedLoopStopReason: dominantValue(
+      traces.map((trace) => trace.closedLoopStopReason),
+    ),
+    finalMagiDelta: median(
+      traces.map((trace) => trace.closedLoopLastMagiDelta),
+    ),
+    finalFederalTaxDelta: median(
+      traces.map((trace) => trace.closedLoopLastFederalTaxDelta),
+    ),
+    finalHealthcarePremiumDelta: median(
+      traces.map((trace) => trace.closedLoopLastHealthcarePremiumDelta),
+    ),
+    medianClosedLoopLastMagiDelta: median(
+      traces.map((trace) => trace.closedLoopLastMagiDelta),
+    ),
+    medianClosedLoopLastFederalTaxDelta: median(
+      traces.map((trace) => trace.closedLoopLastFederalTaxDelta),
+    ),
+    medianClosedLoopLastHealthcarePremiumDelta: median(
+      traces.map((trace) => trace.closedLoopLastHealthcarePremiumDelta),
+    ),
+    dominantClosedLoopStopReason: dominantValue(
+      traces.map((trace) => trace.closedLoopStopReason),
+    ),
   }));
 
   const successRate = monteCarlo.successRate;
@@ -1532,6 +3532,28 @@ function simulatePath(
     runs.filter((result) => result.inheritanceDependent).length / runs.length;
   const rothDepletionRate =
     runs.filter((result) => result.rothDepletedEarly).length / runs.length;
+  const earlyFailureProbability =
+    runs.filter((result) => {
+      if (result.success || result.failureYear === null) {
+        return false;
+      }
+      return result.failureYear <= effectivePlan.startYear + 9;
+    }).length / runs.length;
+  const medianFailureShortfallDollars = failedRuns.length
+    ? median(failedRuns.map((result) => result.failureShortfallAmount))
+    : 0;
+  const medianDownsideSpendingCutRequired = failedRuns.length
+    ? median(failedRuns.map((result) => result.downsideSpendingCutRequired))
+    : 0;
+  const equitySalesInAdverseEarlyYearsRate =
+    runs.filter((result) => result.forcedEquitySalesInAdverseEarlyYears).length / runs.length;
+  const riskMetrics: SimulationRiskMetrics = {
+    earlyFailureProbability,
+    medianFailureShortfallDollars,
+    medianDownsideSpendingCutRequired,
+    worstDecileEndingWealth: monteCarlo.percentileEndingWealth.p10,
+    equitySalesInAdverseEarlyYearsRate,
+  };
 
   const flexibilityScore = Math.max(
     0,
@@ -1563,6 +3585,7 @@ function simulatePath(
 
   const simulationConfiguration = buildSimulationConfigurationSnapshot({
     assumptions,
+    plan: effectivePlan,
     stressors,
     responses,
     strategy: strategyBehavior,
@@ -1570,6 +3593,7 @@ function simulatePath(
   const simulationDiagnostics = buildSimulationModeDiagnostics({
     yearlySeries,
     failureYearDistribution: monteCarlo.failureYearDistribution,
+    runs,
   });
 
   return {
@@ -1601,6 +3625,7 @@ function simulatePath(
     flexibilityScore,
     cornerRiskScore,
     failureMode: summarizeFailureMode(runs, effectivePlan.activeStressors),
+    riskMetrics,
     yearlySeries,
   } satisfies SimulationSummary;
 }
@@ -1685,6 +3710,7 @@ function toPathResult(
     monteCarloMetadata: summary.monteCarloMetadata,
     simulationConfiguration: summary.simulationConfiguration,
     simulationDiagnostics: summary.simulationDiagnostics,
+    riskMetrics: summary.riskMetrics,
     yearlySeries: summary.yearlySeries,
   };
 }

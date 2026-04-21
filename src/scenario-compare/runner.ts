@@ -158,7 +158,7 @@ export async function runScenarioCompare(
     seed: seedBase,
     runCount: simulationRunsOverride,
     strategyMode,
-    optimizationObjective: baselineInput.optimizationObjective ?? 'maximize_flat_spending',
+    optimizationObjective: baselineInput.optimizationObjective ?? 'maximize_time_weighted_spending',
     scenarioOrder,
     results,
   };

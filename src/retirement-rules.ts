@@ -37,6 +37,7 @@ export interface RmdHouseholdMemberInput {
   birthDate: string;
   age: number;
   accountShare?: number;
+  startAgeOverride?: number;
 }
 
 export interface RmdCalculationInput {
@@ -204,7 +205,10 @@ export function calculateRequiredMinimumDistribution(
 
   input.members.forEach((member, index) => {
     const birthYear = new Date(member.birthDate).getFullYear();
-    const startAge = getRmdStartAgeForBirthYear(birthYear);
+    const startAge = Math.max(
+      0,
+      Math.floor(member.startAgeOverride ?? getRmdStartAgeForBirthYear(birthYear)),
+    );
     if (member.age < startAge) {
       return;
     }

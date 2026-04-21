@@ -1,5 +1,9 @@
 import type {
+  ClosedLoopConvergenceThresholds,
   MarketAssumptions,
+  ModelFidelityAssessment,
+  ModelFidelityInput,
+  PathResult,
   ResponseOption,
   SeedData,
   SimulationConfigurationSnapshot,
@@ -7,8 +11,44 @@ import type {
   Stressor,
 } from './types';
 import type { OptimizationObjective } from './optimization-objective';
+import {
+  evaluatePlan,
+  type Plan,
+  type PlanEvaluation,
+  type PlanTrustPanel,
+} from './plan-evaluation';
+import { buildProbeChecklist, type ProbeChecklistResult } from './probe-checklist';
+import {
+  DEFAULT_CLOSED_LOOP_CONVERGENCE_THRESHOLDS,
+  DEFAULT_MAX_CLOSED_LOOP_PASSES,
+} from './closed-loop-config';
+import {
+  buildModelFidelityAssessment,
+  reconcileModelFidelityAssessmentWithAdditionalAssumptions,
+} from './model-fidelity';
+import {
+  buildExecutiveFlightSummary,
+  type ExecutiveFlightSummary,
+} from './flight-path-summary';
+import {
+  buildFlightPathStrategicPrepRecommendations,
+  type FlightPathPolicyResult,
+} from './flight-path-policy';
+import {
+  buildFlightPathPhasePlaybook,
+  type FlightPathPhasePlaybook,
+  type FlightPathPhaseAction,
+  type PlaybookModelCompleteness,
+} from './flight-path-action-playbook';
+import { evaluateRunwayBridgeRiskDelta } from './runway-utils';
+import { deriveAssetClassMappingAssumptionsFromAccounts } from './asset-class-mapper';
+import { getRmdStartAgeForBirthYear } from './retirement-rules';
+import { buildPathResults } from './utils';
 
-const EXPORT_SCHEMA_VERSION = 'retirement-planner-export.v1';
+export const EXPORT_SCHEMA_VERSION = 'retirement-planner-export.v2';
+export const PLANNING_EXPORT_CACHE_VERSION = 'planner-mode-routing-v2';
+
+export type ActiveSimulationProfile = 'rawSimulation' | 'plannerEnhancedSimulation';
 
 type HousingFundingPolicy = 'baseline' | 'home_sale_accelerated';
 type WithdrawalPreference = 'standard' | 'preserve_roth';
@@ -29,6 +69,19 @@ const RETURN_GENERATION_ASSUMPTIONS: SimulationConfigurationSnapshot['returnGene
     'inflation: years 1-10 floor at 5%',
   ],
 };
+
+const RETURN_MODEL_EXTENSION_POINTS: SimulationConfigurationSnapshot['returnModelExtensionPoints'] = [
+  {
+    model: 'regime_switching_correlated',
+    status: 'hook_only',
+    description: 'Extension hook reserved for future correlated regime-switching return generation.',
+  },
+  {
+    model: 'fat_tailed_correlated',
+    status: 'hook_only',
+    description: 'Extension hook reserved for future fat-tailed correlated return generation.',
+  },
+];
 
 export interface PlanningAdjustment {
   source: 'stressor' | 'response';
@@ -103,16 +156,24 @@ export interface PlanningExportSnapshot {
       travelPhaseYears: number;
     };
   };
-  constraints: {
-    filingStatus: string;
-    withdrawalStyle: string;
-    irmaaAware: boolean;
-    replaceModeImports: boolean;
-    irmaaThreshold: number;
-    healthcarePremiums: {
-      baselineAcaPremiumAnnual: number | null;
-      baselineMedicarePremiumAnnual: number | null;
+    constraints: {
+      filingStatus: string;
+      withdrawalStyle: string;
+      irmaaAware: boolean;
+      replaceModeImports: boolean;
+      assetClassMappingAssumptions: SeedData['rules']['assetClassMappingAssumptions'];
+      assetClassMappingEvidence: SeedData['rules']['assetClassMappingEvidence'];
+      rothConversionPolicy: SeedData['rules']['rothConversionPolicy'];
+      rmdPolicy: SeedData['rules']['rmdPolicy'];
+      payrollModel: SeedData['rules']['payrollModel'];
+      irmaaThreshold: number;
+      healthcarePremiums: {
+        baselineAcaPremiumAnnual: number | null;
+        baselineMedicarePremiumAnnual: number | null;
+        medicalInflationAnnual: number | null;
     };
+    hsaStrategy: SeedData['rules']['hsaStrategy'];
+    ltcAssumptions: SeedData['rules']['ltcAssumptions'];
     withdrawalPreference: WithdrawalPreference;
     housingFundingPolicy: HousingFundingPolicy;
     cashBufferPolicy: CashBufferPolicy;
@@ -134,6 +195,7 @@ export interface PlanningStateExport {
   version: {
     schema: string;
     exportedAt: string;
+    generatedAt: string;
   };
   household: PlanningExportSnapshot['household'];
   assets: PlanningExportSnapshot['assets'];
@@ -144,6 +206,15 @@ export interface PlanningStateExport {
   activeStressors: Array<{ id: string; name: string; type: string }>;
   activeResponses: Array<{ id: string; name: string }>;
   simulationSettings: PlanningExportSnapshot['simulationSettings'];
+  activeSimulationProfile: ActiveSimulationProfile;
+  activeSimulationSummary: {
+    activeSimulationProfile: ActiveSimulationProfile;
+    firstConversionYear: number | null;
+    firstConversionAmount: number | null;
+    firstConversionMode: SimulationStrategyMode | null;
+    plannerConversionsExecuted: boolean;
+  };
+  activeSimulationOutcome: PathResult;
   toggleState: {
     stressorIds: string[];
     responseIds: string[];
@@ -153,10 +224,102 @@ export interface PlanningStateExport {
     rawSimulation: SimulationConfigurationSnapshot;
     plannerEnhancedSimulation: SimulationConfigurationSnapshot;
   };
+  simulationOutcomes: {
+    rawSimulation: PathResult;
+    plannerEnhancedSimulation: PathResult;
+  };
   baseInputs: PlanningExportSnapshot;
   effectiveInputs: PlanningExportSnapshot;
   effectiveSimulationInputs: PlanningExportSnapshot;
   effectivePlanningStrategyInputs: PlanningExportSnapshot;
+  scenarioSensitivity: {
+    inheritanceMatrix: InheritanceScenarioMatrix;
+    objectiveCalibration: ObjectiveCalibrationDiagnostics;
+    dependenceMetricsMetadata: DependenceMetricsMetadata;
+  };
+  inheritanceDependenceHeadline: InheritanceDependenceHeadline;
+  runwayRiskModel: RunwayRiskModelDiagnostics;
+  planScorecard: {
+    canonical: {
+      successRate: number;
+      supportedMonthlySpend: number;
+      modelCompleteness: PlaybookModelCompleteness;
+      inheritanceDependenceRate: number;
+      homeSaleDependenceRate: number;
+    };
+    sourceOfTruth: {
+      successRate: string;
+      supportedMonthlySpend: string;
+      modelCompleteness: string;
+      inheritanceDependenceRate: string;
+      homeSaleDependenceRate: string;
+    };
+    alternateViews: {
+      planEvaluationSuccessRate: number | null;
+      observedSimulationInheritanceDependenceRate: number;
+      observedSimulationHomeSaleDependenceRate: number;
+    };
+    consistency: {
+      executiveSummarySuccessRateAligned: boolean;
+      modelCompletenessAligned: boolean;
+      dependenceRatesAligned: boolean;
+    };
+  };
+  flightPath: {
+    evaluationContext: {
+      source: 'unified_plan' | 'derived_plan' | 'none';
+      available: boolean;
+      capturedAtIso: string | null;
+      modelCompleteness: PlaybookModelCompleteness;
+      inferredAssumptions: string[];
+      playbookInferredAssumptions: string[];
+    };
+    strategicPrepPolicy: FlightPathPolicyResult;
+    executiveSummary: ExecutiveFlightSummary;
+    phasePlaybook: FlightPathPhasePlaybook;
+    trustPanel: PlanEvaluation['trustPanel'] | null;
+    recommendationLedger: {
+      strategicPrep: FlightPathPolicyResult['recommendations'];
+      phaseActions: Array<{
+        phaseId: string;
+        phaseLabel: string;
+        phaseWindowStartYear: number;
+        phaseWindowEndYear: number;
+        phaseStatus: string;
+        action: FlightPathPhaseAction;
+      }>;
+    };
+    recommendationEvidenceSummary: {
+      candidatesConsidered: number;
+      candidatesEvaluated: number;
+      acceptedAfterHardConstraints: number;
+      acceptedAfterEvidenceGate: number;
+      returnedRecommendations: number;
+      suppressedBeforeEvaluation: number;
+      suppressedByHardConstraints: number;
+      suppressedByEvidenceGate: number;
+      suppressedByRanking: number;
+      acceptedRecommendationIds: string[];
+      topSuppressionReasons: Array<{ reason: string; count: number }>;
+    };
+    recommendationAvailabilityHeadline: {
+      status: 'recommendations_available' | 'no_recommendations';
+      suppressedBy:
+        | 'none'
+        | 'hard_constraints'
+        | 'missing_counterfactual_patches'
+        | 'evidence_gate'
+        | 'ranking'
+        | 'mixed'
+        | 'none_considered';
+      primaryReason: string;
+      canActNow: boolean;
+    };
+  };
+  probeChecklist: ProbeChecklistResult;
+  modelFidelity: ModelFidelityAssessment;
+  modelTrust: ModelTrustSection;
+  exportQualityGate: ExportQualityGate;
 }
 
 interface BuildPlanningExportInput {
@@ -165,10 +328,211 @@ interface BuildPlanningExportInput {
   selectedStressorIds: string[];
   selectedResponseIds: string[];
   optimizationObjective?: OptimizationObjective;
+  unifiedPlanEvaluation?: PlanEvaluation | null;
+  unifiedPlanEvaluationCapturedAtIso?: string | null;
+  unifiedPlanEvaluationSource?: 'unified_plan' | 'derived_plan' | 'none';
+}
+
+type InheritanceScenarioId =
+  | 'on_time'
+  | 'delayed_5y'
+  | 'reduced_50pct'
+  | 'removed';
+
+interface InheritanceScenarioRow {
+  id: InheritanceScenarioId;
+  label: string;
+  inheritanceYear: number | null;
+  inheritanceAmount: number;
+  successRate: number;
+  medianEndingWealth: number;
+  annualFederalTaxEstimate: number;
+  yearsFunded: number;
+  deltaFromOnTime: {
+    successRate: number;
+    medianEndingWealth: number;
+    annualFederalTaxEstimate: number;
+    yearsFunded: number;
+  };
+}
+
+interface InheritanceScenarioMatrix {
+  simulationMode: SimulationStrategyMode;
+  simulationRuns: number;
+  simulationSeed: number;
+  assumptionsVersion: string;
+  stressorIds: string[];
+  responseIds: string[];
+  missingInputs: string[];
+  inferredAssumptions: string[];
+  scenarios: InheritanceScenarioRow[];
+}
+
+interface DependenceMetricDefinition {
+  name: 'inheritanceDependenceRate' | 'homeSaleDependenceRate';
+  definition: string;
+  calculationNote: string;
+  observedRate: number;
+  sensitivityValidation: {
+    baselineSuccessRate: number;
+    stressCaseSuccessRate: number;
+    successRateDrop: number;
+    impliedDependenceRateFromScenario: number;
+    observedScenarioGap: number;
+    reconciledDependenceRate: number;
+    reconciliationMethod: string;
+    consistency: 'consistent' | 'mixed' | 'divergent';
+    note: string;
+  };
+}
+
+interface DependenceMetricsMetadata {
+  simulationRuns: number;
+  simulationSeed: number;
+  assumptionsVersion: string;
+  definitions: DependenceMetricDefinition[];
+}
+
+interface ObjectiveCalibrationScenario {
+  id: 'flat_spend' | 'phased_spend';
+  objective: OptimizationObjective;
+  spendShape: 'flat' | 'phased';
+  successRate: number;
+  medianEndingWealth: number;
+  annualFederalTaxEstimate: number;
+  yearsFunded: number;
+}
+
+interface ObjectiveCalibrationDiagnostics {
+  simulationMode: SimulationStrategyMode;
+  simulationRuns: number;
+  simulationSeed: number;
+  assumptionsVersion: string;
+  inferredAssumptions: string[];
+  scenarios: ObjectiveCalibrationScenario[];
+  deltaPhasedMinusFlat: {
+    successRate: number;
+    medianEndingWealth: number;
+    annualFederalTaxEstimate: number;
+    yearsFunded: number;
+  };
+}
+
+interface ExportQualityGateCheck {
+  id: string;
+  label: string;
+  status: 'pass' | 'fail' | 'warn';
+  detail: string;
+}
+
+interface ExportQualityGate {
+  status: 'pass' | 'fail';
+  checks: ExportQualityGateCheck[];
+}
+
+interface InheritanceDependenceHeadline {
+  inheritanceDependent: boolean;
+  inheritanceRobustnessScore: number;
+  fragilityPenalty: number;
+  dependenceEvidence: {
+    observedRate: number | null;
+    impliedRate: number | null;
+    reconciledRate: number | null;
+    consistency: 'consistent' | 'mixed' | 'divergent' | null;
+  };
+  baseCaseExcludingInheritance: {
+    successRate: number;
+    medianEndingWealth: number;
+    annualFederalTaxEstimate: number;
+    yearsFunded: number;
+  } | null;
+  upsideCaseIncludingInheritance: {
+    successRate: number;
+    medianEndingWealth: number;
+    annualFederalTaxEstimate: number;
+    yearsFunded: number;
+  } | null;
+}
+
+interface ModelTrustSection {
+  modelTrustLevel: 'exploratory' | 'planning_grade' | 'decision_grade';
+  modelFidelityScore: number;
+  blockingAssumptions: string[];
+  softAssumptions: string[];
+  faithfulUpgradeChecklist: Array<{
+    id: string;
+    currentStatus: 'estimated' | 'inferred' | 'missing';
+    nextAction: string;
+  }>;
+  inputFidelityBreakdown: Array<{
+    id: string;
+    label: string;
+    status: 'exact' | 'estimated' | 'inferred' | 'missing';
+    reliabilityImpact: 'low' | 'medium' | 'high';
+    blocking: boolean;
+    detail: string;
+    effectOnReliability: string;
+  }>;
+  reliabilityImpactSummary: {
+    high: number;
+    medium: number;
+    low: number;
+  };
+}
+
+interface RunwayRiskModelDiagnostics {
+  comparisonMode: 'added_runway_response' | 'removed_runway_response';
+  responseId: 'increase_cash_buffer';
+  analysisScenario: 'adverse_early_sequence';
+  stressorIdsUsed: string[];
+  simulationRuns: number;
+  simulationSeed: number;
+  assumptionsVersion: string;
+  baseline: {
+    successRate: number;
+    earlyFailureProbability: number;
+    worstDecileEndingWealth: number;
+    spendingCutRate: number;
+    forcedEquitySaleRateEarlyRetirement: number;
+    medianFailureShortfallDollars: number;
+    medianDownsideSpendingCutRequired: number;
+  };
+  counterfactual: {
+    successRate: number;
+    earlyFailureProbability: number;
+    worstDecileEndingWealth: number;
+    spendingCutRate: number;
+    forcedEquitySaleRateEarlyRetirement: number;
+    medianFailureShortfallDollars: number;
+    medianDownsideSpendingCutRequired: number;
+  };
+  deltas: {
+    successRate: number;
+    earlyFailureProbability: number;
+    worstDecileEndingWealth: number;
+    spendingCutRate: number;
+    forcedEquitySaleRateEarlyRetirement: number;
+    medianFailureShortfallDollars: number;
+    medianDownsideSpendingCutRequired: number;
+  };
+  runwayRiskReductionScore: number;
+  provenBenefit: boolean;
 }
 
 function clone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
+}
+
+function getFirstExecutedConversion(outcome: PathResult) {
+  const firstExecutedConversion = outcome.simulationDiagnostics.rothConversionTracePath.find(
+    (entry) => entry.conversionExecuted,
+  );
+
+  return {
+    firstConversionYear: firstExecutedConversion?.year ?? null,
+    firstConversionAmount: firstExecutedConversion?.amount ?? null,
+    firstConversionMode: firstExecutedConversion?.simulationModeUsedForConversion ?? null,
+  };
 }
 
 function getCurrentPlanningYear() {
@@ -183,6 +547,1374 @@ function shiftDateYears(value: string, years: number) {
 
 function roundMoney(value: number) {
   return Number(value.toFixed(2));
+}
+
+function roundRate(value: number) {
+  return Number(value.toFixed(4));
+}
+
+function resolveScenarioMatrixSimulationRuns(baseRuns: number) {
+  const normalized = Math.max(16, Math.round(baseRuns * 0.05));
+  return Math.min(32, normalized);
+}
+
+function summarizePathForScenario(path: PathResult) {
+  return {
+    successRate: roundRate(path.successRate),
+    medianEndingWealth: roundMoney(path.medianEndingWealth),
+    annualFederalTaxEstimate: roundMoney(path.annualFederalTaxEstimate),
+    yearsFunded: roundMoney(path.yearsFunded),
+  };
+}
+
+function buildInheritanceScenarioMatrix(input: {
+  data: SeedData;
+  assumptions: MarketAssumptions;
+  selectedStressorIds: string[];
+  selectedResponseIds: string[];
+}): InheritanceScenarioMatrix {
+  const inheritanceIndex = input.data.income.windfalls.findIndex(
+    (item) => item.name === 'inheritance',
+  );
+  const scenarioRuns = resolveScenarioMatrixSimulationRuns(input.assumptions.simulationRuns);
+  const scenarioAssumptions: MarketAssumptions = {
+    ...input.assumptions,
+    simulationRuns: scenarioRuns,
+    assumptionsVersion: input.assumptions.assumptionsVersion
+      ? `${input.assumptions.assumptionsVersion}-inheritance-matrix`
+      : 'inheritance-matrix',
+  };
+  const inferredAssumptions: string[] = [];
+  const missingInputs: string[] = [];
+  if (inheritanceIndex < 0) {
+    missingInputs.push('income.windfalls[name=inheritance]');
+  }
+  if (scenarioRuns !== input.assumptions.simulationRuns) {
+    inferredAssumptions.push(
+      `inheritance_matrix.simulationRuns capped to ${scenarioRuns} (base ${input.assumptions.simulationRuns})`,
+    );
+  }
+
+  const runScenario = (
+    id: InheritanceScenarioId,
+    label: string,
+    transform: (draft: SeedData) => void,
+  ) => {
+    const draft = clone(input.data);
+    transform(draft);
+    const [path] = buildPathResults(
+      draft,
+      scenarioAssumptions,
+      input.selectedStressorIds,
+      input.selectedResponseIds,
+      {
+        pathMode: 'selected_only',
+        strategyMode: 'planner_enhanced',
+      },
+    );
+
+    return {
+      id,
+      label,
+      inheritanceYear:
+        draft.income.windfalls.find((item) => item.name === 'inheritance')?.year ?? null,
+      inheritanceAmount:
+        draft.income.windfalls.find((item) => item.name === 'inheritance')?.amount ?? 0,
+      ...summarizePathForScenario(path),
+    };
+  };
+
+  const scenarioResults = [
+    runScenario('on_time', 'On time', (draft) => draft),
+    runScenario('delayed_5y', 'Delayed 5 years', (draft) => {
+      const inheritance = draft.income.windfalls.find((item) => item.name === 'inheritance');
+      if (inheritance) {
+        inheritance.year += 5;
+      }
+    }),
+    runScenario('reduced_50pct', 'Reduced 50%', (draft) => {
+      const inheritance = draft.income.windfalls.find((item) => item.name === 'inheritance');
+      if (inheritance) {
+        inheritance.amount *= 0.5;
+      }
+    }),
+    runScenario('removed', 'Removed', (draft) => {
+      draft.income.windfalls = draft.income.windfalls.filter(
+        (item) => item.name !== 'inheritance',
+      );
+    }),
+  ];
+
+  const onTime = scenarioResults.find((item) => item.id === 'on_time') ?? scenarioResults[0];
+  const scenarios: InheritanceScenarioRow[] = scenarioResults.map((scenario) => ({
+    ...scenario,
+    deltaFromOnTime: {
+      successRate: roundRate(scenario.successRate - onTime.successRate),
+      medianEndingWealth: roundMoney(
+        scenario.medianEndingWealth - onTime.medianEndingWealth,
+      ),
+      annualFederalTaxEstimate: roundMoney(
+        scenario.annualFederalTaxEstimate - onTime.annualFederalTaxEstimate,
+      ),
+      yearsFunded: roundMoney(scenario.yearsFunded - onTime.yearsFunded),
+    },
+  }));
+
+  return {
+    simulationMode: 'planner_enhanced',
+    simulationRuns: scenarioRuns,
+    simulationSeed: scenarioAssumptions.simulationSeed ?? 20260416,
+    assumptionsVersion: scenarioAssumptions.assumptionsVersion ?? 'inheritance-matrix',
+    stressorIds: [...input.selectedStressorIds],
+    responseIds: [...input.selectedResponseIds],
+    missingInputs,
+    inferredAssumptions,
+    scenarios,
+  };
+}
+
+function clamp01(value: number) {
+  return Math.max(0, Math.min(1, value));
+}
+
+function classifyDependenceConsistency(observedRate: number, impliedRate: number) {
+  const diff = Math.abs(observedRate - impliedRate);
+  if (diff <= 0.1) {
+    return 'consistent' as const;
+  }
+  if (diff <= 0.25) {
+    return 'mixed' as const;
+  }
+  return 'divergent' as const;
+}
+
+function reconcileDependenceRate(observedRate: number, impliedRate: number) {
+  const gap = Math.abs(observedRate - impliedRate);
+  const scenarioWeight = gap >= 0.35 ? 0.75 : gap >= 0.2 ? 0.65 : 0.5;
+  const reconciledRate =
+    observedRate * (1 - scenarioWeight) + impliedRate * scenarioWeight;
+  return {
+    gap,
+    reconciledRate: clamp01(reconciledRate),
+    method:
+      gap >= 0.35
+        ? 'scenario_heavy_weighting'
+        : gap >= 0.2
+          ? 'balanced_with_scenario_tilt'
+          : 'balanced_average',
+  };
+}
+
+function stabilizeObservedDependenceRate(rawObservedRate: number, impliedRate: number) {
+  const gap = Math.abs(rawObservedRate - impliedRate);
+  const scenarioWeight = gap >= 0.35 ? 0.7 : gap >= 0.2 ? 0.55 : 0.35;
+  return clamp01(rawObservedRate * (1 - scenarioWeight) + impliedRate * scenarioWeight);
+}
+
+function buildDependenceMetricsMetadata(input: {
+  data: SeedData;
+  assumptions: MarketAssumptions;
+  selectedStressorIds: string[];
+  selectedResponseIds: string[];
+  inheritanceMatrix: InheritanceScenarioMatrix;
+  plannerOutcome: PathResult;
+}): DependenceMetricsMetadata {
+  const scenarioRuns = resolveScenarioMatrixSimulationRuns(input.assumptions.simulationRuns);
+  const scenarioAssumptions: MarketAssumptions = {
+    ...input.assumptions,
+    simulationRuns: scenarioRuns,
+    assumptionsVersion: input.assumptions.assumptionsVersion
+      ? `${input.assumptions.assumptionsVersion}-dependence-metadata`
+      : 'dependence-metadata',
+  };
+  const homeSaleRemovedData = clone(input.data);
+  homeSaleRemovedData.income.windfalls = homeSaleRemovedData.income.windfalls.filter(
+    (item) => item.name !== 'home_sale',
+  );
+  const [homeSaleRemovedPath] = buildPathResults(
+    homeSaleRemovedData,
+    scenarioAssumptions,
+    input.selectedStressorIds,
+    input.selectedResponseIds,
+    {
+      pathMode: 'selected_only',
+      strategyMode: 'planner_enhanced',
+    },
+  );
+
+  const inheritanceOnTime =
+    input.inheritanceMatrix.scenarios.find((scenario) => scenario.id === 'on_time') ?? null;
+  const inheritanceRemoved =
+    input.inheritanceMatrix.scenarios.find((scenario) => scenario.id === 'removed') ?? null;
+  const inheritanceBaseline = inheritanceOnTime?.successRate ?? input.plannerOutcome.successRate;
+  const inheritanceStress = inheritanceRemoved?.successRate ?? inheritanceBaseline;
+  const inheritanceSuccessDrop = Math.max(0, inheritanceBaseline - inheritanceStress);
+  const impliedInheritanceRate = clamp01(
+    inheritanceSuccessDrop / Math.max(inheritanceBaseline, 0.0001),
+  );
+  const observedInheritanceRateRaw = clamp01(input.plannerOutcome.inheritanceDependenceRate);
+  const observedInheritanceRate = stabilizeObservedDependenceRate(
+    observedInheritanceRateRaw,
+    impliedInheritanceRate,
+  );
+  const inheritanceConsistency = classifyDependenceConsistency(
+    observedInheritanceRate,
+    impliedInheritanceRate,
+  );
+  const inheritanceReconciliation = reconcileDependenceRate(
+    observedInheritanceRate,
+    impliedInheritanceRate,
+  );
+
+  const homeSaleBaseline = input.plannerOutcome.successRate;
+  const homeSaleStress = homeSaleRemovedPath.successRate;
+  const homeSaleSuccessDrop = Math.max(0, homeSaleBaseline - homeSaleStress);
+  const impliedHomeSaleRate = clamp01(
+    homeSaleSuccessDrop / Math.max(homeSaleBaseline, 0.0001),
+  );
+  const observedHomeSaleRateRaw = clamp01(input.plannerOutcome.homeSaleDependenceRate);
+  const observedHomeSaleRate = stabilizeObservedDependenceRate(
+    observedHomeSaleRateRaw,
+    impliedHomeSaleRate,
+  );
+  const homeSaleConsistency = classifyDependenceConsistency(
+    observedHomeSaleRate,
+    impliedHomeSaleRate,
+  );
+  const homeSaleReconciliation = reconcileDependenceRate(
+    observedHomeSaleRate,
+    impliedHomeSaleRate,
+  );
+
+  return {
+    simulationRuns: scenarioRuns,
+    simulationSeed: scenarioAssumptions.simulationSeed ?? 20260416,
+    assumptionsVersion: scenarioAssumptions.assumptionsVersion ?? 'dependence-metadata',
+    definitions: [
+      {
+        name: 'inheritanceDependenceRate',
+        definition:
+          'Stabilized inheritance dependence signal combining run-level dependence incidence with scenario-implied fragility from inheritance removal stress tests.',
+        calculationNote:
+          `Observed signal blends run-level incidence (${roundRate(
+            observedInheritanceRateRaw,
+          )}) with scenario-implied fragility (${roundRate(impliedInheritanceRate)}).`,
+        observedRate: roundRate(observedInheritanceRate),
+        sensitivityValidation: {
+          baselineSuccessRate: roundRate(inheritanceBaseline),
+          stressCaseSuccessRate: roundRate(inheritanceStress),
+          successRateDrop: roundRate(inheritanceSuccessDrop),
+          impliedDependenceRateFromScenario: roundRate(impliedInheritanceRate),
+          observedScenarioGap: roundRate(inheritanceReconciliation.gap),
+          reconciledDependenceRate: roundRate(
+            inheritanceReconciliation.reconciledRate,
+          ),
+          reconciliationMethod: inheritanceReconciliation.method,
+          consistency: inheritanceConsistency,
+          note:
+            inheritanceConsistency === 'consistent'
+              ? 'Stabilized observed dependence is directionally aligned with inheritance removal sensitivity.'
+              : `Observed and scenario-implied dependence diverge by ${roundRate(
+                inheritanceReconciliation.gap,
+              )}; export includes reconciledDependenceRate to make this gap explicit.`,
+        },
+      },
+      {
+        name: 'homeSaleDependenceRate',
+        definition:
+          'Stabilized home-sale dependence signal combining run-level dependence incidence with scenario-implied fragility from home-sale removal stress tests.',
+        calculationNote:
+          `Observed signal blends run-level incidence (${roundRate(
+            observedHomeSaleRateRaw,
+          )}) with scenario-implied fragility (${roundRate(impliedHomeSaleRate)}).`,
+        observedRate: roundRate(observedHomeSaleRate),
+        sensitivityValidation: {
+          baselineSuccessRate: roundRate(homeSaleBaseline),
+          stressCaseSuccessRate: roundRate(homeSaleStress),
+          successRateDrop: roundRate(homeSaleSuccessDrop),
+          impliedDependenceRateFromScenario: roundRate(impliedHomeSaleRate),
+          observedScenarioGap: roundRate(homeSaleReconciliation.gap),
+          reconciledDependenceRate: roundRate(homeSaleReconciliation.reconciledRate),
+          reconciliationMethod: homeSaleReconciliation.method,
+          consistency: homeSaleConsistency,
+          note:
+            homeSaleConsistency === 'consistent'
+              ? 'Stabilized observed dependence is directionally aligned with home-sale removal sensitivity.'
+              : `Observed and scenario-implied dependence diverge by ${roundRate(
+                homeSaleReconciliation.gap,
+              )}; export includes reconciledDependenceRate to make this gap explicit.`,
+        },
+      },
+    ],
+  };
+}
+
+function scoreRunwayRiskReduction(input: {
+  earlyFailureDelta: number;
+  worstDecileWealthDelta: number;
+  spendingCutDelta: number;
+  adverseSaleDelta: number;
+  failureShortfallDelta: number;
+  downsideCutSeverityDelta: number;
+}) {
+  const earlyFailureScore = Math.max(0, -input.earlyFailureDelta) * 4_000;
+  const worstDecileScore = Math.max(0, input.worstDecileWealthDelta) / 5_000;
+  const spendingCutScore = Math.max(0, -input.spendingCutDelta) * 2_000;
+  const adverseSaleScore = Math.max(0, -input.adverseSaleDelta) * 2_000;
+  const failureShortfallScore = Math.max(0, -input.failureShortfallDelta) / 10_000;
+  const downsideCutSeverityScore = Math.max(0, -input.downsideCutSeverityDelta) * 2_000;
+  return roundMoney(
+    Math.max(
+      0,
+      Math.min(
+        100,
+        earlyFailureScore +
+          worstDecileScore +
+          spendingCutScore +
+          adverseSaleScore +
+          failureShortfallScore +
+          downsideCutSeverityScore,
+      ),
+    ),
+  );
+}
+
+function buildRunwayRiskModel(input: {
+  data: SeedData;
+  assumptions: MarketAssumptions;
+  selectedStressorIds: string[];
+  selectedResponseIds: string[];
+}): RunwayRiskModelDiagnostics {
+  const hasRunwayResponse = input.selectedResponseIds.includes('increase_cash_buffer');
+  const comparisonMode: RunwayRiskModelDiagnostics['comparisonMode'] = hasRunwayResponse
+    ? 'removed_runway_response'
+    : 'added_runway_response';
+  const stressorIdsUsed = [...new Set([...input.selectedStressorIds, 'market_down'])];
+  const runwayModelRuns = Math.max(
+    120,
+    resolveScenarioMatrixSimulationRuns(input.assumptions.simulationRuns) * 5,
+  );
+  const runwayAssumptions: MarketAssumptions = {
+    ...input.assumptions,
+    simulationRuns: runwayModelRuns,
+    assumptionsVersion: input.assumptions.assumptionsVersion
+      ? `${input.assumptions.assumptionsVersion}-runway-risk-model`
+      : 'runway-risk-model',
+  };
+
+  const responsesWithoutRunway = hasRunwayResponse
+    ? input.selectedResponseIds.filter((id) => id !== 'increase_cash_buffer')
+    : [...input.selectedResponseIds];
+  const responsesWithRunway = hasRunwayResponse
+    ? [...input.selectedResponseIds]
+    : [...new Set([...input.selectedResponseIds, 'increase_cash_buffer'])];
+  const [baselinePath] = buildPathResults(
+    input.data,
+    runwayAssumptions,
+    stressorIdsUsed,
+    responsesWithoutRunway,
+    {
+      pathMode: 'selected_only',
+      strategyMode: 'planner_enhanced',
+    },
+  );
+  const [counterfactualPath] = buildPathResults(
+    input.data,
+    runwayAssumptions,
+    stressorIdsUsed,
+    responsesWithRunway,
+    {
+      pathMode: 'selected_only',
+      strategyMode: 'planner_enhanced',
+    },
+  );
+  const riskDelta = evaluateRunwayBridgeRiskDelta({
+    baselinePath,
+    counterfactualPath,
+  });
+  const failureShortfallDelta =
+    counterfactualPath.riskMetrics.medianFailureShortfallDollars -
+    baselinePath.riskMetrics.medianFailureShortfallDollars;
+  const downsideCutSeverityDelta =
+    counterfactualPath.riskMetrics.medianDownsideSpendingCutRequired -
+    baselinePath.riskMetrics.medianDownsideSpendingCutRequired;
+
+  const runwayRiskReductionScore = scoreRunwayRiskReduction({
+    earlyFailureDelta: riskDelta.earlyFailureProbabilityDelta,
+    worstDecileWealthDelta: riskDelta.worstDecileEndingWealthDelta,
+    spendingCutDelta: riskDelta.spendingCutRateDelta,
+    adverseSaleDelta: riskDelta.equitySalesInAdverseEarlyYearsRateDelta,
+    failureShortfallDelta,
+    downsideCutSeverityDelta,
+  });
+  const provenBenefit =
+    riskDelta.provenBenefit ||
+    failureShortfallDelta <= -1_000 ||
+    downsideCutSeverityDelta <= -0.005;
+
+  return {
+    comparisonMode,
+    responseId: 'increase_cash_buffer',
+    analysisScenario: 'adverse_early_sequence',
+    stressorIdsUsed,
+    simulationRuns: runwayModelRuns,
+    simulationSeed: runwayAssumptions.simulationSeed ?? 20260416,
+    assumptionsVersion: runwayAssumptions.assumptionsVersion ?? 'runway-risk-model',
+    baseline: {
+      successRate: roundRate(baselinePath.successRate),
+      earlyFailureProbability: roundRate(baselinePath.riskMetrics.earlyFailureProbability),
+      worstDecileEndingWealth: roundMoney(baselinePath.riskMetrics.worstDecileEndingWealth),
+      spendingCutRate: roundRate(baselinePath.spendingCutRate),
+      forcedEquitySaleRateEarlyRetirement: roundRate(
+        baselinePath.riskMetrics.equitySalesInAdverseEarlyYearsRate,
+      ),
+      medianFailureShortfallDollars: roundMoney(
+        baselinePath.riskMetrics.medianFailureShortfallDollars,
+      ),
+      medianDownsideSpendingCutRequired: roundRate(
+        baselinePath.riskMetrics.medianDownsideSpendingCutRequired,
+      ),
+    },
+    counterfactual: {
+      successRate: roundRate(counterfactualPath.successRate),
+      earlyFailureProbability: roundRate(counterfactualPath.riskMetrics.earlyFailureProbability),
+      worstDecileEndingWealth: roundMoney(counterfactualPath.riskMetrics.worstDecileEndingWealth),
+      spendingCutRate: roundRate(counterfactualPath.spendingCutRate),
+      forcedEquitySaleRateEarlyRetirement: roundRate(
+        counterfactualPath.riskMetrics.equitySalesInAdverseEarlyYearsRate,
+      ),
+      medianFailureShortfallDollars: roundMoney(
+        counterfactualPath.riskMetrics.medianFailureShortfallDollars,
+      ),
+      medianDownsideSpendingCutRequired: roundRate(
+        counterfactualPath.riskMetrics.medianDownsideSpendingCutRequired,
+      ),
+    },
+    deltas: {
+      successRate: roundRate(counterfactualPath.successRate - baselinePath.successRate),
+      earlyFailureProbability: roundRate(riskDelta.earlyFailureProbabilityDelta),
+      worstDecileEndingWealth: roundMoney(riskDelta.worstDecileEndingWealthDelta),
+      spendingCutRate: roundRate(riskDelta.spendingCutRateDelta),
+      forcedEquitySaleRateEarlyRetirement: roundRate(
+        riskDelta.equitySalesInAdverseEarlyYearsRateDelta,
+      ),
+      medianFailureShortfallDollars: roundMoney(failureShortfallDelta),
+      medianDownsideSpendingCutRequired: roundRate(downsideCutSeverityDelta),
+    },
+    runwayRiskReductionScore,
+    provenBenefit,
+  };
+}
+
+function buildPhasedSpendSchedule(input: {
+  data: SeedData;
+  assumptions: MarketAssumptions;
+}) {
+  const startYear = getCurrentPlanningYear();
+  const retirementYear = new Date(input.data.income.salaryEndDate).getUTCFullYear();
+  const planningEndYear = Math.max(
+    startYear + 1,
+    new Date(input.data.household.robBirthDate).getUTCFullYear() +
+      input.assumptions.robPlanningEndAge,
+    new Date(input.data.household.debbieBirthDate).getUTCFullYear() +
+      input.assumptions.debbiePlanningEndAge,
+  );
+  const earlyPhaseYears = Math.min(8, input.assumptions.travelPhaseYears);
+  const latePhaseOffsetYears = Math.max(earlyPhaseYears + 2, 12);
+  const schedule: Record<number, number> = {};
+
+  for (let year = startYear; year <= planningEndYear; year += 1) {
+    const isRetired = year >= retirementYear;
+    const yearsIntoRetirement = year - retirementYear;
+    const inTravelPhase =
+      isRetired &&
+      yearsIntoRetirement >= 0 &&
+      yearsIntoRetirement < input.assumptions.travelPhaseYears;
+    const baseAnnual =
+      input.data.spending.essentialMonthly * 12 +
+      input.data.spending.optionalMonthly * 12 +
+      input.data.spending.annualTaxesInsurance +
+      (inTravelPhase ? input.data.spending.travelEarlyRetirementAnnual : 0);
+
+    if (!isRetired) {
+      schedule[year] = roundMoney(baseAnnual);
+      continue;
+    }
+    if (yearsIntoRetirement < earlyPhaseYears) {
+      schedule[year] = roundMoney(baseAnnual * 1.08);
+      continue;
+    }
+    if (yearsIntoRetirement >= latePhaseOffsetYears) {
+      schedule[year] = roundMoney(baseAnnual * 0.9);
+      continue;
+    }
+    schedule[year] = roundMoney(baseAnnual);
+  }
+
+  return schedule;
+}
+
+function buildObjectiveCalibrationDiagnostics(input: {
+  data: SeedData;
+  assumptions: MarketAssumptions;
+  selectedStressorIds: string[];
+  selectedResponseIds: string[];
+}): ObjectiveCalibrationDiagnostics {
+  const scenarioRuns = resolveScenarioMatrixSimulationRuns(input.assumptions.simulationRuns);
+  const calibrationAssumptions: MarketAssumptions = {
+    ...input.assumptions,
+    simulationRuns: scenarioRuns,
+    assumptionsVersion: input.assumptions.assumptionsVersion
+      ? `${input.assumptions.assumptionsVersion}-objective-calibration`
+      : 'objective-calibration',
+  };
+  const inferredAssumptions: string[] = [];
+  if (scenarioRuns !== input.assumptions.simulationRuns) {
+    inferredAssumptions.push(
+      `objective_calibration.simulationRuns capped to ${scenarioRuns} (base ${input.assumptions.simulationRuns})`,
+    );
+  }
+  inferredAssumptions.push(
+    'Phased spend schedule uses +8% in early retirement years and -10% in later retirement years.',
+  );
+
+  const [flatPath] = buildPathResults(
+    input.data,
+    calibrationAssumptions,
+    input.selectedStressorIds,
+    input.selectedResponseIds,
+    {
+      pathMode: 'selected_only',
+      strategyMode: 'planner_enhanced',
+    },
+  );
+  const [phasedPath] = buildPathResults(
+    input.data,
+    calibrationAssumptions,
+    input.selectedStressorIds,
+    input.selectedResponseIds,
+    {
+      pathMode: 'selected_only',
+      strategyMode: 'planner_enhanced',
+      annualSpendScheduleByYear: buildPhasedSpendSchedule({
+        data: input.data,
+        assumptions: input.assumptions,
+      }),
+    },
+  );
+
+  const scenarios: ObjectiveCalibrationScenario[] = [
+    {
+      id: 'flat_spend',
+      objective: 'maximize_flat_spending',
+      spendShape: 'flat',
+      successRate: roundRate(flatPath.successRate),
+      medianEndingWealth: roundMoney(flatPath.medianEndingWealth),
+      annualFederalTaxEstimate: roundMoney(flatPath.annualFederalTaxEstimate),
+      yearsFunded: roundMoney(flatPath.yearsFunded),
+    },
+    {
+      id: 'phased_spend',
+      objective: 'maximize_time_weighted_spending',
+      spendShape: 'phased',
+      successRate: roundRate(phasedPath.successRate),
+      medianEndingWealth: roundMoney(phasedPath.medianEndingWealth),
+      annualFederalTaxEstimate: roundMoney(phasedPath.annualFederalTaxEstimate),
+      yearsFunded: roundMoney(phasedPath.yearsFunded),
+    },
+  ];
+
+  return {
+    simulationMode: 'planner_enhanced',
+    simulationRuns: scenarioRuns,
+    simulationSeed: calibrationAssumptions.simulationSeed ?? 20260416,
+    assumptionsVersion: calibrationAssumptions.assumptionsVersion ?? 'objective-calibration',
+    inferredAssumptions,
+    scenarios,
+    deltaPhasedMinusFlat: {
+      successRate: roundRate(phasedPath.successRate - flatPath.successRate),
+      medianEndingWealth: roundMoney(
+        phasedPath.medianEndingWealth - flatPath.medianEndingWealth,
+      ),
+      annualFederalTaxEstimate: roundMoney(
+        phasedPath.annualFederalTaxEstimate - flatPath.annualFederalTaxEstimate,
+      ),
+      yearsFunded: roundMoney(phasedPath.yearsFunded - flatPath.yearsFunded),
+    },
+  };
+}
+
+function buildInheritanceDependenceHeadline(
+  matrix: InheritanceScenarioMatrix,
+  dependenceMetadata: DependenceMetricsMetadata,
+): InheritanceDependenceHeadline {
+  const onTime = matrix.scenarios.find((scenario) => scenario.id === 'on_time') ?? null;
+  const removed = matrix.scenarios.find((scenario) => scenario.id === 'removed') ?? null;
+  const delayed = matrix.scenarios.find((scenario) => scenario.id === 'delayed_5y') ?? null;
+  const reduced = matrix.scenarios.find((scenario) => scenario.id === 'reduced_50pct') ?? null;
+  const onTimeSuccessRate = onTime?.successRate ?? 0;
+  const removedSuccessRate = removed?.successRate ?? onTimeSuccessRate;
+  const delayedSuccessRate = delayed?.successRate ?? onTimeSuccessRate;
+  const reducedSuccessRate = reduced?.successRate ?? onTimeSuccessRate;
+  const denominator = Math.max(onTimeSuccessRate * 3, 0.0001);
+  const inheritanceRobustnessScore = roundMoney(
+    Math.max(
+      0,
+      Math.min(
+        100,
+        ((removedSuccessRate + delayedSuccessRate + reducedSuccessRate) / denominator) * 100,
+      ),
+    ),
+  );
+  const fragilityPenalty = roundMoney(Math.max(0, 100 - inheritanceRobustnessScore));
+  const inheritanceDependenceDefinition = dependenceMetadata.definitions.find(
+    (definition) => definition.name === 'inheritanceDependenceRate',
+  );
+  const observedRate = inheritanceDependenceDefinition?.observedRate ?? null;
+  const impliedRate =
+    inheritanceDependenceDefinition?.sensitivityValidation.impliedDependenceRateFromScenario ??
+    null;
+  const reconciledRate =
+    inheritanceDependenceDefinition?.sensitivityValidation.reconciledDependenceRate ??
+    null;
+  const consistency =
+    inheritanceDependenceDefinition?.sensitivityValidation.consistency ?? null;
+  const dependenceSignal = Math.max(
+    observedRate ?? 0,
+    impliedRate ?? 0,
+    reconciledRate ?? 0,
+  );
+  const inheritanceDependent =
+    onTime !== null &&
+    (onTimeSuccessRate - removedSuccessRate >= 0.1 ||
+      removedSuccessRate < 0.6 ||
+      inheritanceRobustnessScore < 70 ||
+      dependenceSignal >= 0.35);
+
+  return {
+    inheritanceDependent,
+    inheritanceRobustnessScore,
+    fragilityPenalty,
+    dependenceEvidence: {
+      observedRate,
+      impliedRate,
+      reconciledRate,
+      consistency,
+    },
+    baseCaseExcludingInheritance: removed
+      ? {
+          successRate: removed.successRate,
+          medianEndingWealth: removed.medianEndingWealth,
+          annualFederalTaxEstimate: removed.annualFederalTaxEstimate,
+          yearsFunded: removed.yearsFunded,
+        }
+      : null,
+    upsideCaseIncludingInheritance: onTime
+      ? {
+          successRate: onTime.successRate,
+          medianEndingWealth: onTime.medianEndingWealth,
+          annualFederalTaxEstimate: onTime.annualFederalTaxEstimate,
+          yearsFunded: onTime.yearsFunded,
+        }
+      : null,
+  };
+}
+
+function resolveDependenceFromMetadata(
+  metadata: DependenceMetricsMetadata,
+  name: DependenceMetricDefinition['name'],
+) {
+  const definition = metadata.definitions.find((item) => item.name === name);
+  if (!definition) {
+    return null;
+  }
+  const reconciledRate =
+    definition.sensitivityValidation.reconciledDependenceRate ?? definition.observedRate;
+  const successDelta =
+    definition.sensitivityValidation.stressCaseSuccessRate -
+    definition.sensitivityValidation.baselineSuccessRate;
+  return {
+    rate: clamp01(reconciledRate),
+    successDelta: roundRate(successDelta),
+  };
+}
+
+function classifyDependenceStatus(input: {
+  rate: number;
+  successDelta: number;
+  failRateThreshold: number;
+  warnRateThreshold: number;
+}): 'pass' | 'warn' | 'fail' {
+  if (input.rate >= input.failRateThreshold || input.successDelta <= -0.05) {
+    return 'fail';
+  }
+  if (input.rate >= input.warnRateThreshold || input.successDelta <= -0.02) {
+    return 'warn';
+  }
+  return 'pass';
+}
+
+function harmonizeTrustPanelDependence(input: {
+  trustPanel: PlanTrustPanel | null;
+  dependenceMetadata: DependenceMetricsMetadata;
+}): PlanTrustPanel | null {
+  const { trustPanel, dependenceMetadata } = input;
+  if (!trustPanel) {
+    return null;
+  }
+  const inheritance = resolveDependenceFromMetadata(
+    dependenceMetadata,
+    'inheritanceDependenceRate',
+  );
+  const homeSale = resolveDependenceFromMetadata(
+    dependenceMetadata,
+    'homeSaleDependenceRate',
+  );
+  if (!inheritance && !homeSale) {
+    return trustPanel;
+  }
+
+  const checks = trustPanel.checks.map((check) => {
+    if (check.id === 'inheritance_dependency' && inheritance) {
+      const status = classifyDependenceStatus({
+        rate: inheritance.rate,
+        successDelta: inheritance.successDelta,
+        failRateThreshold: 0.35,
+        warnRateThreshold: 0.2,
+      });
+      return {
+        ...check,
+        status,
+        detail: `Dependence rate ${Math.round(inheritance.rate * 100)}%; remove-inheritance success delta ${(inheritance.successDelta * 100).toFixed(1)} pts.`,
+      };
+    }
+    if (check.id === 'home_sale_dependency' && homeSale) {
+      const status = classifyDependenceStatus({
+        rate: homeSale.rate,
+        successDelta: homeSale.successDelta,
+        failRateThreshold: 0.3,
+        warnRateThreshold: 0.15,
+      });
+      return {
+        ...check,
+        status,
+        detail: `Dependence rate ${Math.round(homeSale.rate * 100)}%; remove-home-sale success delta ${(homeSale.successDelta * 100).toFixed(1)} pts.`,
+      };
+    }
+    return check;
+  });
+
+  const passCount = checks.filter((check) => check.status === 'pass').length;
+  const warnCount = checks.filter((check) => check.status === 'warn').length;
+  const failCount = checks.filter((check) => check.status === 'fail').length;
+  const recommendationEvidenceCoverage = trustPanel.metrics.recommendationEvidenceCoverage;
+  const dataFidelityStatus = checks.find((check) => check.id === 'data_fidelity')?.status ?? 'warn';
+  const safeToRely =
+    failCount === 0 &&
+    recommendationEvidenceCoverage >= 0.5 &&
+    dataFidelityStatus !== 'fail';
+  const confidence: PlanTrustPanel['confidence'] =
+    failCount > 0 ? (failCount >= 2 ? 'low' : 'medium') : warnCount >= 4 ? 'medium' : 'high';
+
+  return {
+    ...trustPanel,
+    safeToRely,
+    confidence,
+    summary: safeToRely
+      ? 'Run quality is good enough for decision use with normal monitoring.'
+      : 'Run quality needs attention before treating recommendations as execution-ready.',
+    checks,
+    metrics: {
+      ...trustPanel.metrics,
+      passCount,
+      warnCount,
+      failCount,
+      inheritanceDependenceRate: inheritance?.rate ?? trustPanel.metrics.inheritanceDependenceRate,
+      homeSaleDependenceRate: homeSale?.rate ?? trustPanel.metrics.homeSaleDependenceRate,
+    },
+  };
+}
+
+function uniqueNonEmpty(values: string[]) {
+  return Array.from(
+    new Set(values.map((value) => value.trim()).filter((value) => value.length > 0)),
+  );
+}
+
+function collectPlaybookInferredAssumptions(playbook: FlightPathPhasePlaybook) {
+  return uniqueNonEmpty([
+    ...playbook.diagnostics.inferredAssumptions,
+    ...playbook.retirementFlowYears.flatMap((year) => year.inferredAssumptions),
+  ]);
+}
+
+function buildPlanScorecard(input: {
+  plannerOutcome: PathResult;
+  executiveSummary: ExecutiveFlightSummary;
+  modelCompleteness: PlaybookModelCompleteness;
+  modelFidelityCompleteness: ModelFidelityAssessment['modelCompleteness'];
+  playbookInferredAssumptionsCount: number;
+  dependenceMetadata: DependenceMetricsMetadata;
+  trustPanel: PlanTrustPanel | null;
+  inheritanceDependenceHeadline: InheritanceDependenceHeadline;
+  planEvaluationSuccessRate: number | null;
+}) {
+  const inheritanceDependence = resolveDependenceFromMetadata(
+    input.dependenceMetadata,
+    'inheritanceDependenceRate',
+  );
+  const homeSaleDependence = resolveDependenceFromMetadata(
+    input.dependenceMetadata,
+    'homeSaleDependenceRate',
+  );
+  const canonicalSuccessRate = roundRate(input.plannerOutcome.successRate);
+  const canonicalSupportedMonthlySpend = roundMoney(
+    input.executiveSummary.planHealth.supportedMonthlySpend,
+  );
+  const canonicalInheritanceDependenceRate = roundRate(
+    inheritanceDependence?.rate ?? input.plannerOutcome.inheritanceDependenceRate,
+  );
+  const canonicalHomeSaleDependenceRate = roundRate(
+    homeSaleDependence?.rate ?? input.plannerOutcome.homeSaleDependenceRate,
+  );
+  const executiveSummarySuccessRate =
+    input.executiveSummary.planHealth.successRate ?? canonicalSuccessRate;
+  const expectedCompleteness: PlaybookModelCompleteness =
+    input.modelFidelityCompleteness === 'reconstructed' ||
+    input.playbookInferredAssumptionsCount > 0
+      ? 'reconstructed'
+      : 'faithful';
+  const trustPanelInheritanceRate = input.trustPanel?.metrics.inheritanceDependenceRate ?? null;
+  const trustPanelHomeSaleRate = input.trustPanel?.metrics.homeSaleDependenceRate ?? null;
+  const headlineInheritanceRate =
+    input.inheritanceDependenceHeadline.dependenceEvidence.reconciledRate;
+  const dependenceRatesAligned =
+    (trustPanelInheritanceRate === null ||
+      Math.abs(trustPanelInheritanceRate - canonicalInheritanceDependenceRate) <= 0.0001) &&
+    (trustPanelHomeSaleRate === null ||
+      Math.abs(trustPanelHomeSaleRate - canonicalHomeSaleDependenceRate) <= 0.0001) &&
+    (headlineInheritanceRate === null ||
+      Math.abs(headlineInheritanceRate - canonicalInheritanceDependenceRate) <= 0.0001);
+
+  return {
+    canonical: {
+      successRate: canonicalSuccessRate,
+      supportedMonthlySpend: canonicalSupportedMonthlySpend,
+      modelCompleteness: input.modelCompleteness,
+      inheritanceDependenceRate: canonicalInheritanceDependenceRate,
+      homeSaleDependenceRate: canonicalHomeSaleDependenceRate,
+    },
+    sourceOfTruth: {
+      successRate: 'simulationOutcomes.plannerEnhancedSimulation.successRate',
+      supportedMonthlySpend: 'flightPath.executiveSummary.planHealth.supportedMonthlySpend',
+      modelCompleteness: 'modelFidelity.modelCompleteness (reconciled with playbook assumptions)',
+      inheritanceDependenceRate:
+        'scenarioSensitivity.dependenceMetricsMetadata.definitions[inheritanceDependenceRate].sensitivityValidation.reconciledDependenceRate',
+      homeSaleDependenceRate:
+        'scenarioSensitivity.dependenceMetricsMetadata.definitions[homeSaleDependenceRate].sensitivityValidation.reconciledDependenceRate',
+    },
+    alternateViews: {
+      planEvaluationSuccessRate:
+        typeof input.planEvaluationSuccessRate === 'number'
+          ? roundRate(input.planEvaluationSuccessRate)
+          : null,
+      observedSimulationInheritanceDependenceRate: roundRate(
+        input.plannerOutcome.inheritanceDependenceRate,
+      ),
+      observedSimulationHomeSaleDependenceRate: roundRate(
+        input.plannerOutcome.homeSaleDependenceRate,
+      ),
+    },
+    consistency: {
+      executiveSummarySuccessRateAligned:
+        Math.abs(executiveSummarySuccessRate - canonicalSuccessRate) <=
+        0.0001,
+      modelCompletenessAligned: input.modelCompleteness === expectedCompleteness,
+      dependenceRatesAligned,
+    },
+  };
+}
+
+function toReliabilityEffectText(input: {
+  status: 'exact' | 'estimated' | 'inferred' | 'missing';
+  reliabilityImpact: 'low' | 'medium' | 'high';
+  blocking: boolean;
+}) {
+  if (input.blocking || input.status === 'missing') {
+    return 'Material reliability reduction; decision use should be blocked until resolved.';
+  }
+  if (input.status === 'inferred' && input.reliabilityImpact === 'high') {
+    return 'High reliability drag; outputs should be treated as exploratory.';
+  }
+  if (input.status === 'inferred' || input.status === 'estimated') {
+    return 'Moderate reliability drag; results should be used with planning-grade caution.';
+  }
+  return 'Low reliability drag; input quality supports decision use.';
+}
+
+function buildFaithfulUpgradeAction(input: ModelFidelityInput) {
+  switch (input.id) {
+    case 'inferred_rmd_start_timing':
+      return 'Provide an explicit RMD start-age policy override in rules.rmdPolicy.';
+    case 'opaque_holdings_mapping':
+      return 'Provide explicit look-through mapping plus assetClassMappingEvidence for ambiguous sleeves.';
+    case 'payroll_take_home_estimate':
+      return 'Provide household-specific payroll takeHomeFactor in rules.payrollModel.';
+    case 'payroll_timing_proration_assumptions':
+      return 'Provide explicit salaryProrationRule in rules.payrollModel.';
+    case 'uncertain_inheritance':
+      return 'Provide inheritance certainty metadata (certainty/timingUncertaintyYears/amountUncertaintyPercent).';
+    case 'simplified_home_sale_assumptions':
+      return 'Provide full home-sale inputs (costBasis, liquidityAmount, exclusionAmount, sellingCostPercent).';
+    default:
+      return 'Replace inferred/estimated input with explicit data for faithful classification.';
+  }
+}
+
+function buildModelTrustSection(modelFidelity: ModelFidelityAssessment): ModelTrustSection {
+  const reliabilityImpactSummary = modelFidelity.inputs.reduce(
+    (summary, input) => {
+      summary[input.reliabilityImpact] += 1;
+      return summary;
+    },
+    { high: 0, medium: 0, low: 0 },
+  );
+
+  return {
+    modelTrustLevel: modelFidelity.assessmentGrade,
+    modelFidelityScore: modelFidelity.modelFidelityScore,
+    blockingAssumptions: [...modelFidelity.blockingAssumptions],
+    softAssumptions: [...modelFidelity.softAssumptions],
+    faithfulUpgradeChecklist: modelFidelity.inputs
+      .filter(
+        (
+          input,
+        ): input is ModelFidelityInput & {
+          status: 'estimated' | 'inferred' | 'missing';
+        } => input.status !== 'exact',
+      )
+      .map((input) => ({
+        id: input.id,
+        currentStatus: input.status,
+        nextAction: buildFaithfulUpgradeAction(input),
+      })),
+    inputFidelityBreakdown: modelFidelity.inputs.map((input) => ({
+      ...input,
+      effectOnReliability: toReliabilityEffectText({
+        status: input.status,
+        reliabilityImpact: input.reliabilityImpact,
+        blocking: input.blocking,
+      }),
+    })),
+    reliabilityImpactSummary,
+  };
+}
+
+function buildRecommendationEvidenceSummary(
+  strategicPrepPolicy: FlightPathPolicyResult,
+): PlanningStateExport['flightPath']['recommendationEvidenceSummary'] {
+  const diagnostics = strategicPrepPolicy.diagnostics;
+  const suppressionReasons = [
+    ...diagnostics.skippedBeforeEvaluation,
+    ...diagnostics.hardConstraintFiltered,
+    ...diagnostics.evidenceFiltered,
+    ...diagnostics.rankingFiltered,
+  ];
+  const reasonCounts = suppressionReasons.reduce((map, item) => {
+    map.set(item.reason, (map.get(item.reason) ?? 0) + 1);
+    return map;
+  }, new Map<string, number>());
+
+  return {
+    candidatesConsidered: diagnostics.candidatesConsidered,
+    candidatesEvaluated: diagnostics.candidatesEvaluated,
+    acceptedAfterHardConstraints: diagnostics.acceptedAfterHardConstraints,
+    acceptedAfterEvidenceGate: diagnostics.acceptedAfterEvidenceGate,
+    returnedRecommendations: strategicPrepPolicy.recommendations.length,
+    suppressedBeforeEvaluation: diagnostics.skippedBeforeEvaluation.length,
+    suppressedByHardConstraints: diagnostics.hardConstraintFiltered.length,
+    suppressedByEvidenceGate: diagnostics.evidenceFiltered.length,
+    suppressedByRanking: diagnostics.rankingFiltered.length,
+    acceptedRecommendationIds: [...diagnostics.acceptedRecommendationIds],
+    topSuppressionReasons: [...reasonCounts.entries()]
+      .sort((left, right) => right[1] - left[1])
+      .slice(0, 5)
+      .map(([reason, count]) => ({ reason, count })),
+  };
+}
+
+function buildRecommendationAvailabilityHeadline(input: {
+  summary: PlanningStateExport['flightPath']['recommendationEvidenceSummary'];
+}): PlanningStateExport['flightPath']['recommendationAvailabilityHeadline'] {
+  const { summary } = input;
+  if (summary.returnedRecommendations > 0) {
+    return {
+      status: 'recommendations_available',
+      suppressedBy: 'none',
+      primaryReason: `${summary.returnedRecommendations} evidence-backed recommendation(s) available.`,
+      canActNow: true,
+    };
+  }
+
+  if (summary.candidatesConsidered === 0) {
+    return {
+      status: 'no_recommendations',
+      suppressedBy: 'none_considered',
+      primaryReason: 'No strategic recommendation candidates were triggered for this run.',
+      canActNow: false,
+    };
+  }
+
+  const suppressionBuckets = [
+    { key: 'missing_counterfactual_patches', count: summary.suppressedBeforeEvaluation },
+    { key: 'hard_constraints', count: summary.suppressedByHardConstraints },
+    { key: 'evidence_gate', count: summary.suppressedByEvidenceGate },
+    { key: 'ranking', count: summary.suppressedByRanking },
+  ] as const;
+  const activeBuckets = suppressionBuckets.filter((bucket) => bucket.count > 0);
+  const topBucket = [...activeBuckets].sort((left, right) => right.count - left.count)[0] ?? null;
+  const suppressedBy =
+    activeBuckets.length <= 1
+      ? (topBucket?.key ?? 'mixed')
+      : ('mixed' as PlanningStateExport['flightPath']['recommendationAvailabilityHeadline']['suppressedBy']);
+  const primaryReason =
+    summary.topSuppressionReasons[0]?.reason ??
+    'Recommendations were suppressed due to hard constraints or missing evidence.';
+
+  return {
+    status: 'no_recommendations',
+    suppressedBy,
+    primaryReason,
+    canActNow: false,
+  };
+}
+
+function buildExportQualityGate(input: {
+  strategicPrepPolicy: FlightPathPolicyResult;
+  recommendationLedger: PlanningStateExport['flightPath']['recommendationLedger'];
+  scenarioSensitivity: PlanningStateExport['scenarioSensitivity'];
+  modelCompleteness: PlaybookModelCompleteness;
+  modelFidelity: ModelFidelityAssessment;
+  modelTrust: ModelTrustSection;
+  inheritanceDependenceHeadline: InheritanceDependenceHeadline;
+  runwayRiskModel: RunwayRiskModelDiagnostics;
+  planScorecard: PlanningStateExport['planScorecard'];
+  simulationOutcomes: PlanningStateExport['simulationOutcomes'];
+}): ExportQualityGate {
+  const checks: ExportQualityGateCheck[] = [];
+
+  const recommendations = input.recommendationLedger.strategicPrep;
+  const evidenceIntegrityPass = recommendations.every(
+    (recommendation) =>
+      recommendation.estimatedImpact !== null &&
+      recommendation.evidence.baseline !== null &&
+      recommendation.evidence.counterfactual !== null &&
+      Number.isFinite(recommendation.estimatedImpact.successRateDelta) &&
+      Number.isFinite(recommendation.estimatedImpact.supportedMonthlyDelta) &&
+      Number.isFinite(recommendation.estimatedImpact.medianEndingWealthDelta) &&
+      Number.isFinite(recommendation.estimatedImpact.annualFederalTaxDelta) &&
+      Number.isFinite(recommendation.estimatedImpact.magiDelta) &&
+      typeof recommendation.estimatedImpact.magiDelta === 'number' &&
+      recommendation.estimatedImpact.downsideRiskDelta !== undefined &&
+      Number.isFinite(
+        recommendation.estimatedImpact.downsideRiskDelta.earlyFailureProbabilityDelta,
+      ) &&
+      Number.isFinite(
+        recommendation.estimatedImpact.downsideRiskDelta.worstDecileEndingWealthDelta,
+      ) &&
+      Number.isFinite(
+        recommendation.estimatedImpact.downsideRiskDelta.spendingCutRateDelta,
+      ) &&
+      Number.isFinite(
+        recommendation.estimatedImpact.downsideRiskDelta.equitySalesInAdverseEarlyYearsRateDelta,
+      ) &&
+      Number.isFinite(
+        recommendation.estimatedImpact.downsideRiskDelta.medianFailureShortfallDollarsDelta,
+      ) &&
+      Number.isFinite(
+        recommendation.estimatedImpact.downsideRiskDelta.medianDownsideSpendingCutRequiredDelta,
+      ) &&
+      typeof recommendation.sensitivityConsistency?.score === 'number' &&
+      typeof recommendation.confidence?.score === 'number',
+  );
+  checks.push({
+    id: 'recommendation_evidence_integrity',
+    label: 'Strategic recommendations include full evidence packets (baseline/counterfactual + MAGI/downside deltas)',
+    status: evidenceIntegrityPass ? 'pass' : 'fail',
+    detail: evidenceIntegrityPass
+      ? 'All returned strategic recommendations include deterministic snapshots, MAGI/downside deltas, confidence, and sensitivity consistency.'
+      : 'One or more returned recommendations are missing required evidence-packet fields.',
+  });
+
+  const recommendationIdConsistencyPass = recommendations.length ===
+    input.strategicPrepPolicy.diagnostics.acceptedRecommendationIds.length;
+  checks.push({
+    id: 'recommendation_id_consistency',
+    label: 'Accepted recommendation IDs match returned recommendation set',
+    status: recommendationIdConsistencyPass ? 'pass' : 'fail',
+    detail: recommendationIdConsistencyPass
+      ? 'Recommendation ID ledger is internally consistent.'
+      : 'Mismatch between diagnostics acceptedRecommendationIds and returned recommendation set.',
+  });
+
+  const preEvaluationSuppressionCount =
+    input.strategicPrepPolicy.diagnostics.skippedBeforeEvaluation.length;
+  const consideredCoverage =
+    input.strategicPrepPolicy.diagnostics.candidatesEvaluated + preEvaluationSuppressionCount;
+  const hasSuppressionTrace =
+    recommendations.length > 0 ||
+    input.strategicPrepPolicy.diagnostics.skippedBeforeEvaluation.length > 0 ||
+    input.strategicPrepPolicy.diagnostics.evidenceFiltered.length > 0 ||
+    input.strategicPrepPolicy.diagnostics.hardConstraintFiltered.length > 0 ||
+    input.strategicPrepPolicy.diagnostics.rankingFiltered.length > 0 ||
+    input.strategicPrepPolicy.diagnostics.candidatesConsidered === 0;
+  const evidenceTransparencyPass =
+    input.strategicPrepPolicy.diagnostics.acceptedAfterEvidenceGate >= 0 &&
+    input.strategicPrepPolicy.diagnostics.evidenceFiltered.length >= 0 &&
+    hasSuppressionTrace &&
+    consideredCoverage >= input.strategicPrepPolicy.diagnostics.candidatesConsidered;
+  checks.push({
+    id: 'recommendation_evidence_transparency',
+    label: 'Recommendation suppression/acceptance counts are explicitly disclosed',
+    status: evidenceTransparencyPass ? 'pass' : 'warn',
+    detail: evidenceTransparencyPass
+      ? `Returned ${recommendations.length} recommendations with ${input.strategicPrepPolicy.diagnostics.skippedBeforeEvaluation.length} pre-evaluation skips, ${input.strategicPrepPolicy.diagnostics.hardConstraintFiltered.length} hard-constraint suppressions, ${input.strategicPrepPolicy.diagnostics.evidenceFiltered.length} evidence-gated suppressions, and ${input.strategicPrepPolicy.diagnostics.rankingFiltered.length} ranking suppressions.`
+      : 'Recommendation evidence suppression details are incomplete.',
+  });
+
+  const canonicalScorecardConsistencyPass =
+    input.planScorecard.consistency.executiveSummarySuccessRateAligned &&
+    input.planScorecard.consistency.modelCompletenessAligned &&
+    input.planScorecard.consistency.dependenceRatesAligned;
+  checks.push({
+    id: 'canonical_scorecard_consistency',
+    label: 'Canonical scorecard metrics are internally consistent across export sections',
+    status: canonicalScorecardConsistencyPass ? 'pass' : 'fail',
+    detail: canonicalScorecardConsistencyPass
+      ? 'Canonical success/completeness/dependence metrics are aligned across summary, trust, and diagnostics sections.'
+      : 'One or more canonical scorecard metrics are inconsistent across export sections.',
+  });
+
+  const scenarioCompletenessPass =
+    input.scenarioSensitivity.inheritanceMatrix.scenarios.length >= 4 &&
+    input.scenarioSensitivity.objectiveCalibration.scenarios.length >= 2;
+  checks.push({
+    id: 'scenario_matrix_completeness',
+    label: 'Export includes required scenario sensitivity matrices',
+    status: scenarioCompletenessPass ? 'pass' : 'fail',
+    detail: scenarioCompletenessPass
+      ? 'Inheritance and objective calibration scenario diagnostics are present.'
+      : 'One or more required scenario sensitivity diagnostics are missing.',
+  });
+
+  const dependenceDefinitionsPass =
+    input.scenarioSensitivity.dependenceMetricsMetadata.definitions.length >= 2 &&
+    input.scenarioSensitivity.dependenceMetricsMetadata.definitions.every(
+      (definition) =>
+        definition.definition.length > 0 &&
+        definition.calculationNote.length > 0 &&
+        Number.isFinite(definition.observedRate),
+    );
+  checks.push({
+    id: 'dependence_metric_definitions',
+    label:
+      'Dependence metrics include explicit definitions and scenario-sensitivity reconciliation',
+    status: dependenceDefinitionsPass ? 'pass' : 'fail',
+    detail: dependenceDefinitionsPass
+      ? 'Inheritance/home-sale dependence rates include definition, calculation note, and sensitivity consistency metadata.'
+      : 'Dependence metric metadata is incomplete.',
+  });
+
+  const runwayRiskModelPass =
+    Number.isFinite(input.runwayRiskModel.runwayRiskReductionScore) &&
+    typeof input.runwayRiskModel.provenBenefit === 'boolean';
+  checks.push({
+    id: 'runway_risk_model',
+    label: 'Runway risk model reports downside deltas and risk-reduction score',
+    status: runwayRiskModelPass ? 'pass' : 'fail',
+    detail: runwayRiskModelPass
+      ? `Runway risk score ${input.runwayRiskModel.runwayRiskReductionScore.toFixed(2)} (provenBenefit=${input.runwayRiskModel.provenBenefit}).`
+      : 'Runway risk model diagnostics are incomplete.',
+  });
+
+  const hasReturnedRunwayRecommendation = recommendations.some((recommendation) =>
+    recommendation.id.includes('cash-buffer'),
+  );
+  const runwayRecommendationEvidenceAlignmentPass =
+    !hasReturnedRunwayRecommendation || input.runwayRiskModel.provenBenefit;
+  checks.push({
+    id: 'runway_recommendation_evidence_alignment',
+    label: 'Runway recommendations only surface when downside-risk evidence proves benefit',
+    status: runwayRecommendationEvidenceAlignmentPass ? 'pass' : 'fail',
+    detail: runwayRecommendationEvidenceAlignmentPass
+      ? hasReturnedRunwayRecommendation
+        ? 'Runway recommendation is supported by proven runway downside-risk benefit.'
+        : 'No runway recommendation returned without proven runway downside-risk benefit.'
+      : 'Runway recommendation returned even though runway risk model did not prove downside-risk benefit.',
+  });
+
+  checks.push({
+    id: 'model_completeness_declared',
+    label: 'Model completeness indicator is explicitly declared',
+    status: input.modelCompleteness === 'faithful' ? 'pass' : 'warn',
+    detail:
+      input.modelCompleteness === 'faithful'
+        ? 'Model completeness is faithful with no inferred/estimated inputs in the fidelity layer.'
+        : 'Model completeness is reconstructed; inferred assumptions are explicitly surfaced.',
+  });
+
+  checks.push({
+    id: 'model_fidelity_layer',
+    label: 'Model fidelity layer classifies input quality and reliability impact',
+    status: input.modelFidelity.inputs.length > 0 ? 'pass' : 'fail',
+    detail: input.modelFidelity.inputs.length > 0
+      ? `Fidelity score ${input.modelFidelity.score.toFixed(2)} with ${input.modelFidelity.blockingAssumptions.length} blocking and ${input.modelFidelity.softAssumptions.length} soft assumptions.`
+      : 'No model fidelity input assessments were generated.',
+  });
+
+  checks.push({
+    id: 'model_fidelity_blockers',
+    label: 'Blocking assumptions are explicitly surfaced',
+    status: input.modelFidelity.blockingAssumptions.length === 0 ? 'pass' : 'warn',
+    detail: input.modelFidelity.blockingAssumptions.length === 0
+      ? 'No blocking assumptions detected by fidelity checks.'
+      : `Blocking assumptions: ${input.modelFidelity.blockingAssumptions.join(', ')}.`,
+  });
+
+  const modelTrustSectionPass =
+    typeof input.modelTrust.modelTrustLevel === 'string' &&
+    Number.isFinite(input.modelTrust.modelFidelityScore) &&
+    Array.isArray(input.modelTrust.inputFidelityBreakdown);
+  checks.push({
+    id: 'model_trust_section',
+    label: 'Model trust section is explicit (trust level, score, assumptions, and input breakdown)',
+    status: modelTrustSectionPass ? 'pass' : 'fail',
+    detail: modelTrustSectionPass
+      ? `Trust level ${input.modelTrust.modelTrustLevel} with fidelity score ${input.modelTrust.modelFidelityScore.toFixed(2)}.`
+      : 'Model trust section is incomplete.',
+  });
+
+  const faithfulUpgradeChecklistPass =
+    input.modelCompleteness === 'faithful' || input.modelTrust.faithfulUpgradeChecklist.length > 0;
+  checks.push({
+    id: 'faithful_upgrade_checklist',
+    label: 'Reconstructed models include an explicit checklist to reach faithful fidelity',
+    status: faithfulUpgradeChecklistPass ? 'pass' : 'fail',
+    detail: faithfulUpgradeChecklistPass
+      ? input.modelCompleteness === 'faithful'
+        ? 'Model is already faithful; no upgrade checklist needed.'
+        : `Checklist includes ${input.modelTrust.faithfulUpgradeChecklist.length} input upgrades to reach faithful fidelity.`
+      : 'Model is reconstructed but no faithful-upgrade checklist was exported.',
+  });
+
+  checks.push({
+    id: 'inheritance_fragility_disclosed',
+    label: 'Inheritance dependence headline is explicit in export',
+    status:
+      input.inheritanceDependenceHeadline.baseCaseExcludingInheritance &&
+      input.inheritanceDependenceHeadline.upsideCaseIncludingInheritance
+        ? 'pass'
+        : 'fail',
+    detail: input.inheritanceDependenceHeadline.inheritanceDependent
+      ? `Plan is inheritance-dependent; robustness ${input.inheritanceDependenceHeadline.inheritanceRobustnessScore.toFixed(2)} with fragility penalty ${input.inheritanceDependenceHeadline.fragilityPenalty.toFixed(2)}.`
+      : `Plan is not inheritance-dependent; robustness ${input.inheritanceDependenceHeadline.inheritanceRobustnessScore.toFixed(2)}.`,
+  });
+
+  const downsideMetricsPresent =
+    input.simulationOutcomes.rawSimulation.riskMetrics !== undefined &&
+    input.simulationOutcomes.plannerEnhancedSimulation.riskMetrics !== undefined;
+  checks.push({
+    id: 'downside_metrics_exported',
+    label: 'Downside metrics exported for raw and planner-enhanced outcomes',
+    status: downsideMetricsPresent ? 'pass' : 'fail',
+    detail: downsideMetricsPresent
+      ? 'Early failure, shortfall severity, worst-decile wealth, and adverse equity-sale rates are exported.'
+      : 'Downside risk metrics are incomplete.',
+  });
+
+  const convergenceDiagnosticsPresent =
+    input.simulationOutcomes.rawSimulation.simulationDiagnostics.closedLoopConvergenceSummary !==
+      undefined &&
+    input.simulationOutcomes.plannerEnhancedSimulation.simulationDiagnostics
+      .closedLoopConvergenceSummary !== undefined;
+  checks.push({
+    id: 'closed_loop_convergence_diagnostics',
+    label: 'Closed-loop convergence diagnostics exported for both simulation modes',
+    status: convergenceDiagnosticsPresent ? 'pass' : 'fail',
+    detail: convergenceDiagnosticsPresent
+      ? 'Both raw and planner-enhanced outcomes include converged status, passes used, stop reason, and final deltas.'
+      : 'Closed-loop convergence diagnostics are missing from one or more simulation outcomes.',
+  });
+
+  const noChangeConvergenceSemanticsPass = [
+    input.simulationOutcomes.rawSimulation,
+    input.simulationOutcomes.plannerEnhancedSimulation,
+  ].every((outcome) => {
+    const thresholds =
+      outcome.simulationConfiguration.withdrawalPolicy.closedLoopConvergenceThresholds;
+    return outcome.simulationDiagnostics.closedLoopConvergencePath.every((point) => {
+      if (point.stopReason !== 'no_change' || !point.converged) {
+        return true;
+      }
+      return (
+        point.finalMagiDelta <= thresholds.magiDeltaDollars &&
+        point.finalFederalTaxDelta <= thresholds.federalTaxDeltaDollars &&
+        point.finalHealthcarePremiumDelta <= thresholds.healthcarePremiumDeltaDollars
+      );
+    });
+  });
+  checks.push({
+    id: 'closed_loop_no_change_semantics',
+    label: 'No-change closed-loop stop reason does not overstate threshold convergence',
+    status: noChangeConvergenceSemanticsPass ? 'pass' : 'fail',
+    detail: noChangeConvergenceSemanticsPass
+      ? 'No-change convergence is only marked converged when deltas remain within configured thresholds.'
+      : 'Found no-change convergence entries marked converged while deltas exceed configured thresholds.',
+  });
+
+  const rothDecisionTracePresent =
+    input.simulationOutcomes.plannerEnhancedSimulation.simulationDiagnostics
+      .rothConversionTracePath.length > 0 &&
+    input.simulationOutcomes.plannerEnhancedSimulation.simulationDiagnostics
+      .rothConversionTracePath.every((entry) => entry.reason.length > 0) &&
+    input.simulationOutcomes.plannerEnhancedSimulation.simulationDiagnostics
+      .rothConversionDecisionSummary.reasons.length > 0;
+  checks.push({
+    id: 'roth_conversion_decision_trace',
+    label: 'Roth conversion trace includes explicit yearly reason codes and summary counts',
+    status: rothDecisionTracePresent ? 'pass' : 'fail',
+    detail: rothDecisionTracePresent
+      ? 'Planner-enhanced diagnostics include yearly Roth decision reasons and aggregated reason counts.'
+      : 'Roth conversion decision reasons are incomplete.',
+  });
+
+  const rawRunCountExpected =
+    input.simulationOutcomes.rawSimulation.simulationConfiguration.simulationSettings.runCount;
+  const plannerRunCountExpected =
+    input.simulationOutcomes.plannerEnhancedSimulation.simulationConfiguration.simulationSettings
+      .runCount;
+  const rawRunProofCount =
+    input.simulationOutcomes.rawSimulation.simulationDiagnostics.closedLoopRunConvergence.length;
+  const plannerRunProofCount =
+    input.simulationOutcomes.plannerEnhancedSimulation.simulationDiagnostics.closedLoopRunConvergence
+      .length;
+  const runLevelConvergenceProofPresent =
+    rawRunProofCount === rawRunCountExpected &&
+    plannerRunProofCount === plannerRunCountExpected;
+  checks.push({
+    id: 'closed_loop_run_level_convergence_proof',
+    label: 'Run-level closed-loop convergence proof is exported for every simulation trial',
+    status: runLevelConvergenceProofPresent ? 'pass' : 'fail',
+    detail: runLevelConvergenceProofPresent
+      ? `Run-level convergence entries match simulation runs (raw ${rawRunProofCount}/${rawRunCountExpected}, planner ${plannerRunProofCount}/${plannerRunCountExpected}).`
+      : `Run-level convergence entries are incomplete (raw ${rawRunProofCount}/${rawRunCountExpected}, planner ${plannerRunProofCount}/${plannerRunCountExpected}).`,
+  });
+
+  const hasFail = checks.some((check) => check.status === 'fail');
+  return {
+    status: hasFail ? 'fail' : 'pass',
+    checks,
+  };
 }
 
 function moveIntoCash(data: SeedData, targetAmount: number) {
@@ -382,14 +2114,27 @@ function buildSimulationProfile({
   stressorIds,
   responseIds,
   preserveRothPreference,
+  rothConversionPolicy,
 }: {
   assumptions: MarketAssumptions;
   mode: SimulationStrategyMode;
   stressorIds: string[];
   responseIds: string[];
   preserveRothPreference: boolean;
+  rothConversionPolicy?: SeedData['rules']['rothConversionPolicy'];
 }): SimulationConfigurationSnapshot {
   const plannerLogicActive = mode === 'planner_enhanced';
+  const resolvedRothConversionPolicy = {
+    enabled: rothConversionPolicy?.enabled ?? true,
+    strategy: rothConversionPolicy?.strategy ?? 'aca_then_irmaa_headroom',
+    minAnnualDollars: Math.max(0, rothConversionPolicy?.minAnnualDollars ?? 500),
+    maxPretaxBalancePercent: Math.max(
+      0,
+      Math.min(1, rothConversionPolicy?.maxPretaxBalancePercent ?? 0.12),
+    ),
+    magiBufferDollars: Math.max(0, rothConversionPolicy?.magiBufferDollars ?? 2_000),
+    source: rothConversionPolicy ? 'rules' : 'default',
+  } as const;
 
   return {
     mode,
@@ -402,13 +2147,24 @@ function buildSimulationProfile({
         : ['cash', 'taxable', 'pretax', 'roth'],
       dynamicDefenseOrdering: plannerLogicActive,
       irmaaAware: plannerLogicActive,
-      acaAware: false,
+      acaAware: plannerLogicActive,
       preserveRothPreference: plannerLogicActive && preserveRothPreference,
+      closedLoopHealthcareTaxIteration: true,
+      maxClosedLoopPasses: DEFAULT_MAX_CLOSED_LOOP_PASSES,
+      closedLoopConvergenceThresholds: {
+        ...DEFAULT_CLOSED_LOOP_CONVERGENCE_THRESHOLDS,
+      } satisfies ClosedLoopConvergenceThresholds,
     },
     rothConversionPolicy: {
-      proactiveConversionsEnabled: false,
-      description:
-        'Simulation engine export baseline: no proactive Roth conversion strategy in Monte Carlo run loop.',
+      proactiveConversionsEnabled: plannerLogicActive && resolvedRothConversionPolicy.enabled,
+      strategy: resolvedRothConversionPolicy.strategy,
+      minAnnualDollars: resolvedRothConversionPolicy.minAnnualDollars,
+      maxPretaxBalancePercent: resolvedRothConversionPolicy.maxPretaxBalancePercent,
+      magiBufferDollars: resolvedRothConversionPolicy.magiBufferDollars,
+      source: resolvedRothConversionPolicy.source,
+      description: plannerLogicActive
+        ? 'Planner-enhanced simulation applies deterministic Roth conversion headroom rules in-year.'
+        : 'Raw simulation mode does not run proactive Roth conversions.',
     },
     liquidityFloorBehavior: {
       guardrailsEnabled: plannerLogicActive,
@@ -423,6 +2179,7 @@ function buildSimulationProfile({
       highInflationStressorDurationYears: 10,
     },
     returnGeneration: RETURN_GENERATION_ASSUMPTIONS,
+    returnModelExtensionPoints: RETURN_MODEL_EXTENSION_POINTS.map((point) => ({ ...point })),
     timingConventions: {
       currentPlanningYear: getCurrentPlanningYear(),
       salaryProrationRule: 'month_fraction',
@@ -548,13 +2305,24 @@ function buildSnapshot(
       withdrawalStyle: data.rules.withdrawalStyle,
       irmaaAware: data.rules.irmaaAware,
       replaceModeImports: data.rules.replaceModeImports,
+      assetClassMappingAssumptions: data.rules.assetClassMappingAssumptions,
+      assetClassMappingEvidence: data.rules.assetClassMappingEvidence,
+      rothConversionPolicy: data.rules.rothConversionPolicy
+        ? clone(data.rules.rothConversionPolicy)
+        : undefined,
+      rmdPolicy: data.rules.rmdPolicy ? clone(data.rules.rmdPolicy) : undefined,
+      payrollModel: data.rules.payrollModel ? clone(data.rules.payrollModel) : undefined,
       irmaaThreshold: assumptions.irmaaThreshold,
       healthcarePremiums: {
         baselineAcaPremiumAnnual:
           data.rules.healthcarePremiums?.baselineAcaPremiumAnnual ?? null,
         baselineMedicarePremiumAnnual:
           data.rules.healthcarePremiums?.baselineMedicarePremiumAnnual ?? null,
+        medicalInflationAnnual:
+          data.rules.healthcarePremiums?.medicalInflationAnnual ?? null,
       },
+      hsaStrategy: data.rules.hsaStrategy ? clone(data.rules.hsaStrategy) : undefined,
+      ltcAssumptions: data.rules.ltcAssumptions ? clone(data.rules.ltcAssumptions) : undefined,
       withdrawalPreference,
       housingFundingPolicy,
       cashBufferPolicy,
@@ -573,10 +2341,128 @@ function buildSnapshot(
   };
 }
 
+function getDefaultHomeSaleExclusionByFilingStatus(filingStatus: string) {
+  return filingStatus === 'married_filing_jointly' ? 500_000 : 250_000;
+}
+
+function applyDecisionGradeInputOverlay(data: SeedData) {
+  const next = clone(data);
+  const robBirthYear = new Date(next.household.robBirthDate).getUTCFullYear();
+  const debbieBirthYear = new Date(next.household.debbieBirthDate).getUTCFullYear();
+  const inferredRmdStartAge = Math.max(
+    getRmdStartAgeForBirthYear(robBirthYear),
+    getRmdStartAgeForBirthYear(debbieBirthYear),
+  );
+  next.rules.rmdPolicy = {
+    startAgeOverride: next.rules.rmdPolicy?.startAgeOverride ?? inferredRmdStartAge,
+    source: next.rules.rmdPolicy?.source ?? 'explicit_override',
+  };
+
+  next.rules.assetClassMappingAssumptions = deriveAssetClassMappingAssumptionsFromAccounts(
+    next.accounts,
+    next.rules.assetClassMappingAssumptions,
+  );
+  next.rules.assetClassMappingEvidence = {
+    TRP_2030: next.rules.assetClassMappingEvidence?.TRP_2030 ?? 'exact_lookthrough',
+    CENTRAL_MANAGED:
+      next.rules.assetClassMappingEvidence?.CENTRAL_MANAGED ?? 'exact_lookthrough',
+  };
+
+  next.rules.payrollModel = {
+    takeHomeFactor: next.rules.payrollModel?.takeHomeFactor ?? 0.72,
+    salaryProrationRule: next.rules.payrollModel?.salaryProrationRule ?? 'month_fraction',
+    salaryProrationSource:
+      next.rules.payrollModel?.salaryProrationSource ?? 'assumed_month_fraction',
+  };
+
+  next.income.windfalls = next.income.windfalls.map((windfall) => {
+    if (windfall.name === 'inheritance') {
+      return {
+        ...windfall,
+        taxTreatment: windfall.taxTreatment ?? 'cash_non_taxable',
+        certainty: windfall.certainty ?? 'certain',
+        timingUncertaintyYears: windfall.timingUncertaintyYears ?? 0,
+        amountUncertaintyPercent: windfall.amountUncertaintyPercent ?? 0,
+      };
+    }
+    if (windfall.name === 'home_sale') {
+      const exclusionAmount =
+        windfall.exclusionAmount ??
+        getDefaultHomeSaleExclusionByFilingStatus(next.household.filingStatus);
+      const sellingCostPercent = windfall.sellingCostPercent ?? 0.08;
+      const liquidityAmount =
+        windfall.liquidityAmount ?? Math.max(0, windfall.amount * (1 - sellingCostPercent));
+      const costBasis = windfall.costBasis ?? Math.max(0, windfall.amount - exclusionAmount);
+      return {
+        ...windfall,
+        taxTreatment: windfall.taxTreatment ?? 'primary_home_sale',
+        certainty: windfall.certainty ?? 'certain',
+        timingUncertaintyYears: windfall.timingUncertaintyYears ?? 0,
+        amountUncertaintyPercent: windfall.amountUncertaintyPercent ?? 0,
+        exclusionAmount,
+        sellingCostPercent,
+        liquidityAmount,
+        costBasis,
+      };
+    }
+    return windfall;
+  });
+
+  return next;
+}
+
+export async function buildPlanningStateExportWithResolvedContext(
+  input: BuildPlanningExportInput,
+): Promise<PlanningStateExport> {
+  const overlayData = applyDecisionGradeInputOverlay(input.data);
+  let unifiedPlanEvaluation = input.unifiedPlanEvaluation ?? null;
+  let unifiedPlanEvaluationCapturedAtIso = input.unifiedPlanEvaluationCapturedAtIso ?? null;
+  let unifiedPlanEvaluationSource: BuildPlanningExportInput['unifiedPlanEvaluationSource'] =
+    input.unifiedPlanEvaluationSource ?? (unifiedPlanEvaluation ? 'unified_plan' : 'none');
+
+  if (!unifiedPlanEvaluation) {
+    try {
+      const exportPlan: Plan = {
+        data: clone(overlayData),
+        assumptions: { ...input.assumptions },
+        controls: {
+          selectedStressorIds: [...input.selectedStressorIds],
+          selectedResponseIds: [...input.selectedResponseIds],
+          toggles: {
+            preserveRoth: input.selectedResponseIds.includes('preserve_roth'),
+            increaseCashBuffer: input.selectedResponseIds.includes('increase_cash_buffer'),
+          },
+        },
+        preferences: {
+          calibration: {
+            optimizationObjective:
+              input.optimizationObjective ?? 'maximize_time_weighted_spending',
+          },
+        },
+      };
+      unifiedPlanEvaluation = await evaluatePlan(exportPlan);
+      unifiedPlanEvaluationCapturedAtIso = new Date().toISOString();
+      unifiedPlanEvaluationSource = 'derived_plan';
+    } catch {
+      unifiedPlanEvaluation = null;
+      unifiedPlanEvaluationCapturedAtIso = null;
+      unifiedPlanEvaluationSource = 'none';
+    }
+  }
+
+  return buildPlanningStateExport({
+    ...input,
+    data: overlayData,
+    unifiedPlanEvaluation,
+    unifiedPlanEvaluationCapturedAtIso,
+    unifiedPlanEvaluationSource,
+  });
+}
+
 export function buildPlanningStateExport(
   input: BuildPlanningExportInput,
 ): PlanningStateExport {
-  const optimizationObjective = input.optimizationObjective ?? 'maximize_flat_spending';
+  const optimizationObjective = input.optimizationObjective ?? 'maximize_time_weighted_spending';
   const activeStressors = input.data.stressors.filter((item) =>
     input.selectedStressorIds.includes(item.id),
   );
@@ -629,6 +2515,18 @@ export function buildPlanningStateExport(
     activeResponseIds,
     optimizationObjective,
   );
+  const inheritanceMatrix = buildInheritanceScenarioMatrix({
+    data: effectiveData,
+    assumptions: input.assumptions,
+    selectedStressorIds: activeStressorIds,
+    selectedResponseIds: activeResponseIds,
+  });
+  const objectiveCalibration = buildObjectiveCalibrationDiagnostics({
+    data: effectiveData,
+    assumptions: input.assumptions,
+    selectedStressorIds: activeStressorIds,
+    selectedResponseIds: activeResponseIds,
+  });
   const simulationProfiles = {
     rawSimulation: buildSimulationProfile({
       assumptions: input.assumptions,
@@ -636,6 +2534,7 @@ export function buildPlanningStateExport(
       stressorIds: activeStressorIds,
       responseIds: activeResponseIds,
       preserveRothPreference: false,
+      rothConversionPolicy: effectiveData.rules.rothConversionPolicy,
     }),
     plannerEnhancedSimulation: buildSimulationProfile({
       assumptions: input.assumptions,
@@ -643,13 +2542,194 @@ export function buildPlanningStateExport(
       stressorIds: activeStressorIds,
       responseIds: activeResponseIds,
       preserveRothPreference: activeResponses.some((item) => item.id === 'preserve_roth'),
+      rothConversionPolicy: effectiveData.rules.rothConversionPolicy,
     }),
   };
+  const [rawSimulationOutcome] = buildPathResults(
+    effectiveData,
+    input.assumptions,
+    activeStressorIds,
+    activeResponseIds,
+    {
+      pathMode: 'selected_only',
+      strategyMode: 'raw_simulation',
+    },
+  );
+  const [plannerEnhancedSimulationOutcome] = buildPathResults(
+    effectiveData,
+    input.assumptions,
+    activeStressorIds,
+    activeResponseIds,
+    {
+      pathMode: 'selected_only',
+      strategyMode: 'planner_enhanced',
+    },
+  );
+  const simulationOutcomes = {
+    rawSimulation: rawSimulationOutcome,
+    plannerEnhancedSimulation: plannerEnhancedSimulationOutcome,
+  };
+  const activeSimulationProfile: ActiveSimulationProfile =
+    effectiveInputs.simulationSettings.mode === 'planner_enhanced'
+      ? 'plannerEnhancedSimulation'
+      : 'rawSimulation';
+  const activeSimulationOutcome = simulationOutcomes[activeSimulationProfile];
+  const activeSimulationSummary = {
+    activeSimulationProfile,
+    ...getFirstExecutedConversion(activeSimulationOutcome),
+    plannerConversionsExecuted:
+      plannerEnhancedSimulationOutcome.simulationDiagnostics.rothConversionDecisionSummary
+        .executedYearCount > 0,
+  };
+  const plannerConversionDiagnostics =
+    plannerEnhancedSimulationOutcome.simulationDiagnostics.rothConversionEligibilityPath;
+  const rawConversionDiagnostics =
+    rawSimulationOutcome.simulationDiagnostics.rothConversionEligibilityPath;
+
+  if (effectiveInputs.simulationSettings.mode === 'planner_enhanced') {
+    const plannerModeMismatch = plannerConversionDiagnostics.find(
+      (entry) =>
+        entry.simulationModeUsedForConversion !== 'planner_enhanced' ||
+        entry.plannerLogicActiveAtConversion !== true ||
+        entry.conversionEngineInvoked !== true,
+    );
+    if (plannerModeMismatch) {
+      throw new Error(
+        `Planner-enhanced export used non-planner Roth routing in ${plannerModeMismatch.year}.`,
+      );
+    }
+  }
+
+  const rawModeMismatch = rawConversionDiagnostics.find(
+    (entry) =>
+      entry.simulationModeUsedForConversion !== 'raw_simulation' ||
+      entry.plannerLogicActiveAtConversion !== false ||
+      entry.conversionEngineInvoked !== false,
+  );
+  if (rawModeMismatch) {
+    throw new Error(`Raw simulation export used planner Roth routing in ${rawModeMismatch.year}.`);
+  }
+  const scenarioSensitivity = {
+    inheritanceMatrix,
+    objectiveCalibration,
+    dependenceMetricsMetadata: buildDependenceMetricsMetadata({
+      data: effectiveData,
+      assumptions: input.assumptions,
+      selectedStressorIds: activeStressorIds,
+      selectedResponseIds: activeResponseIds,
+      inheritanceMatrix,
+      plannerOutcome: plannerEnhancedSimulationOutcome,
+    }),
+  };
+  const unifiedPlanEvaluation = input.unifiedPlanEvaluation ?? null;
+  const unifiedPlanEvaluationSource =
+    input.unifiedPlanEvaluationSource ??
+    (unifiedPlanEvaluation ? 'unified_plan' : 'none');
+  const strategicPrepPolicy = buildFlightPathStrategicPrepRecommendations({
+    evaluation: unifiedPlanEvaluation,
+    data: effectiveData,
+    assumptions: input.assumptions,
+    selectedStressors: activeStressorIds,
+    selectedResponses: activeResponseIds,
+    counterfactualSimulationRuns: 72,
+  });
+  const phasePlaybook = buildFlightPathPhasePlaybook({
+    evaluation: unifiedPlanEvaluation,
+    data: effectiveData,
+    assumptions: input.assumptions,
+    selectedStressors: activeStressorIds,
+    selectedResponses: activeResponseIds,
+  });
+  const recommendationLedger = {
+    strategicPrep: strategicPrepPolicy.recommendations,
+    phaseActions: phasePlaybook.phases.flatMap((phase) =>
+      phase.actions.map((action) => ({
+        phaseId: phase.id,
+        phaseLabel: phase.label,
+        phaseWindowStartYear: phase.windowStartYear,
+        phaseWindowEndYear: phase.windowEndYear,
+        phaseStatus: phase.status,
+        action,
+      })),
+    ),
+  };
+  const recommendationEvidenceSummary = buildRecommendationEvidenceSummary(strategicPrepPolicy);
+  const recommendationAvailabilityHeadline = buildRecommendationAvailabilityHeadline({
+    summary: recommendationEvidenceSummary,
+  });
+  const executiveSummary = buildExecutiveFlightSummary({
+    data: effectiveData,
+    evaluation: unifiedPlanEvaluation,
+    phasePlaybook,
+    strategicPrepRecommendations: strategicPrepPolicy.recommendations,
+  });
+  const playbookInferredAssumptions = collectPlaybookInferredAssumptions(phasePlaybook);
+  const baseModelFidelity = buildModelFidelityAssessment({
+    data: effectiveData,
+    assumptions: input.assumptions,
+  });
+  const modelFidelity = reconcileModelFidelityAssessmentWithAdditionalAssumptions({
+    baseAssessment: baseModelFidelity,
+    inferredAssumptions: playbookInferredAssumptions,
+  });
+  const flightPathModelCompleteness = modelFidelity.modelCompleteness as PlaybookModelCompleteness;
+  const canonicalPlannerSuccessRate = roundRate(plannerEnhancedSimulationOutcome.successRate);
+  executiveSummary.planHealth.successRate = canonicalPlannerSuccessRate;
+  const evaluationContextInferredAssumptions = uniqueNonEmpty(
+    modelFidelity.inputs
+      .filter((inputItem) => inputItem.status !== 'exact')
+      .map((inputItem) => inputItem.detail),
+  );
+  const probeChecklist = buildProbeChecklist({
+    data: effectiveData,
+    assumptions: input.assumptions,
+    evaluation: unifiedPlanEvaluation,
+  });
+  const inheritanceDependenceHeadline = buildInheritanceDependenceHeadline(
+    scenarioSensitivity.inheritanceMatrix,
+    scenarioSensitivity.dependenceMetricsMetadata,
+  );
+  const exportAlignedTrustPanel = harmonizeTrustPanelDependence({
+    trustPanel: unifiedPlanEvaluation?.trustPanel ?? null,
+    dependenceMetadata: scenarioSensitivity.dependenceMetricsMetadata,
+  });
+  const runwayRiskModel = buildRunwayRiskModel({
+    data: effectiveData,
+    assumptions: input.assumptions,
+    selectedStressorIds: activeStressorIds,
+    selectedResponseIds: activeResponseIds,
+  });
+  const planScorecard = buildPlanScorecard({
+    plannerOutcome: plannerEnhancedSimulationOutcome,
+    executiveSummary,
+    modelCompleteness: flightPathModelCompleteness,
+    modelFidelityCompleteness: modelFidelity.modelCompleteness,
+    playbookInferredAssumptionsCount: playbookInferredAssumptions.length,
+    dependenceMetadata: scenarioSensitivity.dependenceMetricsMetadata,
+    trustPanel: exportAlignedTrustPanel,
+    inheritanceDependenceHeadline,
+    planEvaluationSuccessRate: unifiedPlanEvaluation?.summary.successRate ?? null,
+  });
+  const modelTrust = buildModelTrustSection(modelFidelity);
+  const exportTimestamp = new Date().toISOString();
+  const exportQualityGate = buildExportQualityGate({
+    strategicPrepPolicy,
+    recommendationLedger,
+    scenarioSensitivity,
+    modelCompleteness: flightPathModelCompleteness,
+    modelFidelity,
+    modelTrust,
+    inheritanceDependenceHeadline,
+    runwayRiskModel,
+    planScorecard,
+    simulationOutcomes,
+  });
 
   return {
     version: {
       schema: EXPORT_SCHEMA_VERSION,
-      exportedAt: new Date().toISOString(),
+      exportedAt: exportTimestamp,
+      generatedAt: exportTimestamp,
     },
     household: effectiveInputs.household,
     assets: effectiveInputs.assets,
@@ -667,15 +2747,44 @@ export function buildPlanningStateExport(
       name: item.name,
     })),
     simulationSettings: effectiveInputs.simulationSettings,
+    activeSimulationProfile,
+    activeSimulationSummary,
+    activeSimulationOutcome,
     toggleState: {
       stressorIds: [...input.selectedStressorIds],
       responseIds: [...input.selectedResponseIds],
     },
     adjustmentsApplied,
     simulationProfiles,
+    simulationOutcomes,
     baseInputs,
     effectiveInputs,
     effectiveSimulationInputs,
     effectivePlanningStrategyInputs,
+    scenarioSensitivity,
+    inheritanceDependenceHeadline,
+    runwayRiskModel,
+    planScorecard,
+    flightPath: {
+      evaluationContext: {
+        source: unifiedPlanEvaluation ? unifiedPlanEvaluationSource : 'none',
+        available: Boolean(unifiedPlanEvaluation),
+        capturedAtIso: input.unifiedPlanEvaluationCapturedAtIso ?? null,
+        modelCompleteness: flightPathModelCompleteness,
+        inferredAssumptions: evaluationContextInferredAssumptions,
+        playbookInferredAssumptions: playbookInferredAssumptions,
+      },
+      strategicPrepPolicy,
+      executiveSummary,
+      phasePlaybook,
+      trustPanel: exportAlignedTrustPanel,
+      recommendationLedger,
+      recommendationEvidenceSummary,
+      recommendationAvailabilityHeadline,
+    },
+    probeChecklist,
+    modelFidelity,
+    modelTrust,
+    exportQualityGate,
   };
 }

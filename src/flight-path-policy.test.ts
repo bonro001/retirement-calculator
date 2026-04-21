@@ -23,13 +23,24 @@ vi.mock('./utils', async () => {
     const medianEndingWealth = 1_000_000 + (2_000 - optionalMonthly) * 2_000;
     const annualFederalTaxEstimate = 30_000 + optionalMonthly * 12 * 0.08;
     const yearsFunded = 31 + (2_000 - optionalMonthly) / 1_000;
+    const tenthPercentileEndingWealth = medianEndingWealth * 0.55;
 
     return {
       successRate,
       medianEndingWealth,
+      tenthPercentileEndingWealth,
       annualFederalTaxEstimate,
       yearsFunded,
-      yearlySeries: [{ medianSpending: annualSpend }],
+      medianFailureYear: 2054,
+      spendingCutRate: 0.22,
+      riskMetrics: {
+        earlyFailureProbability: 0.08,
+        medianFailureShortfallDollars: 42_000,
+        medianDownsideSpendingCutRequired: 0.19,
+        worstDecileEndingWealth: tenthPercentileEndingWealth,
+        equitySalesInAdverseEarlyYearsRate: 0.18,
+      },
+      yearlySeries: [{ medianSpending: annualSpend, medianMagi: 95_000 }],
     } as unknown as PathResult;
   };
 
@@ -166,5 +177,25 @@ describe('flight-path-policy', () => {
     expect(second.diagnostics.impactDeltaSummaryReturnedRecommendations).toEqual(
       first.diagnostics.impactDeltaSummaryReturnedRecommendations,
     );
+  });
+
+  it('emits explicit suppression reasons when evaluation context is unavailable', () => {
+    const input = buildPolicyInput();
+    input.evaluation = null;
+    const result = buildFlightPathStrategicPrepRecommendations(input);
+
+    expect(result.recommendations).toEqual([]);
+    expect(result.diagnostics.candidatesEvaluated).toBe(0);
+    if (result.diagnostics.candidatesConsidered > 0) {
+      expect(result.diagnostics.skippedBeforeEvaluation.length).toBe(
+        result.diagnostics.candidatesConsidered,
+      );
+      expect(result.diagnostics.hardConstraintFiltered).toHaveLength(0);
+      expect(result.diagnostics.skippedBeforeEvaluation.every((item) =>
+        item.reason.startsWith('Skipped before evaluation:'))).toBe(true);
+    } else {
+      expect(result.diagnostics.skippedBeforeEvaluation).toHaveLength(0);
+      expect(result.diagnostics.hardConstraintFiltered).toHaveLength(0);
+    }
   });
 });

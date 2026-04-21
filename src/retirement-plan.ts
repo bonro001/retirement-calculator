@@ -926,11 +926,25 @@ export async function analyzeRetirementPlan(
       const sourceTaxRate = getSourceTaxRate(decisionInput.decisionFundingSource);
       const sourceIrmaaImpact = getSourceIrmaaImpact(decisionInput.decisionFundingSource);
       const sourceAcaImpact = getSourceAcaImpact(decisionInput.decisionFundingSource);
+      const decisionYear = getDecisionYear(
+        decisionInput.decisionTiming,
+        new Date().getFullYear(),
+      );
+      const yearsUntilDecision = Math.max(0, decisionYear - new Date().getFullYear());
+      const presentDecisionCost =
+        decisionInput.decisionFundingSource === 'financed'
+          ? 0
+          : toPresentValue(
+              Math.max(0, decisionInput.decisionCost),
+              yearsUntilDecision,
+              plan.assumptions.inflation,
+            );
       const decisionSuccessDelta =
         decisionRun.decision.baseline.successRate - decision.baseline.successRate;
       const decisionLegacyDelta =
         decisionRun.solver.projectedLegacyOutcomeTodayDollars -
-        solver.projectedLegacyOutcomeTodayDollars;
+        solver.projectedLegacyOutcomeTodayDollars -
+        presentDecisionCost;
       const decisionTaxDelta =
         decisionRun.solver.annualFederalTaxEstimate -
         solver.annualFederalTaxEstimate +

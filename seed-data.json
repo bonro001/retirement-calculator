@@ -14,16 +14,17 @@
       { "person": "debbie", "fraMonthly": 2000, "claimAge": 67 }
     ],
     "windfalls": [
-      { "name": "inheritance", "year": 2028, "amount": 500000 },
-      { "name": "home_sale", "year": 2037, "amount": 500000 }
+      { "name": "inheritance", "year": 2028, "amount": 500000, "taxTreatment": "cash_non_taxable" },
+      { "name": "home_sale", "year": 2037, "amount": 500000, "taxTreatment": "primary_home_sale" }
     ],
     "preRetirementContributions": {
-      "employee401kAnnualAmount": 26000,
+      "employee401kPreTaxPercentOfSalary": 0.1499,
+      "employee401kRothPercentOfSalary": 0,
       "employerMatch": {
         "matchRate": 0,
         "maxEmployeeContributionPercentOfSalary": 0.06
       },
-      "hsaAnnualAmount": 13000,
+      "hsaPercentOfSalary": 0.0159,
       "hsaCoverageType": "family"
     }
   },
@@ -176,9 +177,31 @@
     "withdrawalStyle": "guardrails",
     "irmaaAware": true,
     "replaceModeImports": true,
+    "rothConversionPolicy": {
+      "enabled": true,
+      "strategy": "aca_then_irmaa_headroom",
+      "minAnnualDollars": 500,
+      "maxPretaxBalancePercent": 0.12,
+      "magiBufferDollars": 2000
+    },
     "healthcarePremiums": {
       "baselineAcaPremiumAnnual": 14400,
-      "baselineMedicarePremiumAnnual": 2220
+      "baselineMedicarePremiumAnnual": 2220,
+      "medicalInflationAnnual": 0.055
+    },
+    "hsaStrategy": {
+      "enabled": true,
+      "annualQualifiedExpenseWithdrawalCap": 12000,
+      "prioritizeHighMagiYears": true,
+      "highMagiThreshold": 190000
+    },
+    "ltcAssumptions": {
+      "enabled": true,
+      "startAge": 85,
+      "annualCostToday": 48000,
+      "durationYears": 3,
+      "inflationAnnual": 0.055,
+      "eventProbability": 0.45
     }
   },
   "stressors": [

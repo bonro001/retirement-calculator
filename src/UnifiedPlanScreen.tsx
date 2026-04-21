@@ -1,5 +1,10 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import type { MarketAssumptions, PathResult, SeedData } from './types';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { deriveAnnual401kTargets, deriveAnnualHsaTarget } from './contribution-engine';
+import type {
+  MarketAssumptions,
+  PathResult,
+  SeedData,
+} from './types';
 import { perfLog, perfStart } from './debug-perf';
 import type { OptimizationObjective } from './optimization-objective';
 import {
@@ -18,6 +23,9 @@ import {
   buildFlightPathStrategicPrepRecommendations,
   type StrategicPrepRecommendation,
 } from './flight-path-policy';
+import { buildFlightPathPhasePlaybook } from './flight-path-action-playbook';
+import { buildExecutiveFlightSummary } from './flight-path-summary';
+import { buildProbeChecklist, type ProbeStatus } from './probe-checklist';
 import { getRmdStartAgeForBirthYear } from './retirement-rules';
 import type { IrmaaPosture } from './retirement-plan';
 import { useAppStore } from './store';
@@ -40,6 +48,7 @@ const INTERACTIVE_RUNTIME_BUDGETS = {
   stressTestComplexity: 'reduced' as const,
 };
 const STRATEGIC_PREP_ROLLOUT_MODE = 'policy_default_shadow_validated' as const;
+const PHASE_PLAYBOOK_SECTION_ANCHOR_ID = 'phase-action-playbook';
 type PlanSimulationStatus = 'fresh' | 'stale' | 'running';
 type PlanAnalysisStatus = 'fresh' | 'stale' | 'running';
 
@@ -194,6 +203,22 @@ function toReadableConstraint(value: string) {
   return value.replaceAll('_', ' ');
 }
 
+function toAnchorSlug(value: string) {
+  const normalized = value
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  return normalized || 'item';
+}
+
+function phaseAnchorId(phaseId: string) {
+  return `phase-${toAnchorSlug(phaseId)}`;
+}
+
+function phaseActionAnchorId(phaseId: string, actionId: string) {
+  return `phase-action-${toAnchorSlug(phaseId)}-${toAnchorSlug(actionId)}`;
+}
+
 function buildVerdictExplanation(input: {
   verdict: 'Strong' | 'Moderate' | 'Fragile';
   successRate: number;
@@ -300,6 +325,24 @@ interface FlightPathTimelineEvent {
   ageLabel?: string;
 }
 
+interface SavedAppliedScenario {
+  id: string;
+  name: string;
+  actionTitle: string;
+  createdAtLabel: string;
+  successRate: number;
+  supportedMonthlySpendNow: number;
+  projectedLegacyTodayDollars: number;
+  annualFederalTaxEstimate: number;
+}
+
+interface PendingScenarioCapture {
+  id: string;
+  name: string;
+  actionTitle: string;
+  sourceEvaluationFingerprint: string;
+}
+
 const FLIGHT_PATH_EVENT_VISUAL: Record<
   FlightPathTimelineEvent['category'],
   { label: string; markerClassName: string; softClassName: string }
@@ -364,6 +407,22 @@ function formatTimelineDate(value: Date) {
     day: 'numeric',
     year: 'numeric',
   });
+}
+
+function fromDateInputValue(value: string) {
+  const [year, month, day] = value.split('-').map(Number);
+  if (!year || !month || !day) {
+    return null;
+  }
+  return new Date(Date.UTC(year, month - 1, day)).toISOString();
+}
+
+function toDateInputValue(value: string) {
+  return value.slice(0, 10);
+}
+
+function isDateInputValue(value: string) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(value);
 }
 
 function ageAtDate(birthDate: string, when: Date) {
@@ -437,6 +496,329 @@ function priorityLabel(value: StrategicPrepRecommendation['priority']) {
     return 'Do soon';
   }
   return 'Watch';
+}
+
+function executiveUrgencyClasses(value: 'act_now' | 'soon' | 'agenda') {
+  if (value === 'act_now') {
+    return 'bg-rose-100 text-rose-700';
+  }
+  if (value === 'soon') {
+    return 'bg-amber-100 text-amber-700';
+  }
+  return 'bg-blue-100 text-blue-700';
+}
+
+function executiveUrgencyLabel(value: 'act_now' | 'soon' | 'agenda') {
+  if (value === 'act_now') {
+    return 'Act now';
+  }
+  if (value === 'soon') {
+    return 'Do soon';
+  }
+  return 'Agenda';
+}
+
+function executiveConfidenceClasses(value: 'high' | 'medium' | 'low' | 'unknown') {
+  if (value === 'high') {
+    return 'bg-emerald-100 text-emerald-700';
+  }
+  if (value === 'medium') {
+    return 'bg-blue-100 text-blue-700';
+  }
+  if (value === 'low') {
+    return 'bg-amber-100 text-amber-700';
+  }
+  return 'bg-stone-200 text-stone-700';
+}
+
+function executiveConfidenceLabel(value: 'high' | 'medium' | 'low' | 'unknown') {
+  if (value === 'high') {
+    return 'High confidence';
+  }
+  if (value === 'medium') {
+    return 'Medium confidence';
+  }
+  if (value === 'low') {
+    return 'Low confidence';
+  }
+  return 'Confidence pending';
+}
+
+function probeStatusClasses(value: ProbeStatus) {
+  if (value === 'modeled') {
+    return 'bg-emerald-100 text-emerald-700';
+  }
+  if (value === 'partial') {
+    return 'bg-amber-100 text-amber-700';
+  }
+  if (value === 'attention') {
+    return 'bg-rose-100 text-rose-700';
+  }
+  return 'bg-stone-200 text-stone-700';
+}
+
+function probeStatusLabel(value: ProbeStatus) {
+  if (value === 'modeled') {
+    return 'Modeled';
+  }
+  if (value === 'partial') {
+    return 'Partial';
+  }
+  if (value === 'attention') {
+    return 'Attention';
+  }
+  return 'Missing';
+}
+
+function trustCheckStatusClasses(value: 'pass' | 'warn' | 'fail') {
+  if (value === 'pass') {
+    return 'bg-emerald-100 text-emerald-700';
+  }
+  if (value === 'warn') {
+    return 'bg-amber-100 text-amber-700';
+  }
+  return 'bg-rose-100 text-rose-700';
+}
+
+function trustCheckStatusLabel(value: 'pass' | 'warn' | 'fail') {
+  if (value === 'pass') {
+    return 'Pass';
+  }
+  if (value === 'warn') {
+    return 'Watch';
+  }
+  return 'Fail';
+}
+
+function trustConfidenceClasses(value: 'high' | 'medium' | 'low') {
+  if (value === 'high') {
+    return 'bg-emerald-100 text-emerald-700';
+  }
+  if (value === 'medium') {
+    return 'bg-amber-100 text-amber-700';
+  }
+  return 'bg-rose-100 text-rose-700';
+}
+
+function phaseStatusClasses(value: 'active' | 'upcoming' | 'completed') {
+  if (value === 'active') {
+    return 'bg-emerald-100 text-emerald-700';
+  }
+  if (value === 'upcoming') {
+    return 'bg-blue-100 text-blue-700';
+  }
+  return 'bg-stone-200 text-stone-600';
+}
+
+function phaseStatusLabel(value: 'active' | 'upcoming' | 'completed') {
+  if (value === 'active') {
+    return 'Active';
+  }
+  if (value === 'upcoming') {
+    return 'Upcoming';
+  }
+  return 'Completed';
+}
+
+function acaRiskBandClasses(value: 'green' | 'yellow' | 'red' | 'unknown') {
+  if (value === 'green') {
+    return 'bg-emerald-100 text-emerald-700';
+  }
+  if (value === 'yellow') {
+    return 'bg-amber-100 text-amber-700';
+  }
+  if (value === 'red') {
+    return 'bg-rose-100 text-rose-700';
+  }
+  return 'bg-stone-200 text-stone-700';
+}
+
+function acaRiskBandLabel(value: 'green' | 'yellow' | 'red' | 'unknown') {
+  if (value === 'green') {
+    return 'Subsidy guardrail: safe';
+  }
+  if (value === 'yellow') {
+    return 'Subsidy guardrail: near limit';
+  }
+  if (value === 'red') {
+    return 'Subsidy guardrail: over limit';
+  }
+  return 'Subsidy guardrail: unknown';
+}
+
+function modelCompletenessClasses(value: 'faithful' | 'reconstructed') {
+  return value === 'faithful'
+    ? 'bg-emerald-100 text-emerald-700'
+    : 'bg-amber-100 text-amber-700';
+}
+
+function formatRetirementFlowRegimeLabel(value: 'standard' | 'aca_bridge' | 'unknown') {
+  if (value === 'aca_bridge') {
+    return 'ACA bridge';
+  }
+  if (value === 'standard') {
+    return 'Standard';
+  }
+  return 'Unknown';
+}
+
+function formatIntermediateLabel(value: string) {
+  return value
+    .replaceAll('_', ' ')
+    .replace(/([a-z])([A-Z])/g, '$1 $2')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function formatTradeInstructionAccountLabel(input: {
+  sourceAccountName: string;
+  sourceAccountId: string | null;
+}) {
+  if (!input.sourceAccountId) {
+    return input.sourceAccountName;
+  }
+  return `${input.sourceAccountName} (${input.sourceAccountId})`;
+}
+
+function roundToCents(value: number) {
+  return Number(value.toFixed(2));
+}
+
+function annualAmountToSalaryPercent(annualAmount: number, salaryAnnual: number) {
+  if (!(salaryAnnual > 0)) {
+    return 0;
+  }
+  return roundToCents(annualAmount / salaryAnnual);
+}
+
+function sumTradeInstructionDollars(
+  instructions: Array<{ dollarAmount: number }>,
+) {
+  return roundToCents(instructions.reduce((sum, instruction) => sum + instruction.dollarAmount, 0));
+}
+
+function scaleTradeInstructionsToGoal(
+  instructions: Array<{
+    accountBucket: 'pretax' | 'roth' | 'taxable' | 'cash' | 'hsa';
+    sourceAccountId: string | null;
+    fromSymbol: string;
+    toSymbol: string;
+    dollarAmount: number;
+  }>,
+  goalDollars: number,
+) {
+  if (!instructions.length) {
+    return [];
+  }
+  const normalizedGoal = Math.max(0, roundToCents(goalDollars));
+  if (!(normalizedGoal > 0)) {
+    return [];
+  }
+  const baseTotal = sumTradeInstructionDollars(instructions);
+  if (!(baseTotal > 0)) {
+    return [];
+  }
+
+  let assigned = 0;
+  return instructions.map((instruction, index) => {
+    const isLast = index === instructions.length - 1;
+    const proportional = roundToCents(normalizedGoal * (instruction.dollarAmount / baseTotal));
+    const scaledAmount = isLast ? roundToCents(normalizedGoal - assigned) : proportional;
+    assigned = roundToCents(assigned + scaledAmount);
+    return {
+      ...instruction,
+      dollarAmount: Math.max(0, scaledAmount),
+    };
+  });
+}
+
+function resolveContributionTargets(data: SeedData) {
+  const settings = data.income.preRetirementContributions;
+  const annual401kTargets = deriveAnnual401kTargets(settings, data.income.salaryAnnual);
+  const salaryAnnual = Math.max(0, data.income.salaryAnnual);
+  const toSalaryPercent = (annualAmount: number) =>
+    salaryAnnual > 0 ? roundToCents(annualAmount / salaryAnnual) : 0;
+  const preTaxAnnualAmount = roundToCents(annual401kTargets.preTaxAnnualTarget);
+  const rothAnnualAmount = roundToCents(annual401kTargets.rothAnnualTarget);
+  const hsaAnnualAmount = roundToCents(deriveAnnualHsaTarget(settings, data.income.salaryAnnual));
+
+  return {
+    employee401kPreTaxAnnualAmount: preTaxAnnualAmount,
+    employee401kPreTaxPercentOfSalary: toSalaryPercent(preTaxAnnualAmount),
+    employee401kRothAnnualAmount: rothAnnualAmount,
+    employee401kRothPercentOfSalary: toSalaryPercent(rothAnnualAmount),
+    hsaAnnualAmount,
+    hsaPercentOfSalary: toSalaryPercent(hsaAnnualAmount),
+    hsaCoverageType: settings?.hsaCoverageType ?? 'family',
+    employerMatchRate: settings?.employerMatch?.matchRate ?? 0,
+    employerMatchCapPercent: settings?.employerMatch?.maxEmployeeContributionPercentOfSalary ?? 0,
+  };
+}
+
+function isContributionPatchGoalReached(
+  data: SeedData,
+  patch:
+    | {
+        employee401kPreTaxAnnualAmount?: number;
+        employee401kRothAnnualAmount?: number;
+        hsaAnnualAmount?: number;
+      }
+    | null
+    | undefined,
+) {
+  if (!patch) {
+    return false;
+  }
+  const current = resolveContributionTargets(data);
+  const withinTolerance = (currentValue: number, targetValue: number) =>
+    Math.abs(currentValue - targetValue) <= 1;
+  const preTaxReached =
+    typeof patch.employee401kPreTaxAnnualAmount === 'number'
+      ? withinTolerance(current.employee401kPreTaxAnnualAmount, patch.employee401kPreTaxAnnualAmount)
+      : true;
+  const rothReached =
+    typeof patch.employee401kRothAnnualAmount === 'number'
+      ? withinTolerance(current.employee401kRothAnnualAmount, patch.employee401kRothAnnualAmount)
+      : true;
+  const hsaReached =
+    typeof patch.hsaAnnualAmount === 'number'
+      ? withinTolerance(current.hsaAnnualAmount, patch.hsaAnnualAmount)
+      : true;
+  return preTaxReached && rothReached && hsaReached;
+}
+
+function buildEvaluationFingerprint(evaluation: PlanEvaluation | null) {
+  if (!evaluation) {
+    return 'none';
+  }
+  return [
+    evaluation.summary.successRate.toFixed(6),
+    evaluation.calibration.supportedMonthlySpendNow.toFixed(2),
+    evaluation.calibration.projectedLegacyTodayDollars.toFixed(2),
+    evaluation.raw.spendingCalibration.annualFederalTaxEstimate.toFixed(2),
+  ].join('|');
+}
+
+function toSavedScenario(
+  evaluation: PlanEvaluation,
+  draft: PendingScenarioCapture,
+): SavedAppliedScenario {
+  return {
+    id: draft.id,
+    name: draft.name,
+    actionTitle: draft.actionTitle,
+    createdAtLabel: new Date().toLocaleString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+    }),
+    successRate: evaluation.summary.successRate,
+    supportedMonthlySpendNow: evaluation.calibration.supportedMonthlySpendNow,
+    projectedLegacyTodayDollars: evaluation.calibration.projectedLegacyTodayDollars,
+    annualFederalTaxEstimate: evaluation.raw.spendingCalibration.annualFederalTaxEstimate,
+  };
 }
 
 function SectionCard({
@@ -673,10 +1055,30 @@ export function UnifiedPlanScreen({
   const toggleStressor = useAppStore((state) => state.toggleStressor);
   const toggleResponse = useAppStore((state) => state.toggleResponse);
   const updateIncome = useAppStore((state) => state.updateIncome);
+  const updatePreRetirementContribution = useAppStore(
+    (state) => state.updatePreRetirementContribution,
+  );
+  const updateEmployerMatchContribution = useAppStore(
+    (state) => state.updateEmployerMatchContribution,
+  );
+  const applyPreRetirementContributionPatch = useAppStore(
+    (state) => state.applyPreRetirementContributionPatch,
+  );
   const updateSpending = useAppStore((state) => state.updateSpending);
   const updateSocialSecurityClaim = useAppStore((state) => state.updateSocialSecurityClaim);
   const updateWindfall = useAppStore((state) => state.updateWindfall);
   const updateAssumption = useAppStore((state) => state.updateAssumption);
+  const applyAccountTradeInstructions = useAppStore(
+    (state) => state.applyAccountTradeInstructions,
+  );
+  const replaceDraftData = useAppStore((state) => state.replaceDraftData);
+  const recordDraftTradeSetActivity = useAppStore(
+    (state) => state.recordDraftTradeSetActivity,
+  );
+  const setLatestUnifiedPlanEvaluationContext = useAppStore(
+    (state) => state.setLatestUnifiedPlanEvaluationContext,
+  );
+  const unifiedPlanRerunNonce = useAppStore((state) => state.unifiedPlanRerunNonce);
 
   const [legacyTargetTodayDollars, setLegacyTargetTodayDollars] = useState(1_000_000);
   const [legacyPriority, setLegacyPriority] = useState<LegacyPriority>('important');
@@ -703,6 +1105,28 @@ export function UnifiedPlanScreen({
   const [isRunning, setIsRunning] = useState(false);
   const [planAnalysisStatus, setPlanAnalysisStatus] = useState<PlanAnalysisStatus>('running');
   const [error, setError] = useState<string | null>(null);
+  const [playbookApplyMessage, setPlaybookApplyMessage] = useState<string | null>(null);
+  const [savedAppliedScenarios, setSavedAppliedScenarios] = useState<SavedAppliedScenario[]>([]);
+  const [pendingScenarioCapture, setPendingScenarioCapture] = useState<PendingScenarioCapture | null>(
+    null,
+  );
+  const [pendingPlaybookAutoRunNonce, setPendingPlaybookAutoRunNonce] = useState(0);
+  const [pendingPlaybookAutoRunSourceSignature, setPendingPlaybookAutoRunSourceSignature] =
+    useState<string | null>(null);
+  const [lastAppliedDraftSnapshot, setLastAppliedDraftSnapshot] = useState<{
+    actionTitle: string;
+    scenarioName: string;
+    instructions: Array<{
+      accountBucket: 'pretax' | 'roth' | 'taxable' | 'cash' | 'hsa';
+      sourceAccountId: string | null;
+      fromSymbol: string;
+      toSymbol: string;
+      dollarAmount: number;
+    }>;
+    dataSnapshot: SeedData;
+  } | null>(null);
+  const lastHandledPlaybookAutoRunNonceRef = useRef(0);
+  const lastHandledHeaderRerunNonceRef = useRef(0);
   const latestEvaluationRef = useRef<PlanEvaluation | null>(null);
   const workerRef = useRef<Worker | null>(null);
   const activeRequestIdRef = useRef<string | null>(null);
@@ -728,6 +1152,16 @@ export function UnifiedPlanScreen({
   const [controlsSectionState, setControlsSectionState] = useState<PlanControlsSectionState>(
     DEFAULT_PLAN_CONTROLS_SECTION_STATE,
   );
+  const salaryEndDateValue = useMemo(
+    () => toDateInputValue(data.income.salaryEndDate),
+    [data.income.salaryEndDate],
+  );
+  const [salaryEndDateText, setSalaryEndDateText] = useState(salaryEndDateValue);
+
+  useEffect(() => {
+    setSalaryEndDateText(salaryEndDateValue);
+  }, [salaryEndDateValue]);
+  const contributionTargets = useMemo(() => resolveContributionTargets(data), [data]);
 
   const setSuccessFloorModeAndTarget = useCallback((mode: SuccessFloorMode) => {
     setSuccessFloorMode(mode);
@@ -775,6 +1209,7 @@ export function UnifiedPlanScreen({
     .map((item) => item.name);
   const stressorSummary = summarizeSelectorNames(activeStressorNames);
   const responseSummary = summarizeSelectorNames(activeResponseNames);
+  const contributionSummary = `${formatCurrency(contributionTargets.employee401kPreTaxAnnualAmount)} pre-tax 401(k) (${formatPercent(contributionTargets.employee401kPreTaxPercentOfSalary)}) · ${formatCurrency(contributionTargets.employee401kRothAnnualAmount)} Roth 401(k) (${formatPercent(contributionTargets.employee401kRothPercentOfSalary)}) · ${formatCurrency(contributionTargets.hsaAnnualAmount)} HSA (${formatPercent(contributionTargets.hsaPercentOfSalary)})`;
   const analysisInputFingerprint = useMemo(
     () =>
       buildPlanAnalysisFingerprint({
@@ -826,6 +1261,148 @@ export function UnifiedPlanScreen({
       [key]: open,
     }));
   };
+
+  const applySalaryEndDateInput = useCallback(
+    (value: string) => {
+      const next = fromDateInputValue(value);
+      if (!next) {
+        return;
+      }
+      updateIncome('salaryEndDate', next);
+    },
+    [updateIncome],
+  );
+
+  const applyPlaybookActionTradeSet = useCallback(
+    (
+      actionTitle: string,
+      instructions: Array<{
+        accountBucket: 'pretax' | 'roth' | 'taxable' | 'cash' | 'hsa';
+        sourceAccountId: string | null;
+        fromSymbol: string;
+        toSymbol: string;
+        dollarAmount: number;
+      }>,
+    ) => {
+      if (!instructions.length) {
+        setPlaybookApplyMessage(`No trade instructions found for "${actionTitle}".`);
+        return;
+      }
+      const sourceSignature = JSON.stringify(data);
+      const snapshot = JSON.parse(JSON.stringify(data)) as SeedData;
+      const scenarioName = `${actionTitle} (${new Date().toLocaleTimeString('en-US', {
+        hour: 'numeric',
+        minute: '2-digit',
+      })})`;
+      const currentFingerprint = buildEvaluationFingerprint(currentEvaluation);
+      const normalizedInstructions = instructions.map((instruction) => ({
+        ...instruction,
+      }));
+
+      setLastAppliedDraftSnapshot({
+        actionTitle,
+        scenarioName,
+        instructions: normalizedInstructions,
+        dataSnapshot: snapshot,
+      });
+      applyAccountTradeInstructions(normalizedInstructions);
+      recordDraftTradeSetActivity({
+        kind: 'apply',
+        actionTitle,
+        scenarioName,
+        instructions: normalizedInstructions,
+      });
+      setPlaybookApplyMessage(
+        `Applied "${actionTitle}" to draft account targets. Auto-running analysis and saving scenario "${scenarioName}".`,
+      );
+      setPendingScenarioCapture({
+        id: `applied-scenario-${Date.now()}`,
+        name: scenarioName,
+        actionTitle,
+        sourceEvaluationFingerprint: currentFingerprint,
+      });
+      setPendingPlaybookAutoRunSourceSignature(sourceSignature);
+      setPendingPlaybookAutoRunNonce((value) => value + 1);
+      setPlanAnalysisStatus('stale');
+    },
+    [applyAccountTradeInstructions, currentEvaluation, data, recordDraftTradeSetActivity],
+  );
+
+  const applyPlaybookContributionSettingsAction = useCallback(
+    (
+      actionTitle: string,
+      patch: {
+        employee401kPreTaxAnnualAmount?: number;
+        employee401kRothAnnualAmount?: number;
+        hsaAnnualAmount?: number;
+      },
+    ) => {
+      const patchEntries = Object.entries(patch).filter(([, value]) => typeof value === 'number');
+      if (!patchEntries.length) {
+        setPlaybookApplyMessage(`No payroll settings patch found for "${actionTitle}".`);
+        return;
+      }
+      const sourceSignature = JSON.stringify(data);
+      const snapshot = JSON.parse(JSON.stringify(data)) as SeedData;
+      const scenarioName = `${actionTitle} (${new Date().toLocaleTimeString('en-US', {
+        hour: 'numeric',
+        minute: '2-digit',
+      })})`;
+      const currentFingerprint = buildEvaluationFingerprint(currentEvaluation);
+      const summary = patchEntries
+        .map(([key, value]) => `${formatIntermediateLabel(key)} ${formatCurrency(value as number)}`)
+        .join(' · ');
+
+      setLastAppliedDraftSnapshot({
+        actionTitle,
+        scenarioName,
+        instructions: [],
+        dataSnapshot: snapshot,
+      });
+      applyPreRetirementContributionPatch(patch);
+      setPlaybookApplyMessage(
+        `Applied "${actionTitle}" payroll settings (${summary}). Auto-running analysis and saving scenario "${scenarioName}".`,
+      );
+      setPendingScenarioCapture({
+        id: `applied-scenario-${Date.now()}`,
+        name: scenarioName,
+        actionTitle,
+        sourceEvaluationFingerprint: currentFingerprint,
+      });
+      setPendingPlaybookAutoRunSourceSignature(sourceSignature);
+      setPendingPlaybookAutoRunNonce((value) => value + 1);
+      setPlanAnalysisStatus('stale');
+    },
+    [applyPreRetirementContributionPatch, currentEvaluation, data],
+  );
+
+  const undoLastAppliedTradeSet = useCallback(() => {
+    if (!lastAppliedDraftSnapshot) {
+      setPlaybookApplyMessage('No applied trade set to undo.');
+      return;
+    }
+    const sourceSignature = JSON.stringify(data);
+    replaceDraftData(lastAppliedDraftSnapshot.dataSnapshot);
+    setPlaybookApplyMessage(
+      `Undid "${lastAppliedDraftSnapshot.actionTitle}". Auto-running analysis.`,
+    );
+    recordDraftTradeSetActivity({
+      kind: 'undo',
+      actionTitle: lastAppliedDraftSnapshot.actionTitle,
+      scenarioName: `${lastAppliedDraftSnapshot.scenarioName} (undo)`,
+      instructions: lastAppliedDraftSnapshot.instructions,
+    });
+    setPendingScenarioCapture(null);
+    setPendingPlaybookAutoRunSourceSignature(sourceSignature);
+    setPendingPlaybookAutoRunNonce((value) => value + 1);
+    setLastAppliedDraftSnapshot(null);
+    setPlanAnalysisStatus('stale');
+  }, [data, lastAppliedDraftSnapshot, recordDraftTradeSetActivity, replaceDraftData]);
+
+  const clearSavedAppliedScenarios = useCallback(() => {
+    setSavedAppliedScenarios([]);
+    setPlaybookApplyMessage('Cleared saved applied scenarios.');
+  }, []);
 
   const stopTrackedPlanAnalysis = useCallback(
     (
@@ -919,6 +1496,7 @@ export function UnifiedPlanScreen({
       setIsRunning(false);
       setPreviousEvaluation(latestEvaluationRef.current);
       setCurrentEvaluation(message.evaluation);
+      setLatestUnifiedPlanEvaluationContext(message.evaluation);
       latestEvaluationRef.current = message.evaluation;
       lastRunFingerprintRef.current = runFingerprint;
       setPlanAnalysisStatus(
@@ -955,7 +1533,11 @@ export function UnifiedPlanScreen({
       requestFingerprintByIdRef.current.clear();
       lastPhaseByRequestRef.current.clear();
     };
-  }, [clearTrackedPlanAnalysisTimeout, stopTrackedPlanAnalysis]);
+  }, [
+    clearTrackedPlanAnalysisTimeout,
+    setLatestUnifiedPlanEvaluationContext,
+    stopTrackedPlanAnalysis,
+  ]);
 
   const runUnifiedAnalysis = useCallback((
     reason: 'initial-load' | 'manual' | 'update-model',
@@ -1131,6 +1713,7 @@ export function UnifiedPlanScreen({
           }
           setPreviousEvaluation(latestEvaluationRef.current);
           setCurrentEvaluation(evaluation);
+          setLatestUnifiedPlanEvaluationContext(evaluation);
           latestEvaluationRef.current = evaluation;
           lastRunFingerprintRef.current = runFingerprint;
           setPlanAnalysisStatus(
@@ -1192,6 +1775,7 @@ export function UnifiedPlanScreen({
     preserveRothPreference,
     selectedResponses,
     selectedStressors,
+    setLatestUnifiedPlanEvaluationContext,
     successFloorMode,
     stopTrackedPlanAnalysis,
     currentEvaluation,
@@ -1199,6 +1783,65 @@ export function UnifiedPlanScreen({
     targetSuccessRatePercent,
     travelFlexPercent,
   ]);
+
+  const currentEvaluationFingerprint = useMemo(
+    () => buildEvaluationFingerprint(currentEvaluation),
+    [currentEvaluation],
+  );
+
+  useEffect(() => {
+    if (!pendingPlaybookAutoRunNonce) {
+      return;
+    }
+    if (pendingPlaybookAutoRunNonce === lastHandledPlaybookAutoRunNonceRef.current) {
+      return;
+    }
+    if (
+      pendingPlaybookAutoRunSourceSignature !== null &&
+      JSON.stringify(data) === pendingPlaybookAutoRunSourceSignature
+    ) {
+      return;
+    }
+    lastHandledPlaybookAutoRunNonceRef.current = pendingPlaybookAutoRunNonce;
+    setPendingPlaybookAutoRunSourceSignature(null);
+    runUnifiedAnalysis('manual', appliedConstraintModifiers);
+  }, [
+    appliedConstraintModifiers,
+    data,
+    pendingPlaybookAutoRunNonce,
+    pendingPlaybookAutoRunSourceSignature,
+    runUnifiedAnalysis,
+  ]);
+
+  useEffect(() => {
+    if (!unifiedPlanRerunNonce) {
+      return;
+    }
+    if (unifiedPlanRerunNonce === lastHandledHeaderRerunNonceRef.current) {
+      return;
+    }
+    lastHandledHeaderRerunNonceRef.current = unifiedPlanRerunNonce;
+    runUnifiedAnalysis('manual', appliedConstraintModifiers);
+  }, [appliedConstraintModifiers, runUnifiedAnalysis, unifiedPlanRerunNonce]);
+
+  useEffect(() => {
+    if (!pendingScenarioCapture) {
+      return;
+    }
+    if (isRunning || !currentEvaluation) {
+      return;
+    }
+    if (currentEvaluationFingerprint === pendingScenarioCapture.sourceEvaluationFingerprint) {
+      return;
+    }
+
+    const savedScenario = toSavedScenario(currentEvaluation, pendingScenarioCapture);
+    setSavedAppliedScenarios((previous) => [savedScenario, ...previous].slice(0, 12));
+    setPlaybookApplyMessage(
+      `Auto-run complete. Saved scenario "${pendingScenarioCapture.name}" for side-by-side comparison.`,
+    );
+    setPendingScenarioCapture(null);
+  }, [currentEvaluation, currentEvaluationFingerprint, isRunning, pendingScenarioCapture]);
 
   useEffect(() => {
     if (!isRunning) {
@@ -1315,15 +1958,6 @@ export function UnifiedPlanScreen({
   const activeOptimizationObjectiveLabel = formatOptimizationObjectiveLabel(
     activeOptimizationObjective,
   );
-  const flightPathSummary = currentEvaluation
-    ? `Current course is being evaluated under “${activeOptimizationObjectiveLabel}”. The current feasible plan supports about ${formatCurrency(currentEvaluation.summary.planSupportsAnnual)}/year with ${formatPercent(currentEvaluation.summary.successRate)} success.`
-    : `Current course is anchored by the latest plan snapshot (${formatPercent(primaryPath.successRate)} success).`;
-  const autopilotSummary = currentEvaluation
-    ? `${currentEvaluation.responsePolicy.posture} posture · ${currentEvaluation.responsePolicy.routeSummary}`
-    : 'Defensive posture assumed while guidance is loading.';
-  const primaryPressure = currentEvaluation
-    ? toReadableConstraint(currentEvaluation.responsePolicy.primaryBindingConstraint)
-    : toReadableConstraint(primaryPath.failureMode);
   const verdictExplanation = currentEvaluation
     ? buildVerdictExplanation({
         verdict: currentEvaluation.summary.planVerdict,
@@ -1618,6 +2252,55 @@ export function UnifiedPlanScreen({
       }),
     [assumptions, currentEvaluation, data, selectedResponses, selectedStressors],
   );
+  const phasePlaybook = useMemo(
+    () =>
+      buildFlightPathPhasePlaybook({
+        evaluation: currentEvaluation,
+        data,
+        assumptions,
+        selectedStressors,
+        selectedResponses,
+      }),
+    [assumptions, currentEvaluation, data, selectedResponses, selectedStressors],
+  );
+  const acaBridgeMetrics = phasePlaybook.phases.find((phase) => phase.id === 'aca_bridge')?.acaMetrics;
+  const acaGuardrailAdjustment = phasePlaybook.diagnostics.acaGuardrailAdjustment;
+  const subsidyRecoveryModeActive = acaGuardrailAdjustment.mode === 'recovery';
+  const subsidyWatchModeActive = acaGuardrailAdjustment.mode === 'watch';
+  const prioritizedPhaseId = acaGuardrailAdjustment.prioritizedPhaseIds[0] ?? null;
+  const prioritizedPhase = prioritizedPhaseId
+    ? phasePlaybook.phases.find((phase) => phase.id === prioritizedPhaseId) ?? null
+    : null;
+  const prioritizedPhaseTopAction = prioritizedPhase
+    ? prioritizedPhase.actions.find((action) => action.isTopRecommendation) ??
+      prioritizedPhase.actions[0] ??
+      null
+    : null;
+  const prioritizedJumpHref = prioritizedPhaseTopAction && prioritizedPhase
+    ? `#${phaseActionAnchorId(prioritizedPhase.id, prioritizedPhaseTopAction.id)}`
+    : prioritizedPhase
+      ? `#${phaseAnchorId(prioritizedPhase.id)}`
+      : `#${PHASE_PLAYBOOK_SECTION_ANCHOR_ID}`;
+  const prioritizedPayrollRateRecommendation = (() => {
+    const preTaxAnnualTarget =
+      prioritizedPhaseTopAction?.contributionSettingsPatch?.employee401kPreTaxAnnualAmount;
+    if (!(typeof preTaxAnnualTarget === 'number' && preTaxAnnualTarget > 0)) {
+      return null;
+    }
+    const salaryAnnual = Math.max(0, data.income.salaryAnnual);
+    if (!(salaryAnnual > 0)) {
+      return null;
+    }
+    const currentRate = contributionTargets.employee401kPreTaxPercentOfSalary;
+    const targetRate = annualAmountToSalaryPercent(preTaxAnnualTarget, salaryAnnual);
+    const cushionRate = roundToCents(Math.min(1, targetRate + 0.005));
+    return {
+      currentRate,
+      targetRate,
+      cushionRate,
+      bridgeYear: acaBridgeMetrics?.bridgeYear ?? null,
+    };
+  })();
   const strategicPrepRecommendations = strategicPrepPolicy.recommendations;
   const legacySuggestedLevers = currentEvaluation?.recommendations.top.length
     ? currentEvaluation.recommendations.top.map((item) => item.name)
@@ -1630,11 +2313,29 @@ export function UnifiedPlanScreen({
       }),
     [legacySuggestedLevers, strategicPrepRecommendations],
   );
-  const bestImprovementLeverLabel =
-    strategicPrepRecommendations[0]?.title ?? 'Waiting for strategic prep pass';
   const suggestedLevers = strategicPrepRecommendations.length
     ? strategicPrepRecommendations.map((item) => item.title)
     : ['No lever available yet'];
+  const executiveSummary = useMemo(
+    () =>
+      buildExecutiveFlightSummary({
+        data,
+        evaluation: currentEvaluation,
+        phasePlaybook,
+        strategicPrepRecommendations,
+      }),
+    [currentEvaluation, data, phasePlaybook, strategicPrepRecommendations],
+  );
+  const probeChecklist = useMemo(
+    () =>
+      buildProbeChecklist({
+        data,
+        assumptions,
+        evaluation: currentEvaluation,
+      }),
+    [assumptions, currentEvaluation, data],
+  );
+  const trustPanel = currentEvaluation?.trustPanel ?? null;
   const debugDiagnosticsPayloadWithStrategicPrep = debugDiagnosticsPayload
     ? {
         ...debugDiagnosticsPayload,
@@ -1688,14 +2389,6 @@ export function UnifiedPlanScreen({
                   ? 'Analysis current'
                   : 'Analysis pending'}
           </span>
-          <button
-            type="button"
-            onClick={() => runUnifiedAnalysis('manual', appliedConstraintModifiers)}
-            disabled={isRunning}
-            className="rounded-full bg-blue-700 px-3 py-1 text-xs font-semibold text-white transition hover:bg-blue-600 disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            {isRunning ? 'Running Plan Analysis…' : 'Run Plan Analysis'}
-          </button>
           <span
             className={`rounded-full px-3 py-1 text-xs font-semibold ${
               simulationStatus === 'fresh'
@@ -1724,31 +2417,244 @@ export function UnifiedPlanScreen({
           Plan analysis is outdated relative to current inputs. Run Plan Analysis to update results.
         </p>
       ) : null}
+      {acaBridgeMetrics ? (
+        <div className="mb-4 rounded-2xl border border-stone-200 bg-stone-50 px-4 py-3 text-sm text-stone-700">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="font-semibold text-stone-900">ACA Subsidy Guardrail</p>
+            <span
+              className={`rounded-full px-2 py-0.5 text-[11px] font-semibold uppercase tracking-[0.1em] ${acaRiskBandClasses(
+                acaBridgeMetrics.subsidyRiskBand,
+              )}`}
+            >
+              {acaRiskBandLabel(acaBridgeMetrics.subsidyRiskBand)}
+            </span>
+          </div>
+          <p className="mt-1 text-xs">
+            Bridge year {acaBridgeMetrics.bridgeYear ?? 'not modeled'} · projected MAGI{' '}
+            {formatCurrency(acaBridgeMetrics.projectedMagi)} · ACA-friendly ceiling{' '}
+            {acaBridgeMetrics.acaFriendlyMagiCeiling === null
+              ? 'not modeled'
+              : formatCurrency(acaBridgeMetrics.acaFriendlyMagiCeiling)}{' '}
+            · headroom{' '}
+            {acaBridgeMetrics.headroomToCeiling === null
+              ? 'not modeled'
+              : formatCurrency(acaBridgeMetrics.headroomToCeiling)}
+            .
+          </p>
+          <p className="mt-1 text-xs text-stone-600">
+            Yellow starts within {formatCurrency(acaBridgeMetrics.guardrailBufferDollars)} of the
+            ceiling; red means projected MAGI is above the modeled ceiling.
+          </p>
+          {subsidyRecoveryModeActive ? (
+            <p className="mt-2 rounded-md bg-rose-50 px-2 py-1 text-xs text-rose-800">
+              Flight path auto-adjusted: subsidy recovery mode is active. ACA bridge actions are now prioritized to close an estimated{' '}
+              {formatCurrency(acaGuardrailAdjustment.requiredMagiReduction)} MAGI gap.{' '}
+              {prioritizedPayrollRateRecommendation ? (
+                <>
+                  Current pre-tax 401(k) rate {formatPercent(prioritizedPayrollRateRecommendation.currentRate)}; recommended target{' '}
+                  {formatPercent(prioritizedPayrollRateRecommendation.targetRate)} (set {formatPercent(
+                    prioritizedPayrollRateRecommendation.cushionRate,
+                  )} for cushion).
+                </>
+              ) : null}{' '}
+              <a
+                href={prioritizedJumpHref}
+                className="font-semibold underline decoration-rose-400 underline-offset-2"
+              >
+                Jump to prioritized action
+              </a>
+              .
+            </p>
+          ) : null}
+          {subsidyWatchModeActive ? (
+            <p className="mt-2 rounded-md bg-amber-50 px-2 py-1 text-xs text-amber-800">
+              Flight path auto-adjusted: subsidy watch mode is active. ACA bridge actions are being ranked ahead while headroom is tight.{' '}
+              {prioritizedPayrollRateRecommendation ? (
+                <>
+                  Current pre-tax 401(k) rate {formatPercent(prioritizedPayrollRateRecommendation.currentRate)}; recommendation points to{' '}
+                  {formatPercent(prioritizedPayrollRateRecommendation.targetRate)} (or {formatPercent(
+                    prioritizedPayrollRateRecommendation.cushionRate,
+                  )} for cushion).
+                </>
+              ) : null}{' '}
+              <a
+                href={prioritizedJumpHref}
+                className="font-semibold underline decoration-amber-500 underline-offset-2"
+              >
+                Jump to prioritized action
+              </a>
+              .
+            </p>
+          ) : null}
+        </div>
+      ) : null}
 
       <SectionCard title="Flight Path">
         <div className="rounded-xl bg-white p-4 text-sm text-stone-700">
-          <p>{flightPathSummary}</p>
-          <p className="mt-2">
-            <span className="font-semibold">Active objective:</span> {activeOptimizationObjectiveLabel}
-          </p>
-          <p className="mt-2">
-            <span className="font-semibold">Autopilot posture:</span> {autopilotSummary}
-          </p>
-          <p className="mt-1">
-            <span className="font-semibold">Primary pressure:</span> {primaryPressure}
-          </p>
-          <p className="mt-1">
-            <span className="font-semibold">Best improvement lever:</span>{' '}
-            {bestImprovementLeverLabel}
-          </p>
-          {timePreference ? (
-            <p className="mt-1">
-              <span className="font-semibold">Time preference:</span>{' '}
-              60s {formatTimePreferenceLabel(timePreference.profile.ages60to69)} · 70s{' '}
-              {formatTimePreferenceLabel(timePreference.profile.ages70to79)} · 80+{' '}
-              {formatTimePreferenceLabel(timePreference.profile.ages80plus)}
-            </p>
+          {trustPanel ? (
+            <div className="mb-3 rounded-xl border border-stone-200 bg-stone-50/70 p-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="text-xs uppercase tracking-[0.14em] text-stone-500">Decision Trust Panel</p>
+                <div className="flex items-center gap-2">
+                  <span
+                    className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] ${trustConfidenceClasses(
+                      trustPanel.confidence,
+                    )}`}
+                  >
+                    {trustPanel.confidence} confidence
+                  </span>
+                  <span
+                    className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] ${
+                      trustPanel.safeToRely ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'
+                    }`}
+                  >
+                    {trustPanel.safeToRely ? 'safe to rely' : 'needs review'}
+                  </span>
+                </div>
+              </div>
+              <p className="mt-2 text-xs text-stone-700">{trustPanel.summary}</p>
+              <p className="mt-1 text-[11px] text-stone-600">
+                Pass {trustPanel.metrics.passCount} · Watch {trustPanel.metrics.warnCount} · Fail{' '}
+                {trustPanel.metrics.failCount} · Recommendation evidence coverage{' '}
+                {Math.round(trustPanel.metrics.recommendationEvidenceCoverage * 100)}%
+              </p>
+              <div className="mt-2 grid gap-2 md:grid-cols-2">
+                {trustPanel.checks.map((check) => (
+                  <div
+                    key={check.id}
+                    className="rounded-md border border-stone-200 bg-white px-2 py-2"
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-xs font-semibold text-stone-900">{check.title}</p>
+                      <span
+                        className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.1em] ${trustCheckStatusClasses(
+                          check.status,
+                        )}`}
+                      >
+                        {trustCheckStatusLabel(check.status)}
+                      </span>
+                    </div>
+                    <p className="mt-1 text-xs text-stone-700">{check.detail}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
           ) : null}
+          <div className="rounded-xl border border-stone-200 bg-stone-50/70 p-3">
+            <p className="text-xs uppercase tracking-[0.14em] text-stone-500">Executive Summary</p>
+            <div className="mt-2 grid gap-2 md:grid-cols-4">
+              <div className="rounded-lg bg-white px-3 py-2">
+                <p className="text-[10px] uppercase tracking-[0.12em] text-stone-500">Tracked net worth</p>
+                <p className="mt-1 text-sm font-semibold text-stone-900">
+                  {formatCurrency(executiveSummary.headlineMetrics.trackedNetWorth)}
+                </p>
+              </div>
+              <div className="rounded-lg bg-white px-3 py-2">
+                <p className="text-[10px] uppercase tracking-[0.12em] text-stone-500">Salary through</p>
+                <p className="mt-1 text-sm font-semibold text-stone-900">
+                  {executiveSummary.headlineMetrics.salaryEndDateIso}
+                </p>
+              </div>
+              <div className="rounded-lg bg-white px-3 py-2">
+                <p className="text-[10px] uppercase tracking-[0.12em] text-stone-500">Windfalls modeled</p>
+                <p className="mt-1 text-sm font-semibold text-stone-900">
+                  {formatCurrency(executiveSummary.headlineMetrics.windfallTotal)}
+                </p>
+                <p className="text-[11px] text-stone-500">
+                  {executiveSummary.headlineMetrics.windfallCount} event(s)
+                </p>
+              </div>
+              <div className="rounded-lg bg-white px-3 py-2">
+                <p className="text-[10px] uppercase tracking-[0.12em] text-stone-500">Modeled success</p>
+                <p className="mt-1 text-sm font-semibold text-stone-900">
+                  {executiveSummary.planHealth.successRate === null
+                    ? 'Pending'
+                    : formatPercent(executiveSummary.planHealth.successRate)}
+                </p>
+              </div>
+            </div>
+            <p className="mt-3 rounded-lg bg-white px-3 py-2 text-sm text-stone-700">
+              {executiveSummary.narrative.whereThingsStand}
+            </p>
+            <p className="mt-2 rounded-lg bg-white px-3 py-2 text-sm text-stone-700">
+              {executiveSummary.narrative.whatMattersNow}
+            </p>
+            <div className="mt-3 rounded-lg border border-stone-200 bg-white p-3">
+              <p className="text-xs uppercase tracking-[0.12em] text-stone-500">
+                Advisor Probe Checklist
+              </p>
+              <div className="mt-2 grid gap-2 md:grid-cols-2">
+                {probeChecklist.items.map((item) => (
+                  <div key={item.id} className="rounded-md border border-stone-200 bg-stone-50 px-2 py-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-xs font-semibold text-stone-900">{item.title}</p>
+                      <span
+                        className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.1em] ${probeStatusClasses(
+                          item.status,
+                        )}`}
+                      >
+                        {probeStatusLabel(item.status)}
+                      </span>
+                    </div>
+                    <p className="mt-1 text-xs text-stone-700">{item.summary}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="mt-3 grid gap-2 lg:grid-cols-3">
+              {executiveSummary.actionCards.map((card) => {
+                const jumpHref = card.phaseAnchorTarget
+                  ? card.phaseAnchorTarget.actionId
+                    ? `#${phaseActionAnchorId(card.phaseAnchorTarget.phaseId, card.phaseAnchorTarget.actionId)}`
+                    : `#${phaseAnchorId(card.phaseAnchorTarget.phaseId)}`
+                  : null;
+                return (
+                  <div key={card.id} className="rounded-lg border border-stone-200 bg-white p-3">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span
+                        className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] ${executiveUrgencyClasses(
+                          card.urgency,
+                        )}`}
+                      >
+                        {executiveUrgencyLabel(card.urgency)}
+                      </span>
+                      <span
+                        className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] ${executiveConfidenceClasses(
+                          card.confidence,
+                        )}`}
+                      >
+                        {executiveConfidenceLabel(card.confidence)}
+                      </span>
+                    </div>
+                    <p className="mt-2 text-sm font-semibold text-stone-900">{card.title}</p>
+                    <p className="mt-1 text-xs text-stone-700">{card.detail}</p>
+                    <p className="mt-1 text-xs text-stone-600">{card.whyItMatters}</p>
+                    <p className="mt-1 text-xs text-stone-600">
+                      <span className="font-semibold">Expected impact:</span> {card.expectedImpact}
+                    </p>
+                    {jumpHref ? (
+                      <a
+                        href={jumpHref}
+                        className="mt-2 inline-block text-xs font-semibold text-blue-700 underline decoration-blue-300 underline-offset-2"
+                      >
+                        Jump to modeled action
+                      </a>
+                    ) : null}
+                  </div>
+                );
+              })}
+            </div>
+            <p className="mt-3 text-xs text-stone-600">
+              Objective: {activeOptimizationObjectiveLabel}
+              {timePreference ? (
+                <>
+                  {' '}· Time preference 60s {formatTimePreferenceLabel(timePreference.profile.ages60to69)} · 70s{' '}
+                  {formatTimePreferenceLabel(timePreference.profile.ages70to79)} · 80+{' '}
+                  {formatTimePreferenceLabel(timePreference.profile.ages80plus)}
+                </>
+              ) : null}
+            </p>
+          </div>
 
           {flightPathTimeline.events.length ? (
             <div className="mt-4 rounded-xl border border-stone-200 bg-stone-50/70 p-3">
@@ -1859,6 +2765,606 @@ export function UnifiedPlanScreen({
                   </li>
                 ))}
               </ol>
+            </div>
+          ) : null}
+
+          {phasePlaybook.phases.length ? (
+            <div
+              id={PHASE_PLAYBOOK_SECTION_ANCHOR_ID}
+              className="mt-4 rounded-xl border border-stone-200 bg-white p-3"
+            >
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="text-xs uppercase tracking-[0.14em] text-stone-500">
+                  Phase Action Playbook (MVP)
+                </p>
+                <div className="flex flex-wrap items-center gap-2">
+                  {acaGuardrailAdjustment.active ? (
+                    <span
+                      className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] ${
+                        subsidyRecoveryModeActive
+                          ? 'bg-rose-100 text-rose-700'
+                          : 'bg-amber-100 text-amber-700'
+                      }`}
+                    >
+                      {subsidyRecoveryModeActive ? 'Subsidy recovery mode' : 'Subsidy watch mode'}
+                    </span>
+                  ) : null}
+                  <span className="rounded-full bg-stone-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-stone-600">
+                    Runs/seed {phasePlaybook.diagnostics.scenarioRuns} / {phasePlaybook.diagnostics.simulationSeed}
+                  </span>
+                </div>
+              </div>
+              {phasePlaybook.diagnostics.inferredAssumptions.length ? (
+                <details className="mt-2 rounded-md bg-amber-50 px-2 py-1 text-xs text-amber-900">
+                  <summary className="cursor-pointer font-semibold">
+                    Global inferred assumptions ({phasePlaybook.diagnostics.inferredAssumptions.length})
+                  </summary>
+                  <ul className="mt-1 space-y-1 text-amber-900">
+                    {phasePlaybook.diagnostics.inferredAssumptions.map((assumption) => (
+                      <li key={`global-assumption-${assumption}`}>- {assumption}</li>
+                    ))}
+                  </ul>
+                </details>
+              ) : (
+                <p className="mt-2 rounded-md bg-emerald-50 px-2 py-1 text-xs text-emerald-900">
+                  <span className="font-semibold">Model completeness:</span> faithful (no inferred assumptions in phase playbook generation).
+                </p>
+              )}
+              {playbookApplyMessage ? (
+                <p className="mt-2 rounded-md bg-blue-50 px-2 py-1 text-xs text-blue-900">
+                  {playbookApplyMessage}
+                </p>
+              ) : null}
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  disabled={!lastAppliedDraftSnapshot}
+                  onClick={undoLastAppliedTradeSet}
+                  className="rounded-full bg-stone-700 px-3 py-1 text-[11px] font-semibold text-white transition hover:bg-stone-600 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  Undo Last Applied Trade Set
+                </button>
+                <button
+                  type="button"
+                  disabled={!savedAppliedScenarios.length}
+                  onClick={clearSavedAppliedScenarios}
+                  className="rounded-full bg-stone-200 px-3 py-1 text-[11px] font-semibold text-stone-700 transition hover:bg-stone-300 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  Clear Saved Scenarios
+                </button>
+              </div>
+              {savedAppliedScenarios.length ? (
+                <div className="mt-2 overflow-x-auto rounded-md border border-stone-200">
+                  <p className="bg-stone-100 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-stone-600">
+                    Saved Applied Scenarios (Side-By-Side)
+                  </p>
+                  <table className="min-w-full text-left text-xs text-stone-700">
+                    <thead className="bg-white text-[10px] uppercase tracking-[0.12em] text-stone-500">
+                      <tr>
+                        <th className="px-2 py-1">Scenario</th>
+                        <th className="px-2 py-1">Created</th>
+                        <th className="px-2 py-1">Success</th>
+                        <th className="px-2 py-1">Supported Now</th>
+                        <th className="px-2 py-1">Legacy (Today $)</th>
+                        <th className="px-2 py-1">Annual Fed Tax</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {savedAppliedScenarios.map((scenario) => (
+                        <tr key={scenario.id} className="border-t border-stone-100">
+                          <td className="px-2 py-1">
+                            <p className="font-semibold text-stone-900">{scenario.name}</p>
+                            <p className="text-[11px] text-stone-500">{scenario.actionTitle}</p>
+                          </td>
+                          <td className="px-2 py-1">{scenario.createdAtLabel}</td>
+                          <td className="px-2 py-1">{formatPercent(scenario.successRate)}</td>
+                          <td className="px-2 py-1">{formatCurrency(scenario.supportedMonthlySpendNow)}/mo</td>
+                          <td className="px-2 py-1">{formatCurrency(scenario.projectedLegacyTodayDollars)}</td>
+                          <td className="px-2 py-1">{formatCurrency(scenario.annualFederalTaxEstimate)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : null}
+              <div className="mt-2 space-y-2">
+                {phasePlaybook.phases.map((phase) => (
+                  <details
+                    key={phase.id}
+                    id={phaseAnchorId(phase.id)}
+                    open={
+                      phase.status === 'active' ||
+                      (acaGuardrailAdjustment.active && prioritizedPhaseId === phase.id)
+                    }
+                    className="rounded-lg border border-stone-200 bg-stone-50/70 p-3"
+                  >
+                    <summary className="cursor-pointer list-none">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div>
+                          <p className="text-sm font-semibold text-stone-900">{phase.label}</p>
+                          <p className="text-xs text-stone-600">
+                            {phase.windowStartYear} - {phase.windowEndYear}
+                          </p>
+                        </div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span
+                            className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] ${phaseStatusClasses(
+                              phase.status,
+                            )}`}
+                          >
+                            {phaseStatusLabel(phase.status)}
+                          </span>
+                          <span className="rounded-full bg-stone-200 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-stone-700">
+                            {phase.actions.length} action{phase.actions.length === 1 ? '' : 's'}
+                          </span>
+                        </div>
+                      </div>
+                    </summary>
+                    <div className="mt-2 space-y-2 text-xs text-stone-700">
+                      <p>
+                        <span className="font-semibold">Objective:</span> {phase.objective}
+                      </p>
+                      {phase.acaMetrics ? (
+                        <div className="rounded-md border border-stone-200 bg-stone-100/80 px-2 py-2">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <p className="font-semibold text-stone-900">ACA bridge metrics</p>
+                            <span
+                              className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] ${acaRiskBandClasses(
+                                phase.acaMetrics.subsidyRiskBand,
+                              )}`}
+                            >
+                              {acaRiskBandLabel(phase.acaMetrics.subsidyRiskBand)}
+                            </span>
+                          </div>
+                          <p className="mt-1">
+                            Bridge year {phase.acaMetrics.bridgeYear ?? 'not modeled'} · projected
+                            MAGI {formatCurrency(phase.acaMetrics.projectedMagi)} · ceiling{' '}
+                            {phase.acaMetrics.acaFriendlyMagiCeiling === null
+                              ? 'not modeled'
+                              : formatCurrency(phase.acaMetrics.acaFriendlyMagiCeiling)}{' '}
+                            · headroom{' '}
+                            {phase.acaMetrics.headroomToCeiling === null
+                              ? 'not modeled'
+                              : formatCurrency(phase.acaMetrics.headroomToCeiling)}
+                            .
+                          </p>
+                          {phase.acaMetrics.inferredAssumptions.length ? (
+                            <details className="mt-1 rounded bg-amber-50 px-2 py-1 text-amber-900">
+                              <summary className="cursor-pointer font-semibold">
+                                ACA inferred assumptions ({phase.acaMetrics.inferredAssumptions.length})
+                              </summary>
+                              <ul className="mt-1 space-y-1">
+                                {phase.acaMetrics.inferredAssumptions.map((assumption) => (
+                                  <li key={`${phase.id}-aca-assumption-${assumption}`}>- {assumption}</li>
+                                ))}
+                              </ul>
+                            </details>
+                          ) : null}
+                        </div>
+                      ) : null}
+                      {phase.actions.length ? (
+                        phase.actions.map((action) => {
+                          const normalizedTradeInstructions = action.tradeInstructions.map((instruction) => ({
+                            accountBucket: instruction.accountBucket,
+                            sourceAccountId: instruction.sourceAccountId,
+                            fromSymbol: instruction.fromSymbol,
+                            toSymbol: instruction.toSymbol,
+                            dollarAmount: instruction.dollarAmount,
+                          }));
+                          const fullGoalInstructions = scaleTradeInstructionsToGoal(
+                            normalizedTradeInstructions,
+                            action.fullGoalDollars,
+                          );
+                          const isContributionAction = Boolean(action.contributionSettingsPatch);
+                          const fullGoalReached = isContributionAction
+                            ? isContributionPatchGoalReached(data, action.contributionSettingsPatch)
+                            : action.fullGoalDollars <= 1 || !fullGoalInstructions.length;
+                          return (
+                          <div
+                            key={action.id}
+                            id={phaseActionAnchorId(phase.id, action.id)}
+                            className="rounded-md border border-stone-200 bg-white p-2"
+                          >
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <p className="text-sm font-semibold text-stone-900">{action.title}</p>
+                              <div className="flex flex-wrap items-center gap-2">
+                                <span
+                                  className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] ${
+                                    action.isTopRecommendation
+                                      ? 'bg-emerald-100 text-emerald-700'
+                                      : 'bg-stone-200 text-stone-700'
+                                  }`}
+                                >
+                                  {action.isTopRecommendation ? 'Top recommendation' : `Alternative #${action.rankWithinPhase}`}
+                                </span>
+                                {subsidyRecoveryModeActive &&
+                                phase.id === 'aca_bridge' &&
+                                action.isTopRecommendation ? (
+                                  <span className="rounded-full bg-rose-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-rose-700">
+                                    Subsidy fix priority
+                                  </span>
+                                ) : null}
+                                <span className="rounded-full bg-stone-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-stone-700">
+                                  Score {action.rankScore.toFixed(3)}
+                                </span>
+                                <span
+                                  className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] ${priorityClasses(
+                                    action.priority,
+                                  )}`}
+                                >
+                                  {priorityLabel(action.priority)}
+                                </span>
+                                {fullGoalReached ? (
+                                  <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-emerald-700">
+                                    Goal reached
+                                  </span>
+                                ) : null}
+                              </div>
+                            </div>
+                            <p className="mt-1">
+                              <span className="font-semibold">Why now:</span> {action.whyNow}
+                            </p>
+                            <details className="mt-2 rounded-md border border-stone-200 bg-stone-50 px-2 py-2 text-xs text-stone-700">
+                              <summary className="cursor-pointer font-semibold text-stone-800">
+                                Layman Walkthrough (what to do + why)
+                              </summary>
+                              <div className="mt-2 space-y-2">
+                                <p>
+                                  <span className="font-semibold">Big picture:</span>{' '}
+                                  {action.laymanExpansion.storyHook}
+                                </p>
+                                <p>
+                                  <span className="font-semibold">Your task in plain English:</span>{' '}
+                                  {action.laymanExpansion.plainEnglishTask}
+                                </p>
+                                <p>
+                                  <span className="font-semibold">Why this matters:</span>{' '}
+                                  {action.laymanExpansion.whyImportant}
+                                </p>
+                                <div>
+                                  <p className="font-semibold">Step-by-step</p>
+                                  <ol className="mt-1 space-y-1">
+                                    {action.laymanExpansion.walkthroughSteps.map((step, stepIndex) => (
+                                      <li key={`${action.id}-layman-step-${stepIndex}`}>
+                                        {stepIndex + 1}. {step}
+                                      </li>
+                                    ))}
+                                  </ol>
+                                </div>
+                                <div>
+                                  <p className="font-semibold">Watch-outs</p>
+                                  <ul className="mt-1 space-y-1">
+                                    {action.laymanExpansion.watchOuts.map((watchOut, watchOutIndex) => (
+                                      <li key={`${action.id}-layman-watchout-${watchOutIndex}`}>
+                                        - {watchOut}
+                                      </li>
+                                    ))}
+                                  </ul>
+                                </div>
+                              </div>
+                            </details>
+                            <div className="mt-2">
+                              <button
+                                type="button"
+                                disabled={fullGoalReached}
+                                onClick={() => {
+                                  if (action.contributionSettingsPatch) {
+                                    applyPlaybookContributionSettingsAction(
+                                      action.title,
+                                      action.contributionSettingsPatch,
+                                    );
+                                    return;
+                                  }
+                                  applyPlaybookActionTradeSet(
+                                    action.title,
+                                    fullGoalInstructions,
+                                  );
+                                }}
+                                className="rounded-full bg-blue-700 px-3 py-1 text-[11px] font-semibold text-white transition hover:bg-blue-600 disabled:cursor-not-allowed disabled:opacity-60"
+                              >
+                                {fullGoalReached
+                                  ? 'Goal Reached'
+                                  : action.contributionSettingsPatch
+                                    ? 'Apply Payroll Settings To Draft'
+                                    : `Apply Full Goal To Draft (${formatCurrency(
+                                        sumTradeInstructionDollars(fullGoalInstructions),
+                                      )})`}
+                              </button>
+                              {action.contributionSettingsPatch ? (
+                                <p className="mt-1 text-[11px] text-stone-600">
+                                  This click updates paycheck contribution settings and reruns the plan.
+                                </p>
+                              ) : (
+                                <p className="mt-1 text-[11px] text-stone-600">
+                                  This click applies{' '}
+                                  {formatCurrency(sumTradeInstructionDollars(fullGoalInstructions))} ·
+                                  scoring template set{' '}
+                                  {formatCurrency(sumTradeInstructionDollars(normalizedTradeInstructions))}
+                                </p>
+                              )}
+                            </div>
+                            {action.contributionSettingsPatch ? (
+                              <div className="mt-2 overflow-x-auto rounded-md border border-stone-200">
+                                <table className="min-w-full text-left text-xs text-stone-700">
+                                  <thead className="bg-stone-100 text-[10px] uppercase tracking-[0.12em] text-stone-500">
+                                    <tr>
+                                      <th className="px-2 py-1">Setting</th>
+                                      <th className="px-2 py-1">Current</th>
+                                      <th className="px-2 py-1">Target</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {typeof action.contributionSettingsPatch.employee401kPreTaxAnnualAmount === 'number' ? (
+                                      <>
+                                        <tr className="border-t border-stone-100">
+                                          <td className="px-2 py-1">Pre-tax 401(k)</td>
+                                          <td className="px-2 py-1">{formatCurrency(contributionTargets.employee401kPreTaxAnnualAmount)}/yr</td>
+                                          <td className="px-2 py-1">{formatCurrency(action.contributionSettingsPatch.employee401kPreTaxAnnualAmount)}/yr</td>
+                                        </tr>
+                                        <tr className="border-t border-stone-100 bg-stone-50/70">
+                                          <td className="px-2 py-1">Pre-tax 401(k) rate</td>
+                                          <td className="px-2 py-1">{formatPercent(contributionTargets.employee401kPreTaxPercentOfSalary)}</td>
+                                          <td className="px-2 py-1">
+                                            {formatPercent(
+                                              annualAmountToSalaryPercent(
+                                                action.contributionSettingsPatch.employee401kPreTaxAnnualAmount,
+                                                data.income.salaryAnnual,
+                                              ),
+                                            )}{' '}
+                                            <span className="text-[11px] text-stone-500">
+                                              (or {formatPercent(
+                                                roundToCents(
+                                                  Math.min(
+                                                    1,
+                                                    annualAmountToSalaryPercent(
+                                                      action.contributionSettingsPatch.employee401kPreTaxAnnualAmount,
+                                                      data.income.salaryAnnual,
+                                                    ) + 0.005,
+                                                  ),
+                                                ),
+                                              )}{' '}
+                                              for cushion)
+                                            </span>
+                                          </td>
+                                        </tr>
+                                      </>
+                                    ) : null}
+                                    {typeof action.contributionSettingsPatch.employee401kRothAnnualAmount === 'number' ? (
+                                      <tr className="border-t border-stone-100">
+                                        <td className="px-2 py-1">Roth 401(k)</td>
+                                        <td className="px-2 py-1">{formatCurrency(contributionTargets.employee401kRothAnnualAmount)}/yr</td>
+                                        <td className="px-2 py-1">{formatCurrency(action.contributionSettingsPatch.employee401kRothAnnualAmount)}/yr</td>
+                                      </tr>
+                                    ) : null}
+                                    {typeof action.contributionSettingsPatch.hsaAnnualAmount === 'number' ? (
+                                      <tr className="border-t border-stone-100">
+                                        <td className="px-2 py-1">HSA</td>
+                                        <td className="px-2 py-1">{formatCurrency(contributionTargets.hsaAnnualAmount)}/yr</td>
+                                        <td className="px-2 py-1">{formatCurrency(action.contributionSettingsPatch.hsaAnnualAmount)}/yr</td>
+                                      </tr>
+                                    ) : null}
+                                  </tbody>
+                                </table>
+                              </div>
+                            ) : action.tradeInstructions.length ? (
+                              <div className="mt-2 overflow-x-auto rounded-md border border-stone-200">
+                                <table className="min-w-full text-left text-xs text-stone-700">
+                                  <thead className="bg-stone-100 text-[10px] uppercase tracking-[0.12em] text-stone-500">
+                                    <tr>
+                                      <th className="px-2 py-1">Bucket</th>
+                                      <th className="px-2 py-1">Account</th>
+                                      <th className="px-2 py-1">Move</th>
+                                      <th className="px-2 py-1">Amount (full goal)</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {action.tradeInstructions.map((instruction, instructionIndex) => (
+                                      (() => {
+                                        const fullGoalInstruction = fullGoalInstructions[instructionIndex];
+                                        const appliedAmount =
+                                          fullGoalInstruction?.dollarAmount ?? instruction.dollarAmount;
+                                        const appliedPercent =
+                                          instruction.dollarAmount > 0
+                                            ? Math.max(
+                                                0,
+                                                Math.min(
+                                                  100,
+                                                  instruction.percentOfHolding *
+                                                    (appliedAmount / instruction.dollarAmount),
+                                                ),
+                                              )
+                                            : instruction.percentOfHolding;
+                                        return (
+                                          <tr
+                                            key={`${action.id}-trade-${instructionIndex}`}
+                                            className="border-t border-stone-100"
+                                          >
+                                            <td className="px-2 py-1">{instruction.accountBucket}</td>
+                                            <td className="px-2 py-1">
+                                              {formatTradeInstructionAccountLabel({
+                                                sourceAccountName: instruction.sourceAccountName,
+                                                sourceAccountId: instruction.sourceAccountId,
+                                              })}
+                                            </td>
+                                            <td className="px-2 py-1">
+                                              {instruction.fromSymbol} {'->'} {instruction.toSymbol}
+                                            </td>
+                                            <td className="px-2 py-1">
+                                              {appliedPercent.toFixed(2)}% ({formatCurrency(appliedAmount)})
+                                            </td>
+                                          </tr>
+                                        );
+                                      })()
+                                    ))}
+                                  </tbody>
+                                </table>
+                              </div>
+                            ) : (
+                              <p className="mt-1 rounded-md bg-stone-100 px-2 py-1 text-xs text-stone-700">
+                                No fund-level trade instruction generated for this action.
+                              </p>
+                            )}
+                            <p className="mt-2">
+                              <span className="font-semibold">Estimated impact:</span> spend{' '}
+                              {action.estimatedImpact.supportedMonthlyDelta >= 0 ? '+' : ''}
+                              {formatCurrency(action.estimatedImpact.supportedMonthlyDelta)}/mo · success{' '}
+                              {(action.estimatedImpact.successRateDelta * 100).toFixed(1)} pts · ending wealth{' '}
+                              {action.estimatedImpact.medianEndingWealthDelta >= 0 ? '+' : ''}
+                              {formatCurrency(action.estimatedImpact.medianEndingWealthDelta)} · annual tax{' '}
+                              {action.estimatedImpact.annualFederalTaxDelta >= 0 ? '+' : ''}
+                              {formatCurrency(action.estimatedImpact.annualFederalTaxDelta)}
+                            </p>
+                            <p className="mt-1">
+                              <span className="font-semibold">Sensitivity:</span>{' '}
+                              {Math.round(action.sensitivity.directionConsistencyScore * 100)}% direction consistency
+                              across {action.sensitivity.scenarios.length} scenarios.
+                            </p>
+                            <p className="mt-1">
+                              <span className="font-semibold">Scenario deltas:</span>{' '}
+                              {action.sensitivity.scenarios
+                                .map(
+                                  (scenario) =>
+                                    `${scenario.name} ${scenario.supportedMonthlyDelta >= 0 ? '+' : ''}${formatCurrency(
+                                      scenario.supportedMonthlyDelta,
+                                    )}/mo, ${(scenario.successRateDelta * 100).toFixed(1)} pts success`,
+                                )
+                                .join(' · ')}
+                            </p>
+                            <p className="mt-1">
+                              <span className="font-semibold">Model completeness:</span> {action.modelCompleteness}
+                            </p>
+                            {action.inferredAssumptions.length ? (
+                              <details className="mt-1 rounded-md bg-amber-50 px-2 py-1 text-amber-900">
+                                <summary className="cursor-pointer font-semibold">
+                                  Action-specific inferred assumptions ({action.inferredAssumptions.length})
+                                </summary>
+                                <ul className="mt-1 space-y-1 text-amber-900">
+                                  {action.inferredAssumptions.map((assumption) => (
+                                    <li key={`${action.id}-assumption-${assumption}`}>- {assumption}</li>
+                                  ))}
+                                </ul>
+                              </details>
+                            ) : null}
+                            <div className="mt-2 grid gap-1 md:grid-cols-2">
+                              {Object.entries(action.intermediateCalculations).map(([key, value]) => (
+                                <div
+                                  key={`${action.id}-calc-${key}`}
+                                  className="rounded bg-stone-100 px-2 py-1 text-[11px] text-stone-700"
+                                >
+                                  <span className="font-semibold">{formatIntermediateLabel(key)}:</span>{' '}
+                                  {typeof value === 'number' ? formatCurrency(value) : value}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                          );
+                        })
+                      ) : (
+                        <p className="rounded-md bg-stone-100 px-2 py-1 text-xs text-stone-700">
+                          No actions generated for this phase with current inputs.
+                        </p>
+                      )}
+                    </div>
+                  </details>
+                ))}
+              </div>
+            </div>
+          ) : null}
+
+          {phasePlaybook.retirementFlowYears.length ? (
+            <div className="mt-4 rounded-xl border border-stone-200 bg-white p-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="text-xs uppercase tracking-[0.14em] text-stone-500">
+                  Retirement Account Flows By Year
+                </p>
+                <span className="rounded-full bg-stone-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-stone-600">
+                  Deterministic flow projection
+                </span>
+              </div>
+              <div className="mt-2 overflow-x-auto rounded-md border border-stone-200">
+                <table className="min-w-full text-left text-xs text-stone-700">
+                  <thead className="bg-stone-100 text-[10px] uppercase tracking-[0.12em] text-stone-500">
+                    <tr>
+                      <th className="px-2 py-1">Year</th>
+                      <th className="px-2 py-1">Regime</th>
+                      <th className="px-2 py-1">Taxable</th>
+                      <th className="px-2 py-1">Roth</th>
+                      <th className="px-2 py-1">IRA/401k</th>
+                      <th className="px-2 py-1">Cash</th>
+                      <th className="px-2 py-1">Other Income</th>
+                      <th className="px-2 py-1">Total Income</th>
+                      <th className="px-2 py-1">Expected MAGI</th>
+                      <th className="px-2 py-1">ACA Ceiling</th>
+                      <th className="px-2 py-1">ACA Headroom</th>
+                      <th className="px-2 py-1">IRMAA</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {phasePlaybook.retirementFlowYears.map((row) => {
+                      const otherIncome = row.salaryIncome + row.socialSecurityIncome + row.windfallIncome;
+                      return (
+                        <Fragment key={`retirement-flow-${row.year}`}>
+                          <tr className="border-t border-stone-100">
+                            <td className="px-2 py-1">
+                              <p className="font-semibold text-stone-900">
+                                {row.year}
+                                {row.monthsInRetirement < 12 ? ` (${row.monthsInRetirement} months)` : ''}
+                              </p>
+                              <span
+                                className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.1em] ${modelCompletenessClasses(
+                                  row.modelCompleteness,
+                                )}`}
+                              >
+                                {row.modelCompleteness}
+                              </span>
+                            </td>
+                            <td className="px-2 py-1">{formatRetirementFlowRegimeLabel(row.regime)}</td>
+                            <td className="px-2 py-1">{formatCurrency(row.taxableFlow)}</td>
+                            <td className="px-2 py-1">{formatCurrency(row.rothFlow)}</td>
+                            <td className="px-2 py-1">{formatCurrency(row.iraFlow)}</td>
+                            <td className="px-2 py-1">{formatCurrency(row.cashFlow)}</td>
+                            <td className="px-2 py-1">{formatCurrency(otherIncome)}</td>
+                            <td className="px-2 py-1 font-semibold text-stone-900">
+                              {formatCurrency(row.totalIncome)}
+                            </td>
+                            <td className="px-2 py-1">{formatCurrency(row.expectedMagi)}</td>
+                            <td className="px-2 py-1">
+                              {row.acaFriendlyMagiCeiling === null
+                                ? 'not modeled'
+                                : formatCurrency(row.acaFriendlyMagiCeiling)}
+                            </td>
+                            <td className="px-2 py-1">
+                              {row.acaHeadroomToCeiling === null
+                                ? 'not modeled'
+                                : formatCurrency(row.acaHeadroomToCeiling)}
+                            </td>
+                            <td className="px-2 py-1">
+                              <p>{row.irmaaStatus}</p>
+                              <p className="text-[11px] text-stone-500">
+                                {row.irmaaLookbackTaxYear === null
+                                  ? 'Lookback n/a'
+                                  : `Lookback ${row.irmaaLookbackTaxYear}`}
+                              </p>
+                            </td>
+                          </tr>
+                          {row.inferredAssumptions.length ? (
+                            <tr className="border-t border-stone-100 bg-amber-50/40">
+                              <td className="px-2 py-1 text-[11px] text-amber-900" colSpan={12}>
+                                <span className="font-semibold">Inferred assumptions:</span>{' '}
+                                {row.inferredAssumptions.join(' ')}
+                              </td>
+                            </tr>
+                          ) : null}
+                        </Fragment>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+              <p className="mt-2 text-[11px] text-stone-600">
+                Other income = salary + Social Security + windfalls for the year. IRA flow includes
+                modeled RMDs when applicable.
+              </p>
             </div>
           ) : null}
 
@@ -2389,7 +3895,7 @@ export function UnifiedPlanScreen({
 
           <ControlSection
             title="Base Inputs"
-            summary={`${formatCurrency(data.income.salaryAnnual)} salary · ends ${data.income.salaryEndDate.slice(0, 10)}`}
+            summary={`${formatCurrency(data.income.salaryAnnual)} salary · ends ${data.income.salaryEndDate.slice(0, 10)} · ${contributionSummary}`}
             isOpen={controlsSectionState.baseInputs}
             onToggle={() => setControlsSectionOpen('baseInputs', !controlsSectionState.baseInputs)}
           >
@@ -2409,8 +3915,139 @@ export function UnifiedPlanScreen({
                 Salary end date
                 <input
                   type="date"
-                  value={data.income.salaryEndDate.slice(0, 10)}
-                  onChange={(event) => updateIncome('salaryEndDate', new Date(event.target.value).toISOString())}
+                  value={salaryEndDateValue}
+                  onChange={(event) => {
+                    const raw = event.target.value;
+                    setSalaryEndDateText(raw);
+                    applySalaryEndDateInput(raw);
+                  }}
+                  onInput={(event) => {
+                    const raw = (event.target as HTMLInputElement).value;
+                    setSalaryEndDateText(raw);
+                  }}
+                  className="mt-1 w-full rounded-xl border border-stone-300 bg-white px-3 py-2"
+                />
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  value={salaryEndDateText}
+                  placeholder="YYYY-MM-DD"
+                  onChange={(event) => setSalaryEndDateText(event.target.value)}
+                  onBlur={() => {
+                    if (isDateInputValue(salaryEndDateText)) {
+                      applySalaryEndDateInput(salaryEndDateText);
+                      return;
+                    }
+                    setSalaryEndDateText(salaryEndDateValue);
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key !== 'Enter') {
+                      return;
+                    }
+                    if (!isDateInputValue(salaryEndDateText)) {
+                      setSalaryEndDateText(salaryEndDateValue);
+                      return;
+                    }
+                    applySalaryEndDateInput(salaryEndDateText);
+                  }}
+                  className="mt-2 w-full rounded-xl border border-stone-300 bg-white px-3 py-2 font-mono text-xs tracking-[0.08em]"
+                />
+                <p className="mt-1 text-[11px] text-stone-500">
+                  If the calendar picker is stubborn, type date as YYYY-MM-DD and press Enter.
+                </p>
+              </label>
+              <label className="text-sm text-stone-700">
+                Employee 401(k) pre-tax annual target
+                <input
+                  type="number"
+                  value={contributionTargets.employee401kPreTaxAnnualAmount}
+                  min={0}
+                  step={500}
+                  onChange={(event) =>
+                    updatePreRetirementContribution(
+                      'employee401kPreTaxAnnualAmount',
+                      Number(event.target.value) || 0,
+                    )}
+                  className="mt-1 w-full rounded-xl border border-stone-300 bg-white px-3 py-2"
+                />
+                <p className="mt-1 text-[11px] text-stone-500">
+                  Effective rate: {formatPercent(contributionTargets.employee401kPreTaxPercentOfSalary)} of salary
+                </p>
+              </label>
+              <label className="text-sm text-stone-700">
+                Employee 401(k) Roth annual target
+                <input
+                  type="number"
+                  value={contributionTargets.employee401kRothAnnualAmount}
+                  min={0}
+                  step={500}
+                  onChange={(event) =>
+                    updatePreRetirementContribution(
+                      'employee401kRothAnnualAmount',
+                      Number(event.target.value) || 0,
+                    )}
+                  className="mt-1 w-full rounded-xl border border-stone-300 bg-white px-3 py-2"
+                />
+                <p className="mt-1 text-[11px] text-stone-500">
+                  Effective rate: {formatPercent(contributionTargets.employee401kRothPercentOfSalary)} of salary
+                </p>
+              </label>
+              <label className="text-sm text-stone-700">
+                HSA annual target
+                <input
+                  type="number"
+                  value={contributionTargets.hsaAnnualAmount}
+                  min={0}
+                  step={250}
+                  onChange={(event) =>
+                    updatePreRetirementContribution('hsaAnnualAmount', Number(event.target.value) || 0)}
+                  className="mt-1 w-full rounded-xl border border-stone-300 bg-white px-3 py-2"
+                />
+                <p className="mt-1 text-[11px] text-stone-500">
+                  Effective rate: {formatPercent(contributionTargets.hsaPercentOfSalary)} of salary
+                </p>
+              </label>
+              <label className="text-sm text-stone-700">
+                HSA coverage type
+                <select
+                  value={contributionTargets.hsaCoverageType}
+                  onChange={(event) =>
+                    updatePreRetirementContribution(
+                      'hsaCoverageType',
+                      event.target.value as 'self' | 'family',
+                    )}
+                  className="mt-1 w-full rounded-xl border border-stone-300 bg-white px-3 py-2"
+                >
+                  <option value="self">Self</option>
+                  <option value="family">Family</option>
+                </select>
+              </label>
+              <label className="text-sm text-stone-700">
+                Employer match rate
+                <input
+                  type="number"
+                  value={contributionTargets.employerMatchRate}
+                  min={0}
+                  max={2}
+                  step={0.01}
+                  onChange={(event) =>
+                    updateEmployerMatchContribution('matchRate', Number(event.target.value) || 0)}
+                  className="mt-1 w-full rounded-xl border border-stone-300 bg-white px-3 py-2"
+                />
+              </label>
+              <label className="text-sm text-stone-700">
+                Employer match cap (% salary)
+                <input
+                  type="number"
+                  value={contributionTargets.employerMatchCapPercent}
+                  min={0}
+                  max={1}
+                  step={0.01}
+                  onChange={(event) =>
+                    updateEmployerMatchContribution(
+                      'maxEmployeeContributionPercentOfSalary',
+                      Number(event.target.value) || 0,
+                    )}
                   className="mt-1 w-full rounded-xl border border-stone-300 bg-white px-3 py-2"
                 />
               </label>
@@ -2501,37 +4138,94 @@ export function UnifiedPlanScreen({
               </div>
               <div className="space-y-3">
                 {data.income.windfalls.map((windfall) => (
-                  <div key={windfall.name} className="grid gap-3 md:grid-cols-2">
-                    <label className="text-sm text-stone-700">
-                      {formatWindfallLabel(windfall.name)} year
-                      <input
-                        type="number"
-                        min={new Date().getFullYear()}
-                        step={1}
-                        value={windfall.year}
-                        onChange={(event) =>
-                          updateWindfall(
-                            windfall.name,
-                            'year',
-                            Math.max(new Date().getFullYear(), Math.round(Number(event.target.value) || 0)),
-                          )
-                        }
-                        className="mt-1 w-full rounded-xl border border-stone-300 bg-white px-3 py-2"
-                      />
-                    </label>
-                    <label className="text-sm text-stone-700">
-                      {formatWindfallLabel(windfall.name)} amount
-                      <input
-                        type="number"
-                        min={0}
-                        step={10000}
-                        value={windfall.amount}
-                        onChange={(event) =>
-                          updateWindfall(windfall.name, 'amount', Math.max(0, Number(event.target.value) || 0))
-                        }
-                        className="mt-1 w-full rounded-xl border border-stone-300 bg-white px-3 py-2"
-                      />
-                    </label>
+                  <div key={windfall.name} className="rounded-xl border border-stone-200 bg-stone-50/80 p-3">
+                    <div className="grid gap-3 md:grid-cols-2">
+                      <label className="text-sm text-stone-700">
+                        {formatWindfallLabel(windfall.name)} year
+                        <input
+                          type="number"
+                          min={new Date().getFullYear()}
+                          step={1}
+                          value={windfall.year}
+                          onChange={(event) =>
+                            updateWindfall(
+                              windfall.name,
+                              'year',
+                              Math.max(new Date().getFullYear(), Math.round(Number(event.target.value) || 0)),
+                            )
+                          }
+                          className="mt-1 w-full rounded-xl border border-stone-300 bg-white px-3 py-2"
+                        />
+                      </label>
+                      <label className="text-sm text-stone-700">
+                        {formatWindfallLabel(windfall.name)} amount
+                        <input
+                          type="number"
+                          min={0}
+                          step={10000}
+                          value={windfall.amount}
+                          onChange={(event) =>
+                            updateWindfall(windfall.name, 'amount', Math.max(0, Number(event.target.value) || 0))
+                          }
+                          className="mt-1 w-full rounded-xl border border-stone-300 bg-white px-3 py-2"
+                        />
+                      </label>
+                    </div>
+                    {windfall.name === 'home_sale' ? (
+                      <div className="mt-3 grid gap-3 md:grid-cols-3">
+                        <label className="text-sm text-stone-700">
+                          Home cost basis
+                          <input
+                            type="number"
+                            min={0}
+                            step={10000}
+                            value={windfall.costBasis ?? ''}
+                            onChange={(event) =>
+                              updateWindfall(
+                                windfall.name,
+                                'costBasis',
+                                Math.max(0, Number(event.target.value) || 0),
+                              )
+                            }
+                            className="mt-1 w-full rounded-xl border border-stone-300 bg-white px-3 py-2"
+                          />
+                        </label>
+                        <label className="text-sm text-stone-700">
+                          Capital-gains exclusion
+                          <input
+                            type="number"
+                            min={0}
+                            step={50000}
+                            value={windfall.exclusionAmount ?? ''}
+                            onChange={(event) =>
+                              updateWindfall(
+                                windfall.name,
+                                'exclusionAmount',
+                                Math.max(0, Number(event.target.value) || 0),
+                              )
+                            }
+                            className="mt-1 w-full rounded-xl border border-stone-300 bg-white px-3 py-2"
+                          />
+                        </label>
+                        <label className="text-sm text-stone-700">
+                          Net liquidity from sale
+                          <input
+                            type="number"
+                            min={0}
+                            step={10000}
+                            value={windfall.liquidityAmount ?? ''}
+                            onChange={(event) =>
+                              updateWindfall(
+                                windfall.name,
+                                'liquidityAmount',
+                                Math.max(0, Number(event.target.value) || 0),
+                              )
+                            }
+                            className="mt-1 w-full rounded-xl border border-stone-300 bg-white px-3 py-2"
+                          />
+                        </label>
+                      </div>
+                    ) : null}
                   </div>
                 ))}
               </div>

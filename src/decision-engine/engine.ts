@@ -231,7 +231,7 @@ export async function evaluateDecisionLevers(
     simulationRunsUsed,
   };
   const report: DecisionEngineReport = {
-    activeOptimizationObjective: input.optimizationObjective ?? 'maximize_flat_spending',
+    activeOptimizationObjective: input.optimizationObjective ?? 'maximize_time_weighted_spending',
     baseline: baselineMetrics,
     recommendationSummary: deriveRecommendationSummary(
       baselineMetrics,

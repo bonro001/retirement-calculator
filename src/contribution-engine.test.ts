@@ -8,7 +8,7 @@ describe('contribution-engine', () => {
       salaryAnnual: 210000,
       salaryThisYear: 210000,
       settings: {
-        employee401kAnnualAmount: 26000,
+        employee401kPreTaxAnnualAmount: 26000,
         employerMatch: {
           matchRate: 0.5,
           maxEmployeeContributionPercentOfSalary: 0.06,
@@ -22,6 +22,8 @@ describe('contribution-engine', () => {
       },
     });
 
+    expect(result.employee401kPreTaxContribution).toBe(26000);
+    expect(result.employee401kRothContribution).toBe(0);
     expect(result.employee401kContribution).toBe(26000);
     expect(result.employerMatchContribution).toBe(6300);
     expect(result.total401kContribution).toBe(32300);
@@ -29,7 +31,10 @@ describe('contribution-engine', () => {
     expect(result.taxableWageReduction).toBe(34550);
     expect(result.adjustedWages).toBe(175450);
     expect(result.updatedPretaxBalance).toBe(140850);
+    expect(result.updatedRothBalance).toBe(0);
     expect(result.updatedAccountBalances.hsa).toBe(13550);
+    expect(result.employee401kRemainingRoom).toBe(5500);
+    expect(result.hsaRemainingRoom).toBe(0);
   });
 
   it('applies catch-up limits for age-based contribution caps', () => {
@@ -38,7 +43,7 @@ describe('contribution-engine', () => {
       salaryAnnual: 210000,
       salaryThisYear: 210000,
       settings: {
-        employee401kAnnualAmount: 40000,
+        employee401kPreTaxAnnualAmount: 40000,
         hsaAnnualAmount: 20000,
         hsaCoverageType: 'family',
       },
@@ -47,9 +52,55 @@ describe('contribution-engine', () => {
       },
     });
 
+    expect(result.employee401kPreTaxContribution).toBe(31500);
     expect(result.employee401kContribution).toBe(31500);
     expect(result.hsaContribution).toBe(9550);
     expect(result.adjustedWages).toBe(168950);
   });
-});
 
+  it('splits pre-tax and Roth employee deferrals under one 401k cap', () => {
+    const result = calculatePreRetirementContributions({
+      age: 45,
+      salaryAnnual: 240000,
+      salaryThisYear: 240000,
+      settings: {
+        employee401kPreTaxAnnualAmount: 18000,
+        employee401kRothAnnualAmount: 12000,
+        hsaAnnualAmount: 8550,
+        hsaCoverageType: 'family',
+      },
+      accountBalances: {
+        pretax: 50000,
+        roth: 30000,
+      },
+    });
+
+    expect(result.employee401kContribution).toBe(24000);
+    expect(result.employee401kPreTaxContribution).toBeCloseTo(14400, 2);
+    expect(result.employee401kRothContribution).toBeCloseTo(9600, 2);
+    expect(result.taxableWageReduction).toBeCloseTo(22950, 2);
+    expect(result.adjustedWages).toBeCloseTo(217050, 2);
+    expect(result.updatedPretaxBalance).toBeCloseTo(72950, 2);
+    expect(result.updatedRothBalance).toBeCloseTo(39600, 2);
+  });
+
+  it('supports legacy employee401kAnnualAmount as pre-tax target', () => {
+    const result = calculatePreRetirementContributions({
+      age: 52,
+      salaryAnnual: 210000,
+      salaryThisYear: 210000,
+      settings: {
+        employee401kAnnualAmount: 26000,
+        hsaAnnualAmount: 8550,
+        hsaCoverageType: 'family',
+      },
+      accountBalances: {
+        pretax: 0,
+      },
+    });
+
+    expect(result.employee401kPreTaxContribution).toBe(26000);
+    expect(result.employee401kRothContribution).toBe(0);
+    expect(result.taxableWageReduction).toBe(34550);
+  });
+});

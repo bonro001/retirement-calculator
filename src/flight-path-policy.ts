@@ -2,6 +2,7 @@ import type { PlanEvaluation } from './plan-evaluation';
 import type { OptimizationObjective } from './optimization-objective';
 import type { MarketAssumptions, PathResult, SeedData } from './types';
 import { buildPathResults, formatCurrency } from './utils';
+import { evaluateRunwayBridgeRiskDelta } from './runway-utils';
 
 export const FLIGHT_PATH_POLICY_VERSION = 'v0.5.0';
 export const FLIGHT_PATH_THRESHOLD_PROFILE_VERSION = '2026-04-20';
@@ -10,6 +11,10 @@ export const FLIGHT_PATH_THRESHOLD_PROFILE_REVIEW_DATE = '2026-07-20';
 export type StrategicPrepPriority = 'now' | 'soon' | 'watch';
 export type StrategicPrepConfidenceLabel = 'low' | 'medium' | 'high';
 
+interface StrategicPrepPolicyFlags {
+  allowTaxOnlySignal?: boolean;
+}
+
 export interface StrategicPrepImpactEstimate {
   modeledBy: 'seeded_path_counterfactual' | 'heuristic_only';
   supportedMonthlyDelta: number;
@@ -17,6 +22,16 @@ export interface StrategicPrepImpactEstimate {
   medianEndingWealthDelta: number;
   annualFederalTaxDelta: number;
   yearsFundedDelta: number;
+  medianFailureYearDelta: number;
+  magiDelta: number;
+  downsideRiskDelta: {
+    earlyFailureProbabilityDelta: number;
+    worstDecileEndingWealthDelta: number;
+    spendingCutRateDelta: number;
+    equitySalesInAdverseEarlyYearsRateDelta: number;
+    medianFailureShortfallDollarsDelta: number;
+    medianDownsideSpendingCutRequiredDelta: number;
+  };
 }
 
 export interface StrategicPrepConfidence {
@@ -32,6 +47,12 @@ export interface StrategicPrepEvidence {
     annualFederalTaxEstimate: number;
     supportedMonthlySpendApprox: number;
     yearsFunded: number;
+    medianFailureYear: number | null;
+    medianMagiEstimate: number;
+    earlyFailureProbability: number;
+    worstDecileEndingWealth: number;
+    spendingCutRate: number;
+    equitySalesInAdverseEarlyYearsRate: number;
   } | null;
   counterfactual: {
     successRate: number;
@@ -39,6 +60,12 @@ export interface StrategicPrepEvidence {
     annualFederalTaxEstimate: number;
     supportedMonthlySpendApprox: number;
     yearsFunded: number;
+    medianFailureYear: number | null;
+    medianMagiEstimate: number;
+    earlyFailureProbability: number;
+    worstDecileEndingWealth: number;
+    spendingCutRate: number;
+    equitySalesInAdverseEarlyYearsRate: number;
   } | null;
   simulationRunsUsed: number | null;
   simulationSeedUsed: number | null;
@@ -54,8 +81,15 @@ export interface StrategicPrepRecommendation {
   estimatedImpact: StrategicPrepImpactEstimate | null;
   tradeoffs: string[];
   confidence: StrategicPrepConfidence;
+  sensitivityConsistency: {
+    score: number;
+    consistentScenarioCount: number;
+    totalScenarioCount: number;
+    rationale: string;
+  };
   evidence: StrategicPrepEvidence;
   amountHint?: string;
+  policyFlags?: StrategicPrepPolicyFlags;
 }
 
 interface StrategicPrepCandidate {
@@ -67,6 +101,7 @@ interface StrategicPrepCandidate {
   amountHint?: string;
   tradeoffs: string[];
   counterfactualPatch?: CounterfactualPatch;
+  policyFlags?: StrategicPrepPolicyFlags;
 }
 
 interface CounterfactualPatch {
@@ -74,11 +109,15 @@ interface CounterfactualPatch {
   travelAnnualDelta?: number;
   transferToCashFromTaxable?: number;
   transferFromCashToTaxable?: number;
+  rothConversionMinAnnualDollarsDelta?: number;
+  rothConversionMaxPretaxBalancePercentDelta?: number;
+  rothConversionMagiBufferDollarsDelta?: number;
 }
 
 interface EvaluatedCandidateResult {
   recommendation: StrategicPrepRecommendation;
   patchedDataUsed: SeedData | null;
+  patchScaleUsed: number;
 }
 
 type RecommendationCategory =
@@ -122,6 +161,14 @@ export interface FlightPathPolicyImpactDeltaSummary {
   medianEndingWealthDelta: FlightPathPolicyNumericSummary | null;
   annualFederalTaxDelta: FlightPathPolicyNumericSummary | null;
   yearsFundedDelta: FlightPathPolicyNumericSummary | null;
+  magiDelta: FlightPathPolicyNumericSummary | null;
+  medianFailureYearDelta: FlightPathPolicyNumericSummary | null;
+  earlyFailureProbabilityDelta: FlightPathPolicyNumericSummary | null;
+  worstDecileEndingWealthDelta: FlightPathPolicyNumericSummary | null;
+  spendingCutRateDelta: FlightPathPolicyNumericSummary | null;
+  equitySalesInAdverseEarlyYearsRateDelta: FlightPathPolicyNumericSummary | null;
+  medianFailureShortfallDollarsDelta: FlightPathPolicyNumericSummary | null;
+  medianDownsideSpendingCutRequiredDelta: FlightPathPolicyNumericSummary | null;
 }
 
 export interface FlightPathPolicyFilterReason {
@@ -144,11 +191,31 @@ export interface FlightPathPolicyDiagnostics {
   counterfactualSimulationSeed: number | null;
   candidatesConsidered: number;
   candidatesEvaluated: number;
+  skippedBeforeEvaluation: FlightPathPolicyFilterReason[];
   hardConstraintFiltered: FlightPathPolicyFilterReason[];
+  evidenceFiltered: FlightPathPolicyFilterReason[];
   acceptedAfterHardConstraints: number;
+  acceptedAfterEvidenceGate: number;
   rankedCandidates: FlightPathPolicyRankedCandidate[];
   rankingFiltered: FlightPathPolicyFilterReason[];
   acceptedRecommendationIds: string[];
+  candidateDecisionTrace: Array<{
+    recommendationId: string;
+    evaluated: boolean;
+    patchScaleUsed: number | null;
+    hardConstraintReason: string | null;
+    evidenceGateReason: string | null;
+    acceptedAfterEvidenceGate: boolean;
+    returned: boolean;
+    estimatedImpact: {
+      successRateDelta: number;
+      supportedMonthlyDelta: number;
+      yearsFundedDelta: number;
+      medianEndingWealthDelta: number;
+      annualFederalTaxDelta: number;
+      magiDelta: number;
+    } | null;
+  }>;
   impactDeltaSummaryAcceptedCandidates: FlightPathPolicyImpactDeltaSummary;
   impactDeltaSummaryReturnedRecommendations: FlightPathPolicyImpactDeltaSummary;
 }
@@ -175,6 +242,40 @@ export const FLIGHT_PATH_POLICY_THRESHOLDS = {
     supportedMonthlyDeltaFloor: 40,
     signTolerance: 0.08,
   },
+  evidenceGate: {
+    minimumAbsSuccessRateDelta: 0.001,
+    minimumAbsSupportedMonthlyDelta: 25,
+    minimumAbsYearsFundedDelta: 0.1,
+    minimumAbsMedianEndingWealthDelta: 25_000,
+    minimumAbsAnnualFederalTaxDelta: 50,
+    minimumConfidenceScore: 0.45,
+    minimumSensitivityConsistencyScore: 0.6,
+    runwayDownsideProof: {
+      earlyFailureProbabilityDelta: -0.0025,
+      worstDecileEndingWealthDelta: 5_000,
+      spendingCutRateDelta: -0.01,
+      equitySalesInAdverseEarlyYearsRateDelta: -0.01,
+      medianFailureShortfallDollarsDelta: -1_000,
+      medianDownsideSpendingCutRequiredDelta: -0.005,
+    },
+    taxOnlySignal: {
+      minimumTaxBenefitDollars: 150,
+      minimumNetEconomicBenefitDollars: 50_000,
+      maxSupportedMonthlyDragDollars: 50,
+      maxSuccessRateDrag: 0.001,
+      taxBenefitWealthEquivalentYears: 15,
+    },
+  },
+  hardGuardrails: {
+    baselineBelowFloorSuccessDeltaTolerance: 0.0025,
+    baselineBelowFloorLegacyDeltaToleranceDollars: 10_000,
+    downsideImprovementThresholds: {
+      earlyFailureProbabilityDelta: -0.001,
+      worstDecileEndingWealthDelta: 2_500,
+      spendingCutRateDelta: -0.005,
+      equitySalesInAdverseEarlyYearsRateDelta: -0.005,
+    },
+  },
   confidenceScoreThresholds: {
     high: 0.7,
     medium: 0.42,
@@ -193,6 +294,13 @@ interface SensitivityScenarioResult {
   name: string;
   supportedMonthlyDelta: number;
   successRateDelta: number;
+}
+
+interface SensitivityScenarioDefinition {
+  name: string;
+  assumptions: MarketAssumptions;
+  stressors: string[];
+  responses: string[];
 }
 
 interface SensitivityStabilityAssessment {
@@ -275,6 +383,32 @@ function buildImpactDeltaSummary(
       impacts.map((impact) => impact.annualFederalTaxDelta),
     ),
     yearsFundedDelta: summarizeNumericDeltas(impacts.map((impact) => impact.yearsFundedDelta)),
+    magiDelta: summarizeNumericDeltas(impacts.map((impact) => impact.magiDelta)),
+    medianFailureYearDelta: summarizeNumericDeltas(
+      impacts.map((impact) => impact.medianFailureYearDelta),
+    ),
+    earlyFailureProbabilityDelta: summarizeNumericDeltas(
+      impacts.map((impact) => impact.downsideRiskDelta.earlyFailureProbabilityDelta),
+    ),
+    worstDecileEndingWealthDelta: summarizeNumericDeltas(
+      impacts.map((impact) => impact.downsideRiskDelta.worstDecileEndingWealthDelta),
+    ),
+    spendingCutRateDelta: summarizeNumericDeltas(
+      impacts.map((impact) => impact.downsideRiskDelta.spendingCutRateDelta),
+    ),
+    equitySalesInAdverseEarlyYearsRateDelta: summarizeNumericDeltas(
+      impacts.map(
+        (impact) => impact.downsideRiskDelta.equitySalesInAdverseEarlyYearsRateDelta,
+      ),
+    ),
+    medianFailureShortfallDollarsDelta: summarizeNumericDeltas(
+      impacts.map((impact) => impact.downsideRiskDelta.medianFailureShortfallDollarsDelta),
+    ),
+    medianDownsideSpendingCutRequiredDelta: summarizeNumericDeltas(
+      impacts.map(
+        (impact) => impact.downsideRiskDelta.medianDownsideSpendingCutRequiredDelta,
+      ),
+    ),
   };
 }
 
@@ -335,13 +469,34 @@ function firstYearSupportedMonthly(path: PathResult) {
   return (path.yearlySeries[0]?.medianSpending ?? 0) / 12;
 }
 
+function firstYearMagi(path: PathResult) {
+  return path.yearlySeries[0]?.medianMagi ?? 0;
+}
+
+function resolvePathRiskMetrics(path: PathResult) {
+  return {
+    earlyFailureProbability: path.riskMetrics?.earlyFailureProbability ?? 0,
+    worstDecileEndingWealth:
+      path.riskMetrics?.worstDecileEndingWealth ?? path.tenthPercentileEndingWealth ?? 0,
+    equitySalesInAdverseEarlyYearsRate:
+      path.riskMetrics?.equitySalesInAdverseEarlyYearsRate ?? 0,
+  };
+}
+
 function toPathSnapshot(path: PathResult) {
+  const riskMetrics = resolvePathRiskMetrics(path);
   return {
     successRate: path.successRate,
     medianEndingWealth: path.medianEndingWealth,
     annualFederalTaxEstimate: path.annualFederalTaxEstimate,
     supportedMonthlySpendApprox: firstYearSupportedMonthly(path),
     yearsFunded: path.yearsFunded,
+    medianFailureYear: path.medianFailureYear,
+    medianMagiEstimate: firstYearMagi(path),
+    earlyFailureProbability: riskMetrics.earlyFailureProbability,
+    worstDecileEndingWealth: riskMetrics.worstDecileEndingWealth,
+    spendingCutRate: path.spendingCutRate,
+    equitySalesInAdverseEarlyYearsRate: riskMetrics.equitySalesInAdverseEarlyYearsRate,
   };
 }
 
@@ -418,13 +573,86 @@ function applyCounterfactualPatch(
     next.accounts.taxable.balance += transfer;
   }
 
+  if (patch.rothConversionMinAnnualDollarsDelta !== undefined) {
+    next.rules.rothConversionPolicy = {
+      ...(next.rules.rothConversionPolicy ?? {}),
+      enabled: true,
+      minAnnualDollars: clampMin(
+        (next.rules.rothConversionPolicy?.minAnnualDollars ?? 500) +
+          patch.rothConversionMinAnnualDollarsDelta,
+        0,
+      ),
+    };
+  }
+
+  if (patch.rothConversionMaxPretaxBalancePercentDelta !== undefined) {
+    next.rules.rothConversionPolicy = {
+      ...(next.rules.rothConversionPolicy ?? {}),
+      enabled: true,
+      maxPretaxBalancePercent: Math.min(
+        0.5,
+        Math.max(
+          0,
+          (next.rules.rothConversionPolicy?.maxPretaxBalancePercent ?? 0.12) +
+            patch.rothConversionMaxPretaxBalancePercentDelta,
+        ),
+      ),
+    };
+  }
+
+  if (patch.rothConversionMagiBufferDollarsDelta !== undefined) {
+    next.rules.rothConversionPolicy = {
+      ...(next.rules.rothConversionPolicy ?? {}),
+      enabled: true,
+      magiBufferDollars: clampMin(
+        (next.rules.rothConversionPolicy?.magiBufferDollars ?? 2_000) +
+          patch.rothConversionMagiBufferDollarsDelta,
+        0,
+      ),
+    };
+  }
+
   return next;
+}
+
+function scaleCounterfactualPatch(patch: CounterfactualPatch, scale: number): CounterfactualPatch {
+  const clampedScale = Math.max(0, Math.min(1, scale));
+  return {
+    optionalMonthlyDelta:
+      patch.optionalMonthlyDelta === undefined ? undefined : patch.optionalMonthlyDelta * clampedScale,
+    travelAnnualDelta:
+      patch.travelAnnualDelta === undefined ? undefined : patch.travelAnnualDelta * clampedScale,
+    transferToCashFromTaxable:
+      patch.transferToCashFromTaxable === undefined
+        ? undefined
+        : patch.transferToCashFromTaxable * clampedScale,
+    transferFromCashToTaxable:
+      patch.transferFromCashToTaxable === undefined
+        ? undefined
+        : patch.transferFromCashToTaxable * clampedScale,
+    rothConversionMinAnnualDollarsDelta:
+      patch.rothConversionMinAnnualDollarsDelta === undefined
+        ? undefined
+        : patch.rothConversionMinAnnualDollarsDelta * clampedScale,
+    rothConversionMaxPretaxBalancePercentDelta:
+      patch.rothConversionMaxPretaxBalancePercentDelta === undefined
+        ? undefined
+        : patch.rothConversionMaxPretaxBalancePercentDelta * clampedScale,
+    rothConversionMagiBufferDollarsDelta:
+      patch.rothConversionMagiBufferDollarsDelta === undefined
+        ? undefined
+        : patch.rothConversionMagiBufferDollarsDelta * clampedScale,
+  };
 }
 
 function estimateImpactFromPaths(
   baseline: PathResult,
   counterfactual: PathResult,
 ): StrategicPrepImpactEstimate {
+  const runwayRiskDelta = evaluateRunwayBridgeRiskDelta({
+    baselinePath: baseline,
+    counterfactualPath: counterfactual,
+  });
   return {
     modeledBy: 'seeded_path_counterfactual',
     supportedMonthlyDelta:
@@ -435,6 +663,22 @@ function estimateImpactFromPaths(
     annualFederalTaxDelta:
       counterfactual.annualFederalTaxEstimate - baseline.annualFederalTaxEstimate,
     yearsFundedDelta: counterfactual.yearsFunded - baseline.yearsFunded,
+    medianFailureYearDelta:
+      (counterfactual.medianFailureYear ?? 0) - (baseline.medianFailureYear ?? 0),
+    magiDelta: firstYearMagi(counterfactual) - firstYearMagi(baseline),
+    downsideRiskDelta: {
+      earlyFailureProbabilityDelta: runwayRiskDelta.earlyFailureProbabilityDelta,
+      worstDecileEndingWealthDelta: runwayRiskDelta.worstDecileEndingWealthDelta,
+      spendingCutRateDelta: runwayRiskDelta.spendingCutRateDelta,
+      equitySalesInAdverseEarlyYearsRateDelta:
+        runwayRiskDelta.equitySalesInAdverseEarlyYearsRateDelta,
+      medianFailureShortfallDollarsDelta:
+        (counterfactual.riskMetrics?.medianFailureShortfallDollars ?? 0) -
+        (baseline.riskMetrics?.medianFailureShortfallDollars ?? 0),
+      medianDownsideSpendingCutRequiredDelta:
+        (counterfactual.riskMetrics?.medianDownsideSpendingCutRequired ?? 0) -
+        (baseline.riskMetrics?.medianDownsideSpendingCutRequired ?? 0),
+    },
   };
 }
 
@@ -460,15 +704,24 @@ function scoreEffectSignal(impact: StrategicPrepImpactEstimate | null) {
   return Number((0.45 * successSignal + 0.4 * spendSignal + 0.15 * fundedSignal).toFixed(2));
 }
 
-function resolveSensitivityAssumptions(
+function mergeUniqueValues(values: string[]) {
+  return [...new Set(values)];
+}
+
+function resolveSensitivityScenarios(
   assumptions: MarketAssumptions,
   baseRuns: number,
+  selectedStressors: string[],
+  selectedResponses: string[],
 ) {
   const sensitivityRuns = Math.max(
     24,
     Math.min(baseRuns, DEFAULT_SENSITIVITY_SIMULATION_RUNS),
   );
-  return [
+  const baseStressors = mergeUniqueValues(selectedStressors);
+  const baseResponses = mergeUniqueValues(selectedResponses);
+
+  const scenarios: SensitivityScenarioDefinition[] = [
     {
       name: 'adverse-macro',
       assumptions: {
@@ -480,6 +733,8 @@ function resolveSensitivityAssumptions(
           ? `${assumptions.assumptionsVersion}-sens-adverse`
           : 'sens-adverse',
       } satisfies MarketAssumptions,
+      stressors: baseStressors,
+      responses: baseResponses,
     },
     {
       name: 'benign-macro',
@@ -492,8 +747,48 @@ function resolveSensitivityAssumptions(
           ? `${assumptions.assumptionsVersion}-sens-benign`
           : 'sens-benign',
       } satisfies MarketAssumptions,
+      stressors: baseStressors,
+      responses: baseResponses,
+    },
+    {
+      name: 'sequence-downturn',
+      assumptions: {
+        ...assumptions,
+        simulationRuns: sensitivityRuns,
+        assumptionsVersion: assumptions.assumptionsVersion
+          ? `${assumptions.assumptionsVersion}-sens-sequence-downturn`
+          : 'sens-sequence-downturn',
+      } satisfies MarketAssumptions,
+      stressors: mergeUniqueValues([...baseStressors, 'market_down']),
+      responses: baseResponses,
+    },
+    {
+      name: 'inflation-spike',
+      assumptions: {
+        ...assumptions,
+        simulationRuns: sensitivityRuns,
+        assumptionsVersion: assumptions.assumptionsVersion
+          ? `${assumptions.assumptionsVersion}-sens-inflation-spike`
+          : 'sens-inflation-spike',
+      } satisfies MarketAssumptions,
+      stressors: mergeUniqueValues([...baseStressors, 'inflation']),
+      responses: baseResponses,
+    },
+    {
+      name: 'inheritance-delay',
+      assumptions: {
+        ...assumptions,
+        simulationRuns: sensitivityRuns,
+        assumptionsVersion: assumptions.assumptionsVersion
+          ? `${assumptions.assumptionsVersion}-sens-inheritance-delay`
+          : 'sens-inheritance-delay',
+      } satisfies MarketAssumptions,
+      stressors: mergeUniqueValues([...baseStressors, 'delayed_inheritance']),
+      responses: baseResponses,
     },
   ];
+
+  return scenarios;
 }
 
 function assessSensitivityStability(input: {
@@ -525,22 +820,24 @@ function assessSensitivityStability(input: {
     FLIGHT_PATH_POLICY_THRESHOLDS.sensitivityDirection.signTolerance,
   );
 
-  const scenarios = resolveSensitivityAssumptions(
+  const scenarios = resolveSensitivityScenarios(
     input.assumptions,
     input.assumptions.simulationRuns,
+    input.selectedStressors,
+    input.selectedResponses,
   );
   const scenarioResults: SensitivityScenarioResult[] = scenarios.map((scenario) => {
     const baselinePath = runSeededPath({
       data: input.baselineData,
       assumptions: scenario.assumptions,
-      selectedStressors: input.selectedStressors,
-      selectedResponses: input.selectedResponses,
+      selectedStressors: scenario.stressors,
+      selectedResponses: scenario.responses,
     });
     const counterfactualPath = runSeededPath({
       data: input.counterfactualData as SeedData,
       assumptions: scenario.assumptions,
-      selectedStressors: input.selectedStressors,
-      selectedResponses: input.selectedResponses,
+      selectedStressors: scenario.stressors,
+      selectedResponses: scenario.responses,
     });
 
     return {
@@ -823,6 +1120,11 @@ export function buildStrategicPrepCandidates(
         'Conversions can raise near-term taxes and MAGI.',
         'Can reduce later RMD pressure and improve tax-shape flexibility.',
       ],
+      counterfactualPatch: {
+        rothConversionMinAnnualDollarsDelta: 1_500,
+        rothConversionMaxPretaxBalancePercentDelta: 0.02,
+        rothConversionMagiBufferDollarsDelta: -500,
+      },
     });
   }
 
@@ -855,6 +1157,16 @@ export function buildStrategicPrepCandidates(
           'Smoothing sources can increase planning complexity year-to-year.',
           'Can reduce threshold-cliff risk and improve optionality later.',
         ],
+        counterfactualPatch: {
+          optionalMonthlyDelta: -Math.min(
+            input.data.spending.optionalMonthly * 0.1,
+            Math.max(0, dominant.value * 0.08) / 12,
+          ),
+          transferToCashFromTaxable: Math.max(
+            0,
+            Math.min(input.data.accounts.taxable.balance, 10_000),
+          ),
+        },
       });
     }
   }
@@ -874,6 +1186,12 @@ export function buildStrategicPrepCandidates(
       tradeoffs: [
         'Unlock actions usually trade one guardrail margin for another.',
       ],
+      counterfactualPatch: {
+        optionalMonthlyDelta: -Math.min(
+          input.data.spending.optionalMonthly * 0.15,
+          Math.max(0, input.evaluation.calibration.nextUnlockImpactMonthly) * 0.5,
+        ),
+      },
     });
   }
 
@@ -955,10 +1273,12 @@ function evaluateCandidateCounterfactual(input: {
 
 function detectHardConstraintViolation(input: {
   candidate: StrategicPrepCandidate;
-  evaluated: EvaluatedCandidateResult;
   evaluation: PlanEvaluation;
+  patchedDataUsed: SeedData | null;
+  estimatedImpact: StrategicPrepImpactEstimate | null;
+  evidence: StrategicPrepEvidence;
 }): string | null {
-  const { candidate, evaluated, evaluation } = input;
+  const { candidate, evaluation } = input;
 
   const actionText = `${candidate.id} ${candidate.title} ${candidate.action}`.toLowerCase();
   const constraints = evaluation.raw.run.plan.constraints;
@@ -975,7 +1295,7 @@ function detectHardConstraintViolation(input: {
     return 'Blocked by explicit user constraint: do not sell house.';
   }
 
-  const patchedData = evaluated.patchedDataUsed;
+  const patchedData = input.patchedDataUsed;
   if (patchedData) {
     const optionalMinimum = patchedData.spending.optionalMinimumMonthly ?? 0;
     if (patchedData.spending.optionalMonthly < optionalMinimum) {
@@ -987,28 +1307,291 @@ function detectHardConstraintViolation(input: {
     }
   }
 
-  const counterfactual = evaluated.recommendation.evidence.counterfactual;
+  const counterfactual = input.evidence.counterfactual;
   if (counterfactual) {
-    if (counterfactual.successRate + 1e-9 < evaluation.calibration.minimumSuccessRateTarget) {
-      return 'Blocked by hard guardrail: counterfactual falls below minimum success floor.';
+    const baselineSuccessRate = input.evidence.baseline?.successRate ?? evaluation.summary.successRate;
+    const minimumSuccessRateTarget = evaluation.calibration.minimumSuccessRateTarget;
+    const successRateDelta = counterfactual.successRate - baselineSuccessRate;
+    const downside = input.estimatedImpact?.downsideRiskDelta;
+    const economicImproved = Boolean(
+      (input.estimatedImpact?.medianEndingWealthDelta ?? 0) >= 25_000 ||
+        (input.estimatedImpact?.annualFederalTaxDelta ?? 0) <= -25,
+    );
+    const downsideImproved = Boolean(
+      downside &&
+        (downside.earlyFailureProbabilityDelta <=
+          FLIGHT_PATH_POLICY_THRESHOLDS.hardGuardrails.downsideImprovementThresholds
+            .earlyFailureProbabilityDelta ||
+          downside.worstDecileEndingWealthDelta >=
+            FLIGHT_PATH_POLICY_THRESHOLDS.hardGuardrails.downsideImprovementThresholds
+              .worstDecileEndingWealthDelta ||
+          downside.spendingCutRateDelta <=
+            FLIGHT_PATH_POLICY_THRESHOLDS.hardGuardrails.downsideImprovementThresholds
+              .spendingCutRateDelta ||
+          downside.equitySalesInAdverseEarlyYearsRateDelta <=
+            FLIGHT_PATH_POLICY_THRESHOLDS.hardGuardrails.downsideImprovementThresholds
+              .equitySalesInAdverseEarlyYearsRateDelta),
+    );
+    if (counterfactual.successRate + 1e-9 < minimumSuccessRateTarget) {
+      const baselineMeetsFloor = baselineSuccessRate + 1e-9 >= minimumSuccessRateTarget;
+      const successDeterioratesMaterially =
+        successRateDelta <
+        -FLIGHT_PATH_POLICY_THRESHOLDS.hardGuardrails.baselineBelowFloorSuccessDeltaTolerance;
+      const qualifiesForBelowFloorPass =
+        successRateDelta >=
+          -FLIGHT_PATH_POLICY_THRESHOLDS.hardGuardrails.baselineBelowFloorSuccessDeltaTolerance &&
+        (successRateDelta > 0 || downsideImproved || economicImproved);
+      if (baselineMeetsFloor || successDeterioratesMaterially || !qualifiesForBelowFloorPass) {
+        return 'Blocked by hard guardrail: counterfactual falls below minimum success floor.';
+      }
     }
 
-    const legacyDelta = evaluated.recommendation.estimatedImpact?.medianEndingWealthDelta ?? 0;
-    const projectedLegacyTodayApprox =
-      evaluation.calibration.projectedLegacyTodayDollars + legacyDelta;
+    const legacyDelta = input.estimatedImpact?.medianEndingWealthDelta ?? 0;
+    const baselineLegacyToday =
+      input.evidence.baseline?.medianEndingWealth ??
+      evaluation.calibration.projectedLegacyTodayDollars;
+    const projectedLegacyTodayApprox = baselineLegacyToday + legacyDelta;
     if (projectedLegacyTodayApprox + 1 < evaluation.calibration.legacyFloorTodayDollars) {
-      return 'Blocked by hard guardrail: projected legacy falls below legacy floor.';
+      const baselineAboveLegacyFloor =
+        baselineLegacyToday + 1 >= evaluation.calibration.legacyFloorTodayDollars;
+      const legacyDeterioratesMaterially =
+        projectedLegacyTodayApprox <
+        baselineLegacyToday -
+          FLIGHT_PATH_POLICY_THRESHOLDS.hardGuardrails
+            .baselineBelowFloorLegacyDeltaToleranceDollars;
+      const qualifiesForBelowLegacyFloorPass =
+        projectedLegacyTodayApprox >=
+          baselineLegacyToday -
+            FLIGHT_PATH_POLICY_THRESHOLDS.hardGuardrails
+              .baselineBelowFloorLegacyDeltaToleranceDollars &&
+        (legacyDelta > 0 || downsideImproved);
+      if (baselineAboveLegacyFloor || legacyDeterioratesMaterially || !qualifiesForBelowLegacyFloorPass) {
+        return 'Blocked by hard guardrail: projected legacy falls below legacy floor.';
+      }
     }
 
     const baselineInOrAboveBand =
-      evaluation.calibration.projectedLegacyTodayDollars >=
-      evaluation.calibration.legacyTargetBandLowerTodayDollars;
+      baselineLegacyToday >= evaluation.calibration.legacyTargetBandLowerTodayDollars;
     if (
       baselineInOrAboveBand &&
       projectedLegacyTodayApprox + 1 <
         evaluation.calibration.legacyTargetBandLowerTodayDollars
     ) {
       return 'Blocked by hard guardrail: projected legacy falls below target landing band.';
+    }
+  }
+
+  return null;
+}
+
+function evaluateCandidateCounterfactualWithAdaptiveScaling(input: {
+  candidate: StrategicPrepCandidate;
+  baselinePath: PathResult;
+  data: SeedData;
+  assumptions: MarketAssumptions;
+  selectedStressors: string[];
+  selectedResponses: string[];
+  evaluation: PlanEvaluation;
+}): {
+  evaluated: ReturnType<typeof evaluateCandidateCounterfactual>;
+  patchScaleUsed: number;
+} {
+  if (!input.candidate.counterfactualPatch) {
+    return {
+      evaluated: evaluateCandidateCounterfactual({
+        candidate: input.candidate,
+        baselinePath: input.baselinePath,
+        data: input.data,
+        assumptions: input.assumptions,
+        selectedStressors: input.selectedStressors,
+        selectedResponses: input.selectedResponses,
+      }),
+      patchScaleUsed: 1,
+    };
+  }
+
+  const scaleCandidates = [1, 0.75, 0.5, 0.25];
+  let fallback: {
+    evaluated: ReturnType<typeof evaluateCandidateCounterfactual>;
+    patchScaleUsed: number;
+  } | null = null;
+
+  for (const scale of scaleCandidates) {
+    const scaledCandidate: StrategicPrepCandidate =
+      scale === 1
+        ? input.candidate
+        : {
+            ...input.candidate,
+            counterfactualPatch: scaleCounterfactualPatch(input.candidate.counterfactualPatch, scale),
+          };
+    const evaluated = evaluateCandidateCounterfactual({
+      candidate: scaledCandidate,
+      baselinePath: input.baselinePath,
+      data: input.data,
+      assumptions: input.assumptions,
+      selectedStressors: input.selectedStressors,
+      selectedResponses: input.selectedResponses,
+    });
+    const attempt = { evaluated, patchScaleUsed: scale };
+    fallback = attempt;
+    const hardConstraintReason = detectHardConstraintViolation({
+      candidate: input.candidate,
+      evaluation: input.evaluation,
+      patchedDataUsed: evaluated.patchedDataUsed,
+      estimatedImpact: evaluated.estimatedImpact,
+      evidence: evaluated.evidence,
+    });
+    if (!hardConstraintReason) {
+      return attempt;
+    }
+  }
+
+  return (
+    fallback ?? {
+      evaluated: evaluateCandidateCounterfactual({
+        candidate: input.candidate,
+        baselinePath: input.baselinePath,
+        data: input.data,
+        assumptions: input.assumptions,
+        selectedStressors: input.selectedStressors,
+        selectedResponses: input.selectedResponses,
+      }),
+      patchScaleUsed: 1,
+    }
+  );
+}
+
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value);
+}
+
+function hasRunwayDownsideProof(input: {
+  downsideRiskDelta: StrategicPrepImpactEstimate['downsideRiskDelta'];
+}) {
+  const thresholds = FLIGHT_PATH_POLICY_THRESHOLDS.evidenceGate.runwayDownsideProof;
+  const downside = input.downsideRiskDelta;
+  return (
+    downside.earlyFailureProbabilityDelta <= thresholds.earlyFailureProbabilityDelta ||
+    downside.worstDecileEndingWealthDelta >= thresholds.worstDecileEndingWealthDelta ||
+    downside.spendingCutRateDelta <= thresholds.spendingCutRateDelta ||
+    downside.equitySalesInAdverseEarlyYearsRateDelta <=
+      thresholds.equitySalesInAdverseEarlyYearsRateDelta ||
+    downside.medianFailureShortfallDollarsDelta <=
+      thresholds.medianFailureShortfallDollarsDelta ||
+    downside.medianDownsideSpendingCutRequiredDelta <=
+      thresholds.medianDownsideSpendingCutRequiredDelta
+  );
+}
+
+function detectEvidenceGateViolation(input: {
+  recommendation: StrategicPrepRecommendation;
+}): string | null {
+  const { recommendation } = input;
+  const { evidence, estimatedImpact } = recommendation;
+
+  if (!evidence.baseline || !evidence.counterfactual) {
+    return 'Filtered by evidence gate: baseline/counterfactual snapshots are required for actionable recommendations.';
+  }
+  if (evidence.simulationRunsUsed === null || evidence.simulationSeedUsed === null) {
+    return 'Filtered by evidence gate: deterministic run metadata is incomplete.';
+  }
+  if (!estimatedImpact || estimatedImpact.modeledBy !== 'seeded_path_counterfactual') {
+    return 'Filtered by evidence gate: measured seeded counterfactual impact is required.';
+  }
+  if (
+    evidence.baseline.medianMagiEstimate === undefined ||
+    evidence.counterfactual.medianMagiEstimate === undefined
+  ) {
+    return 'Filtered by evidence gate: MAGI deltas require baseline and counterfactual MAGI snapshots.';
+  }
+  if (!estimatedImpact.downsideRiskDelta) {
+    return 'Filtered by evidence gate: downside-risk deltas are required.';
+  }
+  if (
+    !isFiniteNumber(estimatedImpact.successRateDelta) ||
+    !isFiniteNumber(estimatedImpact.supportedMonthlyDelta) ||
+    !isFiniteNumber(estimatedImpact.yearsFundedDelta) ||
+    !isFiniteNumber(estimatedImpact.medianEndingWealthDelta) ||
+    !isFiniteNumber(estimatedImpact.annualFederalTaxDelta) ||
+    !isFiniteNumber(estimatedImpact.magiDelta)
+  ) {
+    return 'Filtered by evidence gate: required impact deltas must be finite numbers.';
+  }
+  const downside = estimatedImpact.downsideRiskDelta;
+  if (
+    !isFiniteNumber(downside.earlyFailureProbabilityDelta) ||
+    !isFiniteNumber(downside.worstDecileEndingWealthDelta) ||
+    !isFiniteNumber(downside.spendingCutRateDelta) ||
+    !isFiniteNumber(downside.equitySalesInAdverseEarlyYearsRateDelta) ||
+    !isFiniteNumber(downside.medianFailureShortfallDollarsDelta) ||
+    !isFiniteNumber(downside.medianDownsideSpendingCutRequiredDelta)
+  ) {
+    return 'Filtered by evidence gate: downside-risk deltas must be fully specified and finite.';
+  }
+  if (
+    !isFiniteNumber(recommendation.confidence.score) ||
+    recommendation.confidence.score <
+      FLIGHT_PATH_POLICY_THRESHOLDS.evidenceGate.minimumConfidenceScore
+  ) {
+    return 'Filtered by evidence gate: confidence score is below policy minimum.';
+  }
+  if (
+    !isFiniteNumber(recommendation.sensitivityConsistency.score) ||
+    recommendation.sensitivityConsistency.score <
+      FLIGHT_PATH_POLICY_THRESHOLDS.evidenceGate.minimumSensitivityConsistencyScore
+  ) {
+    return 'Filtered by evidence gate: sensitivity consistency score is below policy minimum.';
+  }
+
+  const successSignal =
+    Math.abs(estimatedImpact.successRateDelta) >=
+    FLIGHT_PATH_POLICY_THRESHOLDS.evidenceGate.minimumAbsSuccessRateDelta;
+  const spendSignal =
+    Math.abs(estimatedImpact.supportedMonthlyDelta) >=
+    FLIGHT_PATH_POLICY_THRESHOLDS.evidenceGate.minimumAbsSupportedMonthlyDelta;
+  const yearsFundedSignal =
+    Math.abs(estimatedImpact.yearsFundedDelta) >=
+    FLIGHT_PATH_POLICY_THRESHOLDS.evidenceGate.minimumAbsYearsFundedDelta;
+  const wealthSignal =
+    Math.abs(estimatedImpact.medianEndingWealthDelta) >=
+    FLIGHT_PATH_POLICY_THRESHOLDS.evidenceGate.minimumAbsMedianEndingWealthDelta;
+  const taxSignal =
+    Math.abs(estimatedImpact.annualFederalTaxDelta) >=
+    FLIGHT_PATH_POLICY_THRESHOLDS.evidenceGate.minimumAbsAnnualFederalTaxDelta;
+
+  const meetsSignalThreshold =
+    successSignal || spendSignal || yearsFundedSignal || wealthSignal || taxSignal;
+  if (!meetsSignalThreshold) {
+    return 'Filtered by evidence gate: measured deltas are below minimum signal thresholds (success/spend/funded/wealth/tax).';
+  }
+
+  const taxOnlySignal =
+    taxSignal && !(successSignal || spendSignal || yearsFundedSignal || wealthSignal);
+  if (taxOnlySignal) {
+    const taxBenefitDollars = Math.max(0, -estimatedImpact.annualFederalTaxDelta);
+    const wealthEquivalentTaxBenefit =
+      taxBenefitDollars *
+      FLIGHT_PATH_POLICY_THRESHOLDS.evidenceGate.taxOnlySignal.taxBenefitWealthEquivalentYears;
+    const netEconomicBenefit =
+      estimatedImpact.medianEndingWealthDelta + wealthEquivalentTaxBenefit;
+    const strongerNetBenefitPass =
+      taxBenefitDollars >=
+        FLIGHT_PATH_POLICY_THRESHOLDS.evidenceGate.taxOnlySignal.minimumTaxBenefitDollars &&
+      netEconomicBenefit >=
+        FLIGHT_PATH_POLICY_THRESHOLDS.evidenceGate.taxOnlySignal.minimumNetEconomicBenefitDollars &&
+      estimatedImpact.supportedMonthlyDelta >=
+        -FLIGHT_PATH_POLICY_THRESHOLDS.evidenceGate.taxOnlySignal.maxSupportedMonthlyDragDollars &&
+      estimatedImpact.successRateDelta >=
+        -FLIGHT_PATH_POLICY_THRESHOLDS.evidenceGate.taxOnlySignal.maxSuccessRateDrag;
+    const explicitAllowlist = recommendation.policyFlags?.allowTaxOnlySignal === true;
+    if (!explicitAllowlist && !strongerNetBenefitPass) {
+      return 'Filtered by evidence gate: tax-only signal requires explicit policy allowlist or stronger net economic benefit.';
+    }
+  }
+
+  if (recommendation.id.includes('cash-buffer')) {
+    if (!hasRunwayDownsideProof({ downsideRiskDelta: estimatedImpact.downsideRiskDelta })) {
+      return 'Filtered by evidence gate: runway recommendation did not prove downside-risk improvement.';
     }
   }
 
@@ -1062,12 +1645,21 @@ function objectiveAlignedScore(input: {
   const legacy = input.impact.medianEndingWealthDelta;
   const tax = input.impact.annualFederalTaxDelta;
   const funded = input.impact.yearsFundedDelta;
+  const downside = input.impact.downsideRiskDelta;
+  const downsideScore =
+    Math.max(0, -downside.earlyFailureProbabilityDelta) * 18 +
+    Math.max(0, -downside.spendingCutRateDelta) * 8 +
+    Math.max(0, -downside.equitySalesInAdverseEarlyYearsRateDelta) * 8 +
+    Math.max(0, downside.worstDecileEndingWealthDelta) / 120_000 +
+    Math.max(0, -downside.medianFailureShortfallDollarsDelta) / 120_000 +
+    Math.max(0, -downside.medianDownsideSpendingCutRequiredDelta) * 8;
 
   if (input.objective === 'minimize_failure_risk') {
     return (
       successPts * 0.11 +
       funded * 0.35 +
       spend / 700 +
+      downsideScore * 0.7 +
       legacy / 800_000 -
       Math.max(0, tax) / 25_000
     );
@@ -1086,7 +1678,8 @@ function objectiveAlignedScore(input: {
       successPts * 0.05 +
       funded * 0.08 -
       Math.max(0, -legacy) / 500_000 -
-      Math.max(0, tax) / 40_000
+      Math.max(0, tax) / 40_000 +
+      downsideScore * 0.22
     );
   }
   return (
@@ -1094,7 +1687,8 @@ function objectiveAlignedScore(input: {
     successPts * 0.045 +
     funded * 0.06 -
     Math.max(0, -legacy) / 450_000 -
-    Math.max(0, tax) / 40_000
+    Math.max(0, tax) / 40_000 +
+    downsideScore * 0.18
   );
 }
 
@@ -1224,8 +1818,25 @@ export function buildFlightPathStrategicPrepRecommendations(
     Math.round(input.maxRecommendations ?? DEFAULT_MAX_RECOMMENDATIONS),
   );
   const candidates = buildStrategicPrepCandidates(input);
+  const skippedWithoutCounterfactual: FlightPathPolicyFilterReason[] = candidates
+    .filter((candidate) => !candidate.counterfactualPatch)
+    .map((candidate) => ({
+      recommendationId: candidate.id,
+      reason:
+        'Skipped before evaluation: deterministic counterfactual patch is missing, so evidence requirements cannot be satisfied.',
+    }));
+  const candidatesWithCounterfactual = candidates.filter((candidate) =>
+    Boolean(candidate.counterfactualPatch),
+  );
 
   if (!candidates.length || !input.evaluation) {
+    const skippedBeforeEvaluation = input.evaluation
+      ? skippedWithoutCounterfactual
+      : candidates.map((candidate) => ({
+          recommendationId: candidate.id,
+          reason:
+            'Skipped before evaluation: unified plan context is unavailable, so deterministic counterfactual evidence cannot be generated.',
+        }));
     return {
       policyVersion: FLIGHT_PATH_POLICY_VERSION,
       recommendations: [],
@@ -1238,11 +1849,24 @@ export function buildFlightPathStrategicPrepRecommendations(
         counterfactualSimulationSeed: null,
         candidatesConsidered: candidates.length,
         candidatesEvaluated: 0,
+        skippedBeforeEvaluation,
         hardConstraintFiltered: [],
+        evidenceFiltered: [],
         acceptedAfterHardConstraints: 0,
+        acceptedAfterEvidenceGate: 0,
         rankedCandidates: [],
         rankingFiltered: [],
         acceptedRecommendationIds: [],
+        candidateDecisionTrace: candidates.map((candidate) => ({
+          recommendationId: candidate.id,
+          evaluated: false,
+          patchScaleUsed: null,
+          hardConstraintReason: null,
+          evidenceGateReason: null,
+          acceptedAfterEvidenceGate: false,
+          returned: false,
+          estimatedImpact: null,
+        })),
         impactDeltaSummaryAcceptedCandidates: buildImpactDeltaSummary([]),
         impactDeltaSummaryReturnedRecommendations: buildImpactDeltaSummary([]),
       },
@@ -1262,15 +1886,26 @@ export function buildFlightPathStrategicPrepRecommendations(
     selectedResponses: input.selectedResponses,
   });
 
-  const evaluatedCandidates = candidates.map((candidate) => {
-    const evaluated = evaluateCandidateCounterfactual({
+  const evaluatedCandidates = candidatesWithCounterfactual.map((candidate) => {
+    const evaluatedResult = evaluateCandidateCounterfactualWithAdaptiveScaling({
       candidate,
       baselinePath,
       data: input.data,
       assumptions: counterfactualAssumptions,
       selectedStressors: input.selectedStressors,
       selectedResponses: input.selectedResponses,
+      evaluation,
     });
+    const evaluated = evaluatedResult.evaluated;
+    const patchScaleUsed = evaluatedResult.patchScaleUsed;
+    const scalingNote =
+      candidate.counterfactualPatch && patchScaleUsed < 1
+        ? [
+            `Counterfactual patch auto-scaled to ${(patchScaleUsed * 100).toFixed(
+              0,
+            )}% strength to preserve hard-guardrail feasibility where possible.`,
+          ]
+        : [];
     const recommendation = {
       id: candidate.id,
       priority: candidate.priority,
@@ -1285,24 +1920,34 @@ export function buildFlightPathStrategicPrepRecommendations(
         stability: evaluated.stability,
         modelCompleteness,
       }),
+      sensitivityConsistency: {
+        score: evaluated.stability.score,
+        consistentScenarioCount: evaluated.stability.consistentScenarioCount,
+        totalScenarioCount: evaluated.stability.totalScenarioCount,
+        rationale: evaluated.stability.rationale,
+      },
       evidence: {
         ...evaluated.evidence,
         notes: [
           ...evaluated.evidence.notes,
+          ...scalingNote,
           `Model completeness: ${modelCompleteness.indicator}. ${modelCompleteness.rationale}`,
         ],
       },
       amountHint: candidate.amountHint,
+      policyFlags: candidate.policyFlags,
     } satisfies StrategicPrepRecommendation;
 
     return {
       recommendation,
       patchedDataUsed: evaluated.patchedDataUsed,
+      patchScaleUsed,
     } satisfies EvaluatedCandidateResult;
   });
 
   const candidateById = new Map(candidates.map((candidate) => [candidate.id, candidate]));
   const hardConstraintFiltered: FlightPathPolicyFilterReason[] = [];
+  const evidenceFiltered: FlightPathPolicyFilterReason[] = [];
   const acceptedEvaluatedCandidates = evaluatedCandidates.filter((evaluated) => {
     const candidate = candidateById.get(evaluated.recommendation.id);
     if (!candidate) {
@@ -1314,8 +1959,10 @@ export function buildFlightPathStrategicPrepRecommendations(
     }
     const reason = detectHardConstraintViolation({
       candidate,
-      evaluated,
       evaluation,
+      patchedDataUsed: evaluated.patchedDataUsed,
+      estimatedImpact: evaluated.recommendation.estimatedImpact,
+      evidence: evaluated.recommendation.evidence,
     });
     if (reason) {
       hardConstraintFiltered.push({
@@ -1326,19 +1973,72 @@ export function buildFlightPathStrategicPrepRecommendations(
     }
     return true;
   });
+  const evidenceAcceptedCandidates = acceptedEvaluatedCandidates.filter((evaluated) => {
+    const reason = detectEvidenceGateViolation({
+      recommendation: evaluated.recommendation,
+    });
+    if (reason) {
+      evidenceFiltered.push({
+        recommendationId: evaluated.recommendation.id,
+        reason,
+      });
+      return false;
+    }
+    return true;
+  });
 
   const rankedDistinct = rankAndFilterDistinctRecommendations({
     evaluation,
-    evaluatedCandidates: acceptedEvaluatedCandidates,
+    evaluatedCandidates: evidenceAcceptedCandidates,
     candidateById,
     maxRecommendations,
   });
   const acceptedRecommendationIds = rankedDistinct.recommendations.map(
     (recommendation) => recommendation.id,
   );
-  const acceptedRecommendationsPreRank = acceptedEvaluatedCandidates.map(
+  const acceptedRecommendationsPreRank = evidenceAcceptedCandidates.map(
     (item) => item.recommendation,
   );
+  const hardConstraintReasonById = new Map(
+    hardConstraintFiltered.map((item) => [item.recommendationId, item.reason]),
+  );
+  const evidenceGateReasonById = new Map(
+    evidenceFiltered.map((item) => [item.recommendationId, item.reason]),
+  );
+  const acceptedAfterEvidenceGateIds = new Set(
+    evidenceAcceptedCandidates.map((item) => item.recommendation.id),
+  );
+  const returnedRecommendationIds = new Set(acceptedRecommendationIds);
+  const evaluatedDecisionTrace = evaluatedCandidates.map((evaluated) => ({
+    recommendationId: evaluated.recommendation.id,
+    evaluated: true,
+    patchScaleUsed: evaluated.patchScaleUsed,
+    hardConstraintReason: hardConstraintReasonById.get(evaluated.recommendation.id) ?? null,
+    evidenceGateReason: evidenceGateReasonById.get(evaluated.recommendation.id) ?? null,
+    acceptedAfterEvidenceGate: acceptedAfterEvidenceGateIds.has(evaluated.recommendation.id),
+    returned: returnedRecommendationIds.has(evaluated.recommendation.id),
+    estimatedImpact: evaluated.recommendation.estimatedImpact
+      ? {
+          successRateDelta: evaluated.recommendation.estimatedImpact.successRateDelta,
+          supportedMonthlyDelta: evaluated.recommendation.estimatedImpact.supportedMonthlyDelta,
+          yearsFundedDelta: evaluated.recommendation.estimatedImpact.yearsFundedDelta,
+          medianEndingWealthDelta: evaluated.recommendation.estimatedImpact.medianEndingWealthDelta,
+          annualFederalTaxDelta: evaluated.recommendation.estimatedImpact.annualFederalTaxDelta,
+          magiDelta: evaluated.recommendation.estimatedImpact.magiDelta,
+        }
+      : null,
+  }));
+  const skippedDecisionTrace = skippedWithoutCounterfactual.map((item) => ({
+    recommendationId: item.recommendationId,
+    evaluated: false,
+    patchScaleUsed: null,
+    hardConstraintReason: item.reason,
+    evidenceGateReason: null,
+    acceptedAfterEvidenceGate: false,
+    returned: false,
+    estimatedImpact: null,
+  }));
+  const candidateDecisionTrace = [...evaluatedDecisionTrace, ...skippedDecisionTrace];
 
   return {
     policyVersion: FLIGHT_PATH_POLICY_VERSION,
@@ -1352,11 +2052,15 @@ export function buildFlightPathStrategicPrepRecommendations(
       counterfactualSimulationSeed: counterfactualAssumptions.simulationSeed ?? 20260416,
       candidatesConsidered: candidates.length,
       candidatesEvaluated: evaluatedCandidates.length,
+      skippedBeforeEvaluation: skippedWithoutCounterfactual,
       hardConstraintFiltered,
+      evidenceFiltered,
       acceptedAfterHardConstraints: acceptedEvaluatedCandidates.length,
+      acceptedAfterEvidenceGate: evidenceAcceptedCandidates.length,
       rankedCandidates: rankedDistinct.rankedCandidates,
       rankingFiltered: rankedDistinct.rankingFiltered,
       acceptedRecommendationIds,
+      candidateDecisionTrace,
       impactDeltaSummaryAcceptedCandidates: buildImpactDeltaSummary(acceptedRecommendationsPreRank),
       impactDeltaSummaryReturnedRecommendations: buildImpactDeltaSummary(
         rankedDistinct.recommendations,

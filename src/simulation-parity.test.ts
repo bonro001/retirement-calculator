@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { initialSeedData } from './data';
 import { buildPlanningStateExport } from './planning-export';
-import type { MarketAssumptions } from './types';
+import type { MarketAssumptions, SeedData } from './types';
 import { buildPathResults } from './utils';
 
 const TEST_ASSUMPTIONS: MarketAssumptions = {
@@ -27,6 +27,10 @@ const TEST_ASSUMPTIONS: MarketAssumptions = {
   assumptionsVersion: 'parity-test',
 };
 
+function cloneSeedData(data: SeedData) {
+  return JSON.parse(JSON.stringify(data)) as SeedData;
+}
+
 describe('simulation parity / validation', () => {
   it('export includes parity-required simulation and planning fields', () => {
     const payload = buildPlanningStateExport({
@@ -36,13 +40,35 @@ describe('simulation parity / validation', () => {
       selectedResponseIds: ['cut_spending', 'preserve_roth'],
     });
 
-    expect(payload.version.schema).toBe('retirement-planner-export.v1');
+    expect(payload.version.schema).toBe('retirement-planner-export.v2');
     expect(payload.baseInputs).toBeDefined();
     expect(payload.effectiveInputs).toBeDefined();
     expect(payload.effectiveSimulationInputs).toBeDefined();
     expect(payload.effectivePlanningStrategyInputs).toBeDefined();
     expect(payload.simulationProfiles.rawSimulation.mode).toBe('raw_simulation');
     expect(payload.simulationProfiles.plannerEnhancedSimulation.mode).toBe('planner_enhanced');
+    expect(
+      payload.simulationProfiles.plannerEnhancedSimulation.withdrawalPolicy
+        .closedLoopHealthcareTaxIteration,
+    ).toBe(true);
+    expect(payload.simulationProfiles.plannerEnhancedSimulation.withdrawalPolicy.maxClosedLoopPasses)
+      .toBeGreaterThanOrEqual(2);
+    expect(
+      payload.simulationProfiles.plannerEnhancedSimulation.withdrawalPolicy
+        .closedLoopConvergenceThresholds,
+    ).toEqual(
+      expect.objectContaining({
+        magiDeltaDollars: expect.any(Number),
+        federalTaxDeltaDollars: expect.any(Number),
+        healthcarePremiumDeltaDollars: expect.any(Number),
+      }),
+    );
+    expect(payload.simulationProfiles.plannerEnhancedSimulation.rothConversionPolicy.source).toBe(
+      'rules',
+    );
+    expect(payload.simulationProfiles.plannerEnhancedSimulation.rothConversionPolicy.strategy).toBe(
+      'aca_then_irmaa_headroom',
+    );
     expect(
       payload.effectivePlanningStrategyInputs.simulationSettings.returnGeneration.model,
     ).toBe('bounded_normal_by_asset_class');
@@ -141,6 +167,33 @@ describe('simulation parity / validation', () => {
     expect(raw.simulationConfiguration.withdrawalPolicy.dynamicDefenseOrdering).toBe(false);
     expect(planner.simulationConfiguration.withdrawalPolicy.irmaaAware).toBe(true);
     expect(raw.simulationConfiguration.withdrawalPolicy.irmaaAware).toBe(false);
+    expect(planner.simulationDiagnostics.closedLoopConvergencePath.length).toBeGreaterThan(0);
+    expect(planner.riskMetrics.earlyFailureProbability).toBeGreaterThanOrEqual(0);
+    expect(planner.riskMetrics.worstDecileEndingWealth).toBe(
+      planner.endingWealthPercentiles.p10,
+    );
+    expect(planner.riskMetrics.equitySalesInAdverseEarlyYearsRate).toBeGreaterThanOrEqual(0);
+    expect(planner.simulationDiagnostics.closedLoopConvergenceSummary).toEqual(
+      expect.objectContaining({
+        converged: expect.any(Boolean),
+        stopReason: expect.any(String),
+      }),
+    );
+    expect(planner.simulationDiagnostics.closedLoopRunSummary).toEqual(
+      expect.objectContaining({
+        runCount: expect.any(Number),
+        convergedRunRate: expect.any(Number),
+      }),
+    );
+    expect(planner.simulationDiagnostics.closedLoopRunConvergence.length).toBe(
+      planner.simulationConfiguration.simulationSettings.runCount,
+    );
+    expect(raw.simulationDiagnostics.conversionPath.every((point) => point.value === 0)).toBe(true);
+    expect(
+      raw.simulationDiagnostics.rothConversionEligibilityPath.every(
+        (point) => point.executedRunRate === 0,
+      ),
+    ).toBe(true);
   });
 
   it('toggle selections flow into export payload and simulation configuration', () => {
@@ -182,5 +235,27 @@ describe('simulation parity / validation', () => {
     );
     expect(planner.simulationConfiguration.activeStressors).toEqual(selectedStressors);
     expect(planner.simulationConfiguration.activeResponses).toEqual(selectedResponses);
+  });
+
+  it('falls back to default Roth policy snapshot when rules do not provide one', () => {
+    const data = cloneSeedData(initialSeedData);
+    delete data.rules.rothConversionPolicy;
+
+    const payload = buildPlanningStateExport({
+      data,
+      assumptions: TEST_ASSUMPTIONS,
+      selectedStressorIds: [],
+      selectedResponseIds: [],
+    });
+
+    expect(payload.simulationProfiles.plannerEnhancedSimulation.rothConversionPolicy.source).toBe(
+      'default',
+    );
+    expect(payload.simulationProfiles.plannerEnhancedSimulation.rothConversionPolicy.strategy).toBe(
+      'aca_then_irmaa_headroom',
+    );
+    expect(
+      payload.simulationProfiles.plannerEnhancedSimulation.rothConversionPolicy.minAnnualDollars,
+    ).toBeGreaterThan(0);
   });
 });

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   DEFAULT_AMBIGUOUS_HOLDING_ASSUMPTIONS,
+  deriveAssetClassMappingAssumptionsFromAccounts,
   getAssetClassMappingMetadata,
   getHoldingExposure,
   rollupHoldingsToAssetClasses,
@@ -50,5 +51,33 @@ describe('asset class mapper', () => {
       'TRP_2030',
     ]);
     expect(metadata.unknownSymbols).toContain('XYZ_UNKNOWN');
+  });
+
+  it('derives sleeve assumptions from account allocation proxies when available', () => {
+    const derived = deriveAssetClassMappingAssumptionsFromAccounts({
+      pretax: {
+        balance: 100,
+        targetAllocation: {
+          SCHD: 0.6,
+          BND: 0.3,
+          TRP_2030: 0.1,
+        },
+      },
+      roth: { balance: 0, targetAllocation: {} },
+      taxable: {
+        balance: 100,
+        targetAllocation: {
+          FXAIX: 0.5,
+          IEFA: 0.3,
+          MUB: 0.2,
+          CENTRAL_MANAGED: 0.4,
+        },
+      },
+      cash: { balance: 0, targetAllocation: { CASH: 1 } },
+    });
+
+    expect(derived.TRP_2030.BONDS).toBeGreaterThan(0);
+    expect(derived.TRP_2030.US_EQUITY).toBeGreaterThan(0);
+    expect(derived.CENTRAL_MANAGED.INTL_EQUITY).toBeGreaterThan(0);
   });
 });

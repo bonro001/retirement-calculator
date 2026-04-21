@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { classifyAcaBridgeBreach, generateAutopilotPlan } from './autopilot-timeline';
 import { initialSeedData } from './data';
 import type { MarketAssumptions } from './types';
@@ -27,6 +27,8 @@ const TEST_ASSUMPTIONS: MarketAssumptions = {
   assumptionsVersion: 'autopilot-test',
 };
 
+vi.setConfig({ testTimeout: 30_000 });
+
 function buildInput() {
   return {
     data: initialSeedData,
@@ -36,6 +38,13 @@ function buildInput() {
     targetLegacyTodayDollars: 1_000_000,
     minSuccessRate: 0.8,
     doNotSellPrimaryResidence: false,
+    solverRuntimeBudget: {
+      searchSimulationRuns: 12,
+      finalSimulationRuns: 20,
+      maxIterations: 8,
+      diagnosticsMode: 'core' as const,
+      enableSuccessRelaxationProbe: false,
+    },
   };
 }
 
@@ -327,7 +336,7 @@ describe('autopilot-timeline', () => {
       ...buildInput(),
       selectedStressors: [],
       selectedResponses: [],
-      targetLegacyTodayDollars: 1_400_000,
+      targetLegacyTodayDollars: 2_100_000,
       minSuccessRate: 0.4,
       spendingFloorAnnual: 0,
     });

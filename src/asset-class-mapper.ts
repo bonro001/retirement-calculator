@@ -1,4 +1,5 @@
 export type AssetClass = 'US_EQUITY' | 'INTL_EQUITY' | 'BONDS' | 'CASH';
+import type { AccountsData } from './types';
 
 export interface AssetClassExposure {
   US_EQUITY?: number;
@@ -22,6 +23,8 @@ export interface AssetClassMappingMetadata {
   ambiguousAssumptionsUsed: AmbiguousHoldingAssumption[];
   unknownSymbols: string[];
 }
+
+const AMBIGUOUS_SYMBOLS = new Set(['TRP_2030', 'CENTRAL_MANAGED']);
 
 const normalizeExposure = (exposure: AssetClassExposure): Required<AssetClassExposure> => {
   const next = {
@@ -96,6 +99,67 @@ export function getHoldingExposure(
   return normalizeExposure({ US_EQUITY: 1 });
 }
 
+function resolveKnownExposure(
+  symbol: string,
+): Required<AssetClassExposure> | null {
+  const normalizedSymbol = symbol.toUpperCase();
+  const mapping = EXPLICIT_HOLDING_MAP[normalizedSymbol];
+  if (!mapping) {
+    return null;
+  }
+  return normalizeExposure(mapping);
+}
+
+function deriveProxyExposureFromAllocation(
+  allocation: Record<string, number>,
+) {
+  const totals = { US_EQUITY: 0, INTL_EQUITY: 0, BONDS: 0, CASH: 0 };
+  let knownWeight = 0;
+
+  Object.entries(allocation).forEach(([symbol, weight]) => {
+    const normalizedSymbol = symbol.toUpperCase();
+    if (AMBIGUOUS_SYMBOLS.has(normalizedSymbol) || weight <= 0) {
+      return;
+    }
+    const knownExposure = resolveKnownExposure(normalizedSymbol);
+    if (!knownExposure) {
+      return;
+    }
+    totals.US_EQUITY += weight * knownExposure.US_EQUITY;
+    totals.INTL_EQUITY += weight * knownExposure.INTL_EQUITY;
+    totals.BONDS += weight * knownExposure.BONDS;
+    totals.CASH += weight * knownExposure.CASH;
+    knownWeight += weight;
+  });
+
+  if (knownWeight <= 0) {
+    return null;
+  }
+
+  return normalizeExposure(totals);
+}
+
+export function deriveAssetClassMappingAssumptionsFromAccounts(
+  accounts: AccountsData,
+  configured?: AssetClassMappingAssumptions,
+): Required<AssetClassMappingAssumptions> {
+  const trpProxy =
+    deriveProxyExposureFromAllocation(accounts.pretax.targetAllocation) ??
+    deriveProxyExposureFromAllocation(accounts.hsa?.targetAllocation ?? {}) ??
+    DEFAULT_AMBIGUOUS_HOLDING_ASSUMPTIONS.TRP_2030;
+  const centralManagedProxy =
+    deriveProxyExposureFromAllocation(accounts.taxable.targetAllocation) ??
+    deriveProxyExposureFromAllocation(accounts.roth.targetAllocation) ??
+    DEFAULT_AMBIGUOUS_HOLDING_ASSUMPTIONS.CENTRAL_MANAGED;
+
+  return {
+    TRP_2030: normalizeExposure(configured?.TRP_2030 ?? trpProxy),
+    CENTRAL_MANAGED: normalizeExposure(
+      configured?.CENTRAL_MANAGED ?? centralManagedProxy,
+    ),
+  };
+}
+
 export function rollupHoldingsToAssetClasses(
   allocation: Record<string, number>,
   assumptions?: AssetClassMappingAssumptions,
@@ -130,7 +194,9 @@ export function getAssetClassMappingMetadata(
       symbol: 'TRP_2030',
       exposure,
       description:
-        'Target-date 2030 approximated as blended allocation from exported model defaults.',
+        assumptions?.TRP_2030
+          ? 'Target-date 2030 mapped using configured account-level assumption.'
+          : 'Target-date 2030 approximated as blended allocation from exported model defaults.',
     });
     seen.add('TRP_2030');
   }
@@ -143,7 +209,9 @@ export function getAssetClassMappingMetadata(
       symbol: 'CENTRAL_MANAGED',
       exposure,
       description:
-        'Managed sleeve approximated as balanced risk mix from exported model defaults.',
+        assumptions?.CENTRAL_MANAGED
+          ? 'Managed sleeve mapped using configured account-level assumption.'
+          : 'Managed sleeve approximated as balanced risk mix from exported model defaults.',
     });
     seen.add('CENTRAL_MANAGED');
   }

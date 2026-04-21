@@ -39,9 +39,18 @@ import {
   type ScenarioCompareReport,
 } from './scenario-compare';
 import { generateAutopilotPlan, type AutopilotPlanResult } from './autopilot-timeline';
-import { buildPlanningStateExport } from './planning-export';
+import {
+  buildPlanningStateExportWithResolvedContext,
+  PLANNING_EXPORT_CACHE_VERSION,
+  type PlanningStateExport,
+} from './planning-export';
+import type {
+  PlanningExportWorkerRequest,
+  PlanningExportWorkerResponse,
+} from './planning-export-worker-types';
 import { solveSpendByReverseTimeline, type SpendSolverResult } from './spend-solver';
 import { useAppStore } from './store';
+import { buildEvaluationFingerprint } from './evaluation-fingerprint';
 import type {
   MarketAssumptions,
   Holding,
@@ -65,6 +74,10 @@ import {
   getRetirementHorizonYears,
   getTotalPortfolioBalance,
 } from './utils';
+import {
+  DEFAULT_CLOSED_LOOP_CONVERGENCE_THRESHOLDS,
+  DEFAULT_MAX_CLOSED_LOOP_PASSES,
+} from './closed-loop-config';
 
 const navigation: { id: ScreenId; label: string; shortLabel: string }[] = [
   { id: 'overview', label: 'Plan', shortLabel: 'Plan' },
@@ -81,14 +94,51 @@ const navigation: { id: ScreenId; label: string; shortLabel: string }[] = [
 
 const chartPalette = ['#2563eb', '#0891b2', '#1d4ed8', '#0369a1'];
 const SIMULATION_REQUEST_PREFIX = 'simulation-request';
+const EXPORT_REQUEST_PREFIX = 'planning-export-request';
+const exportPayloadCache = new Map<string, PlanningStateExport>();
 
 const EMPTY_SIMULATION_DIAGNOSTICS: PathResult['simulationDiagnostics'] = {
   effectiveSpendPath: [],
   withdrawalPath: [],
+  withdrawalRationalePath: [],
   taxesPaidPath: [],
   magiPath: [],
   conversionPath: [],
+  rothConversionTracePath: [],
+  rothConversionEligibilityPath: [],
+  rothConversionDecisionSummary: {
+    executedYearCount: 0,
+    blockedYearCount: 0,
+    noEconomicBenefitYearCount: 0,
+    notEligibleYearCount: 0,
+    reasons: [],
+  },
   failureYearDistribution: [],
+  closedLoopConvergenceSummary: {
+    converged: false,
+    convergedRate: 0,
+    passesUsed: 0,
+    stopReason: 'max_pass_limit_reached',
+    finalMagiDelta: 0,
+    finalFederalTaxDelta: 0,
+    finalHealthcarePremiumDelta: 0,
+    convergedBeforeMaxPasses: false,
+    convergedBeforeMaxPassesRate: 0,
+  },
+  closedLoopConvergencePath: [],
+  closedLoopRunSummary: {
+    runCount: 0,
+    convergedRunCount: 0,
+    nonConvergedRunCount: 0,
+    convergedRunRate: 0,
+    stopReasonCounts: {
+      converged_thresholds_met: 0,
+      max_pass_limit_reached: 0,
+      no_change: 0,
+    },
+    nonConvergedRunIndexes: [],
+  },
+  closedLoopRunConvergence: [],
 };
 
 const EMPTY_SIMULATION_CONFIGURATION: PathResult['simulationConfiguration'] = {
@@ -102,9 +152,19 @@ const EMPTY_SIMULATION_CONFIGURATION: PathResult['simulationConfiguration'] = {
     irmaaAware: true,
     acaAware: false,
     preserveRothPreference: true,
+    closedLoopHealthcareTaxIteration: true,
+    maxClosedLoopPasses: DEFAULT_MAX_CLOSED_LOOP_PASSES,
+    closedLoopConvergenceThresholds: {
+      ...DEFAULT_CLOSED_LOOP_CONVERGENCE_THRESHOLDS,
+    },
   },
   rothConversionPolicy: {
     proactiveConversionsEnabled: false,
+    strategy: 'aca_then_irmaa_headroom',
+    minAnnualDollars: 500,
+    maxPretaxBalancePercent: 0.12,
+    magiBufferDollars: 2000,
+    source: 'default',
     description: 'Pending simulation run.',
   },
   liquidityFloorBehavior: {
@@ -129,6 +189,20 @@ const EMPTY_SIMULATION_CONFIGURATION: PathResult['simulationConfiguration'] = {
     },
     stressOverlayRules: [],
   },
+  returnModelExtensionPoints: [
+    {
+      model: 'regime_switching_correlated',
+      status: 'hook_only',
+      description:
+        'Extension hook reserved for future regime-switching correlated return generator.',
+    },
+    {
+      model: 'fat_tailed_correlated',
+      status: 'hook_only',
+      description:
+        'Extension hook reserved for future fat-tailed correlated return generator.',
+    },
+  ],
   timingConventions: {
     currentPlanningYear: new Date().getUTCFullYear(),
     salaryProrationRule: 'month_fraction',
@@ -160,6 +234,11 @@ const EMPTY_PARITY_REPORT: SimulationParityReport = {
         irmaaAware: false,
         acaAware: false,
         preserveRothPreference: false,
+        closedLoopHealthcareTaxIteration: true,
+        maxClosedLoopPasses: DEFAULT_MAX_CLOSED_LOOP_PASSES,
+        closedLoopConvergenceThresholds: {
+          ...DEFAULT_CLOSED_LOOP_CONVERGENCE_THRESHOLDS,
+        },
       },
       liquidityFloorBehavior: {
         guardrailsEnabled: false,
@@ -351,6 +430,13 @@ const EMPTY_PATH_RESULT: PathResult = {
   },
   simulationConfiguration: EMPTY_SIMULATION_CONFIGURATION,
   simulationDiagnostics: EMPTY_SIMULATION_DIAGNOSTICS,
+  riskMetrics: {
+    earlyFailureProbability: 0,
+    medianFailureShortfallDollars: 0,
+    medianDownsideSpendingCutRequired: 0,
+    worstDecileEndingWealth: 0,
+    equitySalesInAdverseEarlyYearsRate: 0,
+  },
   yearlySeries: [],
 };
 const EMPTY_PATH_RESULTS: PathResult[] = [EMPTY_PATH_RESULT];
@@ -402,6 +488,9 @@ export function App() {
   const currentPlanSelectedStressors = useAppStore((state) => state.appliedSelectedStressors);
   const commitDraftToApplied = useAppStore((state) => state.commitDraftToApplied);
   const hasPendingSimulationChanges = useAppStore((state) => state.hasPendingSimulationChanges);
+  const requestUnifiedPlanRerun = useAppStore((state) => state.requestUnifiedPlanRerun);
+  const draftTradeSetActivities = useAppStore((state) => state.draftTradeSetActivities);
+  const clearDraftTradeSetActivities = useAppStore((state) => state.clearDraftTradeSetActivities);
   const currentScreen = useAppStore((state) => state.currentScreen);
   const setCurrentScreen = useAppStore((state) => state.setCurrentScreen);
 
@@ -431,6 +520,7 @@ export function App() {
   const [analysisProgress, setAnalysisProgress] = useState(0);
   const [planResultError, setPlanResultError] = useState<string | null>(null);
   const [simulationError, setSimulationError] = useState<string | null>(null);
+  const [showTradeList, setShowTradeList] = useState(false);
 
   const isSimulationRunning = simulationStatus === 'running';
 
@@ -922,25 +1012,106 @@ export function App() {
 
           {isPlanHomeScreen ? (
             <section className="mb-6 lg:sticky lg:top-0 lg:z-20 lg:bg-white/85 lg:pb-4 lg:backdrop-blur">
-              <div className="mb-3 flex flex-wrap items-center gap-2 text-sm text-stone-600">
-                <span className="font-medium text-stone-700">Plan snapshot</span>
-                {planResultStatus === 'fresh' ? (
-                  <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-semibold text-emerald-800">
-                    Fresh
-                  </span>
-                ) : planResultStatus === 'running' ? (
-                  <span className="rounded-full bg-blue-100 px-2.5 py-1 text-xs font-semibold text-blue-800">
-                    Running {Math.round(analysisProgress * 100)}%
-                  </span>
-                ) : (
-                  <span className="rounded-full bg-amber-100 px-2.5 py-1 text-xs font-semibold text-amber-800">
-                    Outdated
-                  </span>
-                )}
-                {planResultError ? (
-                  <span className="text-xs text-red-700">Error: {planResultError}</span>
-                ) : null}
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-3 text-sm text-stone-600">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="font-medium text-stone-700">Plan snapshot</span>
+                  {planResultStatus === 'fresh' ? (
+                    <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-semibold text-emerald-800">
+                      Fresh
+                    </span>
+                  ) : planResultStatus === 'running' ? (
+                    <span className="rounded-full bg-blue-100 px-2.5 py-1 text-xs font-semibold text-blue-800">
+                      Running {Math.round(analysisProgress * 100)}%
+                    </span>
+                  ) : (
+                    <span className="rounded-full bg-amber-100 px-2.5 py-1 text-xs font-semibold text-amber-800">
+                      Outdated
+                    </span>
+                  )}
+                  {planResultError ? (
+                    <span className="text-xs text-red-700">Error: {planResultError}</span>
+                  ) : null}
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={requestUnifiedPlanRerun}
+                    disabled={planResultStatus === 'running'}
+                    className="rounded-full bg-blue-700 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-blue-600 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    Run Plan Analysis
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowTradeList((previous) => !previous)}
+                    className={`rounded-full px-3 py-1.5 text-xs font-semibold transition ${
+                      showTradeList
+                        ? 'bg-stone-900 text-white'
+                        : 'bg-stone-200 text-stone-700 hover:bg-stone-300'
+                    }`}
+                  >
+                    Trades ({draftTradeSetActivities.length})
+                  </button>
+                </div>
               </div>
+              {showTradeList ? (
+                <div className="mb-3 rounded-2xl border border-stone-200 bg-white/90 p-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className="text-xs font-semibold uppercase tracking-[0.12em] text-stone-600">
+                      Draft Trade Activity
+                    </p>
+                    <button
+                      type="button"
+                      onClick={clearDraftTradeSetActivities}
+                      disabled={!draftTradeSetActivities.length}
+                      className="rounded-full bg-stone-200 px-2.5 py-1 text-[11px] font-semibold text-stone-700 transition hover:bg-stone-300 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      Clear
+                    </button>
+                  </div>
+                  {draftTradeSetActivities.length ? (
+                    <div className="mt-2 max-h-56 space-y-2 overflow-y-auto pr-1">
+                      {draftTradeSetActivities.map((activity) => (
+                        <div
+                          key={activity.id}
+                          className="rounded-xl border border-stone-200 bg-stone-50 px-3 py-2"
+                        >
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <p className="text-xs font-semibold text-stone-900">
+                              {activity.kind === 'undo' ? 'Undo' : 'Applied'}: {activity.actionTitle}
+                            </p>
+                            <p className="text-[11px] text-stone-500">
+                              {new Date(activity.createdAtIso).toLocaleString('en-US', {
+                                month: 'short',
+                                day: 'numeric',
+                                hour: 'numeric',
+                                minute: '2-digit',
+                              })}
+                            </p>
+                          </div>
+                          <p className="mt-1 text-[11px] text-stone-600">{activity.scenarioName}</p>
+                          {activity.instructions.length ? (
+                            <ul className="mt-1 space-y-1 text-[11px] text-stone-700">
+                              {activity.instructions.map((instruction, index) => (
+                                <li key={`${activity.id}-trade-${index}`}>
+                                  {instruction.accountBucket.toUpperCase()}: {instruction.fromSymbol} {'->'}{' '}
+                                  {instruction.toSymbol} ({formatCurrency(instruction.dollarAmount)})
+                                </li>
+                              ))}
+                            </ul>
+                          ) : (
+                            <p className="mt-1 text-[11px] text-stone-500">No trade legs recorded.</p>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="mt-2 text-xs text-stone-500">
+                      No trade-set activity yet. Use “Apply Trade Set To Draft” in the playbook and it will appear here.
+                    </p>
+                  )}
+                </div>
+              ) : null}
               <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
                 <SummaryStatCard
                   title="Primary path success"
@@ -963,17 +1134,17 @@ export function App() {
 
           <div className="lg:min-h-0 lg:flex-1 lg:overflow-y-auto lg:pr-1">
             <section className="space-y-6">
-              {currentScreen === 'overview' && (
+              <div className={currentScreen === 'overview' ? '' : 'hidden'}>
                 <UnifiedPlanScreen
-                  data={currentPlan}
-                  assumptions={currentPlanAssumptions}
+                  data={simulationDraft}
+                  assumptions={simulationDraftAssumptions}
                   simulationStatus={planResultStatus}
-                  selectedStressors={currentPlanSelectedStressors}
-                  selectedResponses={currentPlanSelectedResponses}
+                  selectedStressors={simulationDraftSelectedStressors}
+                  selectedResponses={simulationDraftSelectedResponses}
                   pathResults={displayedPlanPathResults}
                   showPlanControls
                 />
-              )}
+              </div>
               {currentScreen === 'paths' && (
                 <PathComparisonScreen
                   pathResults={displayedPlanPathResults}
@@ -1022,11 +1193,11 @@ export function App() {
               )}
               {currentScreen === 'insights' && (
                 <UnifiedPlanScreen
-                  data={currentPlan}
-                  assumptions={currentPlanAssumptions}
+                  data={simulationDraft}
+                  assumptions={simulationDraftAssumptions}
                   simulationStatus={planResultStatus}
-                  selectedStressors={currentPlanSelectedStressors}
-                  selectedResponses={currentPlanSelectedResponses}
+                  selectedStressors={simulationDraftSelectedStressors}
+                  selectedResponses={simulationDraftSelectedResponses}
                   pathResults={displayedPlanPathResults}
                   showPlanControls={false}
                 />
@@ -3624,22 +3795,169 @@ function ExportScreen() {
   const assumptions = useAppStore((state) => state.draftAssumptions);
   const selectedStressors = useAppStore((state) => state.draftSelectedStressors);
   const selectedResponses = useAppStore((state) => state.draftSelectedResponses);
+  const latestUnifiedPlanEvaluationContext = useAppStore(
+    (state) => state.latestUnifiedPlanEvaluationContext,
+  );
   const [copied, setCopied] = useState(false);
-
-  const payload = useMemo(
+  const [payload, setPayload] = useState<PlanningStateExport | null>(null);
+  const [loadState, setLoadState] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const requestCounterRef = useRef(0);
+  const activeRequestIdRef = useRef<string | null>(null);
+  const currentEvaluationFingerprint = useMemo(
     () =>
-      buildPlanningStateExport({
+      buildEvaluationFingerprint({
+        data,
+        assumptions,
+        selectedStressors,
+        selectedResponses,
+      }),
+    [assumptions, data, selectedResponses, selectedStressors],
+  );
+  const unifiedPlanContextIsFresh =
+    latestUnifiedPlanEvaluationContext?.fingerprint === currentEvaluationFingerprint;
+
+  const exportCacheKey = useMemo(
+    () =>
+      JSON.stringify({
+        cacheVersion: PLANNING_EXPORT_CACHE_VERSION,
+        fingerprint: currentEvaluationFingerprint,
+        unifiedPlanContext: unifiedPlanContextIsFresh
+          ? {
+              fingerprint: latestUnifiedPlanEvaluationContext?.fingerprint ?? null,
+              capturedAtIso: latestUnifiedPlanEvaluationContext?.capturedAtIso ?? null,
+            }
+          : null,
+      }),
+    [
+      currentEvaluationFingerprint,
+      latestUnifiedPlanEvaluationContext,
+      unifiedPlanContextIsFresh,
+    ],
+  );
+  useEffect(() => {
+    const cached = exportPayloadCache.get(exportCacheKey) ?? null;
+    if (cached) {
+      setPayload(cached);
+      setLoadState('ready');
+      setLoadError(null);
+      return;
+    }
+
+    setLoadState('loading');
+    setLoadError(null);
+
+    const requestId = `${EXPORT_REQUEST_PREFIX}-${requestCounterRef.current++}`;
+    activeRequestIdRef.current = requestId;
+
+    const workerAvailable = typeof Worker !== 'undefined';
+    if (!workerAvailable) {
+      void (async () => {
+        try {
+          const next = await buildPlanningStateExportWithResolvedContext({
+            data,
+            assumptions,
+            selectedStressorIds: selectedStressors,
+            selectedResponseIds: selectedResponses,
+            unifiedPlanEvaluation:
+              unifiedPlanContextIsFresh
+                ? latestUnifiedPlanEvaluationContext?.evaluation ?? null
+                : null,
+            unifiedPlanEvaluationCapturedAtIso:
+              unifiedPlanContextIsFresh
+                ? latestUnifiedPlanEvaluationContext?.capturedAtIso ?? null
+                : null,
+          });
+          exportPayloadCache.set(exportCacheKey, next);
+          if (activeRequestIdRef.current === requestId) {
+            setPayload(next);
+            setLoadState('ready');
+            setLoadError(null);
+          }
+        } catch (error) {
+          if (activeRequestIdRef.current === requestId) {
+            setLoadState('error');
+            setLoadError(error instanceof Error ? error.message : 'Failed to generate export.');
+          }
+        }
+      })();
+      return;
+    }
+
+    const worker = new Worker(new URL('./planning-export.worker.ts', import.meta.url), {
+      type: 'module',
+    });
+
+    worker.onmessage = (event: MessageEvent<PlanningExportWorkerResponse>) => {
+      const message = event.data;
+      if (message.requestId !== activeRequestIdRef.current) {
+        return;
+      }
+      if (message.type === 'error') {
+        setLoadState('error');
+        setLoadError(message.error);
+        return;
+      }
+      exportPayloadCache.set(exportCacheKey, message.payload);
+      setPayload(message.payload);
+      setLoadState('ready');
+      setLoadError(null);
+    };
+
+    const requestMessage: PlanningExportWorkerRequest = {
+      type: 'run',
+      payload: {
+        requestId,
         data,
         assumptions,
         selectedStressorIds: selectedStressors,
         selectedResponseIds: selectedResponses,
-      }),
-    [assumptions, data, selectedResponses, selectedStressors],
+        unifiedPlanEvaluation:
+          unifiedPlanContextIsFresh
+            ? latestUnifiedPlanEvaluationContext?.evaluation ?? null
+            : null,
+        unifiedPlanEvaluationCapturedAtIso:
+          unifiedPlanContextIsFresh
+            ? latestUnifiedPlanEvaluationContext?.capturedAtIso ?? null
+            : null,
+      },
+    };
+    worker.postMessage(requestMessage);
+
+    return () => {
+      worker.terminate();
+    };
+  }, [
+    assumptions,
+    data,
+    exportCacheKey,
+    latestUnifiedPlanEvaluationContext,
+    selectedResponses,
+    selectedStressors,
+    unifiedPlanContextIsFresh,
+  ]);
+  const payloadJson = useMemo(
+    () => (payload ? JSON.stringify(payload, null, 2) : ''),
+    [payload],
   );
-  const payloadJson = useMemo(() => JSON.stringify(payload, null, 2), [payload]);
+  const probeStatusCounts = useMemo(() => {
+    const counts = {
+      modeled: 0,
+      partial: 0,
+      attention: 0,
+      missing: 0,
+    };
+    payload?.probeChecklist.items.forEach((item) => {
+      counts[item.status] += 1;
+    });
+    return counts;
+  }, [payload?.probeChecklist.items]);
 
   const copyPayload = async () => {
     const text = payloadJson;
+    if (!text) {
+      return;
+    }
     try {
       if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
         await navigator.clipboard.writeText(text);
@@ -3668,20 +3986,45 @@ function ExportScreen() {
     >
       <div className="rounded-[24px] bg-stone-100/85 p-4">
         <div className="flex items-center justify-between gap-3">
-          <p className="text-sm font-medium text-stone-600">
-            Current state export ({payload.version.schema})
-          </p>
+          <div className="space-y-1">
+            <p className="text-sm font-medium text-stone-600">
+              Current state export ({payload?.version.schema ?? 'pending'})
+            </p>
+            <p className="text-xs text-stone-500">
+              Unified plan context: {payload?.flightPath.evaluationContext.available
+                ? `included (${payload.flightPath.evaluationContext.capturedAtIso ?? 'timestamp unavailable'})`
+                : latestUnifiedPlanEvaluationContext
+                  ? 'stale versus current draft inputs (rerun Unified Plan to refresh summary metrics)'
+                  : 'not available (run Unified Plan to include route-based recommendations)'}
+            </p>
+            <p className="text-xs text-stone-500">
+              Probe checklist: {payload?.probeChecklist.items.length ?? 0} items · modeled {probeStatusCounts.modeled} · partial {probeStatusCounts.partial} · attention {probeStatusCounts.attention} · missing {probeStatusCounts.missing}
+            </p>
+            {loadState === 'loading' ? (
+              <p className="text-xs text-blue-700">Generating export in background…</p>
+            ) : null}
+            {loadState === 'error' ? (
+              <p className="text-xs text-red-700">Export failed: {loadError}</p>
+            ) : null}
+          </div>
           <button
             type="button"
             onClick={copyPayload}
+            disabled={!payload}
             className="rounded-xl bg-blue-600 px-3 py-2 text-xs font-semibold text-white transition hover:bg-blue-500"
           >
             {copied ? 'Copied' : 'Copy'}
           </button>
         </div>
-        <pre className="mt-3 max-h-[640px] overflow-auto rounded-xl bg-stone-950 p-4 text-xs leading-6 text-stone-100">
-          <code>{payloadJson}</code>
-        </pre>
+        {payload ? (
+          <pre className="mt-3 max-h-[640px] overflow-auto rounded-xl bg-stone-950 p-4 text-xs leading-6 text-stone-100">
+            <code>{payloadJson}</code>
+          </pre>
+        ) : (
+          <div className="mt-3 rounded-xl bg-stone-950 p-4 text-xs leading-6 text-stone-200">
+            Building export payload...
+          </div>
+        )}
       </div>
     </Panel>
   );

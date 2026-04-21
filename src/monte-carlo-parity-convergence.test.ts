@@ -38,21 +38,6 @@ describe('monte carlo parity convergence', () => {
 
     const convergence = runParityConvergenceFromExport(payload, [5000, 10000, 25000]);
     const baseline = runParityHarnessFromExport(payload);
-    // Intentional test output for parity-pass reporting in CI/local runs.
-    // eslint-disable-next-line no-console
-    console.log(
-      JSON.stringify(
-        convergence.rows.map((row) => ({
-          runCount: row.runCount,
-          rawSuccess: row.rawSimulation.successRate,
-          plannerSuccess: row.plannerEnhancedSimulation.successRate,
-          rawMedianWealth: row.rawSimulation.medianEndingWealth,
-          plannerMedianWealth: row.plannerEnhancedSimulation.medianEndingWealth,
-        })),
-        null,
-        2,
-      ),
-    );
 
     expect(convergence.rows).toHaveLength(3);
     expect(convergence.rows.map((row) => row.runCount)).toEqual([5000, 10000, 25000]);

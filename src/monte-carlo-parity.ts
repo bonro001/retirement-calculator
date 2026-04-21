@@ -149,12 +149,34 @@ function fromSnapshotToSeedData(
       withdrawalStyle: snapshot.constraints.withdrawalStyle,
       irmaaAware: snapshot.constraints.irmaaAware,
       replaceModeImports: snapshot.constraints.replaceModeImports,
+      assetClassMappingAssumptions: snapshot.constraints.assetClassMappingAssumptions,
       healthcarePremiums: {
         baselineAcaPremiumAnnual:
           snapshot.constraints.healthcarePremiums.baselineAcaPremiumAnnual ?? 14_400,
         baselineMedicarePremiumAnnual:
           snapshot.constraints.healthcarePremiums.baselineMedicarePremiumAnnual ?? 2_220,
+        medicalInflationAnnual:
+          snapshot.constraints.healthcarePremiums.medicalInflationAnnual ?? 0.055,
       },
+      hsaStrategy: snapshot.constraints.hsaStrategy
+        ? {
+            enabled: snapshot.constraints.hsaStrategy.enabled,
+            annualQualifiedExpenseWithdrawalCap:
+              snapshot.constraints.hsaStrategy.annualQualifiedExpenseWithdrawalCap,
+            prioritizeHighMagiYears: snapshot.constraints.hsaStrategy.prioritizeHighMagiYears,
+            highMagiThreshold: snapshot.constraints.hsaStrategy.highMagiThreshold,
+          }
+        : undefined,
+      ltcAssumptions: snapshot.constraints.ltcAssumptions
+        ? {
+            enabled: snapshot.constraints.ltcAssumptions.enabled,
+            startAge: snapshot.constraints.ltcAssumptions.startAge,
+            annualCostToday: snapshot.constraints.ltcAssumptions.annualCostToday,
+            durationYears: snapshot.constraints.ltcAssumptions.durationYears,
+            inflationAnnual: snapshot.constraints.ltcAssumptions.inflationAnnual,
+            eventProbability: snapshot.constraints.ltcAssumptions.eventProbability,
+          }
+        : undefined,
     },
     stressors: reference.stressors.map((item) => ({ ...item })),
     responses: reference.responses.map((item) => ({ ...item })),
@@ -357,7 +379,7 @@ function buildDiagnostics(
     exportPayload.assets.allocations.taxable,
     exportPayload.assets.allocations.cash,
     exportPayload.assets.allocations.hsa ?? {},
-  ]);
+  ], exportPayload.constraints.assetClassMappingAssumptions ?? undefined);
   if (assumptionsUsedForAmbiguousHoldings.unknownSymbols.length) {
     addMismatch(
       mismatches,

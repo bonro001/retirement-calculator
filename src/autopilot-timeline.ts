@@ -11,7 +11,14 @@ import {
   type SpendSolverSuccessRange,
 } from './spend-solver';
 import { calculateFederalTax, DEFAULT_TAX_ENGINE_CONFIG, type FilingStatus } from './tax-engine';
-import type { MarketAssumptions, ResponseOption, SeedData, SocialSecurityEntry, Stressor } from './types';
+import type {
+  MarketAssumptions,
+  ResponseOption,
+  SeedData,
+  SocialSecurityEntry,
+  Stressor,
+  WindfallTaxTreatment,
+} from './types';
 import { calculateCurrentAges, getRetirementHorizonYears } from './utils';
 
 const CURRENT_DATE = new Date('2026-04-16T12:00:00Z');
@@ -19,6 +26,9 @@ const CURRENT_YEAR = CURRENT_DATE.getUTCFullYear();
 const TAXABLE_WITHDRAWAL_LTCG_RATIO = 0.25;
 const DEFAULT_BASELINE_ACA_PREMIUM_ANNUAL = 14_400;
 const DEFAULT_BASELINE_MEDICARE_PREMIUM_ANNUAL = 2_220;
+const DEFAULT_MEDICAL_INFLATION_ANNUAL = 0.055;
+const DEFAULT_HSA_HIGH_MAGI_THRESHOLD = 200_000;
+const DEFAULT_LTC_INFLATION_ANNUAL = 0.055;
 
 type Bucket = 'cash' | 'taxable' | 'pretax' | 'roth';
 type AutopilotRegime = 'standard' | 'aca_bridge';
@@ -175,6 +185,11 @@ interface WorkingRouteContext {
     name: string;
     year: number;
     amount: number;
+    taxTreatment?: WindfallTaxTreatment;
+    liquidityAmount?: number;
+    costBasis?: number;
+    exclusionAmount?: number;
+    distributionYears?: number;
   }>;
   filingStatus: FilingStatus;
   activeStressors: Stressor[];
@@ -454,6 +469,144 @@ function getSocialSecurityIncome(
   }, 0);
 }
 
+interface WindfallRealization {
+  cashInflow: number;
+  ordinaryIncome: number;
+  ltcgIncome: number;
+}
+
+function inferWindfallTaxTreatment(
+  windfall: WorkingRouteContext['windfalls'][number],
+): WindfallTaxTreatment {
+  if (windfall.taxTreatment) {
+    return windfall.taxTreatment;
+  }
+  if (windfall.name === 'home_sale') {
+    return 'primary_home_sale';
+  }
+  if (windfall.name === 'inheritance') {
+    return 'cash_non_taxable';
+  }
+  return 'cash_non_taxable';
+}
+
+function getDefaultPrimaryHomeSaleExclusion(filingStatus: FilingStatus) {
+  return filingStatus === 'married_filing_jointly' ? 500_000 : 250_000;
+}
+
+function buildWindfallRealizationForYear(
+  windfall: WorkingRouteContext['windfalls'][number],
+  year: number,
+  filingStatus: FilingStatus,
+): WindfallRealization {
+  const treatment = inferWindfallTaxTreatment(windfall);
+  const amount = Math.max(0, windfall.amount);
+  const liquidityAmount = Math.max(0, windfall.liquidityAmount ?? amount);
+  if (amount <= 0) {
+    return { cashInflow: 0, ordinaryIncome: 0, ltcgIncome: 0 };
+  }
+
+  if (treatment === 'inherited_ira_10y') {
+    const distributionYears = Math.max(1, Math.round(windfall.distributionYears ?? 10));
+    if (year < windfall.year || year >= windfall.year + distributionYears) {
+      return { cashInflow: 0, ordinaryIncome: 0, ltcgIncome: 0 };
+    }
+    const annualDistribution = amount / distributionYears;
+    return {
+      cashInflow: annualDistribution,
+      ordinaryIncome: annualDistribution,
+      ltcgIncome: 0,
+    };
+  }
+
+  if (year !== windfall.year) {
+    return { cashInflow: 0, ordinaryIncome: 0, ltcgIncome: 0 };
+  }
+
+  if (treatment === 'ordinary_income') {
+    return {
+      cashInflow: liquidityAmount,
+      ordinaryIncome: amount,
+      ltcgIncome: 0,
+    };
+  }
+
+  if (treatment === 'ltcg') {
+    const costBasis = Math.max(0, windfall.costBasis ?? amount);
+    const taxableGain = Math.max(0, amount - costBasis);
+    return {
+      cashInflow: liquidityAmount,
+      ordinaryIncome: 0,
+      ltcgIncome: taxableGain,
+    };
+  }
+
+  if (treatment === 'primary_home_sale') {
+    const costBasis = Math.max(0, windfall.costBasis ?? amount);
+    const realizedGain = Math.max(0, amount - costBasis);
+    const exclusion = Math.max(
+      0,
+      windfall.exclusionAmount ?? getDefaultPrimaryHomeSaleExclusion(filingStatus),
+    );
+    return {
+      cashInflow: liquidityAmount,
+      ordinaryIncome: 0,
+      ltcgIncome: Math.max(0, realizedGain - exclusion),
+    };
+  }
+
+  return {
+    cashInflow: liquidityAmount,
+    ordinaryIncome: 0,
+    ltcgIncome: 0,
+  };
+}
+
+function calculateLtcCostForYear(input: {
+  rules: SeedData['rules'];
+  ages: { rob: number; debbie: number };
+}) {
+  const ltc = input.rules.ltcAssumptions;
+  if (!ltc?.enabled || ltc.annualCostToday <= 0) {
+    return 0;
+  }
+  const householdAge = Math.max(input.ages.rob, input.ages.debbie);
+  if (householdAge < ltc.startAge) {
+    return 0;
+  }
+  const yearsIntoLtc = householdAge - ltc.startAge;
+  if (yearsIntoLtc >= Math.max(1, Math.round(ltc.durationYears))) {
+    return 0;
+  }
+  const inflationAnnual = ltc.inflationAnnual ?? DEFAULT_LTC_INFLATION_ANNUAL;
+  const eventProbability = Math.max(0, Math.min(1, ltc.eventProbability ?? 0.45));
+  return ltc.annualCostToday * Math.pow(1 + inflationAnnual, yearsIntoLtc) * eventProbability;
+}
+
+function calculateHsaOffsetForYear(input: {
+  rules: SeedData['rules'];
+  hsaBalance: number;
+  magi: number;
+  healthcareAndLtcCost: number;
+}) {
+  const strategy = input.rules.hsaStrategy;
+  if (!strategy?.enabled || input.hsaBalance <= 0 || input.healthcareAndLtcCost <= 0) {
+    return 0;
+  }
+  const threshold = strategy.highMagiThreshold ?? DEFAULT_HSA_HIGH_MAGI_THRESHOLD;
+  if (strategy.prioritizeHighMagiYears && input.magi < threshold) {
+    return 0;
+  }
+  const cap = Math.max(
+    0,
+    strategy.annualQualifiedExpenseWithdrawalCap ?? Number.POSITIVE_INFINITY,
+  );
+  const cappedNeed = Number.isFinite(cap)
+    ? Math.min(input.healthcareAndLtcCost, cap)
+    : input.healthcareAndLtcCost;
+  return Math.min(input.hsaBalance, cappedNeed);
+}
+
 function getYearInflationRate(
   assumptions: MarketAssumptions,
   yearOffset: number,
@@ -648,10 +801,14 @@ function buildAcaBridgePlan(
       inflationIndex,
       { rob: robAge, debbie: debbieAge },
     );
-    const windfallIncome = route.windfalls
-      .filter((item) => item.year === year)
-      .reduce((sum, item) => sum + item.amount, 0);
-    const nonPortfolioIncomeEstimate = salary + socialSecurityIncome + windfallIncome;
+    const windfallRealizations = route.windfalls.map((item) =>
+      buildWindfallRealizationForYear(item, year, route.filingStatus),
+    );
+    const windfallTaxableIncome = windfallRealizations.reduce(
+      (sum, item) => sum + item.ordinaryIncome + item.ltcgIncome,
+      0,
+    );
+    const nonPortfolioIncomeEstimate = salary + socialSecurityIncome + windfallTaxableIncome;
     const acaFriendlyMagiCeiling = Math.max(
       0,
       getAcaCliffIncome(route.filingStatus) * inflationIndex - 2_000,
@@ -1351,6 +1508,7 @@ export function generateAutopilotPlan(input: AutopilotPlanInputs): AutopilotPlan
   const endYear = CURRENT_YEAR + horizonYears;
   const acaBridgePlanByYear = buildAcaBridgePlan(input, route, currentAges, endYear);
   const years: AutopilotYearPlan[] = [];
+  let hsaBalance = input.data.accounts.hsa?.balance ?? 0;
   const balances: Record<Bucket, number> = {
     cash: input.data.accounts.cash.balance,
     taxable: input.data.accounts.taxable.balance,
@@ -1359,6 +1517,7 @@ export function generateAutopilotPlan(input: AutopilotPlanInputs): AutopilotPlan
   };
 
   let inflationIndex = 1;
+  let medicalInflationIndex = 1;
   const magiHistory = new Map<number, number>();
 
   for (let year = CURRENT_YEAR; year <= endYear; year += 1) {
@@ -1382,10 +1541,24 @@ export function generateAutopilotPlan(input: AutopilotPlanInputs): AutopilotPlan
       route.activeStressors,
     );
 
-    const windfallIncome = route.windfalls
-      .filter((item) => item.year === year)
-      .reduce((sum, item) => sum + item.amount, 0);
-    balances.cash += windfallIncome;
+    const windfallRealizations = route.windfalls
+      .map((item) => buildWindfallRealizationForYear(item, year, route.filingStatus))
+      .filter(
+        (item) => item.cashInflow > 0 || item.ordinaryIncome > 0 || item.ltcgIncome > 0,
+      );
+    const windfallCashInflow = windfallRealizations.reduce(
+      (sum, item) => sum + item.cashInflow,
+      0,
+    );
+    const windfallOrdinaryIncome = windfallRealizations.reduce(
+      (sum, item) => sum + item.ordinaryIncome,
+      0,
+    );
+    const windfallLtcgIncome = windfallRealizations.reduce(
+      (sum, item) => sum + item.ltcgIncome,
+      0,
+    );
+    balances.cash += windfallCashInflow;
 
     const salary = getSalaryForYear(route, year);
     const contributionResult = calculatePreRetirementContributions({
@@ -1398,10 +1571,13 @@ export function generateAutopilotPlan(input: AutopilotPlanInputs): AutopilotPlan
       settings: input.data.income.preRetirementContributions,
       accountBalances: {
         pretax: balances.pretax,
-        hsa: input.data.accounts.hsa?.balance,
+        roth: balances.roth,
+        hsa: hsaBalance,
       },
     });
     balances.pretax = contributionResult.updatedAccountBalances.pretax;
+    balances.roth = contributionResult.updatedAccountBalances.roth ?? balances.roth;
+    hsaBalance = contributionResult.updatedAccountBalances.hsa ?? hsaBalance;
     const adjustedWages = contributionResult.adjustedWages;
 
     const socialSecurityIncome = getSocialSecurityIncome(
@@ -1410,7 +1586,7 @@ export function generateAutopilotPlan(input: AutopilotPlanInputs): AutopilotPlan
       inflationIndex,
       { rob: robAge, debbie: debbieAge },
     );
-    const baseIncome = adjustedWages + socialSecurityIncome + windfallIncome;
+    const baseIncome = adjustedWages + socialSecurityIncome + windfallCashInflow;
 
     const rmd = calculateRequiredMinimumDistribution({
       pretaxBalance: balances.pretax,
@@ -1439,9 +1615,9 @@ export function generateAutopilotPlan(input: AutopilotPlanInputs): AutopilotPlan
       taxableInterest: 0,
       qualifiedDividends: 0,
       ordinaryDividends: 0,
-      realizedLTCG: 0,
+      realizedLTCG: windfallLtcgIncome,
       realizedSTCG: 0,
-      otherOrdinaryIncome: 0,
+      otherOrdinaryIncome: windfallOrdinaryIncome,
       filingStatus: route.filingStatus,
     });
 
@@ -1526,9 +1702,9 @@ export function generateAutopilotPlan(input: AutopilotPlanInputs): AutopilotPlan
         taxableInterest: 0,
         qualifiedDividends: 0,
         ordinaryDividends: 0,
-        realizedLTCG: taxState.realizedLTCG,
+        realizedLTCG: taxState.realizedLTCG + windfallLtcgIncome,
         realizedSTCG: 0,
-        otherOrdinaryIncome: 0,
+        otherOrdinaryIncome: windfallOrdinaryIncome,
         filingStatus: route.filingStatus,
       });
 
@@ -1545,11 +1721,21 @@ export function generateAutopilotPlan(input: AutopilotPlanInputs): AutopilotPlan
       medicareEligibilityByPerson,
       baselineAcaPremiumAnnual:
         (input.data.rules.healthcarePremiums?.baselineAcaPremiumAnnual ??
-          DEFAULT_BASELINE_ACA_PREMIUM_ANNUAL) * inflationIndex,
+          DEFAULT_BASELINE_ACA_PREMIUM_ANNUAL) * medicalInflationIndex,
       baselineMedicarePremiumAnnual:
         (input.data.rules.healthcarePremiums?.baselineMedicarePremiumAnnual ??
-          DEFAULT_BASELINE_MEDICARE_PREMIUM_ANNUAL) * inflationIndex,
+          DEFAULT_BASELINE_MEDICARE_PREMIUM_ANNUAL) * medicalInflationIndex,
       irmaaSurchargeAnnualPerEligible: irmaaTier.surchargeAnnual,
+    });
+    let ltcCostForYear = calculateLtcCostForYear({
+      rules: input.data.rules,
+      ages: { rob: robAge, debbie: debbieAge },
+    });
+    let hsaOffsetUsed = calculateHsaOffsetForYear({
+      rules: input.data.rules,
+      hsaBalance,
+      magi: taxResult.MAGI,
+      healthcareAndLtcCost: healthcare.totalHealthcarePremiumCost + ltcCostForYear,
     });
     const recalculateTaxAndHealthcare = () => {
       taxResult = toTaxResult();
@@ -1565,11 +1751,21 @@ export function generateAutopilotPlan(input: AutopilotPlanInputs): AutopilotPlan
         medicareEligibilityByPerson,
         baselineAcaPremiumAnnual:
           (input.data.rules.healthcarePremiums?.baselineAcaPremiumAnnual ??
-            DEFAULT_BASELINE_ACA_PREMIUM_ANNUAL) * inflationIndex,
+            DEFAULT_BASELINE_ACA_PREMIUM_ANNUAL) * medicalInflationIndex,
         baselineMedicarePremiumAnnual:
           (input.data.rules.healthcarePremiums?.baselineMedicarePremiumAnnual ??
-            DEFAULT_BASELINE_MEDICARE_PREMIUM_ANNUAL) * inflationIndex,
+            DEFAULT_BASELINE_MEDICARE_PREMIUM_ANNUAL) * medicalInflationIndex,
         irmaaSurchargeAnnualPerEligible: irmaaTier.surchargeAnnual,
+      });
+      ltcCostForYear = calculateLtcCostForYear({
+        rules: input.data.rules,
+        ages: { rob: robAge, debbie: debbieAge },
+      });
+      hsaOffsetUsed = calculateHsaOffsetForYear({
+        rules: input.data.rules,
+        hsaBalance,
+        magi: taxResult.MAGI,
+        healthcareAndLtcCost: healthcare.totalHealthcarePremiumCost + ltcCostForYear,
       });
     };
 
@@ -1583,7 +1779,11 @@ export function generateAutopilotPlan(input: AutopilotPlanInputs): AutopilotPlan
 
     const additionalNeed = Math.max(
       0,
-      taxResult.federalTax + healthcare.totalHealthcarePremiumCost - cashAvailableAfterSpend,
+      taxResult.federalTax +
+        healthcare.totalHealthcarePremiumCost +
+        ltcCostForYear -
+        hsaOffsetUsed -
+        cashAvailableAfterSpend,
     );
     if (additionalNeed > 0) {
       withdrawForNeed(
@@ -1599,6 +1799,11 @@ export function generateAutopilotPlan(input: AutopilotPlanInputs): AutopilotPlan
         },
       );
       recalculateTaxAndHealthcare();
+    }
+    if (hsaOffsetUsed > 0) {
+      const appliedHsaOffset = Math.min(hsaOffsetUsed, hsaBalance, balances.pretax);
+      hsaBalance = Math.max(0, hsaBalance - appliedHsaOffset);
+      balances.pretax = Math.max(0, balances.pretax - appliedHsaOffset);
     }
 
     const explanationFlags: AcaExplanationFlag[] = [];
@@ -1825,6 +2030,10 @@ export function generateAutopilotPlan(input: AutopilotPlanInputs): AutopilotPlan
     });
 
     inflationIndex *= 1 + inflationRate;
+    medicalInflationIndex *=
+      1 +
+      (input.data.rules.healthcarePremiums?.medicalInflationAnnual ??
+        DEFAULT_MEDICAL_INFLATION_ANNUAL);
   }
 
   const averageTax =

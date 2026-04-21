@@ -106,6 +106,31 @@ export interface PlanChangeSummary {
   biggestDriverMessage: string;
 }
 
+export type TrustCheckStatus = 'pass' | 'warn' | 'fail';
+
+export interface PlanTrustCheck {
+  id: string;
+  title: string;
+  status: TrustCheckStatus;
+  detail: string;
+}
+
+export interface PlanTrustPanel {
+  version: 'decision_trust_v1';
+  safeToRely: boolean;
+  confidence: 'high' | 'medium' | 'low';
+  summary: string;
+  checks: PlanTrustCheck[];
+  metrics: {
+    passCount: number;
+    warnCount: number;
+    failCount: number;
+    recommendationEvidenceCoverage: number;
+    inheritanceDependenceRate: number;
+    homeSaleDependenceRate: number;
+  };
+}
+
 export interface PlanEvaluation {
   summary: {
     planSupportsAnnual: number;
@@ -229,6 +254,7 @@ export interface PlanEvaluation {
       reason: string;
     }>;
   };
+  trustPanel?: PlanTrustPanel;
   decisionImpact: DecisionImpactAssessment | null;
   raw: {
     baselinePath: PathResult;
@@ -570,6 +596,234 @@ function buildTimePreferenceInterpretation(input: {
   };
 }
 
+function findScenarioDelta(
+  decision: DecisionEngineReport,
+  scenarioId: string,
+) {
+  return (
+    decision.allScenarioResults.find((item) => item.scenarioId === scenarioId)?.delta
+      .deltaSuccessRate ?? null
+  );
+}
+
+function buildTrustPanel(input: {
+  plan: Plan;
+  planRun: RetirementPlanRunResult;
+  decision: DecisionEngineReport;
+  topRecommendations: PlanRecommendation[];
+}): PlanTrustPanel {
+  const checks: PlanTrustCheck[] = [];
+  const modelCompleteness = input.planRun.plan.modelCompleteness;
+  const inferredAssumptionsCount = input.planRun.plan.inferredAssumptions.length;
+  const dataFidelityStatus: TrustCheckStatus =
+    modelCompleteness === 'faithful'
+      ? 'pass'
+      : inferredAssumptionsCount >= 4
+        ? 'fail'
+        : 'warn';
+  checks.push({
+    id: 'data_fidelity',
+    title: 'Data fidelity and explicit assumptions',
+    status: dataFidelityStatus,
+    detail:
+      modelCompleteness === 'faithful'
+        ? 'Model completeness is faithful with no inferred assumptions.'
+        : `Model completeness is reconstructed with ${inferredAssumptionsCount} inferred assumptions.`,
+  });
+
+  const homeSale = input.plan.data.income.windfalls.find((item) => item.name === 'home_sale');
+  const homeSaleModeled =
+    !homeSale ||
+    (homeSale.taxTreatment === 'primary_home_sale' &&
+      typeof homeSale.costBasis === 'number' &&
+      typeof homeSale.liquidityAmount === 'number');
+  checks.push({
+    id: 'home_sale_modeling',
+    title: 'Home-sale modeling completeness',
+    status: homeSaleModeled ? 'pass' : homeSale ? 'warn' : 'warn',
+    detail: !homeSale
+      ? 'No home-sale event is modeled.'
+      : homeSaleModeled
+        ? 'Home-sale tax basis and net liquidity are explicitly modeled.'
+        : 'Home-sale event exists but is missing cost basis and/or net liquidity modeling.',
+  });
+
+  const inheritance = input.plan.data.income.windfalls.find((item) => item.name === 'inheritance');
+  const inheritanceModeled = !inheritance
+    ? false
+    : Boolean(inheritance.taxTreatment) &&
+      (inheritance.taxTreatment !== 'inherited_ira_10y' ||
+        typeof inheritance.distributionYears === 'number');
+  checks.push({
+    id: 'inheritance_modeling',
+    title: 'Inheritance treatment explicitness',
+    status: inheritanceModeled ? 'pass' : inheritance ? 'warn' : 'warn',
+    detail: !inheritance
+      ? 'No inheritance event is modeled.'
+      : inheritanceModeled
+        ? `Inheritance tax treatment is explicitly modeled as "${inheritance.taxTreatment}".`
+        : 'Inheritance event is present but treatment/distribution assumptions are not fully explicit.',
+  });
+
+  const recommendationEvidenceCoverage = input.topRecommendations.length
+    ? input.topRecommendations.filter((item) => Math.abs(item.deltaSuccessRate) >= 0.005).length /
+      input.topRecommendations.length
+    : 0;
+  const recommendationEvidenceStatus: TrustCheckStatus =
+    recommendationEvidenceCoverage === 1
+      ? 'pass'
+      : recommendationEvidenceCoverage >= 0.5
+        ? 'warn'
+        : 'fail';
+  checks.push({
+    id: 'recommendation_evidence',
+    title: 'Recommendations backed by measured deltas',
+    status: recommendationEvidenceStatus,
+    detail:
+      input.topRecommendations.length === 0
+        ? 'No top recommendations were produced.'
+        : `${Math.round(recommendationEvidenceCoverage * 100)}% of top recommendations exceed minimum measured impact thresholds.`,
+  });
+
+  const conversionPolicy = input.plan.data.rules.rothConversionPolicy;
+  const policyExplicit = Boolean(conversionPolicy);
+  const policyEnabled = conversionPolicy?.enabled ?? true;
+  checks.push({
+    id: 'roth_policy',
+    title: 'Explicit Roth conversion policy',
+    status: policyEnabled ? (policyExplicit ? 'pass' : 'warn') : 'warn',
+    detail: policyEnabled
+      ? policyExplicit
+        ? 'Roth conversion policy is explicitly configured in model rules.'
+        : 'Roth conversion policy is running on defaults; configure rules for decision-grade traceability.'
+      : 'Roth conversion policy is disabled in rules.',
+  });
+
+  const withdrawalPolicy = input.planRun.baselinePath.simulationConfiguration.withdrawalPolicy;
+  const closedLoopConvergencePath =
+    input.planRun.baselinePath.simulationDiagnostics.closedLoopConvergencePath;
+  const averageClosedLoopConvergedRate = closedLoopConvergencePath.length
+    ? closedLoopConvergencePath.reduce((sum, point) => sum + point.convergedRate, 0) /
+      closedLoopConvergencePath.length
+    : 0;
+  const closedLoopEnabled =
+    withdrawalPolicy.closedLoopHealthcareTaxIteration &&
+    withdrawalPolicy.maxClosedLoopPasses >= 2;
+  checks.push({
+    id: 'closed_loop_withdrawal',
+    title: 'Closed-loop withdrawal logic',
+    status: !closedLoopEnabled
+      ? 'fail'
+      : averageClosedLoopConvergedRate >= 0.7
+        ? 'pass'
+        : 'warn',
+    detail: closedLoopEnabled
+      ? `Closed-loop healthcare/tax solving enabled with up to ${withdrawalPolicy.maxClosedLoopPasses} passes; average yearly convergence ${(averageClosedLoopConvergedRate * 100).toFixed(0)}%.`
+      : 'Closed-loop healthcare/tax withdrawal iteration is not enabled.',
+  });
+
+  const inheritanceDependenceRate = input.planRun.baselinePath.inheritanceDependenceRate;
+  const inheritanceSensitivityDelta = findScenarioDelta(
+    input.decision,
+    'assumption_remove_inheritance',
+  );
+  const inheritanceDependencyStatus: TrustCheckStatus =
+    inheritanceDependenceRate >= 0.35 ||
+    (inheritanceSensitivityDelta !== null && inheritanceSensitivityDelta <= -0.05)
+      ? 'fail'
+      : inheritanceDependenceRate >= 0.2 ||
+          (inheritanceSensitivityDelta !== null && inheritanceSensitivityDelta <= -0.02)
+        ? 'warn'
+        : 'pass';
+  checks.push({
+    id: 'inheritance_dependency',
+    title: 'Inheritance dependency risk',
+    status: inheritanceDependencyStatus,
+    detail: `Dependence rate ${Math.round(inheritanceDependenceRate * 100)}%${
+      inheritanceSensitivityDelta === null
+        ? '.'
+        : `; remove-inheritance success delta ${(inheritanceSensitivityDelta * 100).toFixed(1)} pts.`
+    }`,
+  });
+
+  const homeSaleDependenceRate = input.planRun.baselinePath.homeSaleDependenceRate;
+  const homeSaleSensitivityDelta =
+    findScenarioDelta(input.decision, 'assumption_remove_home_sale') ??
+    findScenarioDelta(input.decision, 'housing_keep_house');
+  const homeSaleDependencyStatus: TrustCheckStatus =
+    homeSaleDependenceRate >= 0.3 ||
+    (homeSaleSensitivityDelta !== null && homeSaleSensitivityDelta <= -0.05)
+      ? 'fail'
+      : homeSaleDependenceRate >= 0.15 ||
+          (homeSaleSensitivityDelta !== null && homeSaleSensitivityDelta <= -0.02)
+        ? 'warn'
+        : 'pass';
+  checks.push({
+    id: 'home_sale_dependency',
+    title: 'Home-sale dependency risk',
+    status: homeSaleDependencyStatus,
+    detail: `Dependence rate ${Math.round(homeSaleDependenceRate * 100)}%${
+      homeSaleSensitivityDelta === null
+        ? '.'
+        : `; remove-home-sale success delta ${(homeSaleSensitivityDelta * 100).toFixed(1)} pts.`
+    }`,
+  });
+
+  const objective = input.planRun.solver.activeOptimizationObjective;
+  const schedule = input.planRun.solver.supportedSpendingSchedule;
+  const scheduleMean = schedule.length
+    ? schedule.reduce((sum, row) => sum + row.annualSpend, 0) / schedule.length
+    : 0;
+  const scheduleSpread = schedule.length
+    ? Math.max(...schedule.map((row) => row.annualSpend)) -
+      Math.min(...schedule.map((row) => row.annualSpend))
+    : 0;
+  const phasedSignal = scheduleMean > 0 ? scheduleSpread / scheduleMean : 0;
+  const phasedStatus: TrustCheckStatus =
+    objective === 'maximize_time_weighted_spending'
+      ? phasedSignal >= 0.05
+        ? 'pass'
+        : 'warn'
+      : 'warn';
+  checks.push({
+    id: 'phased_spending_realism',
+    title: 'Phased spending realism',
+    status: phasedStatus,
+    detail:
+      objective === 'maximize_time_weighted_spending'
+        ? `Time-weighted objective active; spending phase spread ${(phasedSignal * 100).toFixed(1)}%.`
+        : `Objective is ${objective}; time-phased realism checks are reduced.`,
+  });
+
+  const passCount = checks.filter((check) => check.status === 'pass').length;
+  const warnCount = checks.filter((check) => check.status === 'warn').length;
+  const failCount = checks.filter((check) => check.status === 'fail').length;
+  const confidence: PlanTrustPanel['confidence'] =
+    failCount > 0 ? (failCount >= 2 ? 'low' : 'medium') : warnCount >= 4 ? 'medium' : 'high';
+  const safeToRely =
+    failCount === 0 &&
+    recommendationEvidenceCoverage >= 0.5 &&
+    dataFidelityStatus !== 'fail';
+
+  return {
+    version: 'decision_trust_v1',
+    safeToRely,
+    confidence,
+    summary: safeToRely
+      ? 'Run quality is good enough for decision use with normal monitoring.'
+      : 'Run quality needs attention before treating recommendations as execution-ready.',
+    checks,
+    metrics: {
+      passCount,
+      warnCount,
+      failCount,
+      recommendationEvidenceCoverage,
+      inheritanceDependenceRate,
+      homeSaleDependenceRate,
+    },
+  };
+}
+
 export async function evaluatePlan(
   plan: Plan,
   options: EvaluatePlanOptions = {},
@@ -775,6 +1029,12 @@ export async function evaluatePlan(
       ? timePreference.recommendation
       : decision.recommendationSummary.summary,
   );
+  const trustPanel = buildTrustPanel({
+    plan,
+    planRun,
+    decision,
+    topRecommendations,
+  });
 
   const evaluation: PlanEvaluation = {
     summary: {
@@ -905,6 +1165,7 @@ export async function evaluatePlan(
         reason: sanitizeRecommendationText(item.reasonExcluded),
       })),
     },
+    trustPanel,
     decisionImpact: planRun.decisionImpact,
     raw: {
       baselinePath: planRun.baselinePath,
