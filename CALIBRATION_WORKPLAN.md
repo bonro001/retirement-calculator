@@ -71,9 +71,12 @@ Execution protocol:
 - Formalize a periodic refresh of [fixtures/boldin_lower_returns.json](fixtures/boldin_lower_returns.json) (and any other peer-planner fixtures).
 - Each refresh is one row in the dataset: "on date D, Boldin said X, we said Y, our assumptions were A."
 
-11. [ ] Behavior-change detector
+11. [x] Behavior-change detector
 - Diff each new plan snapshot against the prior one; flag changes in retirement date, target spend, stressors selected, or withdrawal order.
 - Annotate affected predictions so reconciliation can separate "user changed the plan" from "model was wrong."
+  - Done: `diffPredictions(a, b)` and `detectBehaviorChanges(store)` in `src/behavior-change-detector.ts`. Pure function of the prediction log. Detects retirement-date shifts (w/ direction + month magnitude), per-bucket spending changes, account balance changes, salary changes, added/removed windfalls, stressor set changes, assumption changes (equity/bond/cash/inflation means, simulation runs, engine version). Each change carries a category, human-readable description, and signed delta for sorting/visualization. `detectBehaviorChanges` walks the log chronologically and skips consecutive records with identical fingerprints.
+  - Files: `src/behavior-change-detector.ts`, `src/behavior-change-detector.test.ts`.
+  - Verification: 9/9 tests pass covering each change category plus fingerprint-stability and chronological ordering.
 
 12. [ ] Calibration knob proposal
 - With at least one year of reconciliation data, write a short doc proposing which engine parameters to consider tuning and what the data says about each (return mean, vol, yield-as-income accounting, tax model).
