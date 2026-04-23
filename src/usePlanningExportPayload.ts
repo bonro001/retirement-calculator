@@ -1,17 +1,23 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { buildPlanningStateExportWithResolvedContext, PLANNING_EXPORT_CACHE_VERSION, type PlanningExportMode, type PlanningStateExport } from './planning-export';
+import { buildPlanningStateExportWithResolvedContext, buildPlanningStateSummary, PLANNING_EXPORT_CACHE_VERSION, type PlanningExportMode, type PlanningStateExport, type PlanningStateSummary } from './planning-export';
 import type {
   PlanningExportWorkerRequest,
   PlanningExportWorkerResponse,
 } from './planning-export-worker-types';
 import { buildEvaluationFingerprint } from './evaluation-fingerprint';
-import { loadExportPayloadFromCache, saveExportPayloadToCache } from './export-payload-cache';
+import {
+  loadExportPayloadFromCache,
+  loadExportSummaryFromCache,
+  saveExportPayloadToCache,
+  saveExportSummaryToCache,
+} from './export-payload-cache';
 import { useAppStore } from './store';
 
 export type PlanningExportLoadState = 'idle' | 'loading' | 'ready' | 'error';
 
 const EXPORT_REQUEST_PREFIX = 'planning-export-request';
 const exportPayloadCache = new Map<string, PlanningStateExport>();
+const exportSummaryCache = new Map<string, PlanningStateSummary>();
 
 export function usePlanningExportPayload(exportMode: PlanningExportMode = 'compact') {
   const data = useAppStore((state) => state.data);
@@ -22,6 +28,7 @@ export function usePlanningExportPayload(exportMode: PlanningExportMode = 'compa
     (state) => state.latestUnifiedPlanEvaluationContext,
   );
   const [payload, setPayload] = useState<PlanningStateExport | null>(null);
+  const [summary, setSummary] = useState<PlanningStateSummary | null>(null);
   const [loadState, setLoadState] = useState<PlanningExportLoadState>('idle');
   const [loadError, setLoadError] = useState<string | null>(null);
   const requestCounterRef = useRef(0);
@@ -66,9 +73,21 @@ export function usePlanningExportPayload(exportMode: PlanningExportMode = 'compa
   useEffect(() => {
     let cancelled = false;
 
+    const memCachedSummary = exportSummaryCache.get(exportCacheKey) ?? null;
+    if (memCachedSummary) {
+      setSummary(memCachedSummary);
+    } else {
+      setSummary(null);
+    }
+
     const cached = exportPayloadCache.get(exportCacheKey) ?? null;
     if (cached) {
       setPayload(cached);
+      if (!memCachedSummary) {
+        const derived = buildPlanningStateSummary(cached);
+        exportSummaryCache.set(exportCacheKey, derived);
+        setSummary(derived);
+      }
       setLoadState('ready');
       setLoadError(null);
       return;
@@ -85,6 +104,23 @@ export function usePlanningExportPayload(exportMode: PlanningExportMode = 'compa
 
     let worker: Worker | null = null;
 
+    // Fire the summary read in parallel — it's tiny, deserializes fast, and
+    // lets the top strip paint numbers before the full payload arrives.
+    if (!memCachedSummary) {
+      void (async () => {
+        const persistedSummary = await loadExportSummaryFromCache(
+          currentEvaluationFingerprint,
+          exportMode,
+          PLANNING_EXPORT_CACHE_VERSION,
+        );
+        if (cancelled || !persistedSummary) return;
+        exportSummaryCache.set(exportCacheKey, persistedSummary);
+        if (activeRequestIdRef.current === requestId) {
+          setSummary((prev) => prev ?? persistedSummary);
+        }
+      })();
+    }
+
     void (async () => {
       // Check persistent cache before launching a worker
       const persisted = await loadExportPayloadFromCache(
@@ -95,7 +131,10 @@ export function usePlanningExportPayload(exportMode: PlanningExportMode = 'compa
       if (cancelled) return;
       if (persisted) {
         exportPayloadCache.set(exportCacheKey, persisted);
+        const derived = buildPlanningStateSummary(persisted);
+        exportSummaryCache.set(exportCacheKey, derived);
         setPayload(persisted);
+        setSummary(derived);
         setLoadState('ready');
         setLoadError(null);
         return;
@@ -116,14 +155,23 @@ export function usePlanningExportPayload(exportMode: PlanningExportMode = 'compa
           });
           if (cancelled) return;
           exportPayloadCache.set(exportCacheKey, next);
+          const derived = buildPlanningStateSummary(next);
+          exportSummaryCache.set(exportCacheKey, derived);
           void saveExportPayloadToCache(
             currentEvaluationFingerprint,
             exportMode,
             PLANNING_EXPORT_CACHE_VERSION,
             next,
           );
+          void saveExportSummaryToCache(
+            currentEvaluationFingerprint,
+            exportMode,
+            PLANNING_EXPORT_CACHE_VERSION,
+            derived,
+          );
           if (activeRequestIdRef.current === requestId) {
             setPayload(next);
+            setSummary(derived);
             setLoadState('ready');
             setLoadError(null);
           }
@@ -154,13 +202,22 @@ export function usePlanningExportPayload(exportMode: PlanningExportMode = 'compa
           return;
         }
         exportPayloadCache.set(exportCacheKey, message.payload);
+        const derived = buildPlanningStateSummary(message.payload);
+        exportSummaryCache.set(exportCacheKey, derived);
         void saveExportPayloadToCache(
           currentEvaluationFingerprint,
           exportMode,
           PLANNING_EXPORT_CACHE_VERSION,
           message.payload,
         );
+        void saveExportSummaryToCache(
+          currentEvaluationFingerprint,
+          exportMode,
+          PLANNING_EXPORT_CACHE_VERSION,
+          derived,
+        );
         setPayload(message.payload);
+        setSummary(derived);
         setLoadState('ready');
         setLoadError(null);
       };
@@ -198,6 +255,7 @@ export function usePlanningExportPayload(exportMode: PlanningExportMode = 'compa
 
   return {
     payload,
+    summary,
     loadState,
     loadError,
     latestUnifiedPlanEvaluationContext,

@@ -3528,6 +3528,7 @@ function InsightsScreen({
     const priorReportSnapshot = currentReport
       ? cloneDecisionEngineReport(currentReport)
       : null;
+    const runStartMs = performance.now();
     setAnalysisError(null);
     setIsRunningAnalysis(true);
     setExplainabilityReport(null);
@@ -3608,6 +3609,9 @@ function InsightsScreen({
           );
           setIsRunningAnalysis(false);
           activeAnalysisRequestIdRef.current = null;
+          console.log(
+            `[perf] run-analysis (worker): ${(performance.now() - runStartMs).toFixed(0)}ms`,
+          );
         } else if (msg.type === 'error') {
           setAnalysisError(msg.error || 'Analysis failed');
           setIsRunningAnalysis(false);

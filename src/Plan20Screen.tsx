@@ -1670,6 +1670,8 @@ function TradeBuilderSection(input: {
     // Cancel any previous in-flight batch before kicking a new one off.
     inFlightBatchRef.current?.cancel();
 
+    const runStartMs = performance.now();
+
     setLoadState('loading');
     setLoadError(null);
     setProgress(0);
@@ -1910,6 +1912,9 @@ function TradeBuilderSection(input: {
       setProgress(1);
       setProgressLabel('Finalizing…');
       setLoadState('ready');
+      console.log(
+        `[perf] trade-builder: ${totalPoints} scenarios in ${(performance.now() - runStartMs).toFixed(0)}ms`,
+      );
       void saveTradeBuilderToCache(fingerprint, {
         purchaseScenario: purchase,
         options: nextOptions,

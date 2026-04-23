@@ -1,4 +1,4 @@
-import type { PlanningStateExport } from './planning-export';
+import type { PlanningStateExport, PlanningStateSummary } from './planning-export';
 
 const DB_NAME = 'retirement-export-payload-cache';
 const DB_VERSION = 1;
@@ -23,6 +23,22 @@ function entryKey(
   cacheVersion: string,
 ): string {
   return `${cacheVersion}::${exportMode}::${dataFingerprint}`;
+}
+
+function summaryKey(
+  dataFingerprint: string,
+  exportMode: string,
+  cacheVersion: string,
+): string {
+  return `summary::${cacheVersion}::${exportMode}::${dataFingerprint}`;
+}
+
+interface CachedSummaryEntry {
+  dataFingerprint: string;
+  exportMode: string;
+  cacheVersion: string;
+  computedAtIso: string;
+  summary: PlanningStateSummary;
 }
 
 function openDb(): Promise<IDBDatabase> {
@@ -120,6 +136,65 @@ export async function loadExportPayloadFromCache(
     return entry.payload;
   } catch (e) {
     console.warn('[export-cache] load failed:', e);
+    return null;
+  }
+}
+
+export async function saveExportSummaryToCache(
+  dataFingerprint: string,
+  exportMode: string,
+  cacheVersion: string,
+  summary: PlanningStateSummary,
+): Promise<void> {
+  try {
+    const entry: CachedSummaryEntry = {
+      dataFingerprint,
+      exportMode,
+      cacheVersion,
+      computedAtIso: new Date().toISOString(),
+      summary,
+    };
+    const key = summaryKey(dataFingerprint, exportMode, cacheVersion);
+    const db = await openDb();
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(STORE_NAME, 'readwrite');
+      tx.objectStore(STORE_NAME).put(entry, key);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  } catch (e) {
+    console.warn('[export-cache] summary save failed:', e);
+  }
+}
+
+export async function loadExportSummaryFromCache(
+  dataFingerprint: string,
+  exportMode: string,
+  cacheVersion: string,
+): Promise<PlanningStateSummary | null> {
+  try {
+    const key = summaryKey(dataFingerprint, exportMode, cacheVersion);
+    const db = await openDb();
+    const entry = await new Promise<CachedSummaryEntry | undefined>((resolve, reject) => {
+      const tx = db.transaction(STORE_NAME, 'readonly');
+      const req = tx.objectStore(STORE_NAME).get(key);
+      req.onsuccess = () => resolve(req.result as CachedSummaryEntry | undefined);
+      req.onerror = () => reject(req.error);
+    });
+    if (!entry) return null;
+    if (
+      entry.cacheVersion !== cacheVersion ||
+      entry.exportMode !== exportMode ||
+      entry.dataFingerprint !== dataFingerprint
+    ) {
+      return null;
+    }
+    const ageMs = Date.now() - new Date(entry.computedAtIso).getTime();
+    if (ageMs > MAX_AGE_MS) return null;
+    console.log('[export-cache] summary hit:', (ageMs / 60000).toFixed(0), 'min old');
+    return entry.summary;
+  } catch (e) {
+    console.warn('[export-cache] summary load failed:', e);
     return null;
   }
 }
