@@ -38,6 +38,7 @@ workerScope.onmessage = (event: MessageEvent<SweepWorkerRequest>) => {
         {
           pathMode: 'selected_only',
           strategyMode: point.strategyMode,
+          annualSpendScheduleByYear: point.annualSpendScheduleByYear,
           isCancelled: () => cancelledBatches.has(batchId),
           onProgress: (pointProgress) => {
             post({

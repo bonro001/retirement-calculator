@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Area,
   AreaChart,
@@ -19,13 +19,15 @@ import {
 import type { PlanningStateExportCompact } from './planning-export';
 import { useAppStore } from './store';
 import type { MarketAssumptions, PathResult, SeedData } from './types';
-import { buildPathResults, formatCurrency, formatPercent } from './utils';
+import { formatCurrency, formatPercent } from './utils';
 import { usePlanningExportPayload } from './usePlanningExportPayload';
 import { SpendVsSafetyScreen } from './SpendVsSafetyScreen';
 import { PortfolioHistoryCard } from './PortfolioHistoryCard';
 import { TimeAsSafetyPanel } from './TimeAsSafety';
 import { buildEvaluationFingerprint } from './evaluation-fingerprint';
 import { loadTradeBuilderFromCache, saveTradeBuilderToCache } from './trade-builder-cache';
+import { runSweepBatch, type SweepPoolHandle } from './sweep-worker-pool';
+import type { SweepPointInput } from './sweep-worker-types';
 
 type CompactOutcome = Exclude<PlanningStateExportCompact['activeSimulationOutcome'], PathResult>;
 
@@ -140,6 +142,170 @@ function average(values: number[]) {
 function cloneSeedData<T>(value: T): T {
   return structuredClone(value);
 }
+
+// ---- This Year's Focus ------------------------------------------------------
+
+type FocusPhase = 'accumulate' | 'glidepath' | 'bridge' | 'rmd-runway' | 'distribute';
+
+interface ThisYearsFocus {
+  phase: FocusPhase;
+  phaseLabel: string;
+  headline: string;
+  actions: string[];
+  why: string;
+}
+
+function getHouseholdBirthdates(data: SeedData): string[] {
+  const hh = data.household as Record<string, unknown>;
+  const candidates = [hh.robBirthDate, hh.debbieBirthDate];
+  return candidates.filter((value): value is string => typeof value === 'string');
+}
+
+function getSoonestSocialSecurityClaimYear(data: SeedData): number | null {
+  const ss = data.income.socialSecurity as
+    | Array<{ person?: string; claimAge?: number }>
+    | undefined;
+  if (!Array.isArray(ss) || ss.length === 0) return null;
+  const hh = data.household as Record<string, unknown>;
+  const personBirth: Record<string, string | undefined> = {
+    rob: typeof hh.robBirthDate === 'string' ? hh.robBirthDate : undefined,
+    debbie: typeof hh.debbieBirthDate === 'string' ? hh.debbieBirthDate : undefined,
+  };
+  const claimYears: number[] = [];
+  for (const entry of ss) {
+    if (typeof entry.claimAge !== 'number') continue;
+    const bd = entry.person ? personBirth[entry.person] : undefined;
+    if (!bd) continue;
+    const bdYear = new Date(bd).getUTCFullYear();
+    if (!Number.isFinite(bdYear)) continue;
+    claimYears.push(bdYear + entry.claimAge);
+  }
+  if (claimYears.length === 0) return null;
+  return Math.min(...claimYears);
+}
+
+function getRmdStartYear(data: SeedData): number | null {
+  // SECURE 2.0: RMD age 73 for those turning 73 in 2023–2032, 75 for those born
+  // 1960 or later.
+  const birthdates = getHouseholdBirthdates(data);
+  if (birthdates.length === 0) return null;
+  const rmdYears = birthdates.map((bd) => {
+    const bdYear = new Date(bd).getUTCFullYear();
+    if (!Number.isFinite(bdYear)) return Number.POSITIVE_INFINITY;
+    const rmdAge = bdYear >= 1960 ? 75 : 73;
+    return bdYear + rmdAge;
+  });
+  const soonest = Math.min(...rmdYears);
+  return Number.isFinite(soonest) ? soonest : null;
+}
+
+function buildThisYearsFocus(data: SeedData, today: Date = new Date()): ThisYearsFocus {
+  const todayYear = today.getUTCFullYear();
+  const salaryEnd = data.income.salaryEndDate ? new Date(data.income.salaryEndDate) : null;
+  const monthsToRetirement =
+    salaryEnd && !Number.isNaN(salaryEnd.getTime())
+      ? (salaryEnd.getUTCFullYear() - todayYear) * 12 +
+        (salaryEnd.getUTCMonth() - today.getUTCMonth())
+      : Number.POSITIVE_INFINITY;
+  const retirementYear = salaryEnd?.getUTCFullYear() ?? null;
+  const ssClaimYear = getSoonestSocialSecurityClaimYear(data);
+  const rmdStartYear = getRmdStartYear(data);
+  const retired = retirementYear !== null && todayYear >= retirementYear && monthsToRetirement <= 0;
+
+  // Phase detection
+  let phase: FocusPhase;
+  if (!retired && monthsToRetirement > 12) {
+    phase = 'accumulate';
+  } else if (!retired) {
+    phase = 'glidepath';
+  } else if (ssClaimYear !== null && todayYear < ssClaimYear) {
+    phase = 'bridge';
+  } else if (rmdStartYear !== null && todayYear < rmdStartYear) {
+    phase = 'rmd-runway';
+  } else {
+    phase = 'distribute';
+  }
+
+  const monthsFmt = (m: number) => {
+    if (!Number.isFinite(m) || m < 0) return 'soon';
+    const years = Math.floor(m / 12);
+    const remaining = m % 12;
+    if (years === 0) return `${remaining} month${remaining === 1 ? '' : 's'}`;
+    if (remaining === 0) return `${years} year${years === 1 ? '' : 's'}`;
+    return `${years}y ${remaining}m`;
+  };
+
+  switch (phase) {
+    case 'accumulate':
+      return {
+        phase,
+        phaseLabel: 'Accumulate',
+        headline: `Retirement is ${monthsFmt(monthsToRetirement)} out. Every pre-tax dollar you shovel in now is one you don't pull taxed later.`,
+        actions: [
+          'Max the 401(k) — including the catch-up if you\'re 50+.',
+          'Fund the HSA in full; it is the most tax-efficient dollar in the plan.',
+          'Pre-build the taxable bridge bucket so early-retirement spending doesn\'t force pretax withdrawals.',
+        ],
+        why: retirementYear
+          ? `You retire in ${retirementYear}. The glidepath re-risk starts roughly 12 months before that — after which the focus shifts from contributing to de-risking.`
+          : 'These contribution years compound into the low-income conversion window ahead.',
+      };
+    case 'glidepath':
+      return {
+        phase,
+        phaseLabel: 'Glidepath',
+        headline: `You retire in about ${monthsFmt(Math.max(0, monthsToRetirement))}. The highest-leverage move left is getting the allocation right before you depend on it.`,
+        actions: [
+          'Rebalance toward your target retirement allocation; don\'t let a hot year leave you over-equity into retirement.',
+          'Build a 2-year cash/short-bond reserve covering essential spending.',
+          'Finalize the Roth-conversion schedule for the first clean low-income tax year.',
+        ],
+        why: 'The first five retirement years carry sequence-of-returns risk. An allocation fix now costs nothing; a bad year after retirement costs real safety.',
+      };
+    case 'bridge':
+      return {
+        phase,
+        phaseLabel: 'Bridge',
+        headline: 'You\'re in the low-tax bridge window — the cheapest years of your retirement to shape your tax future.',
+        actions: [
+          'Execute the scheduled Roth conversions up to your IRMAA ceiling.',
+          'Pull from taxable accounts first to keep MAGI low.',
+          'Confirm ACA subsidy eligibility each year and track MAGI vs. the cliff.',
+        ],
+        why: ssClaimYear
+          ? `Social Security starts in ${ssClaimYear}. Every conversion dollar you move now is a dollar that never becomes an RMD later.`
+          : 'Every conversion dollar you move now is a dollar that never becomes an RMD later.',
+      };
+    case 'rmd-runway':
+      return {
+        phase,
+        phaseLabel: 'RMD runway',
+        headline: 'Social Security is on; RMDs aren\'t yet. This is your last window with real control over your tax bracket.',
+        actions: [
+          'Finish Roth conversions before RMDs force bracket creep.',
+          'Lock SS and pension withholding to avoid safe-harbor surprises.',
+          'Review QCDs if charitable giving is in the plan — they\'re about to become the best tool you have.',
+        ],
+        why: rmdStartYear
+          ? `RMDs begin ${rmdStartYear}. Once they start, your bracket is largely set for you; conversions after that point cost more tax per dollar moved.`
+          : 'Once RMDs start, your bracket is largely set for you; conversions after that point cost more tax per dollar moved.',
+      };
+    case 'distribute':
+    default:
+      return {
+        phase,
+        phaseLabel: 'Distribute',
+        headline: 'The plan is in drawdown. The focus shifts from shaping tax years to discipline and legacy.',
+        actions: [
+          'Satisfy this year\'s RMD on schedule; don\'t leave it for Q4.',
+          'Use QCDs for any planned charitable giving — it reduces MAGI dollar-for-dollar.',
+          'Rebalance for longevity and beneficiaries, not for growth.',
+        ],
+        why: 'Most of the plan\'s tax levers are behind you. What\'s left is executing the drawdown cleanly and preserving flexibility for the unexpected.',
+      };
+  }
+}
+
 
 function roundCurrency(value: number) {
   return Math.round(value * 100) / 100;
@@ -618,7 +784,7 @@ function adjustHomeSaleTiming(data: SeedData, shiftYears: number) {
   return true;
 }
 
-function simulateTradeBuilderScenario(input: {
+interface TradeBuilderScenarioSpec {
   data: SeedData;
   assumptions: MarketAssumptions;
   selectedStressors: string[];
@@ -633,7 +799,18 @@ function simulateTradeBuilderScenario(input: {
   travelReductionAnnual?: number;
   homeSaleShiftYears?: number;
   conversionAdjustment?: 'none' | 'more_aggressive';
-}) {
+}
+
+/**
+ * Pure, main-thread data prep for a Trade Builder scenario. Applies the
+ * lightweight SeedData mutations (travel trim, home-sale shift, conversion
+ * policy bump) and builds the per-year spend schedule, but does NOT run the
+ * simulation — it returns a SweepPointInput ready for the worker pool.
+ */
+function prepareTradeBuilderPoint(
+  pointId: string,
+  input: TradeBuilderScenarioSpec,
+): SweepPointInput {
   const nextData = cloneSeedData(input.data);
   if ((input.travelReductionAnnual ?? 0) > 0) {
     nextData.spending.travelEarlyRetirementAnnual = Math.max(
@@ -665,24 +842,24 @@ function simulateTradeBuilderScenario(input: {
     monthlySpendReduction: input.monthlySpendReduction,
   });
 
-  const [path] = buildPathResults(
-    nextData,
-    input.assumptions,
-    input.selectedStressors,
-    input.selectedResponses,
-    {
-      pathMode: 'selected_only',
-      strategyMode: 'planner_enhanced',
-      annualSpendScheduleByYear,
-    },
-  );
+  return {
+    pointId,
+    data: nextData,
+    assumptions: input.assumptions,
+    selectedStressors: input.selectedStressors,
+    selectedResponses: input.selectedResponses,
+    strategyMode: 'planner_enhanced',
+    annualSpendScheduleByYear,
+  } satisfies SweepPointInput;
+}
 
+function pathToScenarioResult(path: PathResult): TradeBuilderScenarioResult {
   return {
     successRate: path.successRate,
     irmaaExposureRate: path.irmaaExposureRate,
     spendingCutRate: path.spendingCutRate,
     medianEndingWealth: path.medianEndingWealth,
-  } satisfies TradeBuilderScenarioResult;
+  };
 }
 
 function chooseRecommendedTradeOption(
@@ -1482,268 +1659,262 @@ function TradeBuilderSection(input: {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fingerprint]);
 
-  const yieldToUi = () => new Promise<void>((resolve) => window.setTimeout(resolve, 0));
+  const inFlightBatchRef = useRef<SweepPoolHandle | null>(null);
+  useEffect(() => {
+    return () => {
+      inFlightBatchRef.current?.cancel();
+    };
+  }, []);
 
-  const runTradeBuilder = async () => {
+  const runTradeBuilder = () => {
+    // Cancel any previous in-flight batch before kicking a new one off.
+    inFlightBatchRef.current?.cancel();
+
     setLoadState('loading');
     setLoadError(null);
     setProgress(0);
-    setProgressLabel('Setting up baseline…');
+    setProgressLabel('Running scenarios in parallel…');
     setFromCache(false);
-    await yieldToUi();
-    try {
-        const TOTAL_STEPS = 12;
-        let completed = 0;
-        const bump = async (label: string) => {
-          completed += 1;
-          setProgress(completed / TOTAL_STEPS);
-          setProgressLabel(label);
-          await yieldToUi();
-        };
-        const nextPurchaseScenario = simulateTradeBuilderScenario({
-          data: input.data,
-          assumptions: input.assumptions,
-          selectedStressors: input.selectedStressors,
-          selectedResponses: input.selectedResponses,
-          years,
-          travelPhaseYears: input.travelPhaseYears,
-          purchaseYear,
-          purchaseCost,
-        });
-        await bump('Testing spending reductions…');
 
-        const buildOption = (option: {
-          id: string;
-          title: string;
-          description: string;
-          requiredChange: string;
-          disruptionScore: number;
-          simplicityScore: number;
-          result: TradeBuilderScenarioResult;
-        }) => ({
-          id: option.id,
-          title: option.title,
-          description: option.description,
-          requiredChange: option.requiredChange,
-          successRate: option.result.successRate,
-          irmaaExposureRate: option.result.irmaaExposureRate,
-          spendingCutRate: option.result.spendingCutRate,
-          medianEndingWealth: option.result.medianEndingWealth,
-          disruptionScore: option.disruptionScore,
-          simplicityScore: option.simplicityScore,
-          successRateDelta: option.result.successRate - nextPurchaseScenario.successRate,
-          irmaaExposureDelta: option.result.irmaaExposureRate - nextPurchaseScenario.irmaaExposureRate,
-          guardrailRelianceDelta: option.result.spendingCutRate - nextPurchaseScenario.spendingCutRate,
-        } satisfies TradeBuilderOption);
+    // Metadata for each option — we build the full list up front so we can
+    // look up a result by pointId when the worker pool streams it back.
+    interface OptionMeta {
+      id: string;
+      title: string;
+      description: string;
+      requiredChange: string;
+      disruptionScore: number;
+      simplicityScore: number;
+      group: 'spending' | 'delay' | 'travel' | 'timing' | 'conversion';
+    }
+    const commonSpec = {
+      data: input.data,
+      assumptions: input.assumptions,
+      selectedStressors: input.selectedStressors,
+      selectedResponses: input.selectedResponses,
+      years,
+      travelPhaseYears: input.travelPhaseYears,
+      purchaseYear,
+      purchaseCost,
+    } as const;
 
-        const monthlyReductionCandidates = [150, 300, 500, 650];
-        const spendingOption = monthlyReductionCandidates
-          .map((reduction) =>
-            buildOption({
-              id: `reduce-spend-${reduction}`,
-              title: 'Reduce spending',
-              description: 'Trim monthly spending a bit so the purchase lands more gently on the plan.',
-              requiredChange: `Reduce spending by ${formatCurrency(reduction)}/month`,
-              disruptionScore: reduction / 80,
-              simplicityScore: 1,
-              result: simulateTradeBuilderScenario({
-                data: input.data,
-                assumptions: input.assumptions,
-                selectedStressors: input.selectedStressors,
-                selectedResponses: input.selectedResponses,
-                years,
-                travelPhaseYears: input.travelPhaseYears,
-                purchaseYear,
-                purchaseCost,
-                monthlySpendReduction: reduction,
-              }),
-            }),
-          )
-          .sort((left, right) => {
-            if (Math.abs(right.successRateDelta - left.successRateDelta) > 0.001) {
-              return right.successRateDelta - left.successRateDelta;
-            }
-            return left.disruptionScore - right.disruptionScore;
-          })[0];
-        await bump('Testing delay scenarios…');
+    const points: SweepPointInput[] = [];
+    const meta = new Map<string, OptionMeta | null>(); // null = baseline purchase-only
 
-        const delayOption = [1, 2, 3]
-          .map((delayYears) =>
-            buildOption({
-              id: `delay-${delayYears}`,
-              title: 'Delay purchase',
-              description: 'Give the portfolio more time before the cash leaves the plan.',
-              requiredChange: `Delay the purchase by ${delayYears} year${delayYears === 1 ? '' : 's'}`,
-              disruptionScore: delayYears * 2,
-              simplicityScore: 1,
-              result: simulateTradeBuilderScenario({
-                data: input.data,
-                assumptions: input.assumptions,
-                selectedStressors: input.selectedStressors,
-                selectedResponses: input.selectedResponses,
-                years,
-                travelPhaseYears: input.travelPhaseYears,
-                purchaseYear,
-                purchaseCost,
-                purchaseDelayYears: delayYears,
-              }),
-            }),
-          )
-          .sort((left, right) => {
-            if (Math.abs(right.successRateDelta - left.successRateDelta) > 0.001) {
-              return right.successRateDelta - left.successRateDelta;
-            }
-            return left.disruptionScore - right.disruptionScore;
-          })[0];
-        await bump('Testing travel trims…');
+    // Baseline purchase-only scenario (no option meta).
+    const baselineId = 'purchase-baseline';
+    points.push(prepareTradeBuilderPoint(baselineId, { ...commonSpec }));
+    meta.set(baselineId, null);
 
-        const travelOption =
-          input.data.spending.travelEarlyRetirementAnnual > 0
-            ? [0.25, 0.5]
-                .map((share) => {
-                  const annualReduction = roundCurrency(
-                    input.data.spending.travelEarlyRetirementAnnual * share,
-                  );
-                  return buildOption({
-                    id: `travel-${share}`,
-                    title: 'Trim travel',
-                    description: 'Use travel as a temporary buffer instead of cutting core lifestyle first.',
-                    requiredChange: `Reduce travel by ${formatCurrency(annualReduction)}/year for the early retirement years`,
-                    disruptionScore: share * 6,
-                    simplicityScore: 2,
-                    result: simulateTradeBuilderScenario({
-                      data: input.data,
-                      assumptions: input.assumptions,
-                      selectedStressors: input.selectedStressors,
-                      selectedResponses: input.selectedResponses,
-                      years,
-                      travelPhaseYears: input.travelPhaseYears,
-                      purchaseYear,
-                      purchaseCost,
-                      travelReductionAnnual: annualReduction,
-                    }),
-                  });
-                })
-                .sort((left, right) => {
-                  if (Math.abs(right.successRateDelta - left.successRateDelta) > 0.001) {
-                    return right.successRateDelta - left.successRateDelta;
-                  }
-                  return left.disruptionScore - right.disruptionScore;
-                })[0]
-            : null;
-        await bump('Testing timing and phasing…');
+    const addOption = (
+      id: string,
+      m: Omit<OptionMeta, 'id'>,
+      spec: Partial<TradeBuilderScenarioSpec>,
+    ) => {
+      points.push(prepareTradeBuilderPoint(id, { ...commonSpec, ...spec }));
+      meta.set(id, { id, ...m });
+    };
 
-        const homeSaleWindfallExists = input.data.income.windfalls.some(
-          (windfall) => windfall.taxTreatment === 'primary_home_sale',
+    for (const reduction of [150, 300, 500, 650]) {
+      addOption(
+        `reduce-spend-${reduction}`,
+        {
+          title: 'Reduce spending',
+          description: 'Trim monthly spending a bit so the purchase lands more gently on the plan.',
+          requiredChange: `Reduce spending by ${formatCurrency(reduction)}/month`,
+          disruptionScore: reduction / 80,
+          simplicityScore: 1,
+          group: 'spending',
+        },
+        { monthlySpendReduction: reduction },
+      );
+    }
+
+    for (const delayYears of [1, 2, 3]) {
+      addOption(
+        `delay-${delayYears}`,
+        {
+          title: 'Delay purchase',
+          description: 'Give the portfolio more time before the cash leaves the plan.',
+          requiredChange: `Delay the purchase by ${delayYears} year${delayYears === 1 ? '' : 's'}`,
+          disruptionScore: delayYears * 2,
+          simplicityScore: 1,
+          group: 'delay',
+        },
+        { purchaseDelayYears: delayYears },
+      );
+    }
+
+    if (input.data.spending.travelEarlyRetirementAnnual > 0) {
+      for (const share of [0.25, 0.5]) {
+        const annualReduction = roundCurrency(
+          input.data.spending.travelEarlyRetirementAnnual * share,
         );
-        const timingOrPhaseOption = homeSaleWindfallExists
-          ? [-1, 1]
-              .map((shiftYears) =>
-                buildOption({
-                  id: `home-sale-shift-${shiftYears}`,
-                  title: 'Adjust home sale timing',
-                  description: 'Move the existing home sale timing a bit to better line up with the purchase.',
-                  requiredChange: `${shiftYears < 0 ? 'Move' : 'Delay'} the home sale by ${Math.abs(shiftYears)} year`,
-                  disruptionScore: 4 + Math.abs(shiftYears),
-                  simplicityScore: 2,
-                  result: simulateTradeBuilderScenario({
-                    data: input.data,
-                    assumptions: input.assumptions,
-                    selectedStressors: input.selectedStressors,
-                    selectedResponses: input.selectedResponses,
-                    years,
-                    travelPhaseYears: input.travelPhaseYears,
-                    purchaseYear,
-                    purchaseCost,
-                    homeSaleShiftYears: shiftYears,
-                  }),
-                }),
-              )
-              .sort((left, right) => {
-                if (Math.abs(right.successRateDelta - left.successRateDelta) > 0.001) {
-                  return right.successRateDelta - left.successRateDelta;
-                }
-                return left.disruptionScore - right.disruptionScore;
-              })[0]
-          : buildOption({
-              id: 'phase-purchase',
-              title: 'Phase the purchase',
-              description: 'Split the cost across two years instead of taking the full hit all at once.',
-              requiredChange: `Phase ${formatCurrency(purchaseCost)} over 2 years`,
-              disruptionScore: 3,
-              simplicityScore: 2,
-              result: simulateTradeBuilderScenario({
-                data: input.data,
-                assumptions: input.assumptions,
-                selectedStressors: input.selectedStressors,
-                selectedResponses: input.selectedResponses,
-                years,
-                travelPhaseYears: input.travelPhaseYears,
-                purchaseYear,
-                purchaseCost,
-                purchasePhaseYears: 2,
-              }),
-            });
-        await bump('Testing Roth conversion strategy…');
-
-        const conversionOption = buildOption({
-          id: 'conversion-aggressive',
-          title: 'Lean harder on Roth conversions',
-          description: 'Use tax-shaping instead of bigger lifestyle changes if that trade feels better.',
-          requiredChange: 'Use a more aggressive Roth conversion strategy',
-          disruptionScore: 5,
-          simplicityScore: 2,
-          result: simulateTradeBuilderScenario({
-            data: input.data,
-            assumptions: input.assumptions,
-            selectedStressors: input.selectedStressors,
-            selectedResponses: input.selectedResponses,
-            years,
-            travelPhaseYears: input.travelPhaseYears,
-            purchaseYear,
-            purchaseCost,
-            conversionAdjustment: 'more_aggressive',
-          }),
-        });
-
-        const nextOptions = [
-          spendingOption,
-          delayOption,
-          travelOption,
-          timingOrPhaseOption,
-          conversionOption,
-        ]
-          .filter((option): option is TradeBuilderOption => Boolean(option))
-          .sort((left, right) => {
-            const leftScore =
-              left.successRateDelta * 100 +
-              Math.max(0, -left.irmaaExposureDelta) * 30 +
-              Math.max(0, -left.guardrailRelianceDelta) * 25 -
-              left.disruptionScore -
-              left.simplicityScore;
-            const rightScore =
-              right.successRateDelta * 100 +
-              Math.max(0, -right.irmaaExposureDelta) * 30 +
-              Math.max(0, -right.guardrailRelianceDelta) * 25 -
-              right.disruptionScore -
-              right.simplicityScore;
-            return rightScore - leftScore;
-          })
-          .slice(0, 4);
-
-        setPurchaseScenario(nextPurchaseScenario);
-        setOptions(nextOptions);
-        setProgress(1);
-        setProgressLabel('Finalizing…');
-        setLoadState('ready');
-        void saveTradeBuilderToCache(fingerprint, {
-          purchaseScenario: nextPurchaseScenario,
-          options: nextOptions,
-        });
-      } catch (error) {
-        setLoadState('error');
-        setLoadError(error instanceof Error ? error.message : 'Trade Builder failed to run.');
+        addOption(
+          `travel-${share}`,
+          {
+            title: 'Trim travel',
+            description: 'Use travel as a temporary buffer instead of cutting core lifestyle first.',
+            requiredChange: `Reduce travel by ${formatCurrency(annualReduction)}/year for the early retirement years`,
+            disruptionScore: share * 6,
+            simplicityScore: 2,
+            group: 'travel',
+          },
+          { travelReductionAnnual: annualReduction },
+        );
       }
+    }
+
+    const homeSaleWindfallExists = input.data.income.windfalls.some(
+      (windfall) => windfall.taxTreatment === 'primary_home_sale',
+    );
+    if (homeSaleWindfallExists) {
+      for (const shiftYears of [-1, 1]) {
+        addOption(
+          `home-sale-shift-${shiftYears}`,
+          {
+            title: 'Adjust home sale timing',
+            description: 'Move the existing home sale timing a bit to better line up with the purchase.',
+            requiredChange: `${shiftYears < 0 ? 'Move' : 'Delay'} the home sale by ${Math.abs(shiftYears)} year`,
+            disruptionScore: 4 + Math.abs(shiftYears),
+            simplicityScore: 2,
+            group: 'timing',
+          },
+          { homeSaleShiftYears: shiftYears },
+        );
+      }
+    } else {
+      addOption(
+        'phase-purchase',
+        {
+          title: 'Phase the purchase',
+          description: 'Split the cost across two years instead of taking the full hit all at once.',
+          requiredChange: `Phase ${formatCurrency(purchaseCost)} over 2 years`,
+          disruptionScore: 3,
+          simplicityScore: 2,
+          group: 'timing',
+        },
+        { purchasePhaseYears: 2 },
+      );
+    }
+
+    addOption(
+      'conversion-aggressive',
+      {
+        title: 'Lean harder on Roth conversions',
+        description: 'Use tax-shaping instead of bigger lifestyle changes if that trade feels better.',
+        requiredChange: 'Use a more aggressive Roth conversion strategy',
+        disruptionScore: 5,
+        simplicityScore: 2,
+        group: 'conversion',
+      },
+      { conversionAdjustment: 'more_aggressive' },
+    );
+
+    const totalPoints = points.length;
+    const resultsByPointId = new Map<string, TradeBuilderScenarioResult>();
+    const batchId = `trade-builder-${Date.now()}`;
+
+    inFlightBatchRef.current = runSweepBatch(batchId, points, (event) => {
+      if (event.type === 'point') {
+        resultsByPointId.set(event.pointId, pathToScenarioResult(event.path));
+        setProgress(resultsByPointId.size / totalPoints);
+        setProgressLabel(
+          `Tested ${resultsByPointId.size} of ${totalPoints} scenario${totalPoints === 1 ? '' : 's'}…`,
+        );
+        return;
+      }
+
+      if (event.type === 'error') {
+        inFlightBatchRef.current = null;
+        setLoadState('error');
+        setLoadError(event.error || 'Trade Builder failed to run.');
+        return;
+      }
+
+      if (event.type === 'cancelled') {
+        inFlightBatchRef.current = null;
+        return;
+      }
+
+      if (event.type !== 'done') return;
+      inFlightBatchRef.current = null;
+
+      const purchase = resultsByPointId.get(baselineId);
+      if (!purchase) {
+        setLoadState('error');
+        setLoadError('Baseline scenario missing from worker results.');
+        return;
+      }
+
+      const buildOption = (optMeta: OptionMeta, result: TradeBuilderScenarioResult) => ({
+        id: optMeta.id,
+        title: optMeta.title,
+        description: optMeta.description,
+        requiredChange: optMeta.requiredChange,
+        successRate: result.successRate,
+        irmaaExposureRate: result.irmaaExposureRate,
+        spendingCutRate: result.spendingCutRate,
+        medianEndingWealth: result.medianEndingWealth,
+        disruptionScore: optMeta.disruptionScore,
+        simplicityScore: optMeta.simplicityScore,
+        successRateDelta: result.successRate - purchase.successRate,
+        irmaaExposureDelta: result.irmaaExposureRate - purchase.irmaaExposureRate,
+        guardrailRelianceDelta: result.spendingCutRate - purchase.spendingCutRate,
+      } satisfies TradeBuilderOption);
+
+      // Bucket by group, pick the best candidate in each group (same logic as
+      // before: max successRateDelta, tiebreak on disruption).
+      const pickBestInGroup = (group: OptionMeta['group']): TradeBuilderOption | null => {
+        const candidates: TradeBuilderOption[] = [];
+        for (const [pid, m] of meta) {
+          if (!m || m.group !== group) continue;
+          const r = resultsByPointId.get(pid);
+          if (!r) continue;
+          candidates.push(buildOption(m, r));
+        }
+        if (candidates.length === 0) return null;
+        candidates.sort((a, b) => {
+          if (Math.abs(b.successRateDelta - a.successRateDelta) > 0.001) {
+            return b.successRateDelta - a.successRateDelta;
+          }
+          return a.disruptionScore - b.disruptionScore;
+        });
+        return candidates[0];
+      };
+
+      const nextOptions = (
+        ['spending', 'delay', 'travel', 'timing', 'conversion'] as const
+      )
+        .map((g) => pickBestInGroup(g))
+        .filter((o): o is TradeBuilderOption => Boolean(o))
+        .sort((left, right) => {
+          const leftScore =
+            left.successRateDelta * 100 +
+            Math.max(0, -left.irmaaExposureDelta) * 30 +
+            Math.max(0, -left.guardrailRelianceDelta) * 25 -
+            left.disruptionScore -
+            left.simplicityScore;
+          const rightScore =
+            right.successRateDelta * 100 +
+            Math.max(0, -right.irmaaExposureDelta) * 30 +
+            Math.max(0, -right.guardrailRelianceDelta) * 25 -
+            right.disruptionScore -
+            right.simplicityScore;
+          return rightScore - leftScore;
+        })
+        .slice(0, 4);
+
+      setPurchaseScenario(purchase);
+      setOptions(nextOptions);
+      setProgress(1);
+      setProgressLabel('Finalizing…');
+      setLoadState('ready');
+      void saveTradeBuilderToCache(fingerprint, {
+        purchaseScenario: purchase,
+        options: nextOptions,
+      });
+    });
   };
 
   const purchaseYearOptions = years.filter((year) => year >= currentYear);
@@ -1800,7 +1971,7 @@ function TradeBuilderSection(input: {
             </label>
             <button
               type="button"
-              onClick={() => void runTradeBuilder()}
+              onClick={() => runTradeBuilder()}
               disabled={loadState === 'loading'}
               className="w-full rounded-2xl bg-blue-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-blue-500 disabled:cursor-not-allowed disabled:bg-stone-400"
             >
@@ -1987,6 +2158,48 @@ function Plan20DeltaCard({
       <p className={`mt-3 text-3xl font-semibold ${tone}`}>{delta}</p>
       <p className="mt-3 text-sm leading-6 text-stone-600">{detail}</p>
     </article>
+  );
+}
+
+function ThisYearsFocusCard({ focus, year }: { focus: ThisYearsFocus; year: number }) {
+  return (
+    <section className="rounded-[32px] border border-blue-200/70 bg-gradient-to-br from-blue-50 via-white to-white p-6 shadow-sm">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-blue-700">
+            {year} focus
+          </p>
+          <h3 className="mt-2 text-3xl font-semibold tracking-tight text-stone-900">
+            {focus.phaseLabel}
+          </h3>
+        </div>
+        <span className="rounded-full bg-blue-700/90 px-3 py-1 text-xs font-semibold uppercase tracking-widest text-white">
+          {focus.phase.replace('-', ' ')}
+        </span>
+      </div>
+      <p className="mt-3 max-w-[80ch] text-base leading-7 text-stone-700">{focus.headline}</p>
+      <div className="mt-5 grid gap-5 md:grid-cols-2">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-stone-500">
+            Do now
+          </p>
+          <ul className="mt-2 space-y-2 text-sm leading-6 text-stone-800">
+            {focus.actions.map((action, index) => (
+              <li key={index} className="flex gap-2">
+                <span aria-hidden className="mt-[7px] h-1.5 w-1.5 shrink-0 rounded-full bg-blue-600" />
+                <span>{action}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-stone-500">
+            Why it matters
+          </p>
+          <p className="mt-2 text-sm leading-6 text-stone-700">{focus.why}</p>
+        </div>
+      </div>
+    </section>
   );
 }
 
@@ -2229,6 +2442,10 @@ export function Plan20Screen() {
       subtitle="A calmer, chart-first planner surface built from the compact export. It keeps the active plan front and center, while raw stays as the comparison branch."
     >
       <div className="space-y-8">
+        <ThisYearsFocusCard
+          focus={buildThisYearsFocus(data)}
+          year={new Date().getUTCFullYear()}
+        />
         <TimeAsSafetyPanel
           data={data}
           assumptions={assumptions}

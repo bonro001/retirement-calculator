@@ -51,6 +51,10 @@ import type {
   PlanAnalysisWorkerRequest,
   PlanAnalysisWorkerResponse,
 } from './plan-analysis-worker-types';
+import type {
+  DecisionEngineWorkerRequest,
+  DecisionEngineWorkerResponse,
+} from './decision-engine-worker-types';
 import type { Plan } from './plan-evaluation';
 import {
   evaluateDecisionLevers,
@@ -3502,6 +3506,24 @@ function InsightsScreen({
     ],
   );
 
+  const decisionEngineWorkerRef = useRef<Worker | null>(null);
+  const activeAnalysisRequestIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    return () => {
+      const activeId = activeAnalysisRequestIdRef.current;
+      const worker = decisionEngineWorkerRef.current;
+      if (worker && activeId) {
+        const cancelMsg: DecisionEngineWorkerRequest = { type: 'cancel', requestId: activeId };
+        worker.postMessage(cancelMsg);
+      }
+      if (worker) {
+        worker.terminate();
+        decisionEngineWorkerRef.current = null;
+      }
+    };
+  }, []);
+
   const handleRunAnalysis = () => {
     const priorReportSnapshot = currentReport
       ? cloneDecisionEngineReport(currentReport)
@@ -3509,53 +3531,114 @@ function InsightsScreen({
     setAnalysisError(null);
     setIsRunningAnalysis(true);
     setExplainabilityReport(null);
-    nextPaint(() => {
-      void (async () => {
-        try {
-          const interactiveAssumptions = getInteractiveDecisionAssumptions(assumptions);
-          const [nextBaselinePath] = buildPathResults(
-            data,
-            interactiveAssumptions,
-            selectedStressors,
-            selectedResponses,
-            {
-              pathMode: 'selected_only',
-              strategyMode: 'planner_enhanced',
-            },
-          );
 
-          const nextReport = await evaluateDecisionLevers(
-            {
+    if (typeof Worker === 'undefined') {
+      // Graceful fallback: keep the old main-thread path for non-worker envs
+      // (mainly SSR / tests). Wrapped in nextPaint so the spinner paints first.
+      nextPaint(() => {
+        void (async () => {
+          try {
+            const interactiveAssumptions = getInteractiveDecisionAssumptions(assumptions);
+            const [nextBaselinePath] = buildPathResults(
               data,
-              assumptions: interactiveAssumptions,
+              interactiveAssumptions,
               selectedStressors,
               selectedResponses,
-              strategyMode: 'planner_enhanced',
-            },
-            {
-              strategyMode: 'planner_enhanced',
-              simulationRunsOverride: interactiveAssumptions.simulationRuns,
-              seedBase: interactiveAssumptions.simulationSeed,
-              seedStrategy: 'shared',
-              constraints: recommendationConstraints,
-              evaluateExcludedScenarios: true,
-            },
-          );
+              { pathMode: 'selected_only', strategyMode: 'planner_enhanced' },
+            );
+            const nextReport = await evaluateDecisionLevers(
+              {
+                data,
+                assumptions: interactiveAssumptions,
+                selectedStressors,
+                selectedResponses,
+                strategyMode: 'planner_enhanced',
+              },
+              {
+                strategyMode: 'planner_enhanced',
+                simulationRunsOverride: interactiveAssumptions.simulationRuns,
+                seedBase: interactiveAssumptions.simulationSeed,
+                seedStrategy: 'shared',
+                constraints: recommendationConstraints,
+                evaluateExcludedScenarios: true,
+              },
+            );
+            setBaselinePath(nextBaselinePath);
+            setPreviousReport(priorReportSnapshot);
+            setCurrentReport(nextReport);
+            setExplainabilityReport(
+              buildExplainabilityReportFromSimulation(nextBaselinePath, nextReport),
+            );
+          } catch (error) {
+            setAnalysisError(error instanceof Error ? error.message : 'Analysis failed');
+          } finally {
+            setIsRunningAnalysis(false);
+          }
+        })();
+      });
+      return;
+    }
 
-          setBaselinePath(nextBaselinePath);
+    // Cancel any prior in-flight analysis on the same worker before
+    // dispatching a new one.
+    if (decisionEngineWorkerRef.current && activeAnalysisRequestIdRef.current) {
+      const cancelMsg: DecisionEngineWorkerRequest = {
+        type: 'cancel',
+        requestId: activeAnalysisRequestIdRef.current,
+      };
+      decisionEngineWorkerRef.current.postMessage(cancelMsg);
+    }
+
+    if (!decisionEngineWorkerRef.current) {
+      decisionEngineWorkerRef.current = new Worker(
+        new URL('./decision-engine.worker.ts', import.meta.url),
+        { type: 'module' },
+      );
+      decisionEngineWorkerRef.current.onmessage = (
+        event: MessageEvent<DecisionEngineWorkerResponse>,
+      ) => {
+        const msg = event.data;
+        if (msg.requestId !== activeAnalysisRequestIdRef.current) return;
+        if (msg.type === 'result') {
+          setBaselinePath(msg.baselinePath);
           setPreviousReport(priorReportSnapshot);
-          setCurrentReport(nextReport);
+          setCurrentReport(msg.report);
           setExplainabilityReport(
-            buildExplainabilityReportFromSimulation(nextBaselinePath, nextReport),
+            buildExplainabilityReportFromSimulation(msg.baselinePath, msg.report),
           );
-          console.log('[Decision Engine] full report', nextReport);
-        } catch (error) {
-          setAnalysisError(error instanceof Error ? error.message : 'Analysis failed');
-        } finally {
           setIsRunningAnalysis(false);
+          activeAnalysisRequestIdRef.current = null;
+        } else if (msg.type === 'error') {
+          setAnalysisError(msg.error || 'Analysis failed');
+          setIsRunningAnalysis(false);
+          activeAnalysisRequestIdRef.current = null;
+        } else if (msg.type === 'cancelled') {
+          // Don't clear spinner — a fresher analysis is presumably running.
+          if (activeAnalysisRequestIdRef.current === null) {
+            setIsRunningAnalysis(false);
+          }
         }
-      })();
-    });
+      };
+    }
+
+    const interactiveAssumptions = getInteractiveDecisionAssumptions(assumptions);
+    const requestId = `decision-engine-${Date.now()}`;
+    activeAnalysisRequestIdRef.current = requestId;
+    const runMsg: DecisionEngineWorkerRequest = {
+      type: 'run',
+      payload: {
+        requestId,
+        data,
+        assumptions: interactiveAssumptions,
+        selectedStressors,
+        selectedResponses,
+        strategyMode: 'planner_enhanced',
+        simulationRunsOverride: interactiveAssumptions.simulationRuns,
+        seedBase: interactiveAssumptions.simulationSeed,
+        constraints: recommendationConstraints,
+      },
+    };
+    decisionEngineWorkerRef.current.postMessage(runMsg);
   };
 
   return (

@@ -11,6 +11,12 @@ export interface SweepPointInput {
   selectedStressors: string[];
   selectedResponses: string[];
   strategyMode: 'raw_simulation' | 'planner_enhanced';
+  /**
+   * Optional per-year spend override. When provided, the worker passes it
+   * through to buildPathResults as `annualSpendScheduleByYear` so Trade
+   * Builder-style purchase/reduction scenarios can run in the pool too.
+   */
+  annualSpendScheduleByYear?: Record<number, number>;
 }
 
 export interface SweepRunPayload {
