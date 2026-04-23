@@ -49,6 +49,8 @@ Guiding principle (reviewer's, and it's correct): *fix what changes decisions �
   - Who is the plan shared with (spouse, advisor)?
   - Is there a specific trigger event (e.g., partner wants access) that would promote (2) → (3)?
 
+- [ ] **Adopt the CalibrationDashboard in UnifiedPlanScreen**. `src/CalibrationDashboard.tsx` composes the four tiles built this sprint (UncertaintyRange, TaxEfficiency, PreRetirementOptimizer, DeltaDashboard) into a 2-column grid with consistent styling. One import, one `<CalibrationDashboard seedData={} assumptions={} baselinePath={} predictionStore={} actualsStore={} />` insert is all it takes. Prediction + actuals stores are optional (if omitted, the dashboard skips the DeltaDashboardTile).
+
 - [ ] **Pre-retirement optimizer — final UI adoption**. Engine + flight-path wiring + tile component all shipped:
   - Engine: `buildPreRetirementOptimizerRecommendation(input)` in `src/pre-retirement-optimizer.ts` returns `{ shortfalls, bridge, actionSteps, bothRecommendationsCompatible }`.
   - Flight-path candidate: `pre-retirement-accumulation` in `src/flight-path-policy.ts` — surfaces alongside other strategic-prep actions with concrete dollar amounts. Advisory-only (no counterfactual patch); carries the shortfall + tax-savings summary in `amountHint`.
