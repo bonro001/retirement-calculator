@@ -16,7 +16,7 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
-import type { PlanningStateExportCompact } from './planning-export';
+import type { PlanningStateExportCompact, PlanningStateSummary } from './planning-export';
 import { useAppStore } from './store';
 import type { MarketAssumptions, PathResult, SeedData } from './types';
 import { formatCurrency, formatPercent } from './utils';
@@ -2230,6 +2230,85 @@ function Plan20LoadingState() {
   );
 }
 
+function Plan20FastPathState({
+  summary,
+  focus,
+  year,
+}: {
+  summary: PlanningStateSummary;
+  focus: ThisYearsFocus;
+  year: number;
+}) {
+  const active = summary.activeOutcomeHeadline;
+  const raw = summary.rawOutcomeHeadline;
+  const supportedMonthlySpend = summary.planScorecard.canonical.supportedMonthlySpend;
+  const successDependsOnGuardrailCuts =
+    (summary.activeSimulationSummary as typeof summary.activeSimulationSummary & {
+      successDependsOnGuardrailCuts?: boolean;
+    }).successDependsOnGuardrailCuts ?? active.spendingCutRate > 0.15;
+  const successHeadline =
+    (summary.activeSimulationSummary as typeof summary.activeSimulationSummary & {
+      successHeadline?: string;
+    }).successHeadline ??
+    (() => {
+      const sr = summary.planScorecard.canonical.successRate;
+      if (sr >= 0.9) return `The plan succeeds in ${Math.round(sr * 100)}% of simulated scenarios — a strong baseline.`;
+      if (sr >= 0.75) return `The plan succeeds in ${Math.round(sr * 100)}% of simulated scenarios — on track with some margin to manage.`;
+      if (sr >= 0.6) return `The plan succeeds in ${Math.round(sr * 100)}% of simulated scenarios — workable but worth watching.`;
+      return `The plan succeeds in ${Math.round(sr * 100)}% of simulated scenarios — below target, consider adjustments.`;
+    })();
+
+  return (
+    <Plan20Section
+      title="Plan 2.0"
+      subtitle="Showing headline numbers from the last run while the full detail finishes loading."
+    >
+      <div className="space-y-6">
+        <ThisYearsFocusCard focus={focus} year={year} />
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <Plan20SummaryCard
+            label="Success rate"
+            value={formatPercent(active.successRate)}
+            valueLabel="Flex"
+            secondaryValue={formatPercent(raw.successRate)}
+            secondaryLabel="Hands off"
+            detail={
+              successDependsOnGuardrailCuts
+                ? `Success is paired with a ${formatPercent(active.spendingCutRate)} guardrail-cut rate.`
+                : 'Success does not primarily rely on guardrail cuts.'
+            }
+            accent="blue"
+          />
+          <Plan20SummaryCard
+            label="Supported monthly spend"
+            value={formatCurrency(supportedMonthlySpend)}
+            secondaryValue={`${formatCurrency(supportedMonthlySpend * 12)}/yr`}
+            detail={`Retirement year in this plan: ${summary.retirementYear}.`}
+            accent="teal"
+          />
+          <Plan20SummaryCard
+            label="IRMAA exposure"
+            value={formatPercent(active.irmaaExposureRate)}
+            detail="Share of simulated paths where visible income crosses the IRMAA line."
+            accent="amber"
+          />
+          <Plan20SummaryCard
+            label="Success interpretation"
+            value={successDependsOnGuardrailCuts ? 'Guardrails matter' : 'Guardrails secondary'}
+            detail={successHeadline}
+            accent="stone"
+          />
+        </div>
+        <div className="animate-pulse grid gap-4 xl:grid-cols-2">
+          {Array.from({ length: 4 }).map((_, index) => (
+            <div key={index} className="h-96 rounded-[30px] bg-stone-200/80" />
+          ))}
+        </div>
+      </div>
+    </Plan20Section>
+  );
+}
+
 function Plan20EmptyState({ title, detail }: { title: string; detail: string }) {
   return (
     <Plan20Section title="Plan 2.0" subtitle="A cleaner planner surface built from the compact export.">
@@ -2246,7 +2325,7 @@ export function Plan20Screen() {
   const assumptions = useAppStore((state) => state.draftAssumptions);
   const selectedStressors = useAppStore((state) => state.draftSelectedStressors);
   const selectedResponses = useAppStore((state) => state.draftSelectedResponses);
-  const { payload, loadState, loadError } = usePlanningExportPayload('compact');
+  const { payload, summary, loadState, loadError } = usePlanningExportPayload('compact');
 
   const compactPayload = payload as PlanningStateExportCompact | null;
   const activeOutcome = compactPayload?.activeSimulationOutcome as CompactOutcome | undefined;
@@ -2401,6 +2480,15 @@ export function Plan20Screen() {
   );
 
   if (loadState === 'loading' || loadState === 'idle') {
+    if (summary) {
+      return (
+        <Plan20FastPathState
+          summary={summary}
+          focus={buildThisYearsFocus(data)}
+          year={new Date().getUTCFullYear()}
+        />
+      );
+    }
     return <Plan20LoadingState />;
   }
 
