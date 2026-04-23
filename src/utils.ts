@@ -1132,7 +1132,7 @@ const HISTORICAL_RETURN_TUPLES = (
   }
 ).annual;
 
-function sampleHistoricalBootstrapYear(random: RandomSource): {
+function historicalRowToBootstrapTuple(rowIndex: number): {
   US_EQUITY: number;
   INTL_EQUITY: number;
   BONDS: number;
@@ -1140,9 +1140,8 @@ function sampleHistoricalBootstrapYear(random: RandomSource): {
   inflation: number;
   sampledYear: number;
 } {
-  const index = Math.floor(random() * HISTORICAL_RETURN_TUPLES.length);
   const row = HISTORICAL_RETURN_TUPLES[
-    Math.max(0, Math.min(HISTORICAL_RETURN_TUPLES.length - 1, index))
+    Math.max(0, Math.min(HISTORICAL_RETURN_TUPLES.length - 1, rowIndex))
   ];
   return {
     US_EQUITY: row.stocks,
@@ -1154,16 +1153,47 @@ function sampleHistoricalBootstrapYear(random: RandomSource): {
   };
 }
 
+function sampleHistoricalBootstrapYear(
+  random: RandomSource,
+  presampledIndex?: number,
+) {
+  const index =
+    presampledIndex ?? Math.floor(random() * HISTORICAL_RETURN_TUPLES.length);
+  return historicalRowToBootstrapTuple(index);
+}
+
+// Pre-build a sequence of historical-row indices for block bootstrap.
+// Blocks of length `blockLength` preserve multi-year autocorrelation.
+// When a block would run past the end of the fixture, the sequence
+// wraps — this is standard circular block bootstrap.
+function buildBlockBootstrapIndexSequence(
+  horizonYears: number,
+  blockLength: number,
+  random: RandomSource,
+): number[] {
+  const fixtureLength = HISTORICAL_RETURN_TUPLES.length;
+  const effectiveBlockLength = Math.max(1, Math.floor(blockLength));
+  const sequence: number[] = [];
+  while (sequence.length < horizonYears) {
+    const start = Math.floor(random() * fixtureLength);
+    for (let i = 0; i < effectiveBlockLength && sequence.length < horizonYears; i++) {
+      sequence.push((start + i) % fixtureLength);
+    }
+  }
+  return sequence;
+}
+
 function getStressAdjustedReturns(
   plan: SimPlan,
   assumptions: MarketAssumptions,
   yearOffset: number,
   random: RandomSource,
+  presampledBootstrapIndex?: number,
 ) {
   // Historical bootstrap path: one random year's tuple overrides all four
   // asset returns AND inflation. Stress overlays still apply on top.
   if (assumptions.useHistoricalBootstrap) {
-    const sample = sampleHistoricalBootstrapYear(random);
+    const sample = sampleHistoricalBootstrapYear(random, presampledBootstrapIndex);
     let inflation = sample.inflation;
     const assetReturns: Record<AssetClass, number> = {
       US_EQUITY: sample.US_EQUITY,
@@ -1305,9 +1335,26 @@ function buildYearlyMarketPath(
   horizonYears: number,
   random: RandomSource,
 ) {
+  // Block-bootstrap mode: pre-sample the index sequence once so multi-
+  // year autocorrelation is preserved (bad years cluster). Block length
+  // of 1 is iid — equivalent to the default per-year draw.
+  const blockLength = assumptions.historicalBootstrapBlockLength ?? 1;
+  const preSampledIndices =
+    assumptions.useHistoricalBootstrap && blockLength > 1
+      ? buildBlockBootstrapIndexSequence(horizonYears, blockLength, random)
+      : null;
+
   const path: MarketPathPoint[] = [];
   for (let yearOffset = 0; yearOffset < horizonYears; yearOffset += 1) {
-    path.push(getStressAdjustedReturns(plan, assumptions, yearOffset, random));
+    path.push(
+      getStressAdjustedReturns(
+        plan,
+        assumptions,
+        yearOffset,
+        random,
+        preSampledIndices?.[yearOffset],
+      ),
+    );
   }
   return path;
 }

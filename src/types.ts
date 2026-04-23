@@ -252,6 +252,11 @@ export interface MarketAssumptions {
   // bounded-normal clip become no-ops for asset returns and inflation.
   // Stress overlays still apply on top.
   useHistoricalBootstrap?: boolean;
+  // When useHistoricalBootstrap is true, sample in multi-year BLOCKS
+  // instead of drawing each year independently. Preserves multi-year
+  // autocorrelation (bad years cluster, crises last more than one year)
+  // that iid-by-year bootstrap loses. Default 1 = iid.
+  historicalBootstrapBlockLength?: number;
 }
 
 export interface BoldinBenchmark {

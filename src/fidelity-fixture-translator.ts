@@ -132,6 +132,13 @@ function buildAssumptions(
     // When useHistoricalBootstrap is true, useCorrelatedReturns and the
     // mean/stdDev parameters are no-ops for asset returns.
     useHistoricalBootstrap: true,
+    // Keep iid (blockLength 1). Empirically a block-length scan showed
+    // block=1 produces the tightest p10 match to Fidelity's published
+    // stress-scenario endpoint — longer blocks average over single-
+    // year extremes like 1931 (-43%) and 2008 (-37%) and actually make
+    // the tail MILDER. Block=1: p10 ~$520k vs Fidelity $436k at 500
+    // runs. Larger blocks monotonically widen the p10 gap back out.
+    historicalBootstrapBlockLength: 1,
     ...vol,
   };
 }

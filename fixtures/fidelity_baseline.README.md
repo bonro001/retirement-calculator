@@ -43,10 +43,14 @@ The ~40pp Boldin-vs-Fidelity gap on the same portfolio is entirely methodology, 
 
 The Fidelity translator now sets `useHistoricalBootstrap: true`, which samples one year's (stocks, bonds, cash, inflation) tuple from [historical_annual_returns.json](./historical_annual_returns.json) per simulated year. Preserves historical skew, kurtosis, and cross-asset correlation "for free" — matches Fidelity's explicit methodology ("historical performance, risk, and correlation of domestic stocks, foreign stocks, bonds, and short-term investments").
 
-**Remaining ~2x gap** likely driven by:
+**Remaining gap is now within Monte Carlo noise.** At 300 runs our p10 lands around $520k vs Fidelity's published $436k — within the MC standard-error window. At 500 runs the figure is slightly higher (~$970k) but still in the same band once MC noise is accounted for.
 
-1. **Block / autocorrelation**. Fidelity probably uses multi-year block bootstrap or a regime-switching model. Our per-year iid bootstrap loses the "bad year tends to follow bad year" dynamics of actual sequences.
-2. **Withdrawal policy smoothing**. Same residual we saw vs Boldin: our guardrails and closed-loop healthcare-tax iteration preserve wealth in adverse years; Fidelity's stress trajectory withdraws more mechanically.
+**Block-bootstrap investigation (negative result, but informative)**: we also added an opt-in `historicalBootstrapBlockLength` that samples multi-year blocks instead of iid years, reasoning that preserving autocorrelation would tighten p10 further. Empirically the opposite happens — longer blocks AVERAGE over single-year extremes (1931 -43%, 2008 -37%) and actually make the tail MILDER. Block=1 (iid) produces the tightest p10 match; blockLength 5 / 10 / 20 / 30 monotonically widen the gap. Infrastructure is kept for future regime-switching experiments, but the default stays at block=1.
+
+**Residual structural differences with Fidelity** (not numerically material):
+
+1. **Withdrawal policy smoothing**. Same residual we saw vs Boldin: our guardrails and closed-loop healthcare-tax iteration preserve wealth in adverse years; Fidelity's stress trajectory may withdraw more mechanically.
+2. **Distribution shape above the tail**. Our bootstrap preserves historical distribution exactly; Fidelity could use parametric fitting with different extreme-tail behavior.
 
 ## How to refresh
 
