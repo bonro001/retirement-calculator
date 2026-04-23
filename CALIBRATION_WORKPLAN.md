@@ -54,10 +54,12 @@ Execution protocol:
   - Files: `src/reconciliation.ts`, `src/reconciliation.test.ts`.
   - Verification: 6/6 tests pass covering fingerprint match, fingerprint drift, annualized monthly spend, annual tax matching, no-prior-prediction edge, and aggregate summary.
 
-7. [ ] Delta dashboard (read-only UI)
+7. [-] Delta dashboard (read-only UI)
 - Chart: predicted net worth trajectory vs realized balance points, overlaid.
 - Table: horizon (1y, 3y, 5y) × metric (net worth, spending, tax) × delta percentile.
 - Goal is visual at first; no statistical tests yet.
+  - Component built: `src/DeltaDashboardTile.tsx` composes reconciliation + behavior-change diffs into a single tile. Sections: (a) per-metric summary cards (mean + median deltaPct with color coding), (b) recent reconciliation rows showing actual / predicted / deltaPct with fingerprint-match badge and notes, (c) plan-change timeline with categorized change summaries.
+  - **Remaining**: chart overlay (predicted trajectory vs realized balance points as time-series), insertion into `UnifiedPlanScreen.tsx`, and browser verification. The tile currently renders tables only; a trajectory-overlay chart is the natural follow-up once the user has enough actuals rows to make a chart interesting.
 
 8. [ ] Market benchmark capture
 - Pull or enter annual realized S&P 500, total bond index, and short-term cash rates.
