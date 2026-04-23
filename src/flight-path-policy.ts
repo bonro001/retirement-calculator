@@ -318,7 +318,7 @@ interface RankedDistinctRecommendationsResult {
 }
 
 function cloneSeedData(data: SeedData): SeedData {
-  return JSON.parse(JSON.stringify(data)) as SeedData;
+  return structuredClone(data) as SeedData;
 }
 
 function clampMin(value: number, minimum: number) {
@@ -799,6 +799,7 @@ function assessSensitivityStability(input: {
   assumptions: MarketAssumptions;
   selectedStressors: string[];
   selectedResponses: string[];
+  baselineScenarioPaths?: Map<string, PathResult>;
 }): SensitivityStabilityAssessment {
   if (!input.baseImpact || !input.hasCounterfactual || !input.counterfactualData) {
     return {
@@ -827,19 +828,21 @@ function assessSensitivityStability(input: {
     input.selectedResponses,
   );
   const scenarioResults: SensitivityScenarioResult[] = scenarios.map((scenario) => {
-    const baselinePath = runSeededPath({
-      data: input.baselineData,
-      assumptions: scenario.assumptions,
-      selectedStressors: scenario.stressors,
-      selectedResponses: scenario.responses,
-    });
+    const cachedBaseline = input.baselineScenarioPaths?.get(scenario.name);
+    const baselinePath =
+      cachedBaseline ??
+      runSeededPath({
+        data: input.baselineData,
+        assumptions: scenario.assumptions,
+        selectedStressors: scenario.stressors,
+        selectedResponses: scenario.responses,
+      });
     const counterfactualPath = runSeededPath({
       data: input.counterfactualData as SeedData,
       assumptions: scenario.assumptions,
       selectedStressors: scenario.stressors,
       selectedResponses: scenario.responses,
     });
-
     return {
       name: scenario.name,
       supportedMonthlyDelta:
@@ -1205,6 +1208,7 @@ function evaluateCandidateCounterfactual(input: {
   assumptions: MarketAssumptions;
   selectedStressors: string[];
   selectedResponses: string[];
+  baselineScenarioPaths?: Map<string, PathResult>;
 }): {
   patchedDataUsed: SeedData | null;
   estimatedImpact: StrategicPrepImpactEstimate | null;
@@ -1252,6 +1256,7 @@ function evaluateCandidateCounterfactual(input: {
     assumptions: input.assumptions,
     selectedStressors: input.selectedStressors,
     selectedResponses: input.selectedResponses,
+    baselineScenarioPaths: input.baselineScenarioPaths,
   });
 
   return {
@@ -1332,8 +1337,8 @@ function detectHardConstraintViolation(input: {
             FLIGHT_PATH_POLICY_THRESHOLDS.hardGuardrails.downsideImprovementThresholds
               .equitySalesInAdverseEarlyYearsRateDelta),
     );
-    if (counterfactual.successRate + 1e-9 < minimumSuccessRateTarget) {
-      const baselineMeetsFloor = baselineSuccessRate + 1e-9 >= minimumSuccessRateTarget;
+    if (counterfactual.successRate < minimumSuccessRateTarget) {
+      const baselineMeetsFloor = baselineSuccessRate >= minimumSuccessRateTarget;
       const successDeterioratesMaterially =
         successRateDelta <
         -FLIGHT_PATH_POLICY_THRESHOLDS.hardGuardrails.baselineBelowFloorSuccessDeltaTolerance;
@@ -1392,6 +1397,7 @@ function evaluateCandidateCounterfactualWithAdaptiveScaling(input: {
   selectedStressors: string[];
   selectedResponses: string[];
   evaluation: PlanEvaluation;
+  baselineScenarioPaths?: Map<string, PathResult>;
 }): {
   evaluated: ReturnType<typeof evaluateCandidateCounterfactual>;
   patchScaleUsed: number;
@@ -1405,6 +1411,7 @@ function evaluateCandidateCounterfactualWithAdaptiveScaling(input: {
         assumptions: input.assumptions,
         selectedStressors: input.selectedStressors,
         selectedResponses: input.selectedResponses,
+        baselineScenarioPaths: input.baselineScenarioPaths,
       }),
       patchScaleUsed: 1,
     };
@@ -1431,6 +1438,7 @@ function evaluateCandidateCounterfactualWithAdaptiveScaling(input: {
       assumptions: input.assumptions,
       selectedStressors: input.selectedStressors,
       selectedResponses: input.selectedResponses,
+      baselineScenarioPaths: input.baselineScenarioPaths,
     });
     const attempt = { evaluated, patchScaleUsed: scale };
     fallback = attempt;
@@ -1886,6 +1894,25 @@ export function buildFlightPathStrategicPrepRecommendations(
     selectedResponses: input.selectedResponses,
   });
 
+  const sensitivityScenarios = resolveSensitivityScenarios(
+    counterfactualAssumptions,
+    counterfactualAssumptions.simulationRuns,
+    input.selectedStressors,
+    input.selectedResponses,
+  );
+  const baselineScenarioPaths = new Map<string, PathResult>();
+  for (const scenario of sensitivityScenarios) {
+    baselineScenarioPaths.set(
+      scenario.name,
+      runSeededPath({
+        data: input.data,
+        assumptions: scenario.assumptions,
+        selectedStressors: scenario.stressors,
+        selectedResponses: scenario.responses,
+      }),
+    );
+  }
+
   const evaluatedCandidates = candidatesWithCounterfactual.map((candidate) => {
     const evaluatedResult = evaluateCandidateCounterfactualWithAdaptiveScaling({
       candidate,
@@ -1895,6 +1922,7 @@ export function buildFlightPathStrategicPrepRecommendations(
       selectedStressors: input.selectedStressors,
       selectedResponses: input.selectedResponses,
       evaluation,
+      baselineScenarioPaths,
     });
     const evaluated = evaluatedResult.evaluated;
     const patchScaleUsed = evaluatedResult.patchScaleUsed;

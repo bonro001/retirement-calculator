@@ -11,9 +11,13 @@ self.onmessage = async (event: MessageEvent<PlanningExportWorkerRequest>) => {
   }
 
   try {
+    const assumptionsForExport = {
+      ...message.payload.assumptions,
+      simulationRuns: Math.min(message.payload.assumptions.simulationRuns, 150),
+    };
     const payload = await buildPlanningStateExportWithResolvedContext({
       data: message.payload.data,
-      assumptions: message.payload.assumptions,
+      assumptions: assumptionsForExport,
       selectedStressorIds: message.payload.selectedStressorIds,
       selectedResponseIds: message.payload.selectedResponseIds,
       unifiedPlanEvaluation: message.payload.unifiedPlanEvaluation,

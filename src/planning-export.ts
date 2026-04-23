@@ -520,7 +520,7 @@ interface RunwayRiskModelDiagnostics {
 }
 
 function clone<T>(value: T): T {
-  return JSON.parse(JSON.stringify(value)) as T;
+  return structuredClone(value) as T;
 }
 
 function getFirstExecutedConversion(outcome: PathResult) {
@@ -2440,9 +2440,13 @@ export async function buildPlanningStateExportWithResolvedContext(
           },
         },
       };
-      unifiedPlanEvaluation = await evaluatePlan(exportPlan);
-      unifiedPlanEvaluationCapturedAtIso = new Date().toISOString();
-      unifiedPlanEvaluationSource = 'derived_plan';
+      const evalTimeout = new Promise<null>((resolve) => setTimeout(() => resolve(null), 30_000));
+      const result = await Promise.race([evaluatePlan(exportPlan), evalTimeout]);
+      if (result !== null) {
+        unifiedPlanEvaluation = result;
+        unifiedPlanEvaluationCapturedAtIso = new Date().toISOString();
+        unifiedPlanEvaluationSource = 'derived_plan';
+      }
     } catch {
       unifiedPlanEvaluation = null;
       unifiedPlanEvaluationCapturedAtIso = null;

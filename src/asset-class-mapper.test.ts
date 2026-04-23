@@ -15,11 +15,32 @@ describe('asset class mapper', () => {
     expect(getHoldingExposure('CASH')).toEqual({ US_EQUITY: 0, INTL_EQUITY: 0, BONDS: 0, CASH: 1 });
   });
 
+  it('maps FDLO and SCHH to explicit US equity exposure', () => {
+    expect(getHoldingExposure('FDLO')).toEqual({ US_EQUITY: 1, INTL_EQUITY: 0, BONDS: 0, CASH: 0 });
+    expect(getHoldingExposure('SCHH')).toEqual({ US_EQUITY: 1, INTL_EQUITY: 0, BONDS: 0, CASH: 0 });
+
+    const metadata = getAssetClassMappingMetadata([{ FDLO: 0.5, SCHH: 0.5 }]);
+    expect(metadata.unknownSymbols).not.toContain('FDLO');
+    expect(metadata.unknownSymbols).not.toContain('SCHH');
+  });
+
+  it('pins TRP_2030 default allocation to published 2030 fact sheet', () => {
+    expect(DEFAULT_AMBIGUOUS_HOLDING_ASSUMPTIONS.TRP_2030.BONDS).toBeCloseTo(0.346, 2);
+    expect(
+      DEFAULT_AMBIGUOUS_HOLDING_ASSUMPTIONS.TRP_2030.US_EQUITY +
+        DEFAULT_AMBIGUOUS_HOLDING_ASSUMPTIONS.TRP_2030.INTL_EQUITY,
+    ).toBeCloseTo(0.622, 2);
+  });
+
   it('uses configurable ambiguous assumptions for managed sleeves', () => {
-    expect(getHoldingExposure('TRP_2030')).toEqual(DEFAULT_AMBIGUOUS_HOLDING_ASSUMPTIONS.TRP_2030);
-    expect(getHoldingExposure('CENTRAL_MANAGED')).toEqual(
-      DEFAULT_AMBIGUOUS_HOLDING_ASSUMPTIONS.CENTRAL_MANAGED,
-    );
+    const trp = getHoldingExposure('TRP_2030');
+    (['US_EQUITY', 'INTL_EQUITY', 'BONDS', 'CASH'] as const).forEach((k) => {
+      expect(trp[k]).toBeCloseTo(DEFAULT_AMBIGUOUS_HOLDING_ASSUMPTIONS.TRP_2030[k], 10);
+    });
+    const central = getHoldingExposure('CENTRAL_MANAGED');
+    (['US_EQUITY', 'INTL_EQUITY', 'BONDS', 'CASH'] as const).forEach((k) => {
+      expect(central[k]).toBeCloseTo(DEFAULT_AMBIGUOUS_HOLDING_ASSUMPTIONS.CENTRAL_MANAGED[k], 10);
+    });
 
     const custom = getHoldingExposure('TRP_2030', {
       TRP_2030: { US_EQUITY: 0.3, INTL_EQUITY: 0.1, BONDS: 0.5, CASH: 0.1 },

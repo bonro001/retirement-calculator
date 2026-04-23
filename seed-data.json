@@ -26,6 +26,11 @@
       },
       "hsaPercentOfSalary": 0.0159,
       "hsaCoverageType": "family"
+    },
+    "sabbatical": {
+      "returnDate": "2026-07-01",
+      "paidWeeks": 6,
+      "weeksForgivenPerMonth": 0.5
     }
   },
   "spending": {
@@ -36,110 +41,110 @@
   },
   "accounts": {
     "pretax": {
-      "balance": 376783.24,
+      "balance": 379204.72,
       "targetAllocation": {
-        "SCHD": 0.484,
-        "BND": 0.3265,
-        "VTI": 0.1555,
-        "TRP_2030": 0.0312,
+        "SCHD": 0.4844,
+        "BND": 0.3249,
+        "VTI": 0.1569,
+        "TRP_2030": 0.031,
         "CASH": 0.0028
       },
       "sourceAccounts": [
         {
           "id": "267425112",
           "name": "Rollover IRA",
-          "balance": 365026.4,
+          "balance": 367438.54,
           "holdings": [
             { "symbol": "CASH", "name": "Held in money market", "value": 1053.63 },
-            { "symbol": "BND", "name": "Vanguard Total Bond Market", "value": 123025.27 },
-            { "symbol": "FAGIX", "name": "Fidelity Capital & Income", "value": 0.81 },
+            { "symbol": "BND", "name": "Vanguard Total Bond Market", "value": 123208.59 },
+            { "symbol": "FAGIX", "name": "Fidelity Capital & Income", "value": 0.82 },
             { "symbol": "FSRIX", "name": "Fidelity Advisor Strategic Income", "value": 0.68 },
-            { "symbol": "SCHD", "name": "Schwab US Dividend Equity ETF", "value": 182349.28 },
-            { "symbol": "VTI", "name": "Vanguard Total Stock Market ETF", "value": 58596.73 }
+            { "symbol": "SCHD", "name": "Schwab US Dividend Equity ETF", "value": 183682.02 },
+            { "symbol": "VTI", "name": "Vanguard Total Stock Market ETF", "value": 59492.8 }
           ]
         },
         {
-          "id": "1098",
+          "id": "19098",
           "name": "ATHENAHEALTH 401(k)",
-          "balance": 11756.84,
+          "balance": 11766.18,
           "holdings": [
-            { "symbol": "TRP_2030", "name": "T. Rowe Price Retirement 2030 Fund", "value": 11756.84 }
+            { "symbol": "TRP_2030", "name": "T. Rowe Price Retirement 2030 Fund", "value": 11766.18 }
           ]
         }
       ]
     },
     "roth": {
-      "balance": 303972.67,
+      "balance": 307104.63,
       "targetAllocation": {
         "FCNTX": 0.8408,
-        "VTI": 0.1018,
-        "VXUS": 0.0569,
-        "CASH": 0.0006
+        "VTI": 0.1023,
+        "VXUS": 0.0564,
+        "CASH": 0.0005
       },
       "sourceAccounts": [
         {
           "id": "262307959",
           "name": "ROTH IRA",
-          "balance": 48398.56,
+          "balance": 48878.93,
           "holdings": [
             { "symbol": "CASH", "name": "Held in money market", "value": 166.59 },
-            { "symbol": "VTI", "name": "Vanguard Total Stock Market ETF", "value": 30933.4 },
-            { "symbol": "VXUS", "name": "Vanguard Total International Stock ETF", "value": 17298.57 }
+            { "symbol": "VTI", "name": "Vanguard Total Stock Market ETF", "value": 31406.44 },
+            { "symbol": "VXUS", "name": "Vanguard Total International Stock ETF", "value": 17305.9 }
           ]
         },
         {
           "id": "194312991",
           "name": "Authorized ROTH IRA",
-          "balance": 255574.11,
+          "balance": 258225.7,
           "holdings": [
             { "symbol": "CASH", "name": "Held in money market", "value": 1.89 },
-            { "symbol": "FCNTX", "name": "Fidelity Contrafund", "value": 255572.22 }
+            { "symbol": "FCNTX", "name": "Fidelity Contrafund", "value": 258223.81 }
           ]
         }
       ]
     },
     "taxable": {
-      "balance": 137155.52,
+      "balance": 138350.72,
       "targetAllocation": {
-        "CENTRAL_MANAGED": 0.6047,
-        "FXAIX": 0.136,
-        "IEFA": 0.0784,
-        "FDGRX": 0.0523,
-        "IJH": 0.0415,
-        "MUB": 0.0266,
-        "FLO": 0.0228,
-        "IEMG": 0.0186,
-        "SCHD": 0.0149,
+        "CENTRAL_MANAGED": 0.6041,
+        "FXAIX": 0.137,
+        "IEFA": 0.0771,
+        "FDGRX": 0.0531,
+        "IJH": 0.0419,
+        "MUB": 0.0264,
+        "FDLO": 0.0227,
+        "IEMG": 0.0188,
+        "SCHH": 0.0146,
         "FELV": 0.0025,
-        "HAIN": 0.0015,
-        "CASH": 0.0001
+        "HAIN": 0.0016,
+        "CASH": 0.0002
       },
       "sourceAccounts": [
         {
           "id": "Z30728530",
           "name": "Joint WROS - TOD",
-          "balance": 54213.62,
+          "balance": 54778.49,
           "holdings": [
             { "symbol": "CASH", "name": "Held in money market", "value": 20.14 },
-            { "symbol": "FDGRX", "name": "Fidelity Growth Company", "value": 7173.68 },
-            { "symbol": "FLO", "name": "Fidelity Low Volatility Factor ETF", "value": 3121.18 },
-            { "symbol": "FELV", "name": "Fidelity Enhanced Large Cap Value ETF", "value": 347.53 },
-            { "symbol": "FXAIX", "name": "Fidelity 500 Index Fund", "value": 18649.56 },
-            { "symbol": "HAIN", "name": "Hain Celestial Group", "value": 211.07 },
-            { "symbol": "IEFA", "name": "iShares Core MSCI EAFE ETF", "value": 10754.15 },
-            { "symbol": "IEMG", "name": "iShares Core MSCI Emerging Markets ETF", "value": 2553.37 },
-            { "symbol": "IJH", "name": "iShares Core S&P Mid-Cap ETF", "value": 5696.52 },
-            { "symbol": "MUB", "name": "iShares National Muni Bond ETF", "value": 3644.97 },
-            { "symbol": "SCHD", "name": "Schwab US Dividend Equity ETF", "value": 2041.45 }
+            { "symbol": "FDGRX", "name": "Fidelity Growth Company", "value": 7349.79 },
+            { "symbol": "FDLO", "name": "Fidelity Low Volatility Factor ETF", "value": 3137.71 },
+            { "symbol": "FELV", "name": "Fidelity Enhanced Large Cap Value ETF", "value": 350.09 },
+            { "symbol": "FXAIX", "name": "Fidelity 500 Index Fund", "value": 18956.0 },
+            { "symbol": "HAIN", "name": "Hain Celestial Group", "value": 225.27 },
+            { "symbol": "IEFA", "name": "iShares Core MSCI EAFE ETF", "value": 10664.02 },
+            { "symbol": "IEMG", "name": "iShares Core MSCI Emerging Markets ETF", "value": 2598.74 },
+            { "symbol": "IJH", "name": "iShares Core S&P Mid-Cap ETF", "value": 5795.21 },
+            { "symbol": "MUB", "name": "iShares National Muni Bond ETF", "value": 3656.05 },
+            { "symbol": "SCHH", "name": "Schwab US REIT ETF", "value": 2025.47 }
           ]
         },
         {
           "id": "Y81720699",
           "name": "Joint WROS - TOD (Managed)",
-          "balance": 82941.9,
+          "balance": 83572.23,
           "managed": true,
           "holdings": [
-            { "symbol": "CENTRAL_MANAGED", "name": "Central Investment Positions", "value": 82941.9 }
+            { "symbol": "CENTRAL_MANAGED", "name": "Central Investment Positions", "value": 83572.23 }
           ]
         }
       ]
@@ -149,25 +154,25 @@
       "targetAllocation": { "CASH": 1.0 }
     },
     "hsa": {
-      "balance": 49011.46,
+      "balance": 49420.19,
       "targetAllocation": {
-        "VTI": 0.4215,
-        "VXUS": 0.2495,
-        "SCHD": 0.2238,
-        "BND": 0.102,
-        "CASH": 0.0032
+        "VTI": 0.4244,
+        "VXUS": 0.2475,
+        "SCHD": 0.2236,
+        "BND": 0.1013,
+        "CASH": 0.0031
       },
       "sourceAccounts": [
         {
           "id": "262675925",
           "name": "Health Savings Account",
-          "balance": 49011.46,
+          "balance": 49420.19,
           "holdings": [
             { "symbol": "CASH", "name": "Held in money market", "value": 154.43 },
-            { "symbol": "BND", "name": "Vanguard Total Bond Market ETF", "value": 5000.33 },
-            { "symbol": "SCHD", "name": "Schwab US Dividend Equity ETF", "value": 10968.29 },
-            { "symbol": "VTI", "name": "Vanguard Total Stock Market ETF", "value": 20659.63 },
-            { "symbol": "VXUS", "name": "Vanguard Total International Stock ETF", "value": 12228.78 }
+            { "symbol": "BND", "name": "Vanguard Total Bond Market ETF", "value": 5007.78 },
+            { "symbol": "SCHD", "name": "Schwab US Dividend Equity ETF", "value": 11048.45 },
+            { "symbol": "VTI", "name": "Vanguard Total Stock Market ETF", "value": 20975.56 },
+            { "symbol": "VXUS", "name": "Vanguard Total International Stock ETF", "value": 12233.97 }
           ]
         }
       ]

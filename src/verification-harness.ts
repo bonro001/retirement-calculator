@@ -85,7 +85,7 @@ const DEFAULT_VERIFICATION_ASSUMPTIONS: MarketAssumptions = {
 };
 
 function cloneData<T>(value: T): T {
-  return JSON.parse(JSON.stringify(value)) as T;
+  return structuredClone(value) as T;
 }
 
 function toPathIndex(pathKind: GoldenScenarioPathKind) {

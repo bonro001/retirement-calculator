@@ -8,12 +8,12 @@ export const GOLDEN_SCENARIOS: GoldenScenarioDefinition[] = [
     selectedResponses: [],
     pathKind: 'baseline',
     expected: {
-      successRate: 0.825,
-      medianEndingWealth: 2764751.23058357,
-      annualTaxEstimate: 5050.911764705882,
-      medianFailureYearRange: { min: 2054, max: 2056 },
+      successRate: 0.875,
+      medianEndingWealth: 3223963.142562556,
+      annualTaxEstimate: 4074.5588235294117,
+      medianFailureYearRange: { min: 2054, max: 2057 },
       maxIrmaaTier: 1,
-      averageHealthcarePremiumCost: 13104.911764705883,
+      averageHealthcarePremiumCost: 13153.47058823529,
     },
     tolerance: {
       successRate: 0.02,
@@ -28,12 +28,12 @@ export const GOLDEN_SCENARIOS: GoldenScenarioDefinition[] = [
     selectedResponses: [],
     pathKind: 'stressed',
     expected: {
-      successRate: 0.36,
+      successRate: 0.455,
       medianEndingWealth: 0,
-      annualTaxEstimate: 1521.264705882353,
-      medianFailureYearRange: { min: 2050, max: 2052 },
+      annualTaxEstimate: 1300.6764705882354,
+      medianFailureYearRange: { min: 2050, max: 2053 },
       maxIrmaaTier: 1,
-      averageHealthcarePremiumCost: 12250.882352941177,
+      averageHealthcarePremiumCost: 12112.5,
     },
     tolerance: {
       successRate: 0.02,
@@ -51,11 +51,11 @@ export const GOLDEN_SCENARIOS: GoldenScenarioDefinition[] = [
       data.spending.optionalMonthly = 3000;
     },
     expected: {
-      successRate: 0.99,
-      medianEndingWealth: 5325062.464025388,
-      annualTaxEstimate: 4872.029411764706,
+      successRate: 0.995,
+      medianEndingWealth: 5912586.570090866,
+      annualTaxEstimate: 4252.117647058823,
       maxIrmaaTier: 1,
-      averageHealthcarePremiumCost: 13099.676470588236,
+      averageHealthcarePremiumCost: 13043.264705882353,
     },
     tolerance: {
       successRate: 0.02,
@@ -77,12 +77,12 @@ export const GOLDEN_SCENARIOS: GoldenScenarioDefinition[] = [
       }));
     },
     expected: {
-      successRate: 0.7,
-      medianEndingWealth: 1601473.0440792663,
-      annualTaxEstimate: 2550.3529411764707,
-      medianFailureYearRange: { min: 2052, max: 2054 },
+      successRate: 0.795,
+      medianEndingWealth: 1988170.692978154,
+      annualTaxEstimate: 2245.764705882353,
+      medianFailureYearRange: { min: 2051, max: 2054 },
       maxIrmaaTier: 1,
-      averageHealthcarePremiumCost: 12229.35294117647,
+      averageHealthcarePremiumCost: 12161.529411764706,
     },
     tolerance: {
       successRate: 0.02,
@@ -104,10 +104,10 @@ export const GOLDEN_SCENARIOS: GoldenScenarioDefinition[] = [
     },
     expected: {
       successRate: 1,
-      medianEndingWealth: 12268032.70872794,
-      annualTaxEstimate: 46752.23529411765,
+      medianEndingWealth: 12765415.924082853,
+      annualTaxEstimate: 46534.117647058825,
       maxIrmaaTier: 5,
-      averageHealthcarePremiumCost: 17043.558823529413,
+      averageHealthcarePremiumCost: 17852.323529411765,
     },
     tolerance: {
       successRate: 0.02,

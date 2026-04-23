@@ -195,7 +195,7 @@ function nowMs() {
 }
 
 function cloneSeedData(data: SeedData): SeedData {
-  return JSON.parse(JSON.stringify(data)) as SeedData;
+  return structuredClone(data) as SeedData;
 }
 
 function clampRate(value: number) {

@@ -6,7 +6,7 @@ const PLANNING_YEAR = new Date('2026-04-16T12:00:00Z').getUTCFullYear();
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 
 function deepClone<T>(value: T): T {
-  return JSON.parse(JSON.stringify(value)) as T;
+  return structuredClone(value) as T;
 }
 
 export function clonePlannerInput(input: PlannerInput): PlannerInput {

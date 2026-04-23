@@ -2,6 +2,13 @@ import { create } from 'zustand';
 import { initialSeedData } from './data';
 import type { PlanEvaluation } from './plan-evaluation';
 import { buildEvaluationFingerprint } from './evaluation-fingerprint';
+import { loadPlanEvalFromCache, savePlanEvalToCache } from './plan-eval-cache';
+import {
+  buildSnapshot,
+  loadSnapshots,
+  saveSnapshots,
+  type PlanSnapshot,
+} from './plan-snapshots';
 import type {
   AccountsData,
   EmployerMatchFormula,
@@ -32,7 +39,7 @@ const areAssumptionsEqual = (left: MarketAssumptions, right: MarketAssumptions) 
 };
 
 const cloneSeedData = (value: SeedData): SeedData =>
-  JSON.parse(JSON.stringify(value)) as SeedData;
+  structuredClone(value) as SeedData;
 
 type AccountBucketKey = keyof AccountsData;
 type TradeInstruction = {
@@ -131,7 +138,7 @@ function applyTradeInstructionsToData(data: SeedData, instructions: TradeInstruc
       return;
     }
     const move = clamp(instruction.dollarAmount, 0, fromHolding.value);
-    fromHolding.value = Number((fromHolding.value - move).toFixed(2));
+    fromHolding.value = Math.round((fromHolding.value - move) * 100) / 100;
 
     const toHolding =
       sourceAccount.holdings.find((holding) => holding.symbol.toUpperCase() === normalizedTo) ??
@@ -140,7 +147,7 @@ function applyTradeInstructionsToData(data: SeedData, instructions: TradeInstruc
         sourceAccount.holdings?.push(created);
         return created;
       })();
-    toHolding.value = Number((toHolding.value + move).toFixed(2));
+    toHolding.value = Math.round((toHolding.value + move) * 100) / 100;
   });
 
   return next;
@@ -239,6 +246,8 @@ interface AppState {
   appliedAssumptions: MarketAssumptions;
   hasPendingSimulationChanges: boolean;
   unifiedPlanRerunNonce: number;
+  planAnalysisStatus: 'pending' | 'running' | 'fresh' | 'stale';
+  setPlanAnalysisStatus: (status: 'pending' | 'running' | 'fresh' | 'stale') => void;
   draftTradeSetActivities: DraftTradeSetActivity[];
   latestUnifiedPlanEvaluationContext: UnifiedPlanEvaluationContext | null;
   setCurrentScreen: (screen: ScreenId) => void;
@@ -285,6 +294,9 @@ interface AppState {
   replaceDraftData: (nextData: SeedData) => void;
   commitDraftToApplied: () => void;
   resetDraftToApplied: () => void;
+  planSnapshots: PlanSnapshot[];
+  appendPlanSnapshot: (options?: { label?: string; capturedAt?: string }) => PlanSnapshot;
+  applyAccountImport: (nextAccounts: AccountsData, options?: { label?: string }) => PlanSnapshot;
 }
 
 const defaultAssumptions: MarketAssumptions = {
@@ -310,6 +322,28 @@ const defaultAssumptions: MarketAssumptions = {
   assumptionsVersion: 'v1',
 };
 
+const initialFingerprint = buildEvaluationFingerprint({
+  data: initialSeedData,
+  assumptions: defaultAssumptions,
+  selectedStressors: [],
+  selectedResponses: [],
+});
+const restoredEvalContext = loadPlanEvalFromCache(initialFingerprint);
+
+const initialSnapshots: PlanSnapshot[] = (() => {
+  const existing = loadSnapshots();
+  if (existing.length) return existing;
+  const seeded = [
+    buildSnapshot(initialSeedData, {
+      capturedAt: new Date().toISOString(),
+      label: 'baseline',
+      successRate: restoredEvalContext?.evaluation?.summary?.successRate ?? null,
+    }),
+  ];
+  saveSnapshots(seeded);
+  return seeded;
+})();
+
 export const useAppStore = create<AppState>((set) => ({
   data: cloneSeedData(initialSeedData),
   appliedData: cloneSeedData(initialSeedData),
@@ -322,8 +356,10 @@ export const useAppStore = create<AppState>((set) => ({
   appliedAssumptions: defaultAssumptions,
   hasPendingSimulationChanges: false,
   unifiedPlanRerunNonce: 0,
+  planAnalysisStatus: 'pending',
+  setPlanAnalysisStatus: (status) => set({ planAnalysisStatus: status }),
   draftTradeSetActivities: [],
-  latestUnifiedPlanEvaluationContext: null,
+  latestUnifiedPlanEvaluationContext: restoredEvalContext,
   setCurrentScreen: (screen) => set({ currentScreen: screen }),
   requestUnifiedPlanRerun: () =>
     set((state) => ({
@@ -348,8 +384,8 @@ export const useAppStore = create<AppState>((set) => ({
     }),
   clearDraftTradeSetActivities: () => set({ draftTradeSetActivities: [] }),
   setLatestUnifiedPlanEvaluationContext: (evaluation) =>
-    set((state) => ({
-      latestUnifiedPlanEvaluationContext: {
+    set((state) => {
+      const context = {
         evaluation,
         capturedAtIso: new Date().toISOString(),
         fingerprint: buildEvaluationFingerprint({
@@ -358,8 +394,10 @@ export const useAppStore = create<AppState>((set) => ({
           selectedStressors: state.draftSelectedStressors,
           selectedResponses: state.draftSelectedResponses,
         }),
-      },
-    })),
+      };
+      savePlanEvalToCache(context);
+      return { latestUnifiedPlanEvaluationContext: context };
+    }),
   clearLatestUnifiedPlanEvaluationContext: () => set({ latestUnifiedPlanEvaluationContext: null }),
   toggleStressor: (id) =>
     set((state) => {
@@ -598,4 +636,43 @@ export const useAppStore = create<AppState>((set) => ({
         }),
       };
     }),
+  planSnapshots: initialSnapshots,
+  appendPlanSnapshot: (options) => {
+    let created: PlanSnapshot | null = null;
+    set((state) => {
+      const snapshot = buildSnapshot(state.data, {
+        capturedAt: options?.capturedAt,
+        label: options?.label,
+        successRate:
+          state.latestUnifiedPlanEvaluationContext?.evaluation?.summary?.successRate ?? null,
+      });
+      const planSnapshots = [...state.planSnapshots, snapshot];
+      saveSnapshots(planSnapshots);
+      created = snapshot;
+      return { planSnapshots };
+    });
+    return created as unknown as PlanSnapshot;
+  },
+  applyAccountImport: (nextAccounts, options) => {
+    let created: PlanSnapshot | null = null;
+    set((state) => {
+      const data: SeedData = { ...state.data, accounts: nextAccounts };
+      const appliedData: SeedData = { ...state.appliedData, accounts: nextAccounts };
+      const snapshot = buildSnapshot(data, {
+        label: options?.label,
+        successRate:
+          state.latestUnifiedPlanEvaluationContext?.evaluation?.summary?.successRate ?? null,
+      });
+      const planSnapshots = [...state.planSnapshots, snapshot];
+      saveSnapshots(planSnapshots);
+      created = snapshot;
+      return {
+        data,
+        appliedData,
+        planSnapshots,
+        hasPendingSimulationChanges: hasPendingChanges({ ...state, data, appliedData }),
+      };
+    });
+    return created as unknown as PlanSnapshot;
+  },
 }));
