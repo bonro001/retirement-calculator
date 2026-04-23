@@ -1,11 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { MarketAssumptions, SeedData } from './types';
-import { buildPathResults } from './utils';
 import { buildEvaluationFingerprint } from './evaluation-fingerprint';
 import {
   loadTimeAsSafetyFromCache,
   saveTimeAsSafetyToCache,
 } from './time-as-safety-cache';
+import type {
+  SweepPointInput,
+  SweepWorkerRequest,
+  SweepWorkerResponse,
+} from './sweep-worker-types';
 
 type StrategyMode = 'raw_simulation' | 'planner_enhanced';
 
@@ -68,6 +72,24 @@ export function useTimeAsSafetyScenarios(args: HookArgs): HookResult {
   );
 
   const runTokenRef = useRef(0);
+  const workerRef = useRef<Worker | null>(null);
+  const currentBatchIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (workerRef.current) {
+        if (currentBatchIdRef.current) {
+          const cancelMsg: SweepWorkerRequest = {
+            type: 'cancel',
+            batchId: currentBatchIdRef.current,
+          };
+          workerRef.current.postMessage(cancelMsg);
+        }
+        workerRef.current.terminate();
+        workerRef.current = null;
+      }
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -92,53 +114,102 @@ export function useTimeAsSafetyScenarios(args: HookArgs): HookResult {
     setError(null);
     setProgress(0);
 
-    void (async () => {
-      try {
-        const offsets = DEFAULT_OFFSETS;
-        const next: TimeAsSafetyPoint[] = [];
-        // Yield twice — once via rAF (after layout), once via setTimeout (after paint) —
-        // so "Calculating…" state and the progress bar are visible before the first sim blocks.
-        await new Promise((resolve) => window.requestAnimationFrame(() => resolve(null)));
-        await new Promise((resolve) => window.setTimeout(resolve, 0));
-        setProgress(0.01);
-        await new Promise((resolve) => window.requestAnimationFrame(() => resolve(null)));
-        for (let i = 0; i < offsets.length; i += 1) {
-          if (runTokenRef.current !== token) return;
-          const months = offsets[i];
-          const scenario = cloneSeedData(data);
-          scenario.income.salaryEndDate = shiftSalaryEndDate(
-            data.income.salaryEndDate,
-            months,
-          );
-          const [path] = buildPathResults(
-            scenario,
-            assumptions,
-            selectedStressors,
-            selectedResponses,
-            { pathMode: 'selected_only', strategyMode },
-          );
-          next.push({
-            monthsShift: months,
-            shiftedSalaryEndDate: scenario.income.salaryEndDate,
-            successRate: path.successRate,
-            successRatePct: path.successRate * 100,
-            medianEndingWealth: path.medianEndingWealth,
-          });
-          setProgress((i + 1) / offsets.length);
-          await new Promise((resolve) => window.setTimeout(resolve, 0));
-        }
-        if (runTokenRef.current !== token) return;
-        next.sort((a, b) => a.monthsShift - b.monthsShift);
+    // Cancel any in-flight batch before starting a new one.
+    if (workerRef.current && currentBatchIdRef.current) {
+      const cancelMsg: SweepWorkerRequest = {
+        type: 'cancel',
+        batchId: currentBatchIdRef.current,
+      };
+      workerRef.current.postMessage(cancelMsg);
+    }
+
+    // Lazily create a worker on first calculate.
+    if (!workerRef.current) {
+      workerRef.current = new Worker(new URL('./sweep.worker.ts', import.meta.url), {
+        type: 'module',
+      });
+    }
+    const worker = workerRef.current;
+
+    const offsets = DEFAULT_OFFSETS;
+    const batchId = `tas-${token}-${Date.now()}`;
+    currentBatchIdRef.current = batchId;
+
+    const sweepPoints: SweepPointInput[] = offsets.map((months) => {
+      const scenario = cloneSeedData(data);
+      scenario.income.salaryEndDate = shiftSalaryEndDate(data.income.salaryEndDate, months);
+      return {
+        pointId: `m${months}`,
+        data: scenario,
+        assumptions,
+        selectedStressors,
+        selectedResponses,
+        strategyMode,
+      };
+    });
+
+    const collected: Map<string, TimeAsSafetyPoint> = new Map();
+
+    const onMessage = (event: MessageEvent<SweepWorkerResponse>) => {
+      const msg = event.data;
+      if (msg.batchId !== batchId) return;
+      if (runTokenRef.current !== token) return;
+
+      if (msg.type === 'progress') {
+        const perPoint = 1 / msg.total;
+        const completedFraction = msg.index * perPoint;
+        setProgress(Math.min(0.99, completedFraction + msg.pointProgress * perPoint));
+      } else if (msg.type === 'point') {
+        const months = Number(msg.pointId.replace('m', ''));
+        const scenario = sweepPoints[msg.index];
+        collected.set(msg.pointId, {
+          monthsShift: months,
+          shiftedSalaryEndDate: scenario.data.income.salaryEndDate,
+          successRate: msg.path.successRate,
+          successRatePct: msg.path.successRate * 100,
+          medianEndingWealth: msg.path.medianEndingWealth,
+        });
+        setProgress((msg.index + 1) / msg.total);
+      } else if (msg.type === 'done') {
+        const next = Array.from(collected.values()).sort((a, b) => a.monthsShift - b.monthsShift);
         setPoints(next);
         setCachedFingerprint(fingerprint);
         setLoadState('ready');
+        setProgress(1);
         void saveTimeAsSafetyToCache(fingerprint, next);
-      } catch (e) {
-        if (runTokenRef.current !== token) return;
-        setError(e instanceof Error ? e.message : 'Time-as-safety scenarios failed.');
+        worker.removeEventListener('message', onMessage);
+        worker.removeEventListener('error', onError);
+        currentBatchIdRef.current = null;
+      } else if (msg.type === 'cancelled') {
+        worker.removeEventListener('message', onMessage);
+        worker.removeEventListener('error', onError);
+        if (currentBatchIdRef.current === batchId) currentBatchIdRef.current = null;
+      } else if (msg.type === 'error') {
+        setError(msg.error || 'Time-as-safety scenarios failed.');
         setLoadState('error');
+        worker.removeEventListener('message', onMessage);
+        worker.removeEventListener('error', onError);
+        if (currentBatchIdRef.current === batchId) currentBatchIdRef.current = null;
       }
-    })();
+    };
+
+    const onError = (event: ErrorEvent) => {
+      if (runTokenRef.current !== token) return;
+      setError(event.message || 'Time-as-safety worker crashed.');
+      setLoadState('error');
+      worker.removeEventListener('message', onMessage);
+      worker.removeEventListener('error', onError);
+      if (currentBatchIdRef.current === batchId) currentBatchIdRef.current = null;
+    };
+
+    worker.addEventListener('message', onMessage);
+    worker.addEventListener('error', onError);
+
+    const runMsg: SweepWorkerRequest = {
+      type: 'run',
+      payload: { batchId, points: sweepPoints },
+    };
+    worker.postMessage(runMsg);
   }, [assumptions, data, fingerprint, selectedResponses, selectedStressors, strategyMode]);
 
   const isStale = points.length > 0 && cachedFingerprint !== null && cachedFingerprint !== fingerprint;
