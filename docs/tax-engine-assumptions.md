@@ -49,11 +49,17 @@ What the current engine encodes and when it needs to be updated. Source of truth
 - **Start age**: SECURE 2.0 logic encoded: age 73 for those born 1951–1959, age 75 for those born 1960+. Pre-1950 birth returns age 72 (consistent with earlier SECURE 1.0 rule, but this cohort is mostly past their start date anyway).
 - **Update trigger**: if IRS republishes Uniform Lifetime Table (unlikely soon) or Congress shifts the start age again.
 
+## Additional Medicare tax
+
+- **IRC §1401(b)**, 0.9% on wages above filing-status threshold. Statutory thresholds, not indexed.
+- MFJ: $250,000 / Single / HoH: $200,000 / MFS: $125,000.
+- Applies ONLY to wages (Medicare wages on W-2), not to retirement distributions, SS, LTCG, dividends, or interest.
+- Zero impact on the target household post-retirement (no wages). Non-zero for still-working high-wage households.
+- Result is included in `federalTax` and also surfaced as a separate `additionalMedicareTax` output field.
+
 ## Not modeled
 
 Known gaps that silently bias outputs:
-
-- **Additional Medicare tax** (0.9% on wages above $250k MFJ). Under-taxes high-wage earners. Not yet in scope because the target household no longer has high-wage income post-retirement.
 - **State income tax**. User is in TX (no state income tax) so current plan unaffected, but a move would matter.
 - **QBI deduction** (pass-through business income). Not applicable here.
 - **Social Security wage base cap and WEP/GPO** for specific pension interactions. Not typical for this household.

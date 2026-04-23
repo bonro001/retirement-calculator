@@ -290,12 +290,13 @@
         "totalTaxableIncome": 235400,
         "ordinaryTaxableIncome": 235400,
         "LTCGTaxableIncome": 0,
-        "federalTax": 53014.5,
+        "federalTax": 53464.5,
         "MAGI": 250000,
         "marginalOrdinaryBracket": 0.32,
-        "marginalLTCGBracket": 0.15
+        "marginalLTCGBracket": 0.15,
+        "additionalMedicareTax": 450
       },
-      "computationNotes": "Taxable = 235400. Tax = 11600*0.10 + 35550*0.12 + 53375*0.22 + 91425*0.24 + (235400-191950)*0.32 = 1160 + 4266 + 11742.5 + 21942 + 13904 = 53014.5. Marginal LTCG: stackedIncome = 235400 > 47025 (single zero-rate top) but < 518900 -> 15% (hypothetical next LTCG dollar)."
+      "computationNotes": "Taxable = 235400. Tax = 11600*0.10 + 35550*0.12 + 53375*0.22 + 91425*0.24 + (235400-191950)*0.32 = 1160 + 4266 + 11742.5 + 21942 + 13904 = 53014.5. Additional Medicare tax: 0.009 * (250000 - 200000 single threshold) = 450. Total = 53464.5. Marginal LTCG: stackedIncome 235400 > 47025 (single zero-rate top) but < 518900 -> 15%."
     },
     {
       "id": "mfj_roth_conversion_year",
@@ -450,14 +451,15 @@
         "totalTaxableIncome": 770800,
         "ordinaryTaxableIncome": 470800,
         "LTCGTaxableIncome": 300000,
-        "federalTax": 171781.5,
+        "federalTax": 174031.5,
         "MAGI": 800000,
         "marginalOrdinaryBracket": 0.32,
         "marginalLTCGBracket": 0.2,
         "netInvestmentIncomeTax": 11400,
-        "standardDeductionApplied": 29200
+        "standardDeductionApplied": 29200,
+        "additionalMedicareTax": 2250
       },
-      "computationNotes": "AGI = 800000. Taxable = 770800. LTCG taxable = 300000, ordinary = 470800. Ordinary tax = 23200*0.10 + 71100*0.12 + 106750*0.22 + 182850*0.24 + (470800-383900)*0.32 = 2320 + 8532 + 23485 + 43884 + 27808 = 106029. LTCG: zeroRateRoom = 0; fifteenRateRoom = 112950; LTCG tax = 112950*0.15 + 187050*0.20 = 16942.5 + 37410 = 54352.5. NIIT: MAGI 800000 exceeds 250000 MFJ threshold by 550000; NII (LTCG) = 300000; NIIT = 0.038 * min(300000, 550000) = 11400. Total = 106029 + 54352.5 + 11400 = 171781.5."
+      "computationNotes": "AGI = 800000. Taxable = 770800. LTCG taxable = 300000, ordinary = 470800. Ordinary tax = 106029. LTCG tax = 54352.5. NIIT = 11400 (MAGI 800000 - 250000 threshold = 550k excess; NII 300k binds). Additional Medicare tax: 0.009 * (500000 - 250000 MFJ threshold) = 2250. Total = 106029 + 54352.5 + 11400 + 2250 = 174031.5."
     },
     {
       "id": "mfj_ss_with_qualified_dividends_only",

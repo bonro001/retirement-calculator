@@ -28,11 +28,26 @@ Guiding principle (reviewer's, and it's correct): *fix what changes decisions �
 
 - [ ] **Close the Fidelity p10 tail gap**. Even with asset-class correlation added (this sprint), our `tenthPercentileEndingWealth` lands ~3.6x richer than Fidelity's published p10. Remaining likely driver is distribution shape: our bounded-normal sampler is symmetric, but historical equity returns are left-skewed and kurtotic. Candidate fixes: (a) swap bounded-normal for a lognormal/t-distribution sampler, (b) tighten the downside clip bound on equity below -0.45, (c) splice actual historical worst-case sequences into the bounded-normal draws at some sampling rate. Track with a dedicated workplan when it becomes urgent.
 
-- [ ] **Add authentication**. Currently local-first, no auth. Decide between:
-  - Keep local-only (per [product-spec.md](product-spec.md) V1 scope) and never add.
-  - Lightweight local passcode / device-bound encryption for the plan store.
-  - Full account system with cloud sync — requires server, privacy posture rework, and probably an opt-in cloud-sync product decision before any calibration-aggregation work (see CALIBRATION_WORKPLAN step 12's privacy note).
-  - **Open questions**: who is the plan shared with (spouse, advisor)? Is the data ever off-device? Does this need to happen before the calibration dataset grows large enough that one-way hashing alone is sufficient anonymization?
+- [ ] **Add authentication** — *recommended posture documented*.
+  Options evaluated:
+  1. **Keep local-only, never add auth** (status quo, per [product-spec.md](product-spec.md) V1 scope).
+  2. **Lightweight local passcode** — device-bound encryption (macOS Keychain / browser SubtleCrypto + IndexedDB), no cloud, no account system. ~1 week of work.
+  3. **Full account system with cloud sync** — requires a server, a threat model rework, and opens up the calibration-aggregation path. Many weeks of work + ongoing ops cost.
+
+  **Recommendation: start with (2); defer (3) until there's a second user on deck.** Reasons:
+  - Plan data is sensitive (income, balances, SS claim strategy). A local-only app that saves to `localStorage` in plaintext is one shoulder-surf away from full exposure.
+  - Lightweight passcode solves the "another person at this device" problem without taking on server-side risk.
+  - Cloud sync adds real value only when there's either (a) a second user (spouse, advisor) or (b) multi-device use. Single-user / single-device today → cloud is premature.
+  - Calibration-aggregation (CALIBRATION_WORKPLAN step 12's privacy note) does NOT require cloud auth — it needs an opt-in anonymized-share flow, which can be a separate export/upload action without a full account system.
+
+  **Concrete next steps if/when pursuing**:
+  1. Wrap `localStorage.setItem` / `getItem` around the plan store in a thin encryption shim using a user-entered passcode as key (derive via PBKDF2 + SubtleCrypto).
+  2. Prompt for passcode on app load; time out after N minutes of inactivity.
+  3. Add a "forgot passcode → export plaintext + re-import under new passcode" recovery flow.
+
+  Open questions remain:
+  - Who is the plan shared with (spouse, advisor)?
+  - Is there a specific trigger event (e.g., partner wants access) that would promote (2) → (3)?
 
 - [ ] **Surface tax efficiency in the UI (component built; adoption pending)**. Engine-side computation shipped in `src/tax-efficiency.ts`. Dashboard tile shipped in `src/TaxEfficiencyTile.tsx` — shows lifetime federal tax, effective rate, IRMAA surcharge, IRMAA tier-3+ count, Roth conversion count/total, top heat year with driver, and expandable top-5 + cliff lists. Styled to match the existing `UnifiedPlanScreen` palette but **not yet tested in a browser and not wired into any layout**. Adoption step: insert `<TaxEfficiencyTile path={baseline} />` into the relevant dashboard section of `UnifiedPlanScreen.tsx`.
 

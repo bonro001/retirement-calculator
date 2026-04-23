@@ -15,6 +15,7 @@ interface TaxExpectations {
   marginalLTCGBracket: number;
   netInvestmentIncomeTax?: number;
   standardDeductionApplied?: number;
+  additionalMedicareTax?: number;
 }
 
 interface TaxScenario {
@@ -72,6 +73,16 @@ describe('tax-engine canonical scenarios', () => {
           expected.standardDeductionApplied,
           2,
         );
+      }
+
+      if (typeof expected.additionalMedicareTax === 'number') {
+        expect(
+          Math.abs(actual.additionalMedicareTax - expected.additionalMedicareTax),
+        ).toBeLessThan(MONEY_EPSILON);
+      } else {
+        // Legacy scenarios that predate additional Medicare tax should
+        // see 0 (no wages above threshold for a retiree household).
+        expect(actual.additionalMedicareTax).toBe(0);
       }
     });
   }

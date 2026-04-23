@@ -32,6 +32,14 @@ interface NetInvestmentIncomeTaxConfig {
   magiThresholds: Record<FilingStatus, number>;
 }
 
+interface AdditionalMedicareTaxConfig {
+  // IRC §1401(b). 0.9% additional Medicare tax on wages above the
+  // filing-status threshold. Employee-side only; this engine does not
+  // model self-employment income separately.
+  rate: number;
+  wageThresholds: Record<FilingStatus, number>;
+}
+
 interface AgeBasedStandardDeductionConfig {
   // Per-qualifying-event (age 65+) dollar add-on to the standard deduction.
   // IRS allows this once per event per spouse (65+ and/or blind). This engine
@@ -44,6 +52,7 @@ export interface TaxEngineConfig {
   profiles: Record<FilingStatus, FilingStatusTaxProfile>;
   netInvestmentIncomeTax: NetInvestmentIncomeTaxConfig;
   additionalStandardDeductionForAge65: AgeBasedStandardDeductionConfig;
+  additionalMedicareTax: AdditionalMedicareTaxConfig;
 }
 
 export interface YearTaxInputs {
@@ -84,6 +93,10 @@ export interface YearTaxOutputs {
   // Effective standard deduction actually applied, including any age-65+
   // add-on(s). Equals profile.standardDeduction when no 65+ member present.
   standardDeductionApplied: number;
+  // Additional Medicare Tax (IRC §1401(b)) — 0.9% on wages above the
+  // filing-status threshold. Zero for most retirees (no wages); material
+  // for still-working high-wage households. Included in federalTax.
+  additionalMedicareTax: number;
 }
 
 const ORDINARY_INF = Number.POSITIVE_INFINITY;
@@ -194,6 +207,16 @@ export const DEFAULT_TAX_ENGINE_CONFIG: TaxEngineConfig = {
       head_of_household: 1_950,
       married_filing_jointly: 1_550,
       married_filing_separately: 1_550,
+    },
+  },
+  additionalMedicareTax: {
+    // IRC §1401(b) statutory rate and thresholds — not indexed.
+    rate: 0.009,
+    wageThresholds: {
+      single: 200_000,
+      head_of_household: 200_000,
+      married_filing_jointly: 250_000,
+      married_filing_separately: 125_000,
     },
   },
 };
@@ -328,6 +351,19 @@ function countElderlyMembers(
   return headOver65 + spouseOver65;
 }
 
+function calculateAdditionalMedicareTax(
+  inputs: YearTaxInputs,
+  filingStatus: FilingStatus,
+  config: TaxEngineConfig,
+): number {
+  const wages = clampNonNegative(inputs.wages);
+  if (wages <= 0) return 0;
+  const threshold = config.additionalMedicareTax.wageThresholds[filingStatus];
+  const excess = Math.max(0, wages - threshold);
+  if (excess <= 0) return 0;
+  return config.additionalMedicareTax.rate * excess;
+}
+
 function calculateNetInvestmentIncomeTax(
   inputs: YearTaxInputs,
   MAGI: number,
@@ -408,7 +444,13 @@ export function calculateFederalTax(
     filingStatus,
     config,
   );
-  const federalTax = ordinaryTax + LTCGTax + netInvestmentIncomeTax;
+  const additionalMedicareTax = calculateAdditionalMedicareTax(
+    inputs,
+    filingStatus,
+    config,
+  );
+  const federalTax =
+    ordinaryTax + LTCGTax + netInvestmentIncomeTax + additionalMedicareTax;
 
   const effectiveTaxRate = AGI <= 0 ? 0 : federalTax / AGI;
   const marginalOrdinaryBracket = getMarginalOrdinaryBracket(
@@ -435,5 +477,6 @@ export function calculateFederalTax(
     MAGI: normalizeMoney(MAGI),
     netInvestmentIncomeTax: normalizeMoney(netInvestmentIncomeTax),
     standardDeductionApplied: normalizeMoney(standardDeductionApplied),
+    additionalMedicareTax: normalizeMoney(additionalMedicareTax),
   };
 }
