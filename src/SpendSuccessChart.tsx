@@ -14,11 +14,8 @@ import type { MarketAssumptions, SeedData } from './types';
 import { formatCurrency, getAnnualStretchSpend } from './utils';
 import { buildEvaluationFingerprint } from './evaluation-fingerprint';
 import { loadSpendSafetyFromCache, saveSpendSafetyToCache } from './spend-safety-cache';
-import type {
-  SweepPointInput,
-  SweepWorkerRequest,
-  SweepWorkerResponse,
-} from './sweep-worker-types';
+import type { SweepPointInput, SweepWorkerResponse } from './sweep-worker-types';
+import { runSweepBatch, type SweepPoolHandle } from './sweep-worker-pool';
 
 export interface SpendScenarioPoint {
   id: string;
@@ -140,21 +137,13 @@ export function useSpendSuccessScenarios(args: HookArgs): HookResult {
   );
 
   const runTokenRef = useRef(0);
-  const workerRef = useRef<Worker | null>(null);
-  const currentBatchIdRef = useRef<string | null>(null);
+  const inFlightRef = useRef<SweepPoolHandle | null>(null);
 
   useEffect(() => {
     return () => {
-      if (workerRef.current) {
-        if (currentBatchIdRef.current) {
-          const cancelMsg: SweepWorkerRequest = {
-            type: 'cancel',
-            batchId: currentBatchIdRef.current,
-          };
-          workerRef.current.postMessage(cancelMsg);
-        }
-        workerRef.current.terminate();
-        workerRef.current = null;
+      if (inFlightRef.current) {
+        inFlightRef.current.cancel();
+        inFlightRef.current = null;
       }
     };
   }, []);
@@ -183,29 +172,14 @@ export function useSpendSuccessScenarios(args: HookArgs): HookResult {
     setError(null);
     setProgress(0);
 
-    // Cancel any in-flight batch before starting a new one.
-    if (workerRef.current && currentBatchIdRef.current) {
-      const cancelMsg: SweepWorkerRequest = {
-        type: 'cancel',
-        batchId: currentBatchIdRef.current,
-      };
-      workerRef.current.postMessage(cancelMsg);
+    if (inFlightRef.current) {
+      inFlightRef.current.cancel();
+      inFlightRef.current = null;
     }
-
-    // Lazily create a worker on first calculate.
-    if (!workerRef.current) {
-      workerRef.current = new Worker(new URL('./sweep.worker.ts', import.meta.url), {
-        type: 'module',
-      });
-    }
-    const worker = workerRef.current;
 
     const deltas = buildSpendGrid();
     const batchId = `spend-${token}-${Date.now()}`;
-    currentBatchIdRef.current = batchId;
 
-    // Precompute per-point scenario inputs so the main thread keeps the
-    // monthly-spend metadata we need to annotate each PathResult later.
     const scenarios = deltas.map((spendDeltaPercent) => {
       const built = buildSpendScenarioData(data, spendDeltaPercent);
       return { spendDeltaPercent, monthlySpend: built.monthlySpend, data: built.data };
@@ -222,8 +196,7 @@ export function useSpendSuccessScenarios(args: HookArgs): HookResult {
 
     const collected: SpendScenarioPoint[] = [];
 
-    const onMessage = (event: MessageEvent<SweepWorkerResponse>) => {
-      const msg = event.data;
+    const onEvent = (msg: SweepWorkerResponse) => {
       if (msg.batchId !== batchId) return;
       if (runTokenRef.current !== token) return;
 
@@ -247,7 +220,7 @@ export function useSpendSuccessScenarios(args: HookArgs): HookResult {
           guardrailDependent: path.spendingCutRate > 0.4,
           isCurrent: scenario.spendDeltaPercent === 0,
         });
-        setProgress((msg.index + 1) / msg.total);
+        setProgress(collected.length / msg.total);
       } else if (msg.type === 'done') {
         collected.sort((a, b) => a.monthlySpend - b.monthlySpend);
         setPoints(collected);
@@ -255,39 +228,17 @@ export function useSpendSuccessScenarios(args: HookArgs): HookResult {
         setLoadState('ready');
         setProgress(1);
         void saveSpendSafetyToCache(fingerprint, collected);
-        worker.removeEventListener('message', onMessage);
-        worker.removeEventListener('error', onError);
-        if (currentBatchIdRef.current === batchId) currentBatchIdRef.current = null;
+        if (inFlightRef.current?.batchId === batchId) inFlightRef.current = null;
       } else if (msg.type === 'cancelled') {
-        worker.removeEventListener('message', onMessage);
-        worker.removeEventListener('error', onError);
-        if (currentBatchIdRef.current === batchId) currentBatchIdRef.current = null;
+        if (inFlightRef.current?.batchId === batchId) inFlightRef.current = null;
       } else if (msg.type === 'error') {
         setError(msg.error || 'Spend scenarios failed to run.');
         setLoadState('error');
-        worker.removeEventListener('message', onMessage);
-        worker.removeEventListener('error', onError);
-        if (currentBatchIdRef.current === batchId) currentBatchIdRef.current = null;
+        if (inFlightRef.current?.batchId === batchId) inFlightRef.current = null;
       }
     };
 
-    const onError = (event: ErrorEvent) => {
-      if (runTokenRef.current !== token) return;
-      setError(event.message || 'Spend scenarios worker crashed.');
-      setLoadState('error');
-      worker.removeEventListener('message', onMessage);
-      worker.removeEventListener('error', onError);
-      if (currentBatchIdRef.current === batchId) currentBatchIdRef.current = null;
-    };
-
-    worker.addEventListener('message', onMessage);
-    worker.addEventListener('error', onError);
-
-    const runMsg: SweepWorkerRequest = {
-      type: 'run',
-      payload: { batchId, points: sweepPoints },
-    };
-    worker.postMessage(runMsg);
+    inFlightRef.current = runSweepBatch(batchId, sweepPoints, onEvent);
   }, [assumptions, data, fingerprint, selectedResponses, selectedStressors, strategyMode]);
 
   const isStale = points.length > 0 && cachedFingerprint !== null && cachedFingerprint !== fingerprint;
