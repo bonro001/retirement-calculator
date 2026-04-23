@@ -13,6 +13,8 @@ interface TaxExpectations {
   MAGI: number;
   marginalOrdinaryBracket: number;
   marginalLTCGBracket: number;
+  netInvestmentIncomeTax?: number;
+  standardDeductionApplied?: number;
 }
 
 interface TaxScenario {
@@ -53,6 +55,24 @@ describe('tax-engine canonical scenarios', () => {
       expect(actual.MAGI).toBeCloseTo(expected.MAGI, 2);
       expect(actual.marginalOrdinaryBracket).toBe(expected.marginalOrdinaryBracket);
       expect(actual.marginalLTCGBracket).toBe(expected.marginalLTCGBracket);
+
+      if (typeof expected.netInvestmentIncomeTax === 'number') {
+        expect(
+          Math.abs(actual.netInvestmentIncomeTax - expected.netInvestmentIncomeTax),
+        ).toBeLessThan(MONEY_EPSILON);
+      } else {
+        // Legacy scenarios that predate NIIT — engine MUST report 0 for
+        // households whose MAGI is below threshold; for scenarios above
+        // threshold the fixture was updated to include an explicit expected.
+        expect(actual.netInvestmentIncomeTax).toBe(0);
+      }
+
+      if (typeof expected.standardDeductionApplied === 'number') {
+        expect(actual.standardDeductionApplied).toBeCloseTo(
+          expected.standardDeductionApplied,
+          2,
+        );
+      }
     });
   }
 

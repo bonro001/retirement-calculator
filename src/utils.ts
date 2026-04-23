@@ -1078,6 +1078,8 @@ function createBaseYearTaxInputs(
   filingStatus: string,
   wages: number,
   socialSecurityBenefits: number,
+  headAge?: number,
+  spouseAge?: number,
 ): YearTaxInputs {
   return {
     wages,
@@ -1092,6 +1094,8 @@ function createBaseYearTaxInputs(
     realizedSTCG: 0,
     otherOrdinaryIncome: 0,
     filingStatus,
+    headAge,
+    spouseAge,
   };
 }
 
@@ -2887,6 +2891,8 @@ function simulatePath(
           data.household.filingStatus,
           adjustedWages,
           socialSecurityIncome,
+          robAge,
+          debbieAge,
         );
         baseTaxInputs.otherOrdinaryIncome += windfallOrdinaryIncome;
         baseTaxInputs.realizedLTCG += windfallLtcgIncome;

@@ -6,7 +6,7 @@ What the current engine encodes and when it needs to be updated. Source of truth
 
 - **Label**: `taxYear: 2026` in `DEFAULT_TAX_ENGINE_CONFIG`.
 - **Values**: 2024 IRS brackets (the 2024 TCJA bracket schedule still in effect as of writing; 2025 and 2026 inflation-adjusted values will differ).
-- **Standard deductions**: 2024 values — $14,600 single / MFS, $29,200 MFJ, $21,900 HoH. **No age-65+ bump modeled** (IRS adds $1,550 MFJ-per-person / $1,950 single; omitting this overstates taxes modestly for retirees).
+- **Standard deductions**: 2024 values — $14,600 single / MFS, $29,200 MFJ, $21,900 HoH. **Age-65+ bump is modeled** as of the current engine version: +$1,550 per qualifying spouse for MFJ/MFS, +$1,950 for single/HoH (IRC §63(f), 2024 amounts). Applied when `YearTaxInputs.headAge` / `spouseAge` is ≥ 65. Blindness exemption still out of scope. Simulation path passes `robAge` and `debbieAge` through automatically.
 - **Brackets**: 2024 MFJ breakpoints 23,200 / 94,300 / 201,050 / 383,900 / 487,450 / 731,200; single halves most of these as usual.
 - **Update trigger**: when 2025 and 2026 inflation-adjusted IRS numbers are published (Rev. Proc. releases), update `profiles.<status>.standardDeduction` and `ordinaryBrackets[].upTo`. Also update all `expected` values in [fixtures/tax_engine_scenarios.json](../fixtures/tax_engine_scenarios.json).
 
@@ -14,8 +14,8 @@ What the current engine encodes and when it needs to be updated. Source of truth
 
 - **Thresholds** (MFJ): 0%-rate top $94,050, 15%-rate top $583,750. Values are 2024.
 - **Stacking**: LTCG stacks on top of ordinary taxable income for bracket lookup; the engine implements this correctly in `calculateLTCGTax`.
-- **No Net Investment Income Tax (NIIT)**: the 3.8% NIIT surtax above $250k MFJ MAGI is **not modeled**. High-income households are under-taxed relative to reality.
-- **Update trigger**: new LTCG thresholds each year; NIIT should eventually be added as a known gap.
+- **NIIT is modeled**: 3.8% on the lesser of net investment income or MAGI excess over threshold (IRC §1411). Thresholds are statutory ($250k MFJ, $125k MFS, $200k single/HoH) and not indexed. NII includes taxable interest, qualified + ordinary dividends, realized LTCG and STCG; muni interest is correctly excluded. Result is included in `federalTax` and also surfaced as a separate `netInvestmentIncomeTax` output field.
+- **Update trigger**: new LTCG thresholds each year.
 
 ## Social Security taxation
 
@@ -53,16 +53,15 @@ What the current engine encodes and when it needs to be updated. Source of truth
 
 Known gaps that silently bias outputs:
 
-- **NIIT** (3.8% on investment income above $250k MFJ MAGI). Under-taxes high earners.
-- **Additional Medicare tax** (0.9% on wages above $250k MFJ). Under-taxes high-wage earners.
+- **Additional Medicare tax** (0.9% on wages above $250k MFJ). Under-taxes high-wage earners. Not yet in scope because the target household no longer has high-wage income post-retirement.
 - **State income tax**. User is in TX (no state income tax) so current plan unaffected, but a move would matter.
-- **Age-65+ standard deduction bump** ($1,550 MFJ per spouse / $1,950 single). Over-taxes retirees by 10-20% in the 10% bracket.
 - **QBI deduction** (pass-through business income). Not applicable here.
 - **Social Security wage base cap and WEP/GPO** for specific pension interactions. Not typical for this household.
+- **Blindness exemption** (additional standard deduction if legally blind). Mirrors the age-65 bump structurally but not implemented.
 
 ## Testing coverage
 
-- [src/tax-engine-scenarios.test.ts](../src/tax-engine-scenarios.test.ts) — 15 canonical cases from [fixtures/tax_engine_scenarios.json](../fixtures/tax_engine_scenarios.json), covering W-2, SS inclusion bands, LTCG stacking, MFS, HoH, tax-exempt muni interest.
+- [src/tax-engine-scenarios.test.ts](../src/tax-engine-scenarios.test.ts) — 20 canonical cases from [fixtures/tax_engine_scenarios.json](../fixtures/tax_engine_scenarios.json), covering W-2, SS inclusion bands, LTCG stacking, MFS, HoH, tax-exempt muni interest, age-65+ std-ded bump, and NIIT (below threshold, excess-binds, NII-binds).
 - [src/irmaa-tier-boundaries.test.ts](../src/irmaa-tier-boundaries.test.ts) — every tier boundary just-under / just-over for MFJ, single, MFS; sanity checks for HoH.
 - [src/social-security-taxation.test.ts](../src/social-security-taxation.test.ts) — band boundaries for MFJ and single; MFS special case; 85%-cap enforcement; monotonicity invariant over stress inputs.
 - [src/aca-subsidy-boundaries.test.ts](../src/aca-subsidy-boundaries.test.ts) — each FPL band endpoint for household 2 and 4; retirement/medicare gating; IRMAA passthrough; monotonicity of subsidy vs MAGI.

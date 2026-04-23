@@ -27,9 +27,23 @@ interface FilingStatusTaxProfile {
   socialSecurityThresholds: SocialSecurityThresholds;
 }
 
+interface NetInvestmentIncomeTaxConfig {
+  rate: number;
+  magiThresholds: Record<FilingStatus, number>;
+}
+
+interface AgeBasedStandardDeductionConfig {
+  // Per-qualifying-event (age 65+) dollar add-on to the standard deduction.
+  // IRS allows this once per event per spouse (65+ and/or blind). This engine
+  // models age-65+ only; blindness is out of scope.
+  perElderlyByStatus: Record<FilingStatus, number>;
+}
+
 export interface TaxEngineConfig {
   taxYear: number;
   profiles: Record<FilingStatus, FilingStatusTaxProfile>;
+  netInvestmentIncomeTax: NetInvestmentIncomeTaxConfig;
+  additionalStandardDeductionForAge65: AgeBasedStandardDeductionConfig;
 }
 
 export interface YearTaxInputs {
@@ -46,6 +60,10 @@ export interface YearTaxInputs {
   otherOrdinaryIncome: number;
   filingStatus: string;
   taxExemptInterest?: number;
+  // Optional — when present, an age >= 65 triggers an additional standard
+  // deduction add-on per IRC §63(f). For MFJ both spouses are considered.
+  headAge?: number;
+  spouseAge?: number;
 }
 
 export interface YearTaxOutputs {
@@ -60,6 +78,12 @@ export interface YearTaxOutputs {
   marginalOrdinaryBracket: number;
   marginalLTCGBracket: number;
   MAGI: number;
+  // NIIT (IRC §1411) — 3.8% surtax on net investment income to the extent
+  // MAGI exceeds the filing-status threshold. Included in federalTax.
+  netInvestmentIncomeTax: number;
+  // Effective standard deduction actually applied, including any age-65+
+  // add-on(s). Equals profile.standardDeduction when no 65+ member present.
+  standardDeductionApplied: number;
 }
 
 const ORDINARY_INF = Number.POSITIVE_INFINITY;
@@ -150,6 +174,26 @@ export const DEFAULT_TAX_ENGINE_CONFIG: TaxEngineConfig = {
         secondBase: 34_000,
         secondTierAdjustmentCap: 4_500,
       },
+    },
+  },
+  netInvestmentIncomeTax: {
+    // IRC §1411. Rate and thresholds are statutory and not indexed.
+    rate: 0.038,
+    magiThresholds: {
+      single: 200_000,
+      head_of_household: 200_000,
+      married_filing_jointly: 250_000,
+      married_filing_separately: 125_000,
+    },
+  },
+  additionalStandardDeductionForAge65: {
+    // 2024 IRS amounts per Rev. Proc. 2023-34: $1,950 for single/HoH,
+    // $1,550 for MFJ/MFS (per qualifying spouse).
+    perElderlyByStatus: {
+      single: 1_950,
+      head_of_household: 1_950,
+      married_filing_jointly: 1_550,
+      married_filing_separately: 1_550,
     },
   },
 };
@@ -270,6 +314,43 @@ function calculateTaxableSocialSecurity(
   return Math.min(benefits * 0.85, secondTierTaxable);
 }
 
+function countElderlyMembers(
+  inputs: YearTaxInputs,
+  filingStatus: FilingStatus,
+): number {
+  const headOver65 =
+    typeof inputs.headAge === 'number' && inputs.headAge >= 65 ? 1 : 0;
+  if (filingStatus !== 'married_filing_jointly') {
+    return headOver65;
+  }
+  const spouseOver65 =
+    typeof inputs.spouseAge === 'number' && inputs.spouseAge >= 65 ? 1 : 0;
+  return headOver65 + spouseOver65;
+}
+
+function calculateNetInvestmentIncomeTax(
+  inputs: YearTaxInputs,
+  MAGI: number,
+  filingStatus: FilingStatus,
+  config: TaxEngineConfig,
+): number {
+  const netInvestmentIncome =
+    clampNonNegative(inputs.taxableInterest) +
+    clampNonNegative(inputs.qualifiedDividends) +
+    clampNonNegative(inputs.ordinaryDividends) +
+    clampNonNegative(inputs.realizedLTCG) +
+    clampNonNegative(inputs.realizedSTCG);
+  if (netInvestmentIncome <= 0) {
+    return 0;
+  }
+  const threshold = config.netInvestmentIncomeTax.magiThresholds[filingStatus];
+  const magiExcess = Math.max(0, MAGI - threshold);
+  if (magiExcess <= 0) {
+    return 0;
+  }
+  return config.netInvestmentIncomeTax.rate * Math.min(netInvestmentIncome, magiExcess);
+}
+
 export function calculateFederalTax(
   inputs: YearTaxInputs,
   config: TaxEngineConfig = DEFAULT_TAX_ENGINE_CONFIG,
@@ -305,7 +386,13 @@ export function calculateFederalTax(
   const AGI = ordinaryIncomeExcludingSS + taxableSocialSecurity + preferentialIncome;
   const MAGI = AGI + taxExemptInterest;
 
-  const totalTaxableIncome = clampNonNegative(AGI - profile.standardDeduction);
+  const elderlyCount = countElderlyMembers(inputs, filingStatus);
+  const ageBump =
+    elderlyCount *
+    config.additionalStandardDeductionForAge65.perElderlyByStatus[filingStatus];
+  const standardDeductionApplied = profile.standardDeduction + ageBump;
+
+  const totalTaxableIncome = clampNonNegative(AGI - standardDeductionApplied);
   const LTCGTaxableIncome = Math.min(preferentialIncome, totalTaxableIncome);
   const ordinaryTaxableIncome = clampNonNegative(totalTaxableIncome - LTCGTaxableIncome);
 
@@ -315,7 +402,13 @@ export function calculateFederalTax(
     LTCGTaxableIncome,
     profile.capitalGainsThresholds,
   );
-  const federalTax = ordinaryTax + LTCGTax;
+  const netInvestmentIncomeTax = calculateNetInvestmentIncomeTax(
+    inputs,
+    MAGI,
+    filingStatus,
+    config,
+  );
+  const federalTax = ordinaryTax + LTCGTax + netInvestmentIncomeTax;
 
   const effectiveTaxRate = AGI <= 0 ? 0 : federalTax / AGI;
   const marginalOrdinaryBracket = getMarginalOrdinaryBracket(
@@ -340,5 +433,7 @@ export function calculateFederalTax(
     marginalOrdinaryBracket,
     marginalLTCGBracket,
     MAGI: normalizeMoney(MAGI),
+    netInvestmentIncomeTax: normalizeMoney(netInvestmentIncomeTax),
+    standardDeductionApplied: normalizeMoney(standardDeductionApplied),
   };
 }

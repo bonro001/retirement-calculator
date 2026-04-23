@@ -3,7 +3,7 @@
     "purpose": "Canonical federal-tax scenarios for validating src/tax-engine.ts in isolation. Each scenario defines inputs and the expected YearTaxOutputs the engine should produce. Step 7 of VALIDATION_WORKPLAN.md will wire these into a vitest run.",
     "engineConfigReference": "DEFAULT_TAX_ENGINE_CONFIG in src/tax-engine.ts (labeled taxYear 2026, using 2024 IRS bracket values: std ded $14,600/$29,200; MFJ brackets 23.2k/94.3k/201.05k/383.9k/487.45k/731.2k; LTCG thresholds $47,025/$518,900 single, $94,050/$583,750 MFJ; SS provisional bases $25k/$34k single, $32k/$44k MFJ).",
     "expectedValuesMethod": "Each `expected` block was computed by hand using the exact formulas in src/tax-engine.ts (pub-915 two-tier SS worksheet, LTCG stacking on top of ordinary taxable, preferential income counted in provisional income). `computationNotes` shows the math trail for reviewability.",
-    "ageTreatment": "Engine does NOT apply the age-65+ standard-deduction bump; scenarios assume the engine's actual behavior (no bump), even where the household is post-65.",
+    "ageTreatment": "Engine applies the age-65+ standard-deduction bump when `headAge` / `spouseAge` are set on inputs and are >= 65. Scenarios below that omit age fields get the unbumped standard deduction; scenarios that set ages get the bump (+$1,550/person MFJ/MFS, +$1,950 single/HoH).",
     "scope": "Core federal tax only. IRMAA tier boundaries (step 8), SS taxation edge cases (step 9), and ACA cliff (step 10) live in separate fixtures."
   },
   "scenarios": [
@@ -224,12 +224,14 @@
         "totalTaxableIncome": 270800,
         "ordinaryTaxableIncome": 170800,
         "LTCGTaxableIncome": 100000,
-        "federalTax": 42682,
+        "federalTax": 44582,
         "MAGI": 300000,
         "marginalOrdinaryBracket": 0.22,
-        "marginalLTCGBracket": 0.15
+        "marginalLTCGBracket": 0.15,
+        "netInvestmentIncomeTax": 1900,
+        "standardDeductionApplied": 29200
       },
-      "computationNotes": "AGI = 200000 + 100000 = 300000. Taxable = 270800. Ordinary taxable = 170800. Ordinary tax = 23200*0.10 + 71100*0.12 + (170800-94300)*0.22 = 2320 + 8532 + 16830 = 27682. LTCG: zeroRateRoom = max(0, 94050-170800) = 0; all 100000 lands in 15% band (roomLeft 583750-170800 = 412950 >> 100000). LTCG tax = 100000*0.15 = 15000. Total = 42682."
+      "computationNotes": "AGI = 200000 + 100000 = 300000. Taxable = 270800. Ordinary taxable = 170800. Ordinary tax = 23200*0.10 + 71100*0.12 + (170800-94300)*0.22 = 2320 + 8532 + 16830 = 27682. LTCG: zeroRateRoom = max(0, 94050-170800) = 0; all 100000 lands in 15% band. LTCG tax = 100000*0.15 = 15000. NIIT: MAGI 300000 exceeds 250000 MFJ threshold by 50000; NII (LTCG) = 100000; NIIT = 0.038 * min(100000, 50000) = 1900. Total = 27682 + 15000 + 1900 = 44582."
     },
     {
       "id": "mfj_ltcg_straddle_zero_fifteen",
@@ -448,12 +450,14 @@
         "totalTaxableIncome": 770800,
         "ordinaryTaxableIncome": 470800,
         "LTCGTaxableIncome": 300000,
-        "federalTax": 160381.5,
+        "federalTax": 171781.5,
         "MAGI": 800000,
         "marginalOrdinaryBracket": 0.32,
-        "marginalLTCGBracket": 0.2
+        "marginalLTCGBracket": 0.2,
+        "netInvestmentIncomeTax": 11400,
+        "standardDeductionApplied": 29200
       },
-      "computationNotes": "AGI = 800000. Taxable = 770800. LTCG taxable = 300000, ordinary = 470800. Ordinary tax = 23200*0.10 + 71100*0.12 + 106750*0.22 + 182850*0.24 + (470800-383900)*0.32 = 2320 + 8532 + 23485 + 43884 + 27808 = 106029. LTCG: zeroRateRoom = max(0,94050-470800)=0; fifteenRateRoom = max(0,583750-470800)=112950; fifteenRateAmount = 112950; twentyRateAmount = 300000-112950 = 187050. LTCG tax = 112950*0.15 + 187050*0.20 = 16942.5 + 37410 = 54352.5. Total = 160381.5. Marginal ordinary at 470800+1 falls in 32% bracket (383900 < 470801 <= 487450)."
+      "computationNotes": "AGI = 800000. Taxable = 770800. LTCG taxable = 300000, ordinary = 470800. Ordinary tax = 23200*0.10 + 71100*0.12 + 106750*0.22 + 182850*0.24 + (470800-383900)*0.32 = 2320 + 8532 + 23485 + 43884 + 27808 = 106029. LTCG: zeroRateRoom = 0; fifteenRateRoom = 112950; LTCG tax = 112950*0.15 + 187050*0.20 = 16942.5 + 37410 = 54352.5. NIIT: MAGI 800000 exceeds 250000 MFJ threshold by 550000; NII (LTCG) = 300000; NIIT = 0.038 * min(300000, 550000) = 11400. Total = 106029 + 54352.5 + 11400 = 171781.5."
     },
     {
       "id": "mfj_ss_with_qualified_dividends_only",
@@ -486,6 +490,179 @@
         "marginalLTCGBracket": 0
       },
       "computationNotes": "Preferential = 30000 (qualified div counts like LTCG). Provisional = 0 + 30000 + 25000 = 55000 (>44000). baseHalfTaxable = min(25000, 6000) = 6000. secondTierTaxable = (55000-44000)*0.85 + 6000 = 9350 + 6000 = 15350. Taxable SS = min(0.85*50000=42500, 15350) = 15350. AGI = 0 + 15350 + 30000 = 45350. Taxable = 16150. LTCG taxable = min(30000, 16150) = 16150; ordinary = 0. Ordinary tax = 0. LTCG: zeroRateRoom = max(0, 94050-0) = 94050; all 16150 in 0% bracket -> 0 LTCG tax. Total = 0."
+    },
+    {
+      "id": "mfj_both_age_65_plus_bump",
+      "description": "MFJ retirees, both 65+, W-2 shut off. Standard deduction gets the double age-65 bump (2 * $1,550 = $3,100).",
+      "inputs": {
+        "wages": 0,
+        "pension": 0,
+        "socialSecurityBenefits": 0,
+        "ira401kWithdrawals": 80000,
+        "rothWithdrawals": 0,
+        "taxableInterest": 0,
+        "qualifiedDividends": 0,
+        "ordinaryDividends": 0,
+        "realizedLTCG": 0,
+        "realizedSTCG": 0,
+        "otherOrdinaryIncome": 0,
+        "taxExemptInterest": 0,
+        "filingStatus": "married_filing_jointly",
+        "headAge": 67,
+        "spouseAge": 68
+      },
+      "expected": {
+        "AGI": 80000,
+        "provisionalIncome": 80000,
+        "taxableSocialSecurity": 0,
+        "totalTaxableIncome": 47700,
+        "ordinaryTaxableIncome": 47700,
+        "LTCGTaxableIncome": 0,
+        "federalTax": 5260,
+        "MAGI": 80000,
+        "marginalOrdinaryBracket": 0.12,
+        "marginalLTCGBracket": 0,
+        "netInvestmentIncomeTax": 0,
+        "standardDeductionApplied": 32300
+      },
+      "computationNotes": "Age-65 bump: 2 * $1,550 = $3,100. Effective std ded = 29200 + 3100 = 32300. Taxable = 80000 - 32300 = 47700. Tax = 23200*0.10 + (47700-23200)*0.12 = 2320 + 2940 = 5260. No NIIT (MAGI < 250k). Compare to scenario without age: same IRA pull + MFJ without ages would tax 80000-29200=50800 -> 2320 + 27600*0.12 = 2320+3312 = 5632 (saves $372 from bump)."
+    },
+    {
+      "id": "single_age_65_bump",
+      "description": "Single retiree 65+, modest IRA draw. Single gets $1,950 bump.",
+      "inputs": {
+        "wages": 0,
+        "pension": 0,
+        "socialSecurityBenefits": 0,
+        "ira401kWithdrawals": 40000,
+        "rothWithdrawals": 0,
+        "taxableInterest": 0,
+        "qualifiedDividends": 0,
+        "ordinaryDividends": 0,
+        "realizedLTCG": 0,
+        "realizedSTCG": 0,
+        "otherOrdinaryIncome": 0,
+        "taxExemptInterest": 0,
+        "filingStatus": "single",
+        "headAge": 70
+      },
+      "expected": {
+        "AGI": 40000,
+        "provisionalIncome": 40000,
+        "taxableSocialSecurity": 0,
+        "totalTaxableIncome": 23450,
+        "ordinaryTaxableIncome": 23450,
+        "LTCGTaxableIncome": 0,
+        "federalTax": 2582,
+        "MAGI": 40000,
+        "marginalOrdinaryBracket": 0.12,
+        "marginalLTCGBracket": 0,
+        "netInvestmentIncomeTax": 0,
+        "standardDeductionApplied": 16550
+      },
+      "computationNotes": "Age-65 bump: 1 * $1,950 = $1,950. Effective std ded = 14600 + 1950 = 16550. Taxable = 40000 - 16550 = 23450. Tax = 11600*0.10 + (23450-11600)*0.12 = 1160 + 1422 = 2582."
+    },
+    {
+      "id": "mfj_niit_just_below_threshold",
+      "description": "MFJ just below $250k MAGI threshold with investment income — NO NIIT applies.",
+      "inputs": {
+        "wages": 200000,
+        "pension": 0,
+        "socialSecurityBenefits": 0,
+        "ira401kWithdrawals": 0,
+        "rothWithdrawals": 0,
+        "taxableInterest": 5000,
+        "qualifiedDividends": 10000,
+        "ordinaryDividends": 5000,
+        "realizedLTCG": 20000,
+        "realizedSTCG": 0,
+        "otherOrdinaryIncome": 0,
+        "taxExemptInterest": 0,
+        "filingStatus": "married_filing_jointly"
+      },
+      "expected": {
+        "AGI": 240000,
+        "provisionalIncome": 240000,
+        "taxableSocialSecurity": 0,
+        "totalTaxableIncome": 210800,
+        "ordinaryTaxableIncome": 180800,
+        "LTCGTaxableIncome": 30000,
+        "federalTax": 34382,
+        "MAGI": 240000,
+        "marginalOrdinaryBracket": 0.22,
+        "marginalLTCGBracket": 0.15,
+        "netInvestmentIncomeTax": 0,
+        "standardDeductionApplied": 29200
+      },
+      "computationNotes": "Ordinary excl SS = 200000+5000+5000 = 210000. Preferential = 10000+20000 = 30000. AGI = 240000. MAGI = 240000 < 250000 MFJ NIIT threshold -> NIIT = 0. Taxable = 210800. Ordinary taxable = 180800, LTCG = 30000. Ordinary tax = 23200*0.10 + 71100*0.12 + 86500*0.22 = 2320 + 8532 + 19030 = 29882. LTCG: all 30000 stacks in 15% band -> 4500. Total = 29882 + 4500 + 0 = 34382."
+    },
+    {
+      "id": "mfj_niit_applies_on_excess",
+      "description": "MFJ MAGI well above $250k with mixed investment income. NIIT caps at MAGI excess over threshold.",
+      "inputs": {
+        "wages": 100000,
+        "pension": 0,
+        "socialSecurityBenefits": 0,
+        "ira401kWithdrawals": 100000,
+        "rothWithdrawals": 0,
+        "taxableInterest": 10000,
+        "qualifiedDividends": 20000,
+        "ordinaryDividends": 5000,
+        "realizedLTCG": 40000,
+        "realizedSTCG": 0,
+        "otherOrdinaryIncome": 0,
+        "taxExemptInterest": 0,
+        "filingStatus": "married_filing_jointly"
+      },
+      "expected": {
+        "AGI": 275000,
+        "provisionalIncome": 275000,
+        "taxableSocialSecurity": 0,
+        "totalTaxableIncome": 245800,
+        "ordinaryTaxableIncome": 185800,
+        "LTCGTaxableIncome": 60000,
+        "federalTax": 40932,
+        "MAGI": 275000,
+        "marginalOrdinaryBracket": 0.22,
+        "marginalLTCGBracket": 0.15,
+        "netInvestmentIncomeTax": 950,
+        "standardDeductionApplied": 29200
+      },
+      "computationNotes": "Ordinary excl SS = 100000+100000+10000+5000 = 215000. Preferential = 20000+40000 = 60000. AGI = 275000. MAGI = 275000. Taxable = 245800. Ordinary taxable = 185800. Ordinary tax = 23200*0.10 + 71100*0.12 + 91500*0.22 = 2320 + 8532 + 20130 = 30982. LTCG: all 60000 in 15% band -> 9000. NIIT: NII = 10000+20000+5000+40000 = 75000; MAGI excess = 25000; NIIT = 0.038 * min(75000, 25000) = 950. Total = 30982 + 9000 + 950 = 40932. MAGI-excess-binds test: NIIT takes min of NII and excess, and here excess (25k) binds."
+    },
+    {
+      "id": "mfj_niit_income_smaller_than_excess",
+      "description": "MFJ MAGI far above $250k but only modest investment income — NIIT = rate * NII (NII is the binding constraint).",
+      "inputs": {
+        "wages": 0,
+        "pension": 0,
+        "socialSecurityBenefits": 0,
+        "ira401kWithdrawals": 400000,
+        "rothWithdrawals": 0,
+        "taxableInterest": 2000,
+        "qualifiedDividends": 3000,
+        "ordinaryDividends": 0,
+        "realizedLTCG": 5000,
+        "realizedSTCG": 0,
+        "otherOrdinaryIncome": 0,
+        "taxExemptInterest": 0,
+        "filingStatus": "married_filing_jointly"
+      },
+      "expected": {
+        "AGI": 410000,
+        "provisionalIncome": 410000,
+        "taxableSocialSecurity": 0,
+        "totalTaxableIncome": 380800,
+        "ordinaryTaxableIncome": 372800,
+        "LTCGTaxableIncome": 8000,
+        "federalTax": 77137,
+        "MAGI": 410000,
+        "marginalOrdinaryBracket": 0.24,
+        "marginalLTCGBracket": 0.15,
+        "netInvestmentIncomeTax": 380,
+        "standardDeductionApplied": 29200
+      },
+      "computationNotes": "Ordinary excl SS = 402000. Preferential = 8000. AGI = 410000. Taxable = 380800. LTCG = 8000, ordinary = 372800. Ordinary tax: 23200*0.10 + 71100*0.12 + 106750*0.22 + 171750*0.24 = 2320 + 8532 + 23485 + 41220 = 75557. LTCG: all 8000 in 15% band -> 1200. NIIT: NII = 2000+3000+5000 = 10000; MAGI excess = 160000; NIIT = 0.038 * min(10000, 160000) = 380. Total = 75557 + 1200 + 380 = 77137. NII-binds test: NIIT takes min of NII and excess, and here NII (10k) binds."
     }
   ]
 }
