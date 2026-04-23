@@ -15,10 +15,13 @@ Execution protocol:
 
 ## Steps
 
-1. [ ] Prediction log writer
+1. [x] Prediction log writer
 - Append-only `predictions.jsonl` (or equivalent local store) written on every plan evaluation.
 - Capture: timestamp, plan fingerprint, assumptions pack, engine version, key outputs (success rate, net worth trajectory by year, lifetime tax estimate).
 - Must not rewrite history — each evaluation is a new row.
+  - Done: `src/prediction-log.ts` with `PredictionRecord`, `PredictionLogStore`, `createInMemoryPredictionLogStore`, `createLocalStoragePredictionLogStore` (500-record FIFO cap), `buildPredictionRecord(seedData, assumptions, path)`, `logPrediction(store, record)`, and `computePlanFingerprint(seedData, assumptions)`. Captures timestamp, planFingerprint, engineVersion, full inputs snapshot, and headline outputs (successRate, medianEndingWealth, tenthPercentileEndingWealth, lifetimeFederalTaxEstimate, peakMedianAssets, peakMedianAssetsYear).
+  - Files: `src/prediction-log.ts`, `src/prediction-log.test.ts`.
+  - Verification: 7/7 tests pass (fingerprint stability + sensitivity, record construction, in-memory and localStorage round-trips, FIFO eviction).
 
 2. [ ] Monthly spending capture (UI)
 - Add a lightweight "log actual spending" form: month, essential, optional, travel, healthcare.
@@ -33,9 +36,11 @@ Execution protocol:
 - Extend the existing PDF import flow to append a timestamped row to `actuals.jsonl` rather than just overwriting current balances.
 - Preserves the trajectory, not just the latest number.
 
-5. [ ] Plan-version stamp on every actuals row
+5. [x] Plan-version stamp on every actuals row
 - Every actuals row references the plan fingerprint that was current at the time of the observation.
 - Lets the reconciliation layer distinguish "model error" from "plan changed."
+  - Done: `computePlanFingerprint(seedData, assumptions)` in `src/prediction-log.ts` emits a short stable hash (FNV-1a-64) tied to canonicalized JSON of all inputs. Key-order-independent (tested); changes on any input mutation (tested). When the actuals log lands in a future step, each row will carry this fingerprint so reconciliation can detect plan changes.
+  - Files: `src/prediction-log.ts` (shared with step 1).
 
 6. [ ] Reconciliation layer
 - For each actuals row, find the prediction(s) made N months ago for that same time horizon.

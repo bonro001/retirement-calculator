@@ -105,6 +105,55 @@ export function boundedNormal(
   return Math.min(max, Math.max(min, sample));
 }
 
+// Hardcoded Cholesky factor of a 4x4 correlation matrix ordered as
+// [US_EQUITY, INTL_EQUITY, BONDS, CASH]. Source correlations reflect
+// long-run US historical relationships: US/INTL ~0.85, US/BONDS ~0.15,
+// BONDS/CASH ~0.20, equity↔cash ~0. Used by correlatedAssetReturns below
+// to reproduce the joint-distribution behavior that Fidelity's historical
+// MC captures but our independent sampling does not.
+const CHOLESKY_L_4X4 = [
+  [1.0, 0, 0, 0],
+  [0.85, 0.52678, 0, 0],
+  [0.15, -0.05221, 0.98729, 0],
+  [0, 0, 0.20258, 0.97927],
+];
+
+export interface CorrelatedBoundedNormalSpec {
+  mean: number;
+  stdDev: number;
+  min: number;
+  max: number;
+}
+
+// Draws four correlated bounded-normal samples in asset-class order
+// [US_EQUITY, INTL_EQUITY, BONDS, CASH]. Correlation is imposed by applying
+// the Cholesky lower-triangular factor L to independent standard normals,
+// then scaling each by its stdDev and adding its mean before clipping.
+export function correlatedAssetReturns(
+  specs: [
+    CorrelatedBoundedNormalSpec, // US_EQUITY
+    CorrelatedBoundedNormalSpec, // INTL_EQUITY
+    CorrelatedBoundedNormalSpec, // BONDS
+    CorrelatedBoundedNormalSpec, // CASH
+  ],
+  random: RandomSource,
+): [number, number, number, number] {
+  const z0 = gaussianRandom(random);
+  const z1 = gaussianRandom(random);
+  const z2 = gaussianRandom(random);
+  const z3 = gaussianRandom(random);
+  const L = CHOLESKY_L_4X4;
+  const x0 = L[0][0] * z0;
+  const x1 = L[1][0] * z0 + L[1][1] * z1;
+  const x2 = L[2][0] * z0 + L[2][1] * z1 + L[2][2] * z2;
+  const x3 = L[3][0] * z0 + L[3][1] * z1 + L[3][2] * z2 + L[3][3] * z3;
+  const correlatedStandardNormals = [x0, x1, x2, x3];
+  return specs.map((spec, index) => {
+    const sample = spec.mean + correlatedStandardNormals[index] * spec.stdDev;
+    return Math.min(spec.max, Math.max(spec.min, sample));
+  }) as [number, number, number, number];
+}
+
 export function percentile(values: number[], fraction: number) {
   if (!values.length) {
     return 0;

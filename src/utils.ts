@@ -29,6 +29,7 @@ import { calculateFederalTax } from './tax-engine';
 import type { YearTaxInputs, YearTaxOutputs } from './tax-engine';
 import {
   boundedNormal,
+  correlatedAssetReturns,
   executeDeterministicMonteCarlo,
   median,
   percentile,
@@ -1127,24 +1128,62 @@ function getStressAdjustedReturns(
     random,
   );
 
-  const assetReturns: Record<AssetClass, number> = {
-    US_EQUITY: boundedNormal(
-      assumptions.equityMean,
-      assumptions.equityVolatility,
-      -0.45,
-      0.45,
-      random,
-    ),
-    INTL_EQUITY: boundedNormal(
-      assumptions.internationalEquityMean,
-      assumptions.internationalEquityVolatility,
-      -0.5,
-      0.45,
-      random,
-    ),
-    BONDS: boundedNormal(assumptions.bondMean, assumptions.bondVolatility, -0.2, 0.2, random),
-    CASH: boundedNormal(assumptions.cashMean, assumptions.cashVolatility, -0.01, 0.08, random),
-  };
+  const assetReturns: Record<AssetClass, number> = assumptions.useCorrelatedReturns
+    ? (() => {
+        const [usEquity, intlEquity, bonds, cash] = correlatedAssetReturns(
+          [
+            {
+              mean: assumptions.equityMean,
+              stdDev: assumptions.equityVolatility,
+              min: -0.45,
+              max: 0.45,
+            },
+            {
+              mean: assumptions.internationalEquityMean,
+              stdDev: assumptions.internationalEquityVolatility,
+              min: -0.5,
+              max: 0.45,
+            },
+            {
+              mean: assumptions.bondMean,
+              stdDev: assumptions.bondVolatility,
+              min: -0.2,
+              max: 0.2,
+            },
+            {
+              mean: assumptions.cashMean,
+              stdDev: assumptions.cashVolatility,
+              min: -0.01,
+              max: 0.08,
+            },
+          ],
+          random,
+        );
+        return {
+          US_EQUITY: usEquity,
+          INTL_EQUITY: intlEquity,
+          BONDS: bonds,
+          CASH: cash,
+        };
+      })()
+    : {
+        US_EQUITY: boundedNormal(
+          assumptions.equityMean,
+          assumptions.equityVolatility,
+          -0.45,
+          0.45,
+          random,
+        ),
+        INTL_EQUITY: boundedNormal(
+          assumptions.internationalEquityMean,
+          assumptions.internationalEquityVolatility,
+          -0.5,
+          0.45,
+          random,
+        ),
+        BONDS: boundedNormal(assumptions.bondMean, assumptions.bondVolatility, -0.2, 0.2, random),
+        CASH: boundedNormal(assumptions.cashMean, assumptions.cashVolatility, -0.01, 0.08, random),
+      };
 
   let marketState: 'normal' | 'down' | 'up' = 'normal';
 

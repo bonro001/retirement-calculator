@@ -123,7 +123,8 @@ function buildAssumptions(
     simulationSeed: 424242,
     assumptionsVersion: `fidelity-historical${
       options.nearZeroVolatility ? '-lowvol' : ''
-    }`,
+    }-corr`,
+    useCorrelatedReturns: true,
     ...vol,
   };
 }

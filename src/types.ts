@@ -238,6 +238,11 @@ export interface MarketAssumptions {
   travelPhaseYears: number;
   simulationSeed?: number;
   assumptionsVersion?: string;
+  // Opt-in: sample correlated asset-class returns via a fixed Cholesky
+  // factor of long-run US correlations (US/INTL 0.85, US/BONDS 0.15,
+  // BONDS/CASH 0.20, equity↔cash 0). Defaults to false (independent
+  // samples) to preserve backward compatibility with existing goldens.
+  useCorrelatedReturns?: boolean;
 }
 
 export interface BoldinBenchmark {
