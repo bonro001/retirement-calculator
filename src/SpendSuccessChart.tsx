@@ -11,9 +11,14 @@ import {
   YAxis,
 } from 'recharts';
 import type { MarketAssumptions, SeedData } from './types';
-import { buildPathResults, formatCurrency, getAnnualStretchSpend } from './utils';
+import { formatCurrency, getAnnualStretchSpend } from './utils';
 import { buildEvaluationFingerprint } from './evaluation-fingerprint';
 import { loadSpendSafetyFromCache, saveSpendSafetyToCache } from './spend-safety-cache';
+import type {
+  SweepPointInput,
+  SweepWorkerRequest,
+  SweepWorkerResponse,
+} from './sweep-worker-types';
 
 export interface SpendScenarioPoint {
   id: string;
@@ -135,6 +140,24 @@ export function useSpendSuccessScenarios(args: HookArgs): HookResult {
   );
 
   const runTokenRef = useRef(0);
+  const workerRef = useRef<Worker | null>(null);
+  const currentBatchIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (workerRef.current) {
+        if (currentBatchIdRef.current) {
+          const cancelMsg: SweepWorkerRequest = {
+            type: 'cancel',
+            batchId: currentBatchIdRef.current,
+          };
+          workerRef.current.postMessage(cancelMsg);
+        }
+        workerRef.current.terminate();
+        workerRef.current = null;
+      }
+    };
+  }, []);
 
   // Try cache on mount and whenever fingerprint changes
   useEffect(() => {
@@ -160,55 +183,111 @@ export function useSpendSuccessScenarios(args: HookArgs): HookResult {
     setError(null);
     setProgress(0);
 
-    void (async () => {
-      try {
-        const deltas = buildSpendGrid();
-        const nextPoints: SpendScenarioPoint[] = [];
-        // Yield twice — once via rAF, once via setTimeout — so "Calculating…" state
-        // and the progress bar paint before the first sim blocks the main thread.
-        await new Promise((resolve) => window.requestAnimationFrame(() => resolve(null)));
-        await new Promise((resolve) => window.setTimeout(resolve, 0));
-        setProgress(0.01);
-        await new Promise((resolve) => window.requestAnimationFrame(() => resolve(null)));
-        for (let index = 0; index < deltas.length; index += 1) {
-          if (runTokenRef.current !== token) return;
-          const spendDeltaPercent = deltas[index];
-          const scenarioInput = buildSpendScenarioData(data, spendDeltaPercent);
-          const [path] = buildPathResults(
-            scenarioInput.data,
-            assumptions,
-            selectedStressors,
-            selectedResponses,
-            { pathMode: 'selected_only', strategyMode },
-          );
-          nextPoints.push({
-            id: `${spendDeltaPercent}`,
-            spendDeltaPercent,
-            monthlySpend: scenarioInput.monthlySpend,
-            successRate: path.successRate,
-            successRatePct: path.successRate * 100,
-            medianEndingWealth: path.medianEndingWealth,
-            irmaaExposureRate: path.irmaaExposureRate,
-            spendingCutRate: path.spendingCutRate,
-            irmaaTone: getIrmaaTone(path.irmaaExposureRate),
-            guardrailDependent: path.spendingCutRate > 0.4,
-            isCurrent: spendDeltaPercent === 0,
-          });
-          setProgress((index + 1) / deltas.length);
-          await new Promise((resolve) => window.setTimeout(resolve, 0));
-        }
-        if (runTokenRef.current !== token) return;
-        nextPoints.sort((left, right) => left.monthlySpend - right.monthlySpend);
-        setPoints(nextPoints);
+    // Cancel any in-flight batch before starting a new one.
+    if (workerRef.current && currentBatchIdRef.current) {
+      const cancelMsg: SweepWorkerRequest = {
+        type: 'cancel',
+        batchId: currentBatchIdRef.current,
+      };
+      workerRef.current.postMessage(cancelMsg);
+    }
+
+    // Lazily create a worker on first calculate.
+    if (!workerRef.current) {
+      workerRef.current = new Worker(new URL('./sweep.worker.ts', import.meta.url), {
+        type: 'module',
+      });
+    }
+    const worker = workerRef.current;
+
+    const deltas = buildSpendGrid();
+    const batchId = `spend-${token}-${Date.now()}`;
+    currentBatchIdRef.current = batchId;
+
+    // Precompute per-point scenario inputs so the main thread keeps the
+    // monthly-spend metadata we need to annotate each PathResult later.
+    const scenarios = deltas.map((spendDeltaPercent) => {
+      const built = buildSpendScenarioData(data, spendDeltaPercent);
+      return { spendDeltaPercent, monthlySpend: built.monthlySpend, data: built.data };
+    });
+
+    const sweepPoints: SweepPointInput[] = scenarios.map((s) => ({
+      pointId: `${s.spendDeltaPercent}`,
+      data: s.data,
+      assumptions,
+      selectedStressors,
+      selectedResponses,
+      strategyMode,
+    }));
+
+    const collected: SpendScenarioPoint[] = [];
+
+    const onMessage = (event: MessageEvent<SweepWorkerResponse>) => {
+      const msg = event.data;
+      if (msg.batchId !== batchId) return;
+      if (runTokenRef.current !== token) return;
+
+      if (msg.type === 'progress') {
+        const perPoint = 1 / msg.total;
+        const completedFraction = msg.index * perPoint;
+        setProgress(Math.min(0.99, completedFraction + msg.pointProgress * perPoint));
+      } else if (msg.type === 'point') {
+        const scenario = scenarios[msg.index];
+        const path = msg.path;
+        collected.push({
+          id: msg.pointId,
+          spendDeltaPercent: scenario.spendDeltaPercent,
+          monthlySpend: scenario.monthlySpend,
+          successRate: path.successRate,
+          successRatePct: path.successRate * 100,
+          medianEndingWealth: path.medianEndingWealth,
+          irmaaExposureRate: path.irmaaExposureRate,
+          spendingCutRate: path.spendingCutRate,
+          irmaaTone: getIrmaaTone(path.irmaaExposureRate),
+          guardrailDependent: path.spendingCutRate > 0.4,
+          isCurrent: scenario.spendDeltaPercent === 0,
+        });
+        setProgress((msg.index + 1) / msg.total);
+      } else if (msg.type === 'done') {
+        collected.sort((a, b) => a.monthlySpend - b.monthlySpend);
+        setPoints(collected);
         setCachedFingerprint(fingerprint);
         setLoadState('ready');
-        void saveSpendSafetyToCache(fingerprint, nextPoints);
-      } catch (e) {
-        if (runTokenRef.current !== token) return;
-        setError(e instanceof Error ? e.message : 'Spend scenarios failed to run.');
+        setProgress(1);
+        void saveSpendSafetyToCache(fingerprint, collected);
+        worker.removeEventListener('message', onMessage);
+        worker.removeEventListener('error', onError);
+        if (currentBatchIdRef.current === batchId) currentBatchIdRef.current = null;
+      } else if (msg.type === 'cancelled') {
+        worker.removeEventListener('message', onMessage);
+        worker.removeEventListener('error', onError);
+        if (currentBatchIdRef.current === batchId) currentBatchIdRef.current = null;
+      } else if (msg.type === 'error') {
+        setError(msg.error || 'Spend scenarios failed to run.');
         setLoadState('error');
+        worker.removeEventListener('message', onMessage);
+        worker.removeEventListener('error', onError);
+        if (currentBatchIdRef.current === batchId) currentBatchIdRef.current = null;
       }
-    })();
+    };
+
+    const onError = (event: ErrorEvent) => {
+      if (runTokenRef.current !== token) return;
+      setError(event.message || 'Spend scenarios worker crashed.');
+      setLoadState('error');
+      worker.removeEventListener('message', onMessage);
+      worker.removeEventListener('error', onError);
+      if (currentBatchIdRef.current === batchId) currentBatchIdRef.current = null;
+    };
+
+    worker.addEventListener('message', onMessage);
+    worker.addEventListener('error', onError);
+
+    const runMsg: SweepWorkerRequest = {
+      type: 'run',
+      payload: { batchId, points: sweepPoints },
+    };
+    worker.postMessage(runMsg);
   }, [assumptions, data, fingerprint, selectedResponses, selectedStressors, strategyMode]);
 
   const isStale = points.length > 0 && cachedFingerprint !== null && cachedFingerprint !== fingerprint;
