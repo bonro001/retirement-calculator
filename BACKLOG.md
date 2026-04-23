@@ -7,6 +7,23 @@ Related workplans (each has its own stepwise plan):
 - [CALIBRATION_WORKPLAN.md](CALIBRATION_WORKPLAN.md) — capture predicted-vs-actual over time for empirical model calibration.
 - [VALIDATION_WORKPLAN.md](VALIDATION_WORKPLAN.md) — property tests, tax-engine validation, historical backtesting, peer-planner parity.
 
+## Next priority (ranked)
+
+Filter used: *"fix what changes decisions (tail risk, calibration); everything else can wait."* Lifted from a reviewer critique, sharpened against what we actually shipped.
+
+1. ~~**Fat-tail return distribution + clip removal**~~ ✅ **Done this sprint.** Added `useHistoricalBootstrap` opt-in that samples per-year (stocks, bonds, cash, inflation) tuples from [historical_annual_returns.json](fixtures/historical_annual_returns.json). Fidelity translator now uses it by default. Closed p10 gap from 4.4x → 2.2x of Fidelity. Remaining 2x likely block/autocorrelation (multi-year bad-follows-bad dynamics) + withdrawal-policy smoothing; tracked as follow-up if decision-critical.
+2. **Actuals log + reconciliation layer** (CALIBRATION steps 2, 4, 6) — pairs with the already-shipped prediction log. Write the companion `actuals.jsonl` capture for balances / monthly spend / annual tax, plus the reconciliation that diffs prediction vs actuals. Implementable now, doesn't need calendar time to code — only to populate.
+3. **UI: uncertainty range tile** — surfaces `src/uncertainty-surface.ts` as a dashboard card showing the success-rate range ("85-94%") instead of a single point. Replaces the most dangerous single-number headline.
+4. **UI: tax efficiency tile** — surfaces `src/tax-efficiency.ts` as a dashboard card showing lifetime federal tax, effective rate, top heat year with driver, and IRMAA cliff count. Tax minimization is stated user priority ("hate paying taxes").
+5. **CENTRAL_MANAGED / TRP_2030 proxy tightening** (Allocation check remediation) — engine's 72.1% US-equity drift vs Fidelity's 65.0% is from the ambiguous-holding proxies in `asset-class-mapper.ts`. Either add user-configurable per-account override or derive proxies from lookthrough data. Lets the allocation-check tolerance drop below 8pp.
+6. **Shiller back-fill for historical_annual_returns.json** — current values are ~±1-2pp approximate. Replace with definitive pull from Shiller ie_data.xls. Tightens Trinity reproduction from "in the right band" to "exact published numbers."
+7. **Monte Carlo convergence test** — per-metric drift test across 100 → 500 → 2000 → 5000 runs, asserting stabilization. Catches the case where we report 92% when the real MC answer is still noisy at whatever our default run count is.
+8. **Third peer planner** — triangulation beyond Boldin + Fidelity. Projection Lab / NewRetirement / FICalc. Mostly a capture exercise now that the parity-harness shape is proven.
+9. **Additional Medicare tax** (0.9% on wages >$250k MFJ) — zero impact on target household (no post-retirement wages), kept here for completeness not urgency.
+10. **Authentication decision** — product-level, separate from calibration/tail work. Still open per earlier entry.
+
+Guiding principle (reviewer's, and it's correct): *fix what changes decisions — tail risk and calibration are the two real levers remaining. Polish is optional.*
+
 ## Open
 
 - [ ] **Close the Fidelity p10 tail gap**. Even with asset-class correlation added (this sprint), our `tenthPercentileEndingWealth` lands ~3.6x richer than Fidelity's published p10. Remaining likely driver is distribution shape: our bounded-normal sampler is symmetric, but historical equity returns are left-skewed and kurtotic. Candidate fixes: (a) swap bounded-normal for a lognormal/t-distribution sampler, (b) tighten the downside clip bound on equity below -0.45, (c) splice actual historical worst-case sequences into the bounded-normal draws at some sampling rate. Track with a dedicated workplan when it becomes urgent.

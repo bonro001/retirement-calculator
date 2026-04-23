@@ -36,6 +36,7 @@ import {
   type RandomSource,
   SIMULATION_CANCELLED_ERROR,
 } from './monte-carlo-engine';
+import historicalAnnualReturns from '../fixtures/historical_annual_returns.json';
 import {
   calculateIrmaaTier,
   calculateRequiredMinimumDistribution,
@@ -1114,12 +1115,88 @@ function getScheduledAnnualSpendForYear(
   return Math.max(0, value);
 }
 
+// Historical annual-returns fixture data, pre-parsed once for fast per-year
+// bootstrap sampling. Each row carries S&P 500 total return, intermediate-term
+// Treasury return, and CPI inflation. We map stocks→US_EQUITY and
+// bonds→BONDS; historical intl and cash aren't in the Trinity-era dataset
+// so we proxy: intl = US with a small shift, cash = 0.8x * inflation (keeps
+// cash yield roughly tracking inflation as it does historically).
+const HISTORICAL_RETURN_TUPLES = (
+  historicalAnnualReturns as {
+    annual: Array<{
+      year: number;
+      stocks: number;
+      bonds: number;
+      inflation: number;
+    }>;
+  }
+).annual;
+
+function sampleHistoricalBootstrapYear(random: RandomSource): {
+  US_EQUITY: number;
+  INTL_EQUITY: number;
+  BONDS: number;
+  CASH: number;
+  inflation: number;
+  sampledYear: number;
+} {
+  const index = Math.floor(random() * HISTORICAL_RETURN_TUPLES.length);
+  const row = HISTORICAL_RETURN_TUPLES[
+    Math.max(0, Math.min(HISTORICAL_RETURN_TUPLES.length - 1, index))
+  ];
+  return {
+    US_EQUITY: row.stocks,
+    INTL_EQUITY: row.stocks * 0.95, // intl proxy — tracks US with slight haircut
+    BONDS: row.bonds,
+    CASH: Math.max(0, row.inflation * 0.8), // cash yield ~ tracks inflation
+    inflation: row.inflation,
+    sampledYear: row.year,
+  };
+}
+
 function getStressAdjustedReturns(
   plan: SimPlan,
   assumptions: MarketAssumptions,
   yearOffset: number,
   random: RandomSource,
 ) {
+  // Historical bootstrap path: one random year's tuple overrides all four
+  // asset returns AND inflation. Stress overlays still apply on top.
+  if (assumptions.useHistoricalBootstrap) {
+    const sample = sampleHistoricalBootstrapYear(random);
+    let inflation = sample.inflation;
+    const assetReturns: Record<AssetClass, number> = {
+      US_EQUITY: sample.US_EQUITY,
+      INTL_EQUITY: sample.INTL_EQUITY,
+      BONDS: sample.BONDS,
+      CASH: sample.CASH,
+    };
+    let marketState: 'normal' | 'down' | 'up' = 'normal';
+    if (plan.activeStressors.includes('market_down') && yearOffset < 3) {
+      const overrides = [-0.18, -0.12, -0.08];
+      assetReturns.US_EQUITY = overrides[yearOffset];
+      assetReturns.INTL_EQUITY = overrides[yearOffset];
+      marketState = 'down';
+    } else if (
+      plan.activeStressors.includes('market_down') &&
+      yearOffset >= 3 &&
+      yearOffset < 8
+    ) {
+      assetReturns.US_EQUITY += 0.04;
+      assetReturns.INTL_EQUITY += 0.04;
+    }
+    if (plan.activeStressors.includes('market_up') && yearOffset < 3) {
+      const overrides = [0.12, 0.1, 0.08];
+      assetReturns.US_EQUITY = overrides[yearOffset];
+      assetReturns.INTL_EQUITY = overrides[yearOffset];
+      marketState = 'up';
+    }
+    if (plan.activeStressors.includes('inflation') && yearOffset < 10) {
+      inflation = Math.max(inflation, 0.05);
+    }
+    return { inflation, assetReturns, marketState };
+  }
+
   let inflation = boundedNormal(
     assumptions.inflation,
     assumptions.inflationVolatility,

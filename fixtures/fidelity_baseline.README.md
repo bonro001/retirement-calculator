@@ -33,14 +33,20 @@ The ~40pp Boldin-vs-Fidelity gap on the same portfolio is entirely methodology, 
 
 ## What the triangulation still flags
 
-**10th-percentile ending wealth gap**. Fidelity publishes $436k at p10; our engine's `tenthPercentileEndingWealth` lands around $1.9M. That's a 4x gap on the stress endpoint, and it survives matching Fidelity's methodology roughly. Likely contributors, none individually confirmed:
+**10th-percentile ending wealth gap** — largely closed by switching to historical bootstrap sampling:
 
-1. **Correlation**. Fidelity explicitly models cross-asset correlation; our `boundedNormal` samples each asset class independently. Uncorrelated samples produce less extreme joint drawdowns than correlated ones.
-2. **Bounded-normal clipping**. Our equity returns are clipped at ±45%; realized history includes -37% (2008) and -43% (1931) — inside bounds — but rare multi-year drawdowns accumulate differently in a clipped normal than in historical sequences.
-3. **Withdrawal policy smoothing**. Same residual we saw vs Boldin: our guardrails and closed-loop healthcare-tax iteration preserve wealth in adverse years. Fidelity's "significantly below average" trajectory likely withdraws more mechanically.
-4. **Per-year distribution shape**. Historical is left-skewed and kurtotic; our normal draws are symmetric.
+| Sampler | p10 ending wealth | Gap vs Fidelity |
+|---|---|---|
+| Original bounded-normal (independent draws) | ~$1.9M | 4.4x |
+| Bounded-normal + Cholesky correlation | ~$1.59M | 3.7x |
+| **Historical bootstrap** (Fidelity translator default) | **~$972k** | **2.2x** |
 
-Not urgent to fix — the success rate is the headline number and it's close. But if we're building a decision tool where users read "my p10 outcome is $X," that number drifts from Fidelity's by a factor of 4 and deserves a resolution path before it's surfaced prominently.
+The Fidelity translator now sets `useHistoricalBootstrap: true`, which samples one year's (stocks, bonds, cash, inflation) tuple from [historical_annual_returns.json](./historical_annual_returns.json) per simulated year. Preserves historical skew, kurtosis, and cross-asset correlation "for free" — matches Fidelity's explicit methodology ("historical performance, risk, and correlation of domestic stocks, foreign stocks, bonds, and short-term investments").
+
+**Remaining ~2x gap** likely driven by:
+
+1. **Block / autocorrelation**. Fidelity probably uses multi-year block bootstrap or a regime-switching model. Our per-year iid bootstrap loses the "bad year tends to follow bad year" dynamics of actual sequences.
+2. **Withdrawal policy smoothing**. Same residual we saw vs Boldin: our guardrails and closed-loop healthcare-tax iteration preserve wealth in adverse years; Fidelity's stress trajectory withdraws more mechanically.
 
 ## How to refresh
 

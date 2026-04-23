@@ -123,8 +123,15 @@ function buildAssumptions(
     simulationSeed: 424242,
     assumptionsVersion: `fidelity-historical${
       options.nearZeroVolatility ? '-lowvol' : ''
-    }-corr`,
-    useCorrelatedReturns: true,
+    }-bootstrap`,
+    // Bootstrap from the 1926-2023 historical-returns fixture. Matches
+    // Fidelity's explicit methodology: "historical performance, risk, and
+    // correlation of domestic stocks, foreign stocks, bonds, and short-term
+    // investments." Preserves skew, kurtosis, and joint-distribution
+    // correlation without needing any of those as explicit parameters.
+    // When useHistoricalBootstrap is true, useCorrelatedReturns and the
+    // mean/stdDev parameters are no-ops for asset returns.
+    useHistoricalBootstrap: true,
     ...vol,
   };
 }

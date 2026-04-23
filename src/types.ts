@@ -243,6 +243,15 @@ export interface MarketAssumptions {
   // BONDS/CASH 0.20, equity↔cash 0). Defaults to false (independent
   // samples) to preserve backward compatibility with existing goldens.
   useCorrelatedReturns?: boolean;
+  // Opt-in: for each simulated year, sample a complete asset-class return
+  // + inflation tuple from the historical annual-returns fixture instead
+  // of drawing from bounded normals. Preserves historical skew, kurtosis,
+  // and cross-asset correlation "for free" — matches what Fidelity's MC
+  // explicitly does ("historical performance, risk, and correlation").
+  // When enabled, `useCorrelatedReturns`, mean/stdDev parameters, and the
+  // bounded-normal clip become no-ops for asset returns and inflation.
+  // Stress overlays still apply on top.
+  useHistoricalBootstrap?: boolean;
 }
 
 export interface BoldinBenchmark {
