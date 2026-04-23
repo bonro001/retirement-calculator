@@ -147,24 +147,35 @@ Execution protocol:
 
 ## Track D — Fidelity parity
 
-18. [ ] Capture Fidelity scenario
+18. [x] Capture Fidelity scenario
 - Plug the same household into Fidelity's retirement planner (or a simplified equivalent).
 - Screenshot the Assumptions, Inputs, and Results screens just like we did for Boldin.
+  - Done: captured via PDF export from digital.fidelity.com/ftgw/pna/customer/planning/. Initial capture was incomplete (5 of 9 accounts due to managed-account transition); after moving from managed to self-directed all 8 accounts linked and re-captured.
+  - Files: `/Users/robbonner/Desktop/Retirement Analysis2.pdf` (externally held; contents extracted into the fixture).
 
-19. [ ] Build `fixtures/fidelity_*.json`
+19. [x] Build `fixtures/fidelity_*.json`
 - Mirror the Boldin fixture shape: inputs + `expected` block with Fidelity's outputs.
 - Add a README (like the Boldin one) documenting what Fidelity exposes and what it hides.
+  - Done: `fixtures/fidelity_baseline.json` with household, income, portfolio asset mix + tax buckets, expenses, RMD notes, and expected outputs (95% success, $1,971,816 lifetime income, $436,224 p10 ending balance). README at `fixtures/fidelity_baseline.README.md` documents methodology differences vs Boldin, unpublished fields, and the triangulation framing.
+  - Files: `fixtures/fidelity_baseline.json`, `fixtures/fidelity_baseline.README.md`.
 
-20. [ ] Build Fidelity translator
+20. [x] Build Fidelity translator
 - Map Fidelity's input shape to our `SeedData`/`MarketAssumptions`, same pattern as `boldin-fixture-translator.ts`.
 - Note Fidelity's return-model quirks as translation notes.
+  - Done: `translateFidelityFixture(fixture, options)` reuses initialSeedData for per-account structure (Fidelity doesn't publish balances) and sets MarketAssumptions to historical-approximation means (equity 9.8%, intl 8.5%, bonds 5.3%, cash 3%) instead of Boldin's Conservative preset. Emits translation notes flagging the asset-mix audit as a follow-up (tied to the Allocation check item in BACKLOG.md).
+  - Files: `src/fidelity-fixture-translator.ts`.
 
-21. [ ] Mirror the parity smoke test
+21. [x] Mirror the parity smoke test
 - `src/fidelity-parity.test.ts` using the same diagnostic tables (spend-path, money-flow, per-bucket withdrawals).
 - Run against the same household as the Boldin fixture so the two peer outputs can be compared directly.
+  - Done: triangulation test prints a Fidelity/Boldin/Ours side-by-side diagnostic table on every run. Asserts only sanity bounds (success in [0, 100], non-negative ending wealth); the real product is the console output. Uses Fidelity's historical-methodology assumptions for apples-to-apples.
+  - Files: `src/fidelity-parity.test.ts`.
+  - Verification: test passes. Current output: 98.4% ours vs 95% Fidelity vs 48% Boldin on success rate; p10 ending wealth $1.9M ours vs $436k Fidelity — the remaining structural gap, documented in the README.
 
-22. [ ] Multi-planner summary
+22. [x] Multi-planner summary
 - A small helper that prints both peer deltas side-by-side: "On this plan, Boldin says X, Fidelity says Y, we say Z." Triangulation view.
+  - Done: folded into the parity test (step 21). One test, one table, all three tools. Reading the diagnostic output IS the multi-planner summary.
+  - Files: see step 21.
 
 ---
 

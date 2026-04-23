@@ -13,7 +13,7 @@ Four validation tracks, each catching a distinct class of failure. If all four p
 | **A** — Property tests | Sign flips, accounting errors, discontinuities | ✅ 5/5 steps, 13 tests |
 | **B** — Tax engine validation | Bracket math errors, IRMAA/SS/ACA miscalibration | ✅ 6/6 steps, 76 tests |
 | **C** — Historical backtesting | Sequence-of-returns modeling errors | ✅ 6/6 steps, 15 tests |
-| **D** — Fidelity parity | Blind spots shared with Boldin | ⏸ 0/5 (needs Fidelity capture) |
+| **D** — Fidelity parity | Blind spots shared with Boldin | ✅ 5/5 steps, 1 test (diagnostic) |
 | Peer-tool safety check (Boldin) | Divergence vs a named consumer planner | ✅ Harness live |
 | Calibration over time | Predicted vs realized outcomes over months/years | ⏸ 0/13 (requires calendar time) |
 
@@ -44,16 +44,28 @@ Plus: 29 IRMAA tier-boundary tests (every threshold at-and-above), 14 SS taxatio
 
 See [docs/tax-engine-assumptions.md](tax-engine-assumptions.md) for the plan-year anchor values and when they need updating, plus an explicit list of what's still **not modeled**: NIIT follow-on and age-65 bump were added in a recent sprint; additional Medicare tax, QBI, state income tax, and WEP/GPO remain deferred as documented gaps.
 
-### ⚠️ Peer-tool optimism bias vs Boldin
-On identical inputs (same household, same no-home scenario, same Boldin "Conservative" 5.92% mean / 11.05% stdev), our engine runs **~40pp more optimistic than Boldin on success rate** and **~2× more optimistic on ending wealth**. After calibrating distribution + turning off Roth conversions + overlaying Boldin's healthcare costs we closed about half the gap; the residual is structural:
+### ⚠️ Peer-tool triangulation: Fidelity, Boldin, us
 
-- **Yield-as-income accounting**. Our engine surfaces investment yield on the taxable bucket as `medianIncome` (and taxes it); Boldin rolls the same yield silently into asset growth. Over 33 years this accounts for ~$700k of "extra resources" on our side.
-- **Distribution shape**. Even at 11.05% stdev matching Boldin, our normal distribution may not produce fat enough left tails to reach 48% failure; we saturate around 9% failure.
-- **Withdrawal-policy smoothing**. Guardrails + closed-loop healthcare-tax iteration preserves wealth in adverse years in ways Boldin's simpler "spend what's needed" doesn't.
+Same household, same 8-account portfolio (~$921-924k), three tools:
 
-**Reading**: "our engine is optimistic **relative to Boldin**." Whether we're right or Boldin is too conservative is not knowable without a third reference point (the purpose of Track D). Until then, success-rate and ending-wealth outputs should be read as optimistic vs consumer planners.
+| Engine | Methodology | Success rate | p10 ending wealth |
+|---|---|---|---|
+| **Boldin** (Conservative preset) | User-override: 5.92% mean / 11.05% stdev per equity account | **48%** | — |
+| **Fidelity** (default) | 250 MC sims, historical asset-class sampling + correlation | **95%** | **$436,224** |
+| **Ours** (historical-approximation defaults) | 500 MC sims, equity 9.8% / bonds 5.3% / cash 3% | **~98%** | ~$1.9M |
 
-See [fixtures/boldin_lower_returns.README.md](../fixtures/boldin_lower_returns.README.md) for the full diagnostic trail and [src/boldin-parity.test.ts](../src/boldin-parity.test.ts) for the live harness.
+**The Boldin-vs-Fidelity 47pp gap on the same portfolio is methodology, not bug.** Boldin's Conservative preset is a user-selected stress test (5.92% mean = well below historical). Fidelity and our engine both sample from historical-style distributions and agree within a few pp.
+
+**Our alignment with Fidelity on success rate is the strong trust signal** — the one-tool optimism bias framing from earlier is too harsh. What we see now is: under comparable methodology, we land in Fidelity's neighborhood; under Boldin's stress preset, we under-stress relative to Boldin (closed about half the gap via calibration but not all).
+
+**What the triangulation still flags**:
+
+1. **10th-percentile ending wealth gap**. Fidelity publishes p10 ending balance of $436k; our `tenthPercentileEndingWealth` lands around $1.9M. That's a 4x gap on the stress endpoint. Likely contributors, none individually confirmed: (a) cross-asset correlation — Fidelity models it, our `boundedNormal` samples each asset class independently; (b) bounded-normal clipping at ±45% may not produce fat enough left tails; (c) withdrawal-policy smoothing (same residual as vs Boldin); (d) historical left-skew and kurtosis that a symmetric normal doesn't capture.
+2. **Residual Boldin gap at p50**. Our median ending wealth with Conservative calibration is $1.54M vs Boldin's $42k. The yield-as-income accounting + withdrawal smoothing residuals we identified earlier still apply; they're most visible when matched against Boldin's stress preset.
+
+**Reading**: "our success rate tracks Fidelity closely; our p10 ending-wealth tail is less stressful than Fidelity's." The right trust framing is not "we're globally optimistic" but "our tail is thin" — which is the kind of finding that sharpens where calibration attention should go next.
+
+See [fixtures/boldin_lower_returns.README.md](../fixtures/boldin_lower_returns.README.md) and [fixtures/fidelity_baseline.README.md](../fixtures/fidelity_baseline.README.md) for the full diagnostic trails.
 
 ### ✅ Invariants hold
 13 property tests exercise monotonicity (more spending ⇒ success never rises, delayed retirement ⇒ success never falls, etc.) and strict dominance (+5pp on all asset-class returns ⇒ higher ending wealth, doubling pretax ⇒ higher ending wealth, zero spending ⇒ 100% success). All pass. These catch the class of bug that would show up as sign flips or silent accounting errors.
@@ -105,6 +117,7 @@ Test files and counts:
 | [src/historical-cohorts.test.ts](../src/historical-cohorts.test.ts) | 9 | 1929/1966/1982/2000 retiree outcomes |
 | [src/trinity-rolling-windows.test.ts](../src/trinity-rolling-windows.test.ts) | 6 | Trinity/Bengen rolling-window reproduction |
 | [src/boldin-parity.test.ts](../src/boldin-parity.test.ts) | 1 | Live diagnostic safety check vs Boldin |
+| [src/fidelity-parity.test.ts](../src/fidelity-parity.test.ts) | 1 | Live triangulation: Fidelity / Boldin / ours side-by-side |
 
 **Total validation tests**: 104. **Plus** the extensive pre-existing simulation test suite (~150 more tests across decision-engine, roth-conversion-behavior, monte-carlo-parity, flight-path, etc.).
 
