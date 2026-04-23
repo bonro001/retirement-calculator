@@ -66,6 +66,16 @@ describe('prediction log', () => {
     expect(record.outputs.peakMedianAssets).toBeGreaterThan(0);
   });
 
+  it('buildPredictionRecord captures a yearly trajectory for reconciliation', () => {
+    const { seedData, assumptions, baselinePath } = runBaseline();
+    const record = buildPredictionRecord(seedData, assumptions, baselinePath);
+    expect(record.yearlyTrajectory.length).toBe(baselinePath.yearlySeries.length);
+    expect(record.yearlyTrajectory[0].year).toBe(baselinePath.yearlySeries[0].year);
+    expect(record.yearlyTrajectory[0].medianAssets).toBe(
+      baselinePath.yearlySeries[0].medianAssets,
+    );
+  });
+
   it('in-memory store appends and reads deterministically', () => {
     const store = createInMemoryPredictionLogStore();
     const record1 = {
@@ -81,6 +91,7 @@ describe('prediction log', () => {
         peakMedianAssets: 1_500_000,
         peakMedianAssetsYear: 2050,
       },
+      yearlyTrajectory: [],
     } as PredictionRecord;
 
     logPrediction(store, record1);
@@ -107,6 +118,7 @@ describe('prediction log', () => {
         peakMedianAssets: 0,
         peakMedianAssetsYear: 0,
       },
+      yearlyTrajectory: [],
     } as PredictionRecord;
     logPrediction(store, record);
 
@@ -156,6 +168,7 @@ describe('prediction log', () => {
         peakMedianAssets: 2_400_000,
         peakMedianAssetsYear: 2055,
       },
+      yearlyTrajectory: [],
     } as PredictionRecord;
     logPrediction(store, record);
 
@@ -202,6 +215,7 @@ describe('prediction log', () => {
         peakMedianAssets: 0,
         peakMedianAssetsYear: 0,
       },
+      yearlyTrajectory: [],
     };
     for (let i = 0; i < 525; i++) {
       logPrediction(store, {

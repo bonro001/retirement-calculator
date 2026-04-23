@@ -123,6 +123,8 @@ Test files and counts:
 | [src/tax-efficiency.test.ts](../src/tax-efficiency.test.ts) | 7 | Lifetime tax decomposition, heat years, IRMAA cliff exposure |
 | [src/uncertainty-surface.test.ts](../src/uncertainty-surface.test.ts) | 6 | Range-based "honest headline" across assumption perturbations |
 | [src/historical-bootstrap.test.ts](../src/historical-bootstrap.test.ts) | 5 | Historical-bootstrap return sampler (fat-tail fix for Fidelity p10) |
+| [src/actuals-log.test.ts](../src/actuals-log.test.ts) | 6 | Realized-outcomes log (balance snapshots, monthly spend, annual tax, life events) |
+| [src/reconciliation.test.ts](../src/reconciliation.test.ts) | 6 | Predicted-vs-actual delta computation with fingerprint drift detection |
 
 **Total validation tests**: 130. **Plus** the extensive pre-existing simulation test suite (~150 more tests across decision-engine, roth-conversion-behavior, monte-carlo-parity, flight-path, etc.).
 

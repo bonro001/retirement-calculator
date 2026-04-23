@@ -18,6 +18,18 @@ import type { MarketAssumptions, PathResult, SeedData } from './types';
 // in-memory Map. A future step in CALIBRATION_WORKPLAN swaps in an
 // append-only file when we're running under Node.
 
+// Per-year snapshot compressed down to just what the reconciliation layer
+// needs to diff a prediction against later actuals. Keeping it narrow
+// (not the full PathYearResult) so stored records stay small enough for
+// localStorage to hold hundreds of evaluations.
+export interface PredictionYearSnapshot {
+  year: number;
+  medianAssets: number;
+  medianSpending: number;
+  medianFederalTax: number;
+  medianIncome: number;
+}
+
 export interface PredictionRecord {
   timestamp: string;
   planFingerprint: string;
@@ -34,6 +46,7 @@ export interface PredictionRecord {
     peakMedianAssets: number;
     peakMedianAssetsYear: number;
   };
+  yearlyTrajectory: PredictionYearSnapshot[];
 }
 
 export interface PredictionLogStore {
@@ -150,6 +163,16 @@ export function buildPredictionRecord(
     },
   );
 
+  const yearlyTrajectory: PredictionYearSnapshot[] = baselinePath.yearlySeries.map(
+    (year) => ({
+      year: year.year,
+      medianAssets: year.medianAssets,
+      medianSpending: year.medianSpending,
+      medianFederalTax: year.medianFederalTax,
+      medianIncome: year.medianIncome,
+    }),
+  );
+
   return {
     timestamp: new Date().toISOString(),
     planFingerprint: computePlanFingerprint(seedData, assumptions),
@@ -166,6 +189,7 @@ export function buildPredictionRecord(
       peakMedianAssets: peakYear?.medianAssets ?? 0,
       peakMedianAssetsYear: peakYear?.year ?? 0,
     },
+    yearlyTrajectory,
   };
 }
 

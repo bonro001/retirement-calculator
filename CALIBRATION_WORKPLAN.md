@@ -23,18 +23,21 @@ Execution protocol:
   - Files: `src/prediction-log.ts`, `src/prediction-log.test.ts`.
   - Verification: 7/7 tests pass (fingerprint stability + sensitivity, record construction, in-memory and localStorage round-trips, FIFO eviction).
 
-2. [ ] Monthly spending capture (UI)
+2. [-] Monthly spending capture (UI)
 - Add a lightweight "log actual spending" form: month, essential, optional, travel, healthcare.
 - Persist to `actuals.jsonl` with timestamp.
 - Do not overwrite prior months on edit — store a correction row instead.
+  - Engine side: `MonthlySpendingActual` + `buildMonthlySpendingActual` helper + `createInMemoryActualsLogStore` / `createLocalStorageActualsLogStore` in `src/actuals-log.ts`. Tests cover bucket-sum, round-trip, and kind-discrimination. **UI form still needed.**
 
-3. [ ] Annual tax capture (UI)
+3. [-] Annual tax capture (UI)
 - One-field-per-year entry from the user's 1040 (total federal tax paid).
 - Distinguish actual-paid from engine-estimated in all downstream dashboards.
+  - Engine side: `AnnualTaxActual` + `buildAnnualTaxActual` helper, round-tripped through the same actuals log store as step 2. Optional note field carries 1040 line reference. Reconciliation layer (step 6) treats it as a discrete per-year metric. **UI form still needed.**
 
-4. [ ] Balance snapshot log
+4. [x] Balance snapshot log
 - Extend the existing PDF import flow to append a timestamped row to `actuals.jsonl` rather than just overwriting current balances.
 - Preserves the trajectory, not just the latest number.
+  - Done (engine side): `BalanceSnapshotActual` + `buildBalanceSnapshotActual` helper with per-bucket fields (pretax, roth, taxable, cash, hsa) summed into `totalBalance`. Reconciliation layer diffs `totalBalance` against `medianAssets` for the matching year. Files: `src/actuals-log.ts`. **PDF import wiring into the append flow is still a follow-up** — currently the import flow overwrites; wiring is a small edit in the import handler to call `logActual(store, ...)` before mutating seed data.
 
 5. [x] Plan-version stamp on every actuals row
 - Every actuals row references the plan fingerprint that was current at the time of the observation.
@@ -42,10 +45,14 @@ Execution protocol:
   - Done: `computePlanFingerprint(seedData, assumptions)` in `src/prediction-log.ts` emits a short stable hash (FNV-1a-64) tied to canonicalized JSON of all inputs. Key-order-independent (tested); changes on any input mutation (tested). When the actuals log lands in a future step, each row will carry this fingerprint so reconciliation can detect plan changes.
   - Files: `src/prediction-log.ts` (shared with step 1).
 
-6. [ ] Reconciliation layer
+6. [x] Reconciliation layer
 - For each actuals row, find the prediction(s) made N months ago for that same time horizon.
 - Compute delta (actual minus predicted) for each tracked metric.
 - Persist to `reconciliations.jsonl` as a third append-only table.
+  - Done: `reconcileActualsVsPredictions(predictionStore, actualsStore)` in `src/reconciliation.ts`. For each actuals record: (a) finds the most recent prior prediction whose timestamp precedes the actuals capture, (b) flags fingerprint match vs plan-drift via `planFingerprintMatch`, (c) for balance/spending/tax metrics computes `deltaAbsolute` and `deltaPct` against the matching year in the prediction's `yearlyTrajectory`, (d) monthly spending is annualized-then-divided-by-12 for apples-to-apples. `summarizeReconciliation(rows)` aggregates mean/median deltaPct by metric for a "how is the engine biased overall" report.
+  - The "persist to reconciliations.jsonl" persistence is deliberately **not** done — reconciliation is a pure function of the two logs (no state of its own). Store adapter can be added later if memoization is useful.
+  - Files: `src/reconciliation.ts`, `src/reconciliation.test.ts`.
+  - Verification: 6/6 tests pass covering fingerprint match, fingerprint drift, annualized monthly spend, annual tax matching, no-prior-prediction edge, and aggregate summary.
 
 7. [ ] Delta dashboard (read-only UI)
 - Chart: predicted net worth trajectory vs realized balance points, overlaid.
