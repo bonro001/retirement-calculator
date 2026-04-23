@@ -1,0 +1,198 @@
+{
+  "$meta": {
+    "source": "Boldin — www.boldin.com/planner",
+    "scenario": "Lower Returns (no home)",
+    "scenarioIntent": "User-defined stress test: what happens if investment returns are permanently lower. Applied as a permanent per-account rate haircut, not a sequence-of-returns shock. Home removed from plan entirely.",
+    "capturedOn": "2026-04-23",
+    "capturedFrom": "Boldin Summary / Assets & Debts / Income / Rate Assumptions / Money Flows / Expenses & Healthcare / Home & Real Estate / Dashboard",
+    "note": "Boldin models for life. Home and future move both removed — no primary residence, no future purchases, no sales."
+  },
+
+  "household": {
+    "you": {
+      "name": "Rob",
+      "retirementDate": "2027-07-01",
+      "retirementAgeYM": "62y7m",
+      "longevityAge": 90,
+      "longevityYear": 2054
+    },
+    "spouse": {
+      "name": "Debbie",
+      "alreadyRetired": true,
+      "retiredForYears": 25,
+      "approxRetirementYear": 2001,
+      "longevityAge": 94,
+      "longevityYear": 2057
+    },
+    "filingStatus": "married_filing_jointly",
+    "state": "TX"
+  },
+
+  "income": {
+    "work": {
+      "monthly": 14000,
+      "annual": 168000,
+      "startsBefore": "2026-01-01",
+      "endsOn": "2027-06-30",
+      "growthRateAnnual": 0.0254,
+      "growthLabel": "Historical Average"
+    },
+    "socialSecurity": {
+      "you": {
+        "monthlyAtClaim": 4078,
+        "claimDate": "2031-12-01",
+        "claimAge": 67
+      },
+      "spouse": {
+        "monthlyAtClaim": 2100,
+        "claimDate": "2030-10-01"
+      },
+      "combinedMonthlyWhenBothClaiming": 7004,
+      "lifetimeBenefit": 2999901,
+      "colaAnnual": 0.0254
+    },
+    "passiveIncome": null,
+    "pensions": null,
+    "annuities": null,
+    "windfalls": [
+      {
+        "label": "Windfall",
+        "amount": 500000,
+        "date": "2028-12-01",
+        "depositTo": "Joint WROS - TOD"
+      }
+    ]
+  },
+
+  "accounts": [
+    {
+      "name": "ATHENAHEALTH, INC. 401(K) PLAN",
+      "type": "401(k)",
+      "balance": 11766,
+      "rateOfReturn": 0.045,
+      "rateLabel": "4.5%"
+    },
+    {
+      "name": "Health Savings Account",
+      "type": "HSA",
+      "balance": 49097,
+      "rateOfReturn": 0.045,
+      "rateLabel": "4.5%"
+    },
+    {
+      "name": "Rollover IRA",
+      "type": "Traditional IRA",
+      "balance": 366555,
+      "rateOfReturn": 0.045,
+      "rateLabel": "4.5%"
+    },
+    {
+      "name": "ROTH IRA",
+      "type": "Roth IRA",
+      "balance": 48428,
+      "rateOfReturn": 0.0808,
+      "rateLabel": "8.08% (Moderate)"
+    },
+    {
+      "name": "Contra Roth",
+      "type": "Roth IRA",
+      "balance": 255472,
+      "rateOfReturn": 0.0808,
+      "rateLabel": "8.08% (Moderate)"
+    },
+    {
+      "name": "Joint WROS - TOD (primary)",
+      "type": "Investment",
+      "taxTreatment": "Capital Gains",
+      "balance": 83069,
+      "costBasis": 0,
+      "turnover": 0,
+      "rateOfReturn": 0.0808,
+      "rateLabel": "8.08% (Moderate)"
+    },
+    {
+      "name": "Joint WROS - TOD (secondary)",
+      "type": "Investment",
+      "taxTreatment": "Capital Gains",
+      "balance": 54415,
+      "costBasis": 0,
+      "turnover": 0,
+      "rateOfReturn": 0.0808,
+      "rateLabel": "8.08% (Moderate)"
+    },
+    {
+      "name": "Savings - 9220",
+      "type": "Savings",
+      "balance": 52371,
+      "costBasis": 0,
+      "turnover": 0,
+      "rateOfReturn": 0.03,
+      "rateLabel": "3% (Custom)"
+    }
+  ],
+
+  "accountsTotal": 921173,
+
+  "realEstate": {
+    "currentEquity": 0,
+    "mortgageBalance": 0,
+    "appreciationAnnual": 0.044,
+    "appreciationLabel": "Historical Average",
+    "plannedSale": null,
+    "note": "No primary residence, no future real-estate purchases or sales in this scenario."
+  },
+
+  "expenses": {
+    "recurringMonthly": 9000,
+    "oneTime": [
+      {
+        "label": "Travel",
+        "totalAmount": 120000,
+        "startDate": "2027-07-01",
+        "endDate": "2032-09-30",
+        "fundingSource": "Withdrawal order"
+      }
+    ],
+    "medical": {
+      "before65LifetimeTotal": 46750,
+      "medicare65PlusLifetimeTotal": 402190,
+      "longTermCareStrategy": "Use up savings, then qualify for baseline care through Medicaid (same for spouse)"
+    }
+  },
+
+  "rates": {
+    "generalInflation": 0.0254,
+    "medicalInflation": 0.0336,
+    "socialSecurityCola": 0.0254,
+    "housingAppreciation": 0.044,
+    "source": "Historical Average (Boldin defaults)"
+  },
+
+  "moneyFlows": {
+    "recurringContributions": "None",
+    "excessIncome": "Save 100% to Cash",
+    "withdrawalStrategy": "Based on Spending Needs",
+    "withdrawalOrder": "Traditional",
+    "transfers": "None"
+  },
+
+  "estatePlanning": {
+    "financialLegacyGoal": 0,
+    "estatePlanningDocuments": "Not completed"
+  },
+
+  "expected": {
+    "chanceOfSuccessPct": 48,
+    "netWorthAtLongevity": 42624,
+    "lifetimeIncomeTaxesPaid": 156032,
+    "currentSavingsBalance": 921173,
+    "homeStatusConfirmed": "removed",
+    "notes": [
+      "All equity-side accounts at Boldin Conservative preset: avg 5.92%, stdev 11.05%.",
+      "Home and future move both removed from plan entirely.",
+      "48% success + $42k NW at longevity signals the median path is near-depletion; success cliff is steep.",
+      "401(k)/IRA/HSA at Custom 2/7 preset: avg 4.5%, stdev 9.53% (not changed to Conservative).",
+      "Savings-9220 still at 3% Custom."
+    ]
+  }
+}
