@@ -64,6 +64,8 @@ export function usePlanningExportPayload(exportMode: PlanningExportMode = 'compa
   );
 
   useEffect(() => {
+    let cancelled = false;
+
     const cached = exportPayloadCache.get(exportCacheKey) ?? null;
     if (cached) {
       setPayload(cached);
@@ -72,29 +74,35 @@ export function usePlanningExportPayload(exportMode: PlanningExportMode = 'compa
       return;
     }
 
-    // Check persistent cache before launching a worker
-    const persisted = loadExportPayloadFromCache(
-      currentEvaluationFingerprint,
-      exportMode,
-      PLANNING_EXPORT_CACHE_VERSION,
-    );
-    if (persisted) {
-      exportPayloadCache.set(exportCacheKey, persisted);
-      setPayload(persisted);
-      setLoadState('ready');
-      setLoadError(null);
-      return;
-    }
-
+    // Surface a loading state immediately; the async IndexedDB read may hit
+    // and swap to 'ready', but until it does we want the UI to show skeletons
+    // rather than freeze or render stale data.
     setLoadState('loading');
     setLoadError(null);
 
     const requestId = `${EXPORT_REQUEST_PREFIX}-${requestCounterRef.current++}`;
     activeRequestIdRef.current = requestId;
 
-    const workerAvailable = typeof Worker !== 'undefined';
-    if (!workerAvailable) {
-      void (async () => {
+    let worker: Worker | null = null;
+
+    void (async () => {
+      // Check persistent cache before launching a worker
+      const persisted = await loadExportPayloadFromCache(
+        currentEvaluationFingerprint,
+        exportMode,
+        PLANNING_EXPORT_CACHE_VERSION,
+      );
+      if (cancelled) return;
+      if (persisted) {
+        exportPayloadCache.set(exportCacheKey, persisted);
+        setPayload(persisted);
+        setLoadState('ready');
+        setLoadError(null);
+        return;
+      }
+
+      const workerAvailable = typeof Worker !== 'undefined';
+      if (!workerAvailable) {
         try {
           const next = await buildPlanningStateExportWithResolvedContext({
             data,
@@ -106,62 +114,77 @@ export function usePlanningExportPayload(exportMode: PlanningExportMode = 'compa
             unifiedPlanEvaluationCapturedAtIso:
               freshUnifiedPlanEvaluationContext?.capturedAtIso ?? null,
           });
+          if (cancelled) return;
           exportPayloadCache.set(exportCacheKey, next);
-          saveExportPayloadToCache(currentEvaluationFingerprint, exportMode, PLANNING_EXPORT_CACHE_VERSION, next);
+          void saveExportPayloadToCache(
+            currentEvaluationFingerprint,
+            exportMode,
+            PLANNING_EXPORT_CACHE_VERSION,
+            next,
+          );
           if (activeRequestIdRef.current === requestId) {
             setPayload(next);
             setLoadState('ready');
             setLoadError(null);
           }
         } catch (error) {
+          if (cancelled) return;
           if (activeRequestIdRef.current === requestId) {
             setLoadState('error');
-            setLoadError(error instanceof Error ? error.message : 'Failed to generate export.');
+            setLoadError(
+              error instanceof Error ? error.message : 'Failed to generate export.',
+            );
           }
         }
-      })();
-      return;
-    }
-
-    const worker = new Worker(new URL('./planning-export.worker.ts', import.meta.url), {
-      type: 'module',
-    });
-
-    worker.onmessage = (event: MessageEvent<PlanningExportWorkerResponse>) => {
-      const message = event.data;
-      if (message.requestId !== activeRequestIdRef.current) {
         return;
       }
-      if (message.type === 'error') {
-        setLoadState('error');
-        setLoadError(message.error);
-        return;
-      }
-      exportPayloadCache.set(exportCacheKey, message.payload);
-      saveExportPayloadToCache(currentEvaluationFingerprint, exportMode, PLANNING_EXPORT_CACHE_VERSION, message.payload);
-      setPayload(message.payload);
-      setLoadState('ready');
-      setLoadError(null);
-    };
 
-    const requestMessage: PlanningExportWorkerRequest = {
-      type: 'run',
-      payload: {
-        requestId,
-        data,
-        assumptions,
-        selectedStressorIds: selectedStressors,
-        selectedResponseIds: selectedResponses,
-        exportMode,
-        unifiedPlanEvaluation: freshUnifiedPlanEvaluationContext?.evaluation ?? null,
-        unifiedPlanEvaluationCapturedAtIso:
-          freshUnifiedPlanEvaluationContext?.capturedAtIso ?? null,
-      },
-    };
-    worker.postMessage(requestMessage);
+      worker = new Worker(new URL('./planning-export.worker.ts', import.meta.url), {
+        type: 'module',
+      });
+
+      worker.onmessage = (event: MessageEvent<PlanningExportWorkerResponse>) => {
+        const message = event.data;
+        if (message.requestId !== activeRequestIdRef.current) {
+          return;
+        }
+        if (message.type === 'error') {
+          setLoadState('error');
+          setLoadError(message.error);
+          return;
+        }
+        exportPayloadCache.set(exportCacheKey, message.payload);
+        void saveExportPayloadToCache(
+          currentEvaluationFingerprint,
+          exportMode,
+          PLANNING_EXPORT_CACHE_VERSION,
+          message.payload,
+        );
+        setPayload(message.payload);
+        setLoadState('ready');
+        setLoadError(null);
+      };
+
+      const requestMessage: PlanningExportWorkerRequest = {
+        type: 'run',
+        payload: {
+          requestId,
+          data,
+          assumptions,
+          selectedStressorIds: selectedStressors,
+          selectedResponseIds: selectedResponses,
+          exportMode,
+          unifiedPlanEvaluation: freshUnifiedPlanEvaluationContext?.evaluation ?? null,
+          unifiedPlanEvaluationCapturedAtIso:
+            freshUnifiedPlanEvaluationContext?.capturedAtIso ?? null,
+        },
+      };
+      worker.postMessage(requestMessage);
+    })();
 
     return () => {
-      worker.terminate();
+      cancelled = true;
+      if (worker) worker.terminate();
     };
   }, [
     assumptions,
