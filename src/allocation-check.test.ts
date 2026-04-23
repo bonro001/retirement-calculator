@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { initialSeedData } from './data';
 import {
+  DEFAULT_AMBIGUOUS_HOLDING_ASSUMPTIONS,
   deriveAssetClassMappingAssumptionsFromAccounts,
   rollupHoldingsToAssetClasses,
 } from './asset-class-mapper';
@@ -117,5 +118,49 @@ describe('allocation check vs Fidelity-reported asset mix', () => {
       initialSeedData.accounts.cash.balance +
       (initialSeedData.accounts.hsa?.balance ?? 0);
     expect(engine.totalBalance).toBeCloseTo(seedTotal, 2);
+  });
+
+  it('explicit override via rules.assetClassMappingAssumptions is respected', () => {
+    // Demonstrates the adoption path for a user who knows the actual
+    // composition of CENTRAL_MANAGED (e.g., via a brokerage statement):
+    // set rules.assetClassMappingAssumptions.CENTRAL_MANAGED on the seed,
+    // and the engine's derived mapping will use that instead of deriving
+    // from the bucket's other holdings.
+    const accounts = initialSeedData.accounts;
+    const explicitOverride = {
+      CENTRAL_MANAGED: {
+        US_EQUITY: 0.5,
+        INTL_EQUITY: 0.1,
+        BONDS: 0.3,
+        CASH: 0.1,
+      },
+    };
+    const withOverride = deriveAssetClassMappingAssumptionsFromAccounts(
+      accounts,
+      explicitOverride,
+    );
+    expect(withOverride.CENTRAL_MANAGED.US_EQUITY).toBeCloseTo(0.5, 4);
+    expect(withOverride.CENTRAL_MANAGED.BONDS).toBeCloseTo(0.3, 4);
+
+    const exposure = rollupHoldingsToAssetClasses(
+      accounts.taxable.targetAllocation,
+      withOverride,
+    );
+    // Allocation shares must sum close to 1 (seed-data bucket weights
+    // total ≈ 1 modulo rounding; here the taxable bucket rounds to
+    // 0.9999, which is within rounding tolerance).
+    const totalShare = exposure.US_EQUITY + exposure.INTL_EQUITY + exposure.BONDS + exposure.CASH;
+    expect(Math.abs(totalShare - 1)).toBeLessThan(0.001);
+  });
+
+  it('TRP_2030 uses published-default glide-path, not bucket-derivation', () => {
+    // No explicit override → TRP_2030 should match the published default
+    // (target-date 2030 glide-path), NOT the pretax bucket's other
+    // holdings (which are heavily US-equity and would skew TRP_2030
+    // wrong if we derived from the bucket).
+    const derived = deriveAssetClassMappingAssumptionsFromAccounts(
+      initialSeedData.accounts,
+    );
+    expect(derived.TRP_2030).toEqual(DEFAULT_AMBIGUOUS_HOLDING_ASSUMPTIONS.TRP_2030);
   });
 });
