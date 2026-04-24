@@ -21,9 +21,7 @@ import { useAppStore } from './store';
 import type { MarketAssumptions, PathResult, SeedData } from './types';
 import { formatCurrency, formatPercent } from './utils';
 import { usePlanningExportPayload } from './usePlanningExportPayload';
-import { SpendVsSafetyScreen } from './SpendVsSafetyScreen';
 import { PortfolioHistoryCard } from './PortfolioHistoryCard';
-import { TimeAsSafetyPanel } from './TimeAsSafety';
 import { buildEvaluationFingerprint } from './evaluation-fingerprint';
 import { loadTradeBuilderFromCache, saveTradeBuilderToCache } from './trade-builder-cache';
 import { runSweepBatch, type SweepPoolHandle } from './sweep-worker-pool';
@@ -1570,7 +1568,7 @@ function EarlyRetirementBridgeAnalysis(input: {
   );
 }
 
-function TradeBuilderSection(input: {
+export function TradeBuilderSection(input: {
   data: SeedData;
   assumptions: MarketAssumptions;
   selectedStressors: string[];
@@ -2539,17 +2537,6 @@ export function Plan20Screen() {
           focus={buildThisYearsFocus(data)}
           year={new Date().getUTCFullYear()}
         />
-        <TimeAsSafetyPanel
-          data={data}
-          assumptions={assumptions}
-          selectedStressors={selectedStressors}
-          selectedResponses={selectedResponses}
-          strategyMode={
-            compactPayload?.activeSimulationProfile === 'rawSimulation'
-              ? 'raw_simulation'
-              : 'planner_enhanced'
-          }
-        />
         <section>
           <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
             <div>
@@ -2625,8 +2612,6 @@ export function Plan20Screen() {
         </section>
 
         <PortfolioHistoryCard />
-
-        <SpendVsSafetyScreen />
 
         <section>
           <div className="mb-4">
@@ -2728,16 +2713,6 @@ export function Plan20Screen() {
             stressSummary={bridgeStressSummary}
           />
         ) : null}
-
-        <TradeBuilderSection
-          data={data}
-          assumptions={assumptions}
-          selectedStressors={selectedStressors}
-          selectedResponses={selectedResponses}
-          activeOutcome={activeOutcome}
-          retirementYear={compactPayload.income.retirementYear}
-          travelPhaseYears={compactPayload.assumptions.horizon.travelPhaseYears}
-        />
 
         <section>
           <div className="mb-4">

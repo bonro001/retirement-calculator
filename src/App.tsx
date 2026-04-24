@@ -34,6 +34,10 @@ const Plan20Screen = lazy(() =>
   import('./Plan20Screen').then((m) => ({ default: m.Plan20Screen })),
 );
 
+const ExploreScreen = lazy(() =>
+  import('./ExploreScreen').then((m) => ({ default: m.ExploreScreen })),
+);
+
 function LazyScreenFallback({ label }: { label: string }) {
   return (
     <div className="flex min-h-[40vh] flex-col items-center justify-center gap-3 text-center">
@@ -122,6 +126,7 @@ import {
 const navigation: { id: ScreenId; label: string; shortLabel: string }[] = [
   { id: 'overview', label: 'Plan', shortLabel: 'Plan' },
   { id: 'plan2', label: 'Plan 2.0', shortLabel: 'Plan 2.0' },
+  { id: 'explore', label: 'Explore', shortLabel: 'Explore' },
   { id: 'paths', label: 'Path Comparison', shortLabel: 'Paths' },
   { id: 'compare', label: 'Scenario Compare', shortLabel: 'Compare' },
   { id: 'accounts', label: 'Accounts', shortLabel: 'Accounts' },
@@ -1328,6 +1333,11 @@ export function App() {
               {currentScreen === 'plan2' && (
                 <Suspense fallback={<LazyScreenFallback label="Loading Plan 2.0…" />}>
                   <Plan20Screen />
+                </Suspense>
+              )}
+              {currentScreen === 'explore' && (
+                <Suspense fallback={<LazyScreenFallback label="Loading Explore…" />}>
+                  <ExploreScreen />
                 </Suspense>
               )}
               {currentScreen === 'paths' && (

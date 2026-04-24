@@ -1,6 +1,7 @@
 export type ScreenId =
   | 'overview'
   | 'plan2'
+  | 'explore'
   | 'paths'
   | 'compare'
   | 'solver'
