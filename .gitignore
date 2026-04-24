@@ -2,3 +2,5 @@ node_modules
 dist
 .vercel
 *.tsbuildinfo
+native-macos/**/.build/
+native-macos/**/DerivedData/
