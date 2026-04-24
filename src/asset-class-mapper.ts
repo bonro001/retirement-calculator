@@ -54,10 +54,13 @@ export const DEFAULT_AMBIGUOUS_HOLDING_ASSUMPTIONS: Required<AssetClassMappingAs
     BONDS: 0.354,
     CASH: 0.033,
   }),
+  // Fidelity "central managed" positions — user-managed, true composition
+  // not published to the API. Default to a balanced 50/50 equity/bond
+  // blend with US bias typical of conservative balanced portfolios.
   CENTRAL_MANAGED: normalizeExposure({
-    US_EQUITY: 0.5,
+    US_EQUITY: 0.4,
     INTL_EQUITY: 0.15,
-    BONDS: 0.25,
+    BONDS: 0.35,
     CASH: 0.1,
   }),
 };
@@ -148,20 +151,26 @@ export function deriveAssetClassMappingAssumptionsFromAccounts(
   accounts: AccountsData,
   configured?: AssetClassMappingAssumptions,
 ): Required<AssetClassMappingAssumptions> {
-  const trpProxy =
-    deriveProxyExposureFromAllocation(accounts.pretax.targetAllocation) ??
-    deriveProxyExposureFromAllocation(accounts.hsa?.targetAllocation ?? {}) ??
-    DEFAULT_AMBIGUOUS_HOLDING_ASSUMPTIONS.TRP_2030;
+  // TRP_2030 is a public target-date fund. Its glide path is determined
+  // by the fund manager, not by the user's self-directed holdings. Using
+  // bucket-derivation here (as earlier versions did) skews the TRP_2030
+  // proxy toward whatever US/bond mix the user happens to hold in the
+  // same bucket, which is not predictive. Prefer the published-default
+  // glide-path composition unless the caller passed an explicit override.
+  const trpProxy = configured?.TRP_2030 ?? DEFAULT_AMBIGUOUS_HOLDING_ASSUMPTIONS.TRP_2030;
+
+  // CENTRAL_MANAGED is genuinely user-dependent (brokerage-managed portfolio).
+  // Derive from the bucket's other holdings as a best-available guess and
+  // fall back to a balanced default when the bucket has no known holdings.
   const centralManagedProxy =
+    configured?.CENTRAL_MANAGED ??
     deriveProxyExposureFromAllocation(accounts.taxable.targetAllocation) ??
     deriveProxyExposureFromAllocation(accounts.roth.targetAllocation) ??
     DEFAULT_AMBIGUOUS_HOLDING_ASSUMPTIONS.CENTRAL_MANAGED;
 
   return {
-    TRP_2030: normalizeExposure(configured?.TRP_2030 ?? trpProxy),
-    CENTRAL_MANAGED: normalizeExposure(
-      configured?.CENTRAL_MANAGED ?? centralManagedProxy,
-    ),
+    TRP_2030: normalizeExposure(trpProxy),
+    CENTRAL_MANAGED: normalizeExposure(centralManagedProxy),
   };
 }
 

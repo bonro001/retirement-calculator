@@ -246,6 +246,25 @@ export interface MarketAssumptions {
   travelPhaseYears: number;
   simulationSeed?: number;
   assumptionsVersion?: string;
+  // Opt-in: sample correlated asset-class returns via a fixed Cholesky
+  // factor of long-run US correlations (US/INTL 0.85, US/BONDS 0.15,
+  // BONDS/CASH 0.20, equity↔cash 0). Defaults to false (independent
+  // samples) to preserve backward compatibility with existing goldens.
+  useCorrelatedReturns?: boolean;
+  // Opt-in: for each simulated year, sample a complete asset-class return
+  // + inflation tuple from the historical annual-returns fixture instead
+  // of drawing from bounded normals. Preserves historical skew, kurtosis,
+  // and cross-asset correlation "for free" — matches what Fidelity's MC
+  // explicitly does ("historical performance, risk, and correlation").
+  // When enabled, `useCorrelatedReturns`, mean/stdDev parameters, and the
+  // bounded-normal clip become no-ops for asset returns and inflation.
+  // Stress overlays still apply on top.
+  useHistoricalBootstrap?: boolean;
+  // When useHistoricalBootstrap is true, sample in multi-year BLOCKS
+  // instead of drawing each year independently. Preserves multi-year
+  // autocorrelation (bad years cluster, crises last more than one year)
+  // that iid-by-year bootstrap loses. Default 1 = iid.
+  historicalBootstrapBlockLength?: number;
 }
 
 export interface BoldinBenchmark {

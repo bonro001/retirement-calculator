@@ -1,0 +1,93 @@
+{
+  "$meta": {
+    "source": "Fidelity Planning & Guidance Center (digital.fidelity.com)",
+    "scenario": "Default retirement analysis, displayed market condition: significantly below average (10th percentile of MC outcomes)",
+    "capturedOn": "2026-04-23",
+    "capturedFrom": "PDF export 'Retirement Analysis2.pdf' after moving from managed accounts so all 8 accounts are linked",
+    "methodology": "Fidelity runs 250 MC simulations per recalculation. Return sampling uses 'historical performance, risk, and correlation of domestic stocks, foreign stocks, bonds, and short-term investments'. Three displayable views: Average (50th pct), Below average (25th pct), Significantly below average (10th pct). Exact mean/vol/correlation values are not published.",
+    "note": "Same 8 accounts / $921-924k portfolio as fixtures/boldin_lower_returns.json. Home excluded in both (Boldin has it toggled off; Fidelity never had it)."
+  },
+
+  "household": {
+    "you": {
+      "name": "Rob",
+      "age": 61,
+      "currentlyWorking": true,
+      "retirementAge": 63,
+      "retirementYear": 2027,
+      "longevityAge": 90,
+      "longevityYear": 2054
+    },
+    "spouse": {
+      "name": "Debbie",
+      "age": 62,
+      "alreadyRetired": true,
+      "retiredAtAge": 40,
+      "longevityAge": 94,
+      "longevityYear": 2057
+    },
+    "filingStatus": "married_filing_jointly",
+    "state": "TX"
+  },
+
+  "income": {
+    "work": {
+      "annualSalary": 210000,
+      "note": "Current-year salary per Fidelity. Consistent with Boldin capture."
+    },
+    "socialSecurity": {
+      "currentMonthlyAcrossTypes": 0,
+      "note": "Fidelity shows $0 for SS/pension/annuity because neither spouse has claimed yet. Claim-age assumptions are not exposed in the summary view."
+    },
+    "oneTimeIncome": 0
+  },
+
+  "portfolio": {
+    "totalBalance": 924122,
+    "connectedAccountsOfTotal": "8 of 8",
+    "taxBucketSharePct": {
+      "deferred": 0.41,
+      "taxable": 0.20,
+      "exempt": 0.39
+    },
+    "assetMixPct": {
+      "domesticStock": 0.650,
+      "foreignStock": 0.091,
+      "bonds": 0.174,
+      "shortTerm": 0.067,
+      "other": 0.018,
+      "unknown": 0.000
+    },
+    "note": "Asset-mix pct is across the full portfolio. Fidelity uses this mix per year when sampling asset-class returns from historical data. Does NOT publish per-account rates."
+  },
+
+  "expenses": {
+    "essentialMonthly": 6000,
+    "nonEssentialMonthly": 4000,
+    "totalMonthly": 10000,
+    "longTermCareAnnual": 0,
+    "longTermCareNote": "No LTC budgeted — Fidelity prompts to consider adding one."
+  },
+
+  "rmd": {
+    "note": "Fidelity uses SECURE 2.0 start-age 75 for both Rob (2039) and Debbie (2038). Matches our engine's DEFAULT_RMD_CONFIG behavior."
+  },
+
+  "expected": {
+    "probabilityOfSuccessPct": 95,
+    "totalLifetimeIncome": 1971816,
+    "assetsRemainingTenthPercentile": 436224,
+    "currentSavingsBalance": 924122,
+    "notes": [
+      "probabilityOfSuccess is Fidelity's overall MC pass rate — directly comparable to our successRate.",
+      "assetsRemainingTenthPercentile is the ending balance on the 10th-pct path shown in the default view. Comparable to our engine's tenthPercentileEndingWealth endpoint.",
+      "totalLifetimeIncome is cumulative non-portfolio income (salary + SS + other) at the displayed scenario — same number appears in both the under-connected and fully-connected captures, confirming it depends only on the income streams, not portfolio balance."
+    ]
+  },
+
+  "riskAssessment": {
+    "spending": "appears to account for this risk (was 'significant exposure' in the under-connected capture)",
+    "longevity": "some exposure",
+    "marketVolatility": "appears to account for this risk"
+  }
+}

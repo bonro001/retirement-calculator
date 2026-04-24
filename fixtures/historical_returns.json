@@ -1,0 +1,191 @@
+{
+  "$meta": {
+    "purpose": "Annual realized return and inflation data for historical-backtesting cohort tests (Track C of VALIDATION_WORKPLAN.md). Designed to feed a historical-replay return generator added in step 13.",
+    "schema": "Each row in `years` is one calendar year. Values are decimal fractions (e.g., 0.12 = +12%). `sp500TotalReturn` is price + reinvested dividends. `bond10yTotalReturn` is 10-year Treasury total return. `cash3mYield` is realized 3-month T-bill yield. `cpiInflation` is December-over-December headline CPI change.",
+    "canonicalSources": [
+      "Shiller US Stock Markets 1871-Present (http://www.econ.yale.edu/~shiller/data/ie_data.xls) — S&P 500 total return and CPI.",
+      "Damodaran historical risk premia (https://pages.stern.nyu.edu/~adamodar/) — alternate S&P and bond data.",
+      "FRED DGS10, TB3MS, CPIAUCSL — Treasury and inflation series.",
+      "Robert Shiller's long-run data set — monthly CPI, combine to annual."
+    ],
+    "status": "SAMPLE ONLY — representative cohort years populated for structural validation. Full 1928–present dataset must be sourced and merged before step 15 cohort outcome tests produce meaningful results. Treat values below as best-effort historical approximations; numbers may differ 0.1–1pp from definitive sources.",
+    "coverageNote": "Includes cohort-kickoff years for the canonical retiree fixtures planned in step 14: 1929 (crash), 1937 (second crash), 1966 (worst 4%-SWR historical window), 1973 (stagflation), 1982 (best-ever start), 2000 (dot-com), 2008 (GFC). One year before and one year after each cohort year is included so a short warm-up / verification is possible.",
+    "assetClassProxies": {
+      "sp500TotalReturn": "SPX price return + dividends reinvested. Shiller or Morningstar SBBI.",
+      "bond10yTotalReturn": "Total return on constant-maturity 10-year Treasury.",
+      "cash3mYield": "Realized one-year yield on 3-month T-bills rolled quarterly.",
+      "cpiInflation": "December year-over-year CPI-U (headline)."
+    }
+  },
+  "years": [
+    {
+      "year": 1928,
+      "sp500TotalReturn": 0.438,
+      "bond10yTotalReturn": 0.001,
+      "cash3mYield": 0.042,
+      "cpiInflation": -0.012
+    },
+    {
+      "year": 1929,
+      "sp500TotalReturn": -0.083,
+      "bond10yTotalReturn": 0.042,
+      "cash3mYield": 0.047,
+      "cpiInflation": 0.006
+    },
+    {
+      "year": 1930,
+      "sp500TotalReturn": -0.251,
+      "bond10yTotalReturn": 0.045,
+      "cash3mYield": 0.024,
+      "cpiInflation": -0.063
+    },
+    {
+      "year": 1931,
+      "sp500TotalReturn": -0.438,
+      "bond10yTotalReturn": -0.025,
+      "cash3mYield": 0.011,
+      "cpiInflation": -0.093
+    },
+    {
+      "year": 1932,
+      "sp500TotalReturn": -0.082,
+      "bond10yTotalReturn": 0.088,
+      "cash3mYield": 0.008,
+      "cpiInflation": -0.103
+    },
+    {
+      "year": 1936,
+      "sp500TotalReturn": 0.335,
+      "bond10yTotalReturn": 0.069,
+      "cash3mYield": 0.002,
+      "cpiInflation": 0.014
+    },
+    {
+      "year": 1937,
+      "sp500TotalReturn": -0.35,
+      "bond10yTotalReturn": 0.025,
+      "cash3mYield": 0.003,
+      "cpiInflation": 0.029
+    },
+    {
+      "year": 1938,
+      "sp500TotalReturn": 0.312,
+      "bond10yTotalReturn": 0.064,
+      "cash3mYield": 0.0,
+      "cpiInflation": -0.028
+    },
+    {
+      "year": 1965,
+      "sp500TotalReturn": 0.124,
+      "bond10yTotalReturn": 0.015,
+      "cash3mYield": 0.039,
+      "cpiInflation": 0.019
+    },
+    {
+      "year": 1966,
+      "sp500TotalReturn": -0.101,
+      "bond10yTotalReturn": 0.037,
+      "cash3mYield": 0.048,
+      "cpiInflation": 0.034
+    },
+    {
+      "year": 1967,
+      "sp500TotalReturn": 0.239,
+      "bond10yTotalReturn": -0.017,
+      "cash3mYield": 0.043,
+      "cpiInflation": 0.03
+    },
+    {
+      "year": 1972,
+      "sp500TotalReturn": 0.189,
+      "bond10yTotalReturn": 0.054,
+      "cash3mYield": 0.041,
+      "cpiInflation": 0.034
+    },
+    {
+      "year": 1973,
+      "sp500TotalReturn": -0.147,
+      "bond10yTotalReturn": 0.019,
+      "cash3mYield": 0.07,
+      "cpiInflation": 0.088
+    },
+    {
+      "year": 1974,
+      "sp500TotalReturn": -0.265,
+      "bond10yTotalReturn": 0.039,
+      "cash3mYield": 0.079,
+      "cpiInflation": 0.123
+    },
+    {
+      "year": 1981,
+      "sp500TotalReturn": -0.049,
+      "bond10yTotalReturn": 0.018,
+      "cash3mYield": 0.142,
+      "cpiInflation": 0.089
+    },
+    {
+      "year": 1982,
+      "sp500TotalReturn": 0.216,
+      "bond10yTotalReturn": 0.326,
+      "cash3mYield": 0.108,
+      "cpiInflation": 0.039
+    },
+    {
+      "year": 1983,
+      "sp500TotalReturn": 0.225,
+      "bond10yTotalReturn": 0.036,
+      "cash3mYield": 0.086,
+      "cpiInflation": 0.038
+    },
+    {
+      "year": 1999,
+      "sp500TotalReturn": 0.21,
+      "bond10yTotalReturn": -0.082,
+      "cash3mYield": 0.047,
+      "cpiInflation": 0.027
+    },
+    {
+      "year": 2000,
+      "sp500TotalReturn": -0.091,
+      "bond10yTotalReturn": 0.169,
+      "cash3mYield": 0.058,
+      "cpiInflation": 0.034
+    },
+    {
+      "year": 2001,
+      "sp500TotalReturn": -0.119,
+      "bond10yTotalReturn": 0.054,
+      "cash3mYield": 0.034,
+      "cpiInflation": 0.016
+    },
+    {
+      "year": 2002,
+      "sp500TotalReturn": -0.221,
+      "bond10yTotalReturn": 0.152,
+      "cash3mYield": 0.016,
+      "cpiInflation": 0.024
+    },
+    {
+      "year": 2007,
+      "sp500TotalReturn": 0.055,
+      "bond10yTotalReturn": 0.101,
+      "cash3mYield": 0.045,
+      "cpiInflation": 0.041
+    },
+    {
+      "year": 2008,
+      "sp500TotalReturn": -0.37,
+      "bond10yTotalReturn": 0.201,
+      "cash3mYield": 0.014,
+      "cpiInflation": 0.001
+    },
+    {
+      "year": 2009,
+      "sp500TotalReturn": 0.265,
+      "bond10yTotalReturn": -0.113,
+      "cash3mYield": 0.001,
+      "cpiInflation": 0.027
+    }
+  ],
+  "cohortKickoffYears": [1929, 1937, 1966, 1973, 1982, 2000, 2008]
+}

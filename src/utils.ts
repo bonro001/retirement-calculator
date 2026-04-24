@@ -29,12 +29,14 @@ import { calculateFederalTax } from './tax-engine';
 import type { YearTaxInputs, YearTaxOutputs } from './tax-engine';
 import {
   boundedNormal,
+  correlatedAssetReturns,
   executeDeterministicMonteCarlo,
   median,
   percentile,
   type RandomSource,
   SIMULATION_CANCELLED_ERROR,
 } from './monte-carlo-engine';
+import historicalAnnualReturns from '../fixtures/historical_annual_returns.json';
 import {
   calculateIrmaaTier,
   calculateRequiredMinimumDistribution,
@@ -1078,6 +1080,8 @@ function createBaseYearTaxInputs(
   filingStatus: string,
   wages: number,
   socialSecurityBenefits: number,
+  headAge?: number,
+  spouseAge?: number,
 ): YearTaxInputs {
   return {
     wages,
@@ -1092,6 +1096,8 @@ function createBaseYearTaxInputs(
     realizedSTCG: 0,
     otherOrdinaryIncome: 0,
     filingStatus,
+    headAge,
+    spouseAge,
   };
 }
 
@@ -1109,12 +1115,118 @@ function getScheduledAnnualSpendForYear(
   return Math.max(0, value);
 }
 
+// Historical annual-returns fixture data, pre-parsed once for fast per-year
+// bootstrap sampling. Each row carries S&P 500 total return, intermediate-term
+// Treasury return, and CPI inflation. We map stocks→US_EQUITY and
+// bonds→BONDS; historical intl and cash aren't in the Trinity-era dataset
+// so we proxy: intl = US with a small shift, cash = 0.8x * inflation (keeps
+// cash yield roughly tracking inflation as it does historically).
+const HISTORICAL_RETURN_TUPLES = (
+  historicalAnnualReturns as {
+    annual: Array<{
+      year: number;
+      stocks: number;
+      bonds: number;
+      inflation: number;
+    }>;
+  }
+).annual;
+
+function historicalRowToBootstrapTuple(rowIndex: number): {
+  US_EQUITY: number;
+  INTL_EQUITY: number;
+  BONDS: number;
+  CASH: number;
+  inflation: number;
+  sampledYear: number;
+} {
+  const row = HISTORICAL_RETURN_TUPLES[
+    Math.max(0, Math.min(HISTORICAL_RETURN_TUPLES.length - 1, rowIndex))
+  ];
+  return {
+    US_EQUITY: row.stocks,
+    INTL_EQUITY: row.stocks * 0.95, // intl proxy — tracks US with slight haircut
+    BONDS: row.bonds,
+    CASH: Math.max(0, row.inflation * 0.8), // cash yield ~ tracks inflation
+    inflation: row.inflation,
+    sampledYear: row.year,
+  };
+}
+
+function sampleHistoricalBootstrapYear(
+  random: RandomSource,
+  presampledIndex?: number,
+) {
+  const index =
+    presampledIndex ?? Math.floor(random() * HISTORICAL_RETURN_TUPLES.length);
+  return historicalRowToBootstrapTuple(index);
+}
+
+// Pre-build a sequence of historical-row indices for block bootstrap.
+// Blocks of length `blockLength` preserve multi-year autocorrelation.
+// When a block would run past the end of the fixture, the sequence
+// wraps — this is standard circular block bootstrap.
+function buildBlockBootstrapIndexSequence(
+  horizonYears: number,
+  blockLength: number,
+  random: RandomSource,
+): number[] {
+  const fixtureLength = HISTORICAL_RETURN_TUPLES.length;
+  const effectiveBlockLength = Math.max(1, Math.floor(blockLength));
+  const sequence: number[] = [];
+  while (sequence.length < horizonYears) {
+    const start = Math.floor(random() * fixtureLength);
+    for (let i = 0; i < effectiveBlockLength && sequence.length < horizonYears; i++) {
+      sequence.push((start + i) % fixtureLength);
+    }
+  }
+  return sequence;
+}
+
 function getStressAdjustedReturns(
   plan: SimPlan,
   assumptions: MarketAssumptions,
   yearOffset: number,
   random: RandomSource,
+  presampledBootstrapIndex?: number,
 ) {
+  // Historical bootstrap path: one random year's tuple overrides all four
+  // asset returns AND inflation. Stress overlays still apply on top.
+  if (assumptions.useHistoricalBootstrap) {
+    const sample = sampleHistoricalBootstrapYear(random, presampledBootstrapIndex);
+    let inflation = sample.inflation;
+    const assetReturns: Record<AssetClass, number> = {
+      US_EQUITY: sample.US_EQUITY,
+      INTL_EQUITY: sample.INTL_EQUITY,
+      BONDS: sample.BONDS,
+      CASH: sample.CASH,
+    };
+    let marketState: 'normal' | 'down' | 'up' = 'normal';
+    if (plan.activeStressors.includes('market_down') && yearOffset < 3) {
+      const overrides = [-0.18, -0.12, -0.08];
+      assetReturns.US_EQUITY = overrides[yearOffset];
+      assetReturns.INTL_EQUITY = overrides[yearOffset];
+      marketState = 'down';
+    } else if (
+      plan.activeStressors.includes('market_down') &&
+      yearOffset >= 3 &&
+      yearOffset < 8
+    ) {
+      assetReturns.US_EQUITY += 0.04;
+      assetReturns.INTL_EQUITY += 0.04;
+    }
+    if (plan.activeStressors.includes('market_up') && yearOffset < 3) {
+      const overrides = [0.12, 0.1, 0.08];
+      assetReturns.US_EQUITY = overrides[yearOffset];
+      assetReturns.INTL_EQUITY = overrides[yearOffset];
+      marketState = 'up';
+    }
+    if (plan.activeStressors.includes('inflation') && yearOffset < 10) {
+      inflation = Math.max(inflation, 0.05);
+    }
+    return { inflation, assetReturns, marketState };
+  }
+
   let inflation = boundedNormal(
     assumptions.inflation,
     assumptions.inflationVolatility,
@@ -1123,24 +1235,62 @@ function getStressAdjustedReturns(
     random,
   );
 
-  const assetReturns: Record<AssetClass, number> = {
-    US_EQUITY: boundedNormal(
-      assumptions.equityMean,
-      assumptions.equityVolatility,
-      -0.45,
-      0.45,
-      random,
-    ),
-    INTL_EQUITY: boundedNormal(
-      assumptions.internationalEquityMean,
-      assumptions.internationalEquityVolatility,
-      -0.5,
-      0.45,
-      random,
-    ),
-    BONDS: boundedNormal(assumptions.bondMean, assumptions.bondVolatility, -0.2, 0.2, random),
-    CASH: boundedNormal(assumptions.cashMean, assumptions.cashVolatility, -0.01, 0.08, random),
-  };
+  const assetReturns: Record<AssetClass, number> = assumptions.useCorrelatedReturns
+    ? (() => {
+        const [usEquity, intlEquity, bonds, cash] = correlatedAssetReturns(
+          [
+            {
+              mean: assumptions.equityMean,
+              stdDev: assumptions.equityVolatility,
+              min: -0.45,
+              max: 0.45,
+            },
+            {
+              mean: assumptions.internationalEquityMean,
+              stdDev: assumptions.internationalEquityVolatility,
+              min: -0.5,
+              max: 0.45,
+            },
+            {
+              mean: assumptions.bondMean,
+              stdDev: assumptions.bondVolatility,
+              min: -0.2,
+              max: 0.2,
+            },
+            {
+              mean: assumptions.cashMean,
+              stdDev: assumptions.cashVolatility,
+              min: -0.01,
+              max: 0.08,
+            },
+          ],
+          random,
+        );
+        return {
+          US_EQUITY: usEquity,
+          INTL_EQUITY: intlEquity,
+          BONDS: bonds,
+          CASH: cash,
+        };
+      })()
+    : {
+        US_EQUITY: boundedNormal(
+          assumptions.equityMean,
+          assumptions.equityVolatility,
+          -0.45,
+          0.45,
+          random,
+        ),
+        INTL_EQUITY: boundedNormal(
+          assumptions.internationalEquityMean,
+          assumptions.internationalEquityVolatility,
+          -0.5,
+          0.45,
+          random,
+        ),
+        BONDS: boundedNormal(assumptions.bondMean, assumptions.bondVolatility, -0.2, 0.2, random),
+        CASH: boundedNormal(assumptions.cashMean, assumptions.cashVolatility, -0.01, 0.08, random),
+      };
 
   let marketState: 'normal' | 'down' | 'up' = 'normal';
 
@@ -1185,9 +1335,26 @@ function buildYearlyMarketPath(
   horizonYears: number,
   random: RandomSource,
 ) {
+  // Block-bootstrap mode: pre-sample the index sequence once so multi-
+  // year autocorrelation is preserved (bad years cluster). Block length
+  // of 1 is iid — equivalent to the default per-year draw.
+  const blockLength = assumptions.historicalBootstrapBlockLength ?? 1;
+  const preSampledIndices =
+    assumptions.useHistoricalBootstrap && blockLength > 1
+      ? buildBlockBootstrapIndexSequence(horizonYears, blockLength, random)
+      : null;
+
   const path: MarketPathPoint[] = [];
   for (let yearOffset = 0; yearOffset < horizonYears; yearOffset += 1) {
-    path.push(getStressAdjustedReturns(plan, assumptions, yearOffset, random));
+    path.push(
+      getStressAdjustedReturns(
+        plan,
+        assumptions,
+        yearOffset,
+        random,
+        preSampledIndices?.[yearOffset],
+      ),
+    );
   }
   return path;
 }
@@ -2885,6 +3052,8 @@ function simulatePath(
           data.household.filingStatus,
           adjustedWages,
           socialSecurityIncome,
+          robAge,
+          debbieAge,
         );
         baseTaxInputs.otherOrdinaryIncome += windfallOrdinaryIncome;
         baseTaxInputs.realizedLTCG += windfallLtcgIncome;

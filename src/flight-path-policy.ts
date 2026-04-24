@@ -3,6 +3,7 @@ import type { OptimizationObjective } from './optimization-objective';
 import type { MarketAssumptions, PathResult, SeedData } from './types';
 import { buildPathResults, formatCurrency } from './utils';
 import { evaluateRunwayBridgeRiskDelta } from './runway-utils';
+import { buildPreRetirementOptimizerRecommendation } from './pre-retirement-optimizer';
 
 export const FLIGHT_PATH_POLICY_VERSION = 'v0.5.0';
 export const FLIGHT_PATH_THRESHOLD_PROFILE_VERSION = '2026-04-20';
@@ -1196,6 +1197,73 @@ export function buildStrategicPrepCandidates(
         ),
       },
     });
+  }
+
+  // Pre-retirement accumulation (contribution optimizer). Fires when the
+  // user is still working AND has material shortfalls on the pre-tax
+  // buckets. Advisory-only (no counterfactual patch) — the recommendation
+  // carries exact dollar amounts from the optimizer so the simulator
+  // doesn't need to apply a numerical patch.
+  const preRetirementRec = buildPreRetirementOptimizerRecommendation({
+    seedData: input.data,
+    assumptions: input.assumptions,
+  });
+  if (preRetirementRec.applicable && preRetirementRec.actionSteps.length > 0) {
+    const topShortfallAction = preRetirementRec.actionSteps.find((step) =>
+      step.action.startsWith('Increase'),
+    );
+    const bridgeAction = preRetirementRec.actionSteps.find(
+      (step) =>
+        step.action.includes('taxable brokerage') ||
+        step.action.includes('Bridge is already'),
+    );
+    const primary = topShortfallAction ?? bridgeAction;
+    if (primary) {
+      const tradeoffs: string[] = [];
+      if (!preRetirementRec.bothRecommendationsCompatible) {
+        tradeoffs.push(
+          'Current spending leaves no surplus after maxing pre-tax; choose between bridge build-up and contribution maximization.',
+        );
+      } else {
+        tradeoffs.push(
+          'Pre-tax contributions reduce current-year lifestyle flexibility.',
+        );
+      }
+      if (preRetirementRec.bridge.bridgeCoverageGap > 10_000) {
+        tradeoffs.push(
+          `Taxable bridge currently has a ${formatCurrency(
+            preRetirementRec.bridge.bridgeCoverageGap,
+          )} coverage gap pre-Medicare.`,
+        );
+      } else if (preRetirementRec.bridge.bridgeWindowWindfallTotal > 0) {
+        tradeoffs.push(
+          `Bridge coverage relies on ${formatCurrency(
+            preRetirementRec.bridge.bridgeWindowWindfallTotal,
+          )} in expected windfalls (${preRetirementRec.bridge.bridgeWindowWindfallNames.join(
+            ', ',
+          )}); plan resilience drops if those don't arrive.`,
+        );
+      }
+
+      const totalTaxSavings = preRetirementRec.shortfalls.reduce(
+        (sum, shortfall) => sum + shortfall.estimatedMarginalFederalTaxSavedPerYear,
+        0,
+      );
+
+      candidates.push({
+        id: 'pre-retirement-accumulation',
+        priority: 'now',
+        title: 'Pre-retirement contribution optimization',
+        action: primary.action,
+        triggerReason: preRetirementRec.headline,
+        amountHint:
+          totalTaxSavings > 0
+            ? `~${formatCurrency(totalTaxSavings)} / yr in current-year federal tax savings at 22% marginal`
+            : 'Contribution limits already fully funded; bridge coverage already sufficient.',
+        tradeoffs,
+        policyFlags: { allowTaxOnlySignal: true },
+      });
+    }
   }
 
   return candidates;
