@@ -176,6 +176,7 @@ const EMPTY_SIMULATION_DIAGNOSTICS: PathResult['simulationDiagnostics'] = {
       converged_thresholds_met: 0,
       max_pass_limit_reached: 0,
       no_change: 0,
+      oscillation_detected: 0,
     },
     nonConvergedRunIndexes: [],
   },

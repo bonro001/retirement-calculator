@@ -248,6 +248,7 @@ interface SimulationRunResult {
     converged_thresholds_met: number;
     max_pass_limit_reached: number;
     no_change: number;
+    oscillation_detected: number;
   };
   closedLoopFinalMagiDeltaMax: number;
   closedLoopFinalFederalTaxDeltaMax: number;
@@ -2629,6 +2630,7 @@ function buildSimulationModeDiagnostics({
         converged_thresholds_met: run.closedLoopStopReasonCounts.converged_thresholds_met,
         max_pass_limit_reached: run.closedLoopStopReasonCounts.max_pass_limit_reached,
         no_change: run.closedLoopStopReasonCounts.no_change,
+        oscillation_detected: run.closedLoopStopReasonCounts.oscillation_detected,
       },
       finalMagiDeltaMax: run.closedLoopFinalMagiDeltaMax,
       finalFederalTaxDeltaMax: run.closedLoopFinalFederalTaxDeltaMax,
@@ -2653,6 +2655,10 @@ function buildSimulationModeDiagnostics({
       0,
     ),
     no_change: runs.reduce((sum, run) => sum + run.closedLoopStopReasonCounts.no_change, 0),
+    oscillation_detected: runs.reduce(
+      (sum, run) => sum + run.closedLoopStopReasonCounts.oscillation_detected,
+      0,
+    ),
   };
   const dominantSummaryStopReason: ClosedLoopStopReason =
     summaryStopReasonCounts.converged_thresholds_met >=
@@ -2866,6 +2872,7 @@ function simulatePath(
         converged_thresholds_met: 0,
         max_pass_limit_reached: 0,
         no_change: 0,
+        oscillation_detected: 0,
       };
       let closedLoopFinalMagiDeltaMax = 0;
       let closedLoopFinalFederalTaxDeltaMax = 0;

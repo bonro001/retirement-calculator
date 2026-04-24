@@ -590,6 +590,7 @@ export interface SimulationModeDiagnostics {
       converged_thresholds_met: number;
       max_pass_limit_reached: number;
       no_change: number;
+      oscillation_detected: number;
     };
     nonConvergedRunIndexes: number[];
   };
@@ -603,6 +604,7 @@ export interface SimulationModeDiagnostics {
       converged_thresholds_met: number;
       max_pass_limit_reached: number;
       no_change: number;
+      oscillation_detected: number;
     };
     finalMagiDeltaMax: number;
     finalFederalTaxDeltaMax: number;
