@@ -70,6 +70,13 @@ export interface SpendSolverInputs {
     allocationLocked?: boolean;
   };
   skipSuccessFloorRelaxationProbe?: boolean;
+  /** Knob values for selected stressors — must match what the UI / main sim uses. */
+  stressorKnobs?: {
+    delayedInheritanceYears?: number;
+    cutSpendingPercent?: number;
+    layoffRetireDate?: string;
+    layoffSeverance?: number;
+  };
   runtimeBudget?: {
     searchSimulationRuns?: number;
     finalSimulationRuns?: number;
@@ -872,6 +879,7 @@ function evaluateSpendCandidateFactory(input: SpendSolverInputs) {
       {
         pathMode: 'selected_only',
         annualSpendScheduleByYear: spendScheduleByYear,
+        stressorKnobs: input.stressorKnobs,
       },
     );
     const simulationElapsedMs = nowMs() - simulationStartedAt;
@@ -944,6 +952,7 @@ function evaluateSpendCandidateFactory(input: SpendSolverInputs) {
       housingAdjustedResponses,
       {
         pathMode: 'selected_only',
+        stressorKnobs: input.stressorKnobs,
       },
     );
     const simulationElapsedMs = nowMs() - simulationStartedAt;

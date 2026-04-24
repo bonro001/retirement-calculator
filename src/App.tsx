@@ -28,6 +28,7 @@ import {
 } from './ui-primitives';
 import { TaxesScreen } from './screens/TaxesScreen';
 import { IncomeScreen } from './screens/IncomeScreen';
+import { SocialSecurityScreen } from './screens/SocialSecurityScreen';
 import { SpendingScreen } from './screens/SpendingScreen';
 
 const Plan20Screen = lazy(() =>
@@ -50,7 +51,14 @@ import { perfLog, perfStart } from './debug-perf';
 import type {
   SimulationWorkerRequest,
   SimulationWorkerResponse,
+  SolvedSpendProfile,
 } from './simulation-worker-types';
+import type {
+  SuggestionBaselineOutcome,
+  SuggestionOutcome,
+  SuggestionRankerWorkerRequest,
+  SuggestionRankerWorkerResponse,
+} from './suggestion-ranker-worker-types';
 import type {
   PlanAnalysisWorkerRequest,
   PlanAnalysisWorkerResponse,
@@ -132,6 +140,7 @@ const navigation: { id: ScreenId; label: string; shortLabel: string }[] = [
   { id: 'accounts', label: 'Accounts', shortLabel: 'Accounts' },
   { id: 'spending', label: 'Spending', shortLabel: 'Spending' },
   { id: 'income', label: 'Income', shortLabel: 'Income' },
+  { id: 'social_security', label: 'Social Security', shortLabel: 'SS' },
   { id: 'taxes', label: 'Taxes', shortLabel: 'Taxes' },
   { id: 'stress', label: 'Stress Tests', shortLabel: 'Stress' },
   { id: 'simulation', label: 'Simulation', shortLabel: 'Sim' },
@@ -493,6 +502,7 @@ type SimulationStatus = 'fresh' | 'stale' | 'running';
 interface SimulationResultState {
   pathResults: PathResult[];
   parityReport: SimulationParityReport;
+  solvedSpendProfile?: SolvedSpendProfile | null;
 }
 
 type AnalysisTarget = 'plan' | 'simulation';
@@ -507,7 +517,28 @@ interface AnalysisInput {
   assumptions: MarketAssumptions;
   selectedStressors: string[];
   selectedResponses: string[];
+  stressorKnobs: {
+    delayedInheritanceYears: number;
+    cutSpendingPercent?: number;
+    layoffRetireDate?: string;
+    layoffSeverance?: number;
+  };
   fingerprint: string;
+}
+
+function buildDataFingerprint(data: SeedData, assumptions: MarketAssumptions) {
+  return JSON.stringify({ data, assumptions });
+}
+
+function buildToggleFingerprint(
+  selectedStressors: string[],
+  selectedResponses: string[],
+) {
+  // Sort copies so insertion order doesn't change the fingerprint, then join
+  // with separators that can't appear in our ids.
+  return `${[...selectedStressors].sort().join(',')}|${[...selectedResponses]
+    .sort()
+    .join(',')}`;
 }
 
 function buildSimulationInputFingerprint(input: {
@@ -516,12 +547,10 @@ function buildSimulationInputFingerprint(input: {
   selectedStressors: string[];
   selectedResponses: string[];
 }) {
-  return JSON.stringify({
-    data: input.data,
-    assumptions: input.assumptions,
-    selectedStressors: [...input.selectedStressors].sort(),
-    selectedResponses: [...input.selectedResponses].sort(),
-  });
+  return `${buildDataFingerprint(input.data, input.assumptions)}::${buildToggleFingerprint(
+    input.selectedStressors,
+    input.selectedResponses,
+  )}`;
 }
 
 export function App() {
@@ -529,10 +558,12 @@ export function App() {
   const simulationDraftAssumptions = useAppStore((state) => state.draftAssumptions);
   const simulationDraftSelectedResponses = useAppStore((state) => state.draftSelectedResponses);
   const simulationDraftSelectedStressors = useAppStore((state) => state.draftSelectedStressors);
+  const simulationDraftStressorKnobs = useAppStore((state) => state.draftStressorKnobs);
   const currentPlan = useAppStore((state) => state.appliedData);
   const currentPlanAssumptions = useAppStore((state) => state.appliedAssumptions);
   const currentPlanSelectedResponses = useAppStore((state) => state.appliedSelectedResponses);
   const currentPlanSelectedStressors = useAppStore((state) => state.appliedSelectedStressors);
+  const currentPlanStressorKnobs = useAppStore((state) => state.appliedStressorKnobs);
   const commitDraftToApplied = useAppStore((state) => state.commitDraftToApplied);
   const hasPendingSimulationChanges = useAppStore((state) => state.hasPendingSimulationChanges);
   const requestUnifiedPlanRerun = useAppStore((state) => state.requestUnifiedPlanRerun);
@@ -566,6 +597,8 @@ export function App() {
     new Map<string, { target: AnalysisTarget; end: ReturnType<typeof perfStart> }>(),
   );
   const bgEvalWorkerRef = useRef<Worker | null>(null);
+  const suggestionRankerWorkerRef = useRef<Worker | null>(null);
+  const suggestionRankerRequestIdRef = useRef<string | null>(null);
 
   const [currentPlanResult, setCurrentPlanResult] = useState<SimulationResultState | null>(null);
   const [simulationResult, setSimulationResult] = useState<SimulationResultState | null>(null);
@@ -581,35 +614,42 @@ export function App() {
 
   const isSimulationRunning = simulationStatus === 'running';
 
+  // Split the expensive data/assumptions stringify from the cheap toggle hash
+  // so toggling a stressor/response checkbox doesn't re-serialize the entire
+  // SeedData graph on every click.
+  const planDataFingerprint = useMemo(
+    () => buildDataFingerprint(currentPlan, currentPlanAssumptions),
+    [currentPlan, currentPlanAssumptions],
+  );
   const planInputFingerprint = useMemo(
     () =>
-      buildSimulationInputFingerprint({
-        data: currentPlan,
-        assumptions: currentPlanAssumptions,
-        selectedStressors: currentPlanSelectedStressors,
-        selectedResponses: currentPlanSelectedResponses,
-      }),
+      `${planDataFingerprint}::${buildToggleFingerprint(
+        currentPlanSelectedStressors,
+        currentPlanSelectedResponses,
+      )}|di=${currentPlanStressorKnobs.delayedInheritanceYears};cs=${currentPlanStressorKnobs.cutSpendingPercent};lo=${currentPlanStressorKnobs.layoffRetireDate};ls=${currentPlanStressorKnobs.layoffSeverance}`,
     [
-      currentPlan,
-      currentPlanAssumptions,
+      planDataFingerprint,
       currentPlanSelectedResponses,
       currentPlanSelectedStressors,
+      currentPlanStressorKnobs,
     ],
   );
 
+  const simulationDataFingerprint = useMemo(
+    () => buildDataFingerprint(simulationDraft, simulationDraftAssumptions),
+    [simulationDraft, simulationDraftAssumptions],
+  );
   const simulationInputFingerprint = useMemo(
     () =>
-      buildSimulationInputFingerprint({
-        data: simulationDraft,
-        assumptions: simulationDraftAssumptions,
-        selectedStressors: simulationDraftSelectedStressors,
-        selectedResponses: simulationDraftSelectedResponses,
-      }),
+      `${simulationDataFingerprint}::${buildToggleFingerprint(
+        simulationDraftSelectedStressors,
+        simulationDraftSelectedResponses,
+      )}|di=${simulationDraftStressorKnobs.delayedInheritanceYears};cs=${simulationDraftStressorKnobs.cutSpendingPercent};lo=${simulationDraftStressorKnobs.layoffRetireDate};ls=${simulationDraftStressorKnobs.layoffSeverance}`,
     [
-      simulationDraft,
-      simulationDraftAssumptions,
+      simulationDataFingerprint,
       simulationDraftSelectedResponses,
       simulationDraftSelectedStressors,
+      simulationDraftStressorKnobs,
     ],
   );
 
@@ -686,6 +726,7 @@ export function App() {
           setSimulationResult({
             pathResults: message.pathResults,
             parityReport: message.parityReport,
+            solvedSpendProfile: message.solvedSpendProfile ?? null,
           });
           if (completedInputFingerprint) {
             lastSimulationRunInputsRef.current = completedInputFingerprint;
@@ -700,11 +741,17 @@ export function App() {
           setCurrentPlanResult({
             pathResults: message.pathResults,
             parityReport: message.parityReport,
+            solvedSpendProfile: message.solvedSpendProfile ?? null,
           });
           setPlanResultFromCache(false);
           if (completedInputFingerprint) {
             lastPlanRunInputsRef.current = completedInputFingerprint;
-            void saveSimulationResultToCache(completedInputFingerprint, message.pathResults, message.parityReport);
+            void saveSimulationResultToCache(
+              completedInputFingerprint,
+              message.pathResults,
+              message.parityReport,
+              message.solvedSpendProfile ?? null,
+            );
           }
           setPlanResultStatus(
             completedInputFingerprint !== latestPlanInputFingerprintRef.current
@@ -787,6 +834,7 @@ export function App() {
             assumptions: simulationDraftAssumptions,
             selectedStressors: simulationDraftSelectedStressors,
             selectedResponses: simulationDraftSelectedResponses,
+            stressorKnobs: simulationDraftStressorKnobs,
             fingerprint: simulationInputFingerprint,
           }
         : {
@@ -794,6 +842,7 @@ export function App() {
             assumptions: currentPlanAssumptions,
             selectedStressors: currentPlanSelectedStressors,
             selectedResponses: currentPlanSelectedResponses,
+            stressorKnobs: currentPlanStressorKnobs,
             fingerprint: planInputFingerprint,
           };
 
@@ -831,6 +880,7 @@ export function App() {
           analysisInput.assumptions,
           analysisInput.selectedStressors,
           analysisInput.selectedResponses,
+          { stressorKnobs: analysisInput.stressorKnobs },
         );
         const nextResult = {
           pathResults: nextPathResults,
@@ -841,6 +891,7 @@ export function App() {
             analysisInput.selectedResponses,
             {
               plannerPathOverride: nextPathResults[2] ?? nextPathResults[0],
+              stressorKnobs: analysisInput.stressorKnobs,
             },
           ),
         };
@@ -906,6 +957,7 @@ export function App() {
         assumptions: analysisInput.assumptions,
         selectedStressors: analysisInput.selectedStressors,
         selectedResponses: analysisInput.selectedResponses,
+        stressorKnobs: analysisInput.stressorKnobs,
       },
     };
     worker.postMessage(runMessage);
@@ -914,11 +966,13 @@ export function App() {
     currentPlanAssumptions,
     currentPlanSelectedResponses,
     currentPlanSelectedStressors,
+    currentPlanStressorKnobs,
     planInputFingerprint,
     simulationDraft,
     simulationDraftAssumptions,
     simulationDraftSelectedResponses,
     simulationDraftSelectedStressors,
+    simulationDraftStressorKnobs,
     simulationInputFingerprint,
     stopTrackedAnalysis,
   ]);
@@ -929,6 +983,7 @@ export function App() {
       assumptions: simulationDraftAssumptions,
       selectedStressors: simulationDraftSelectedStressors,
       selectedResponses: simulationDraftSelectedResponses,
+      stressorKnobs: simulationDraftStressorKnobs,
       fingerprint: simulationInputFingerprint,
     };
     commitDraftToApplied();
@@ -940,6 +995,7 @@ export function App() {
     simulationDraftAssumptions,
     simulationDraftSelectedResponses,
     simulationDraftSelectedStressors,
+    simulationDraftStressorKnobs,
     simulationInputFingerprint,
   ]);
 
@@ -1030,11 +1086,11 @@ export function App() {
     };
     worker.postMessage(request);
 
-    return () => {
-      clearTimeout(timeoutId);
-      worker.terminate();
-      bgEvalWorkerRef.current = null;
-    };
+    // IMPORTANT: don't terminate the worker on every deps change (checkbox toggles
+    // re-fire this effect). The worker's own onmessage handler already terminates
+    // on result/error/cancel. A dedicated unmount-only cleanup below handles the
+    // page-unmount case. Killing and respawning on every toggle causes visible
+    // main-thread lag on checkbox clicks.
   }, [
     latestUnifiedPlanEvaluationContext,
     planResultStatus,
@@ -1044,6 +1100,15 @@ export function App() {
     simulationDraftSelectedResponses,
     setLatestUnifiedPlanEvaluationContext,
   ]);
+
+  // Unmount-only cleanup for the background Plan-2.0 eval worker.
+  useEffect(
+    () => () => {
+      bgEvalWorkerRef.current?.terminate();
+      bgEvalWorkerRef.current = null;
+    },
+    [],
+  );
 
   const cancelSimulation = () => {
     const worker = workerRef.current;
@@ -1061,6 +1126,137 @@ export function App() {
     worker.postMessage(cancelMessage);
     stopTrackedAnalysis(activeRequestId, 'cancelled', { reason: 'manual-cancel' });
   };
+
+  // --- Suggestion ranking (Find my best solution) -----------------------------
+  const [suggestionRankingStatus, setSuggestionRankingStatus] = useState<
+    'idle' | 'running' | 'ready' | 'error'
+  >('idle');
+  const [suggestionRankingProgress, setSuggestionRankingProgress] = useState<{
+    completed: number;
+    total: number;
+  }>({ completed: 0, total: 0 });
+  const [suggestionRankingError, setSuggestionRankingError] = useState<string | null>(
+    null,
+  );
+  const [suggestionRankingResults, setSuggestionRankingResults] = useState<{
+    baseline: SuggestionBaselineOutcome;
+    candidates: SuggestionOutcome[];
+    stressorIds: string[];
+    fixedResponseIds: string[];
+  } | null>(null);
+
+  const runSuggestionRanking = useCallback(() => {
+    // Candidates = every response not already in the user's picked set.
+    const fixedResponses = simulationDraftSelectedResponses;
+    const candidates = simulationDraft.responses
+      .map((r) => r.id)
+      .filter((id) => !fixedResponses.includes(id));
+
+    if (candidates.length === 0) {
+      setSuggestionRankingStatus('ready');
+      setSuggestionRankingResults(null);
+      setSuggestionRankingError(
+        'Every solution is already ticked — untick one to compare alternatives.',
+      );
+      return;
+    }
+
+    if (!suggestionRankerWorkerRef.current) {
+      suggestionRankerWorkerRef.current = new Worker(
+        new URL('./suggestion-ranker.worker.ts', import.meta.url),
+        { type: 'module' },
+      );
+    }
+    const worker = suggestionRankerWorkerRef.current;
+    const requestId = `suggest-${Date.now()}-${requestCounterRef.current++}`;
+
+    // Cancel any in-flight ranking.
+    if (suggestionRankerRequestIdRef.current) {
+      worker.postMessage({
+        type: 'cancel',
+        requestId: suggestionRankerRequestIdRef.current,
+      } as SuggestionRankerWorkerRequest);
+    }
+    suggestionRankerRequestIdRef.current = requestId;
+    setSuggestionRankingStatus('running');
+    setSuggestionRankingProgress({ completed: 0, total: candidates.length });
+    setSuggestionRankingError(null);
+
+    const fixedResponseIdsSnapshot = [...fixedResponses];
+    const stressorIdsSnapshot = [...simulationDraftSelectedStressors];
+
+    worker.onmessage = (event: MessageEvent<SuggestionRankerWorkerResponse>) => {
+      const msg = event.data;
+      if (msg.requestId !== requestId) return;
+
+      if (msg.type === 'progress') {
+        setSuggestionRankingProgress({ completed: msg.completed, total: msg.total });
+        return;
+      }
+      if (msg.type === 'result') {
+        suggestionRankerRequestIdRef.current = null;
+        setSuggestionRankingResults({
+          baseline: msg.baseline,
+          candidates: msg.candidates,
+          stressorIds: stressorIdsSnapshot,
+          fixedResponseIds: fixedResponseIdsSnapshot,
+        });
+        setSuggestionRankingStatus('ready');
+        return;
+      }
+      if (msg.type === 'error') {
+        suggestionRankerRequestIdRef.current = null;
+        setSuggestionRankingError(msg.error);
+        setSuggestionRankingStatus('error');
+        return;
+      }
+      if (msg.type === 'cancelled') {
+        suggestionRankerRequestIdRef.current = null;
+        setSuggestionRankingStatus('idle');
+      }
+    };
+
+    const request: SuggestionRankerWorkerRequest = {
+      type: 'run',
+      payload: {
+        requestId,
+        data: simulationDraft,
+        assumptions: simulationDraftAssumptions,
+        selectedStressors: simulationDraftSelectedStressors,
+        fixedResponses: fixedResponseIdsSnapshot,
+        candidates: candidates.map((responseId) => ({ responseId })),
+      },
+    };
+    worker.postMessage(request);
+  }, [
+    simulationDraft,
+    simulationDraftAssumptions,
+    simulationDraftSelectedResponses,
+    simulationDraftSelectedStressors,
+  ]);
+
+  const cancelSuggestionRanking = useCallback(() => {
+    const worker = suggestionRankerWorkerRef.current;
+    const requestId = suggestionRankerRequestIdRef.current;
+    if (!worker || !requestId) return;
+    worker.postMessage({
+      type: 'cancel',
+      requestId,
+    } as SuggestionRankerWorkerRequest);
+    suggestionRankerRequestIdRef.current = null;
+    setSuggestionRankingStatus('idle');
+  }, []);
+
+  const applySuggestion = useAppStore((state) => state.toggleResponse);
+
+  // Tear down the suggestion ranker worker on unmount.
+  useEffect(() => {
+    return () => {
+      suggestionRankerWorkerRef.current?.terminate();
+      suggestionRankerWorkerRef.current = null;
+    };
+  }, []);
+  // --------------------------------------------------------------------------
 
   const planPathResults = currentPlanResult?.pathResults ?? [];
   const isInitialLoad = planPathResults.length === 0 && planResultStatus === 'running';
@@ -1319,17 +1515,17 @@ export function App() {
               </div>
             ) : (
             <section className="space-y-6">
-              <div className={currentScreen === 'overview' ? '' : 'hidden'}>
+              {currentScreen === 'overview' && (
                 <UnifiedPlanScreen
-                  data={simulationDraft}
-                  assumptions={simulationDraftAssumptions}
+                  data={currentPlan}
+                  assumptions={currentPlanAssumptions}
                   simulationStatus={planResultStatus}
-                  selectedStressors={simulationDraftSelectedStressors}
-                  selectedResponses={simulationDraftSelectedResponses}
+                  selectedStressors={currentPlanSelectedStressors}
+                  selectedResponses={currentPlanSelectedResponses}
                   pathResults={displayedPlanPathResults}
                   showPlanControls
                 />
-              </div>
+              )}
               {currentScreen === 'plan2' && (
                 <Suspense fallback={<LazyScreenFallback label="Loading Plan 2.0…" />}>
                   <Plan20Screen />
@@ -1364,6 +1560,7 @@ export function App() {
                 />
               )}
               {currentScreen === 'income' && <IncomeScreen />}
+              {currentScreen === 'social_security' && <SocialSecurityScreen />}
               {currentScreen === 'taxes' && <TaxesScreen />}
               {currentScreen === 'stress' && (
                 <StressScreen projectionSeries={planProjectionSeries} />
@@ -1374,6 +1571,9 @@ export function App() {
                   distributionSeries={simulationDistributionSeries}
                   parityReport={simulationParityReport}
                   primaryPath={simulationPrimaryPath}
+                  baselinePath={planPrimaryPath}
+                  solvedSpendProfile={simulationResult?.solvedSpendProfile ?? null}
+                  baselineSolvedSpendProfile={currentPlanResult?.solvedSpendProfile ?? null}
                   projectionSeries={simulationProjectionSeries}
                   simulationStatus={simulationStatus}
                   simulationProgress={analysisProgress}
@@ -1384,15 +1584,22 @@ export function App() {
                   onCommitToPlan={commitSimulationToPlan}
                   canCommitToPlan={hasPendingSimulationChanges}
                   isPlanResultRunning={planResultStatus === 'running'}
+                  suggestionRankingStatus={suggestionRankingStatus}
+                  suggestionRankingProgress={suggestionRankingProgress}
+                  suggestionRankingError={suggestionRankingError}
+                  suggestionRankingResults={suggestionRankingResults}
+                  onRunSuggestionRanking={runSuggestionRanking}
+                  onCancelSuggestionRanking={cancelSuggestionRanking}
+                  onApplySuggestion={applySuggestion}
                 />
               )}
               {currentScreen === 'insights' && (
                 <UnifiedPlanScreen
-                  data={simulationDraft}
-                  assumptions={simulationDraftAssumptions}
+                  data={currentPlan}
+                  assumptions={currentPlanAssumptions}
                   simulationStatus={planResultStatus}
-                  selectedStressors={simulationDraftSelectedStressors}
-                  selectedResponses={simulationDraftSelectedResponses}
+                  selectedStressors={currentPlanSelectedStressors}
+                  selectedResponses={currentPlanSelectedResponses}
                   pathResults={displayedPlanPathResults}
                   showPlanControls={false}
                 />
@@ -1881,6 +2088,9 @@ function SpendSolverScreen({
   selectedStressors: string[];
   selectedResponses: string[];
 }) {
+  const spendSolverStressorKnobs = useAppStore(
+    (state) => state.draftStressorKnobs,
+  );
   const [targetLegacy, setTargetLegacy] = useState(1_000_000);
   const [minSuccessRatePercent, setMinSuccessRatePercent] = useState(92);
   const [useSuccessRange, setUseSuccessRange] = useState(false);
@@ -2005,6 +2215,7 @@ function SpendSolverScreen({
           assumptions: getInteractiveSolverAssumptions(assumptions),
           selectedStressors,
           selectedResponses,
+          stressorKnobs: spendSolverStressorKnobs,
           targetLegacyTodayDollars: Math.max(0, targetLegacy),
           minSuccessRate: normalizedMinSuccessRate,
           successRateRange: normalizedRange,
@@ -2384,12 +2595,18 @@ function buildContiguousYearRanges(years: number[]): WealthPhaseRange[] {
   return ranges;
 }
 
-function getEffectiveInheritanceYear(data: SeedData, selectedStressors: string[]) {
+function getEffectiveInheritanceYear(
+  data: SeedData,
+  selectedStressors: string[],
+  delayedInheritanceYears: number = 5,
+) {
   const inheritance = data.income.windfalls.find((item) => item.name === 'inheritance');
   if (!inheritance) {
     return null;
   }
-  const delayedYears = selectedStressors.includes('delayed_inheritance') ? 5 : 0;
+  const delayedYears = selectedStressors.includes('delayed_inheritance')
+    ? Math.max(1, Math.round(delayedInheritanceYears))
+    : 0;
   return inheritance.year + delayedYears;
 }
 
@@ -2397,10 +2614,12 @@ function buildAutopilotWealthTimelineViewModel({
   result,
   data,
   selectedStressors,
+  delayedInheritanceYears,
 }: {
   result: AutopilotPlanResult;
   data: SeedData;
   selectedStressors: string[];
+  delayedInheritanceYears?: number;
 }): AutopilotWealthTimelineViewModel {
   const points: AutopilotWealthTimelinePoint[] = result.years.map((year) => ({
     year: year.year,
@@ -2466,7 +2685,11 @@ function buildAutopilotWealthTimelineViewModel({
     }
   });
 
-  const inheritanceYear = getEffectiveInheritanceYear(data, selectedStressors);
+  const inheritanceYear = getEffectiveInheritanceYear(
+    data,
+    selectedStressors,
+    delayedInheritanceYears,
+  );
   if (inheritanceYear !== null) {
     const inheritancePoint = pointByYear.get(inheritanceYear);
     if (inheritancePoint) {
@@ -2544,9 +2767,18 @@ function AutopilotWealthTimeline({
   data: SeedData;
   selectedStressors: string[];
 }) {
+  const delayedInheritanceYears = useAppStore(
+    (state) => state.appliedStressorKnobs.delayedInheritanceYears,
+  );
   const timeline = useMemo(
-    () => buildAutopilotWealthTimelineViewModel({ result, data, selectedStressors }),
-    [data, result, selectedStressors],
+    () =>
+      buildAutopilotWealthTimelineViewModel({
+        result,
+        data,
+        selectedStressors,
+        delayedInheritanceYears,
+      }),
+    [data, delayedInheritanceYears, result, selectedStressors],
   );
 
   if (!timeline.points.length) {
@@ -2655,6 +2887,15 @@ function AutopilotPlanScreen({
   const [result, setResult] = useState<AutopilotPlanResult | null>(null);
   const [isRunning, setIsRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const delayedInheritanceYearsKnob = useAppStore(
+    (state) => state.draftStressorKnobs.delayedInheritanceYears,
+  );
+  const layoffRetireDateKnob = useAppStore(
+    (state) => state.draftStressorKnobs.layoffRetireDate,
+  );
+  const layoffSeveranceKnob = useAppStore(
+    (state) => state.draftStressorKnobs.layoffSeverance,
+  );
 
   const runAutopilot = () => {
     if (isRunning) {
@@ -2676,6 +2917,11 @@ function AutopilotPlanScreen({
           minSuccessRate: clampRate(minSuccessRatePercent / 100),
           doNotSellPrimaryResidence,
           successRateRange: undefined,
+          stressorKnobs: {
+            delayedInheritanceYears: delayedInheritanceYearsKnob,
+            layoffRetireDate: layoffRetireDateKnob,
+            layoffSeverance: layoffSeveranceKnob,
+          },
         });
         setResult(plan);
       } catch (autopilotError) {
@@ -3171,11 +3417,169 @@ function StressScreen({
   );
 }
 
+const TWEAK_COPY: Record<string, { name: string; hint: string }> = {
+  layoff: {
+    name: 'Laid off early',
+    hint: 'Your salary ends before your planned retirement date.',
+  },
+  market_down: {
+    name: 'Bad first 3 years',
+    hint: 'Equity returns of −18%, −12%, −8% right at retirement.',
+  },
+  market_up: {
+    name: 'Strong early market',
+    hint: 'Upside case: equities run +12%, +10%, +8% early on.',
+  },
+  inflation: {
+    name: 'High inflation for a decade',
+    hint: '5% inflation sustained for 10 years.',
+  },
+  delayed_inheritance: {
+    name: 'Inheritance delayed',
+    hint: 'Expected inheritance arrives later than planned.',
+  },
+};
+
+const SOLUTION_COPY: Record<string, { name: string; hint: string }> = {
+  cut_spending: {
+    name: 'Trim optional spending 20%',
+    hint: 'Cut discretionary / optional spending by 20%.',
+  },
+  sell_home_early: {
+    name: 'Sell the house sooner',
+    hint: 'Downsize in year 3, freeing up ~$500k.',
+  },
+  delay_retirement: {
+    name: 'Work one more year',
+    hint: 'Push retirement out by 12 months.',
+  },
+  early_ss: {
+    name: 'Claim Social Security at 62',
+    hint: 'Take SS early instead of waiting to full retirement age.',
+  },
+  preserve_roth: {
+    name: 'Protect the Roth',
+    hint: 'Spend from Roth last so it keeps compounding tax-free.',
+  },
+  increase_cash_buffer: {
+    name: 'Beef up cash buffer',
+    hint: 'Hold more cash to ride out bad early-retirement markets.',
+  },
+};
+
+// Return a concrete, data-driven one-liner explaining what the solution actually
+// does to *this* plan — e.g. "Moves $500k home sale from 2037 → 2029" rather
+// than the generic hint. Falls back to the SOLUTION_COPY hint if we can't
+// derive a number.
+function describeResponseMechanic(responseId: string, data: SeedData): string {
+  const response = data.responses.find((r) => r.id === responseId);
+  const fallback = SOLUTION_COPY[responseId]?.hint ?? '';
+
+  if (responseId === 'cut_spending') {
+    const pct = response?.optionalReductionPercent ?? 20;
+    const monthly = data.spending?.optionalMonthly ?? 0;
+    const monthlyCut = Math.round(monthly * (pct / 100));
+    const annualCut = monthlyCut * 12;
+    if (!monthlyCut) return fallback;
+    return `Cuts optional spending by ${pct}% — about ${formatCurrency(monthlyCut)}/mo (${formatCurrency(annualCut)}/yr).`;
+  }
+
+  if (responseId === 'sell_home_early') {
+    const homeSale = data.income?.windfalls?.find((w) => w.name === 'home_sale');
+    const triggerYear = response?.triggerYear ?? 3;
+    if (!homeSale) return fallback;
+    const newYear = new Date().getFullYear() + triggerYear;
+    return `Moves the ${formatCurrency(homeSale.amount)} home sale from ${homeSale.year} → ${newYear} (year ${triggerYear}).`;
+  }
+
+  if (responseId === 'delay_retirement') {
+    const years = response?.delayYears ?? 1;
+    const end = data.income?.salaryEndDate;
+    if (!end) return fallback;
+    const current = new Date(end);
+    const shifted = new Date(current);
+    shifted.setFullYear(shifted.getFullYear() + years);
+    const fmt = (d: Date) =>
+      d.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+    return `Pushes retirement out ${years} year${years === 1 ? '' : 's'} — salary ends ${fmt(shifted)} instead of ${fmt(current)}.`;
+  }
+
+  if (responseId === 'early_ss') {
+    const claimAge = response?.claimAge ?? 62;
+    const currentAges = data.income?.socialSecurity
+      ?.map((s) => s.claimAge)
+      .filter((n): n is number => typeof n === 'number');
+    if (currentAges && currentAges.length) {
+      const minCurrent = Math.min(...currentAges);
+      if (minCurrent !== claimAge) {
+        return `Claims Social Security at ${claimAge} instead of ${minCurrent}.`;
+      }
+    }
+    return `Claims Social Security at ${claimAge}.`;
+  }
+
+  return fallback;
+}
+
+function summarizeYearlyEffects(path: PathResult) {
+  let lifetimeFedTax = 0;
+  let lifetimeRothConverted = 0;
+  let irmaaYears = 0;
+  let firstConversionYear: number | null = null;
+  let lifetimeIrmaaSurcharge = 0;
+  for (const y of path.yearlySeries) {
+    lifetimeFedTax += y.medianFederalTax ?? 0;
+    lifetimeRothConverted += y.medianRothConversion ?? 0;
+    lifetimeIrmaaSurcharge += y.medianIrmaaSurcharge ?? 0;
+    if ((y.medianIrmaaSurcharge ?? 0) > 0) irmaaYears += 1;
+    if (firstConversionYear === null && (y.medianRothConversion ?? 0) > 0) {
+      firstConversionYear = y.year;
+    }
+  }
+  return {
+    lifetimeFedTax,
+    lifetimeRothConverted,
+    irmaaYears,
+    lifetimeIrmaaSurcharge,
+    firstConversionYear,
+  };
+}
+
+function supportedMonthlyFromPath(path: PathResult): number {
+  // Median spending in the first post-retirement year the plan actually supports.
+  // Falls back to median of the series if we can't pick a retirement year.
+  const firstNonZero = path.yearlySeries.find((y) => (y.medianSpending ?? 0) > 0);
+  const spend = firstNonZero?.medianSpending ?? 0;
+  return spend / 12;
+}
+
+function formatDeltaCurrency(delta: number): string {
+  if (!Number.isFinite(delta) || Math.abs(delta) < 1) return 'no change';
+  const sign = delta > 0 ? '+' : '−';
+  return `${sign}${formatCurrency(Math.abs(delta))}`;
+}
+
+function formatDeltaPercent(delta: number): string {
+  if (!Number.isFinite(delta) || Math.abs(delta) < 0.0005) return 'no change';
+  const sign = delta > 0 ? '+' : '−';
+  return `${sign}${(Math.abs(delta) * 100).toFixed(1)} pts`;
+}
+
+function describeSpendDelta(deltaMonthly: number): string {
+  if (!Number.isFinite(deltaMonthly) || Math.abs(deltaMonthly) < 5) {
+    return 'holds steady at';
+  }
+  return deltaMonthly < 0 ? 'drops to' : 'rises to';
+}
+
 function SimulationScreen({
   assumptions,
   distributionSeries,
   parityReport,
   primaryPath,
+  baselinePath,
+  solvedSpendProfile,
+  baselineSolvedSpendProfile,
   projectionSeries,
   simulationStatus,
   simulationProgress,
@@ -3186,11 +3590,21 @@ function SimulationScreen({
   onCommitToPlan,
   canCommitToPlan,
   isPlanResultRunning,
+  suggestionRankingStatus,
+  suggestionRankingProgress,
+  suggestionRankingError,
+  suggestionRankingResults,
+  onRunSuggestionRanking,
+  onCancelSuggestionRanking,
+  onApplySuggestion,
 }: {
   assumptions: MarketAssumptions;
   distributionSeries: ReturnType<typeof buildDistributionSeries>;
   parityReport: SimulationParityReport;
   primaryPath: PathResult;
+  baselinePath: PathResult;
+  solvedSpendProfile: SolvedSpendProfile | null;
+  baselineSolvedSpendProfile: SolvedSpendProfile | null;
   projectionSeries: ReturnType<typeof buildProjectionSeries>;
   simulationStatus: SimulationStatus;
   simulationProgress: number;
@@ -3201,6 +3615,18 @@ function SimulationScreen({
   onCommitToPlan: () => void;
   canCommitToPlan: boolean;
   isPlanResultRunning: boolean;
+  suggestionRankingStatus: 'idle' | 'running' | 'ready' | 'error';
+  suggestionRankingProgress: { completed: number; total: number };
+  suggestionRankingError: string | null;
+  suggestionRankingResults: {
+    baseline: SuggestionBaselineOutcome;
+    candidates: SuggestionOutcome[];
+    stressorIds: string[];
+    fixedResponseIds: string[];
+  } | null;
+  onRunSuggestionRanking: () => void;
+  onCancelSuggestionRanking: () => void;
+  onApplySuggestion: (responseId: string) => void;
 }) {
   const stressors = useAppStore((state) => state.data.stressors);
   const responses = useAppStore((state) => state.data.responses);
@@ -3208,131 +3634,492 @@ function SimulationScreen({
   const selectedResponses = useAppStore((state) => state.draftSelectedResponses);
   const toggleStressor = useAppStore((state) => state.toggleStressor);
   const toggleResponse = useAppStore((state) => state.toggleResponse);
+  const draftStressorKnobs = useAppStore((state) => state.draftStressorKnobs);
+  const updateStressorKnob = useAppStore((state) => state.updateStressorKnob);
+
+  // Prefer the solver's constant-real monthly at the 85% success target. It's
+  // the "honest" committed number — moves when later-year stressors (like
+  // delayed inheritance) erode the sustainable level. Only use it when BOTH
+  // sides (baseline + stressed) have a solver result; otherwise we'd be
+  // comparing flex pace ($12k) against solved constant-real ($6k), which
+  // produces a nonsense delta. Fall back to flex pace on both sides when
+  // incomplete.
+  const baseMonthlyFlex = supportedMonthlyFromPath(baselinePath);
+  const simMonthlyFlex = supportedMonthlyFromPath(primaryPath);
+  const usingSolvedNumber =
+    solvedSpendProfile !== null && baselineSolvedSpendProfile !== null;
+  const baseMonthly = usingSolvedNumber
+    ? baselineSolvedSpendProfile.monthlySpendNow
+    : baseMonthlyFlex;
+  const simMonthly = usingSolvedNumber
+    ? solvedSpendProfile.monthlySpendNow
+    : simMonthlyFlex;
+  const successTarget =
+    solvedSpendProfile?.successTarget ?? baselineSolvedSpendProfile?.successTarget ?? 0.85;
+  const monthlyDelta = simMonthly - baseMonthly;
+  const annualDelta = monthlyDelta * 12;
+  const successDelta = primaryPath.successRate - baselinePath.successRate;
+  const cutRateDelta = primaryPath.spendingCutRate - baselinePath.spendingCutRate;
+  const irmaaRateDelta = primaryPath.irmaaExposureRate - baselinePath.irmaaExposureRate;
+  const endingDelta = primaryPath.medianEndingWealth - baselinePath.medianEndingWealth;
+
+  const baseEffects = summarizeYearlyEffects(baselinePath);
+  const simEffects = summarizeYearlyEffects(primaryPath);
+
+  const hasToggles = selectedStressors.length + selectedResponses.length > 0;
+  const isFresh = simulationStatus === 'fresh';
+  const showDelta = hasToggles && isFresh;
+  // Distinguish "we have simulation numbers to show" (first run not yet done =>
+  // empty sentinel path; don't render the zero-filled EffectRow grid).
+  const hasSimulationData =
+    primaryPath.medianEndingWealth !== 0 ||
+    primaryPath.yearsFunded !== 0 ||
+    primaryPath.successRate !== 0;
+
+  const verb = describeSpendDelta(monthlyDelta);
+  const spendNumberLabel = usingSolvedNumber
+    ? `sustainable monthly spend (${formatPercent(successTarget)} success)`
+    : 'starting monthly spend';
+  const spendHeadline = showDelta
+    ? `Your ${spendNumberLabel} ${verb} ${formatCurrency(Math.round(simMonthly))} (${formatDeltaCurrency(Math.round(monthlyDelta))}/mo, ${formatDeltaCurrency(Math.round(annualDelta))}/yr).`
+    : `Your current plan supports ${formatCurrency(Math.round(baseMonthly))}/mo (${formatCurrency(Math.round(baseMonthly * 12))}/yr) ${usingSolvedNumber ? `at ${formatPercent(successTarget)} success` : 'as a starting pace'}. Tick tweaks or solutions, then Run to see what changes.`;
+
+  const successHeadline = showDelta
+    ? `Flex success ${formatDeltaPercent(successDelta)} (now ${formatPercent(primaryPath.successRate)}).`
+    : `Flex success: ${formatPercent(baselinePath.successRate)}.`;
 
   return (
     <Panel
       title="Simulations"
-      subtitle="Run and inspect simulation outcomes here. Plan uses the last completed simulation result."
+      subtitle="Sandbox. Tweak your model, see what changes in plain English, then commit to Plan if you like it."
     >
-      <div className="mb-6 rounded-[24px] bg-stone-100/85 p-4">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex flex-wrap items-center gap-2 text-sm text-stone-600">
-            <span className="font-medium text-stone-700">Status</span>
-            {simulationStatus === 'fresh' ? (
-              <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-semibold text-emerald-800">
-                Fresh
-              </span>
-            ) : simulationStatus === 'running' ? (
-              <span className="rounded-full bg-blue-100 px-2.5 py-1 text-xs font-semibold text-blue-800">
-                Running {Math.round(simulationProgress * 100)}%
-              </span>
-            ) : (
-              <span className="rounded-full bg-amber-100 px-2.5 py-1 text-xs font-semibold text-amber-800">
-                Outdated
-              </span>
-            )}
-            {simulationError ? (
-              <span className="text-xs text-red-700">Error: {simulationError}</span>
+      {/* Hero + controls */}
+      <div className="mb-6 rounded-[28px] border border-stone-200 bg-white p-5 shadow-sm">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="min-w-0 flex-1">
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-stone-500">
+              {showDelta ? 'What changes with your tweaks' : 'Your current plan'}
+            </p>
+            <p className="mt-2 text-xl font-semibold leading-snug text-stone-900">
+              {spendHeadline}
+            </p>
+            <p className="mt-2 text-sm text-stone-600">{successHeadline}</p>
+            {!isFresh && hasToggles ? (
+              <p className="mt-2 text-xs text-amber-700">
+                Results are out of date — press Run Simulation to refresh.
+              </p>
             ) : null}
           </div>
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={onRunSimulation}
-              disabled={isSimulationRunning}
-              className="rounded-full bg-blue-700 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-600 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {isSimulationRunning ? 'Running Simulation…' : 'Run Simulation'}
-            </button>
-            <button
-              type="button"
-              onClick={onCommitToPlan}
-              disabled={isSimulationRunning || isPlanResultRunning || !canCommitToPlan}
-              className="rounded-full border border-blue-300 bg-blue-50 px-4 py-2 text-sm font-semibold text-blue-700 transition hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {isPlanResultRunning ? 'Committing…' : 'Commit to Plan'}
-            </button>
-            {isSimulationRunning ? (
+          <div className="flex flex-col items-end gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <button
                 type="button"
-                onClick={onCancelSimulation}
-                className="rounded-full border border-stone-300 bg-white px-4 py-2 text-sm font-semibold text-stone-700 transition hover:bg-stone-50"
+                onClick={onRunSimulation}
+                disabled={isSimulationRunning}
+                className="rounded-full bg-blue-700 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-600 disabled:cursor-not-allowed disabled:opacity-60"
               >
-                Cancel
+                {isSimulationRunning
+                  ? `Running… ${Math.round(simulationProgress * 100)}%`
+                  : 'Run Simulation'}
               </button>
-            ) : null}
+              <button
+                type="button"
+                onClick={onCommitToPlan}
+                disabled={isSimulationRunning || isPlanResultRunning || !canCommitToPlan}
+                className="rounded-full border border-blue-300 bg-blue-50 px-4 py-2 text-sm font-semibold text-blue-700 transition hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {isPlanResultRunning ? 'Committing…' : 'Commit to Plan'}
+              </button>
+              {isSimulationRunning ? (
+                <button
+                  type="button"
+                  onClick={onCancelSimulation}
+                  className="rounded-full border border-stone-300 bg-white px-3 py-2 text-sm font-semibold text-stone-700 transition hover:bg-stone-50"
+                >
+                  Cancel
+                </button>
+              ) : null}
+            </div>
+            <div className="flex items-center gap-2 text-xs text-stone-500">
+              {simulationStatus === 'fresh' ? (
+                <span className="rounded-full bg-emerald-100 px-2 py-0.5 font-semibold text-emerald-800">
+                  Fresh
+                </span>
+              ) : simulationStatus === 'running' ? (
+                <span className="rounded-full bg-blue-100 px-2 py-0.5 font-semibold text-blue-800">
+                  Running
+                </span>
+              ) : (
+                <span className="rounded-full bg-amber-100 px-2 py-0.5 font-semibold text-amber-800">
+                  Outdated
+                </span>
+              )}
+              {simulationError ? (
+                <span className="text-red-700">Error: {simulationError}</span>
+              ) : null}
+            </div>
           </div>
         </div>
-        <p className="mt-2 text-xs text-stone-500">
-          Simulation is a sandbox. Changes affect the live Plan only after you commit.
-        </p>
       </div>
 
+      {/* Retirement smile — shows how real spending tapers through retirement */}
+      {usingSolvedNumber ? (
+        <SmileCurve
+          baseline={baselineSolvedSpendProfile}
+          current={solvedSpendProfile}
+          showDelta={showDelta}
+        />
+      ) : null}
+
+      {/* Tweaks & Solutions */}
       <div className="mb-6 grid gap-4 lg:grid-cols-2">
-        <article className="rounded-[24px] bg-stone-100/85 p-4">
-          <p className="text-sm font-medium text-stone-700">Scenario controls: stressors</p>
-          <div className="mt-3 grid gap-2 md:grid-cols-2">
-            {stressors.map((item) => (
-              <label key={item.id} className="flex items-center gap-2 text-sm text-stone-700">
-                <input
-                  type="checkbox"
-                  checked={selectedStressors.includes(item.id)}
-                  onChange={() => toggleStressor(item.id)}
-                />
-                {item.name}
-              </label>
-            ))}
+        <article className="rounded-[24px] border border-stone-200 bg-white p-4 shadow-sm">
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-stone-500">Tweaks</p>
+          <p className="mt-1 text-sm text-stone-600">
+            Things that might happen to you.
+          </p>
+          <div className="mt-3 flex flex-col gap-2">
+            {stressors.map((item) => {
+              const copy = TWEAK_COPY[item.id] ?? { name: item.name, hint: '' };
+              const checked = selectedStressors.includes(item.id);
+              return (
+                <label
+                  key={item.id}
+                  className={`flex cursor-pointer items-start gap-3 rounded-2xl border px-3 py-2 transition ${
+                    checked
+                      ? 'border-blue-300 bg-blue-50/60'
+                      : 'border-stone-200 bg-stone-50 hover:bg-stone-100'
+                  }`}
+                >
+                  <input
+                    type="checkbox"
+                    className="mt-1"
+                    checked={checked}
+                    onChange={() => toggleStressor(item.id)}
+                  />
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-sm font-medium text-stone-900">{copy.name}</span>
+                    {copy.hint ? (
+                      <span className="block text-xs text-stone-500">{copy.hint}</span>
+                    ) : null}
+                    {item.id === 'delayed_inheritance' && checked ? (
+                      <span className="mt-2 flex items-center gap-2 text-xs text-stone-600">
+                        Delay by
+                        <input
+                          type="number"
+                          min={1}
+                          max={10}
+                          step={1}
+                          value={draftStressorKnobs.delayedInheritanceYears}
+                          onChange={(event) => {
+                            const raw = Number(event.target.value);
+                            if (Number.isNaN(raw)) return;
+                            const clamped = Math.max(1, Math.min(10, Math.round(raw)));
+                            updateStressorKnob('delayedInheritanceYears', clamped);
+                          }}
+                          onClick={(event) => event.stopPropagation()}
+                          className="w-14 rounded-md border border-stone-300 bg-white px-2 py-1 text-right text-xs text-stone-900 focus:border-blue-400 focus:outline-none"
+                        />
+                        years
+                      </span>
+                    ) : null}
+                    {item.id === 'layoff' && checked ? (
+                      <span className="mt-2 flex flex-col gap-1 text-xs text-stone-600">
+                        <span className="flex items-center gap-2">
+                          Last day
+                          <input
+                            type="date"
+                            value={draftStressorKnobs.layoffRetireDate}
+                            onChange={(event) => {
+                              const raw = event.target.value;
+                              if (!raw) return;
+                              updateStressorKnob('layoffRetireDate', raw);
+                            }}
+                            onClick={(event) => event.stopPropagation()}
+                            className="rounded-md border border-stone-300 bg-white px-2 py-1 text-xs text-stone-900 focus:border-blue-400 focus:outline-none"
+                          />
+                        </span>
+                        <span className="flex items-center gap-2">
+                          Severance $
+                          <input
+                            type="number"
+                            min={0}
+                            step={1000}
+                            value={draftStressorKnobs.layoffSeverance}
+                            onChange={(event) => {
+                              const raw = Number(event.target.value);
+                              if (Number.isNaN(raw)) return;
+                              updateStressorKnob(
+                                'layoffSeverance',
+                                Math.max(0, Math.round(raw)),
+                              );
+                            }}
+                            onClick={(event) => event.stopPropagation()}
+                            className="w-28 rounded-md border border-stone-300 bg-white px-2 py-1 text-right text-xs text-stone-900 focus:border-blue-400 focus:outline-none"
+                          />
+                        </span>
+                      </span>
+                    ) : null}
+                  </span>
+                </label>
+              );
+            })}
           </div>
         </article>
-        <article className="rounded-[24px] bg-stone-100/85 p-4">
-          <p className="text-sm font-medium text-stone-700">Scenario controls: responses</p>
-          <div className="mt-3 grid gap-2 md:grid-cols-2">
-            {responses.map((item) => (
-              <label key={item.id} className="flex items-center gap-2 text-sm text-stone-700">
-                <input
-                  type="checkbox"
-                  checked={selectedResponses.includes(item.id)}
-                  onChange={() => toggleResponse(item.id)}
-                />
-                {item.name}
-              </label>
-            ))}
+        <article className="rounded-[24px] border border-stone-200 bg-white p-4 shadow-sm">
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-stone-500">
+            Solutions
+          </p>
+          <p className="mt-1 text-sm text-stone-600">
+            Levers you can pull in response. Mix and match.
+          </p>
+          <div className="mt-3 flex flex-col gap-2">
+            {responses.map((item) => {
+              const copy = SOLUTION_COPY[item.id] ?? { name: item.name, hint: '' };
+              const checked = selectedResponses.includes(item.id);
+              return (
+                <label
+                  key={item.id}
+                  className={`flex cursor-pointer items-start gap-3 rounded-2xl border px-3 py-2 transition ${
+                    checked
+                      ? 'border-emerald-300 bg-emerald-50/60'
+                      : 'border-stone-200 bg-stone-50 hover:bg-stone-100'
+                  }`}
+                >
+                  <input
+                    type="checkbox"
+                    className="mt-1"
+                    checked={checked}
+                    onChange={() => toggleResponse(item.id)}
+                  />
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-sm font-medium text-stone-900">{copy.name}</span>
+                    {copy.hint ? (
+                      <span className="block text-xs text-stone-500">{copy.hint}</span>
+                    ) : null}
+                    {item.id === 'cut_spending' && checked ? (
+                      <span className="mt-2 flex items-center gap-2 text-xs text-stone-600">
+                        Cut optional by
+                        <input
+                          type="number"
+                          min={0}
+                          max={100}
+                          step={5}
+                          value={draftStressorKnobs.cutSpendingPercent}
+                          onChange={(event) => {
+                            const raw = Number(event.target.value);
+                            if (Number.isNaN(raw)) return;
+                            const clamped = Math.max(0, Math.min(100, Math.round(raw)));
+                            updateStressorKnob('cutSpendingPercent', clamped);
+                          }}
+                          onClick={(event) => event.stopPropagation()}
+                          className="w-14 rounded-md border border-stone-300 bg-white px-2 py-1 text-right text-xs text-stone-900 focus:border-emerald-400 focus:outline-none"
+                        />
+                        %
+                      </span>
+                    ) : null}
+                  </span>
+                </label>
+              );
+            })}
           </div>
         </article>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <MetricTile label="Equity mean" value={formatPercent(assumptions.equityMean)} />
-        <MetricTile
-          label="Equity volatility"
-          value={formatPercent(assumptions.equityVolatility)}
-        />
-        <MetricTile label="Bond mean" value={formatPercent(assumptions.bondMean)} />
-        <MetricTile label="Runs" value={assumptions.simulationRuns.toLocaleString()} />
-      </div>
+      {/* Suggestions (stack-ranked solutions) */}
+      <SuggestionsCard
+        status={suggestionRankingStatus}
+        progress={suggestionRankingProgress}
+        error={suggestionRankingError}
+        results={suggestionRankingResults}
+        selectedStressors={selectedStressors}
+        selectedResponses={selectedResponses}
+        onRun={onRunSuggestionRanking}
+        onCancel={onCancelSuggestionRanking}
+        onApply={onApplySuggestion}
+      />
 
-      <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <MetricTile
-          label="10th percentile"
-          value={formatCurrency(primaryPath.tenthPercentileEndingWealth)}
-        />
-        <MetricTile
-          label="Failure year"
-          value={primaryPath.medianFailureYear ? `${primaryPath.medianFailureYear}` : 'None'}
-        />
-        <MetricTile
-          label="Guardrail rate"
-          value={formatPercent(primaryPath.spendingCutRate)}
-        />
-        <MetricTile
-          label="IRMAA rate"
-          value={formatPercent(primaryPath.irmaaExposureRate)}
-        />
-      </div>
+      {/* Effects breakdown */}
+      <article className="mb-6 rounded-[24px] border border-stone-200 bg-white p-4 shadow-sm">
+        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-stone-500">
+          Effects on your plan
+        </p>
+        <p className="mt-1 text-sm text-stone-600">
+          {isSimulationRunning && !hasSimulationData
+            ? 'Running the Monte Carlo against your tweaks. Typically 60–90 seconds.'
+            : showDelta
+              ? 'How the tweaks and solutions you picked change the ride, compared to your current plan.'
+              : 'Pick some tweaks/solutions and press Run to see deltas here.'}
+        </p>
+        {isSimulationRunning && !hasSimulationData ? (
+          <div className="mt-4 rounded-2xl border border-stone-100 bg-stone-50/70 p-4">
+            <div className="flex items-center justify-between gap-4">
+              <span className="text-sm font-medium text-stone-700">
+                Monte Carlo simulation
+              </span>
+              <span className="font-mono text-xs text-stone-500">
+                {Math.round(simulationProgress * 100)}%
+              </span>
+            </div>
+            <div
+              className="mt-2 h-2 w-full overflow-hidden rounded-full bg-stone-200"
+              role="progressbar"
+              aria-valuenow={Math.round(simulationProgress * 100)}
+              aria-valuemin={0}
+              aria-valuemax={100}
+            >
+              <div
+                className="h-full bg-blue-600 transition-[width] duration-200 ease-out"
+                style={{ width: `${Math.max(2, Math.round(simulationProgress * 100))}%` }}
+              />
+            </div>
+            <p className="mt-3 text-xs text-stone-500">
+              Running thousands of market paths against your selected tweaks and solutions. Numbers
+              populate together when the run finishes — no partial results to avoid misleading
+              early reads.
+            </p>
+          </div>
+        ) : (
+        <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+          <EffectRow
+            label="Success rate (flex)"
+            baseline={formatPercent(baselinePath.successRate)}
+            current={formatPercent(primaryPath.successRate)}
+            delta={showDelta ? formatDeltaPercent(successDelta) : null}
+            goodWhenUp
+          />
+          <EffectRow
+            label="Monthly supported spend"
+            baseline={formatCurrency(Math.round(baseMonthly))}
+            current={formatCurrency(Math.round(simMonthly))}
+            delta={showDelta ? formatDeltaCurrency(Math.round(monthlyDelta)) : null}
+            goodWhenUp
+          />
+          <EffectRow
+            label="Annual supported spend"
+            baseline={formatCurrency(Math.round(baseMonthly * 12))}
+            current={formatCurrency(Math.round(simMonthly * 12))}
+            delta={showDelta ? formatDeltaCurrency(Math.round(annualDelta)) : null}
+            goodWhenUp
+          />
+          <EffectRow
+            label="Lifetime federal tax (median)"
+            baseline={formatCurrency(Math.round(baseEffects.lifetimeFedTax))}
+            current={formatCurrency(Math.round(simEffects.lifetimeFedTax))}
+            delta={
+              showDelta
+                ? formatDeltaCurrency(
+                    Math.round(simEffects.lifetimeFedTax - baseEffects.lifetimeFedTax),
+                  )
+                : null
+            }
+            goodWhenUp={false}
+          />
+          <EffectRow
+            label="Lifetime Roth conversions"
+            baseline={formatCurrency(Math.round(baseEffects.lifetimeRothConverted))}
+            current={formatCurrency(Math.round(simEffects.lifetimeRothConverted))}
+            delta={
+              showDelta
+                ? formatDeltaCurrency(
+                    Math.round(simEffects.lifetimeRothConverted - baseEffects.lifetimeRothConverted),
+                  )
+                : null
+            }
+          />
+          <EffectRow
+            label="First conversion year"
+            baseline={
+              baseEffects.firstConversionYear ? String(baseEffects.firstConversionYear) : '—'
+            }
+            current={
+              simEffects.firstConversionYear ? String(simEffects.firstConversionYear) : '—'
+            }
+            delta={null}
+          />
+          <EffectRow
+            label="IRMAA years (median)"
+            baseline={`${baseEffects.irmaaYears} yrs`}
+            current={`${simEffects.irmaaYears} yrs`}
+            delta={
+              showDelta
+                ? simEffects.irmaaYears === baseEffects.irmaaYears
+                  ? 'no change'
+                  : `${simEffects.irmaaYears > baseEffects.irmaaYears ? '+' : '−'}${Math.abs(
+                      simEffects.irmaaYears - baseEffects.irmaaYears,
+                    )} yrs`
+                : null
+            }
+            goodWhenUp={false}
+          />
+          <EffectRow
+            label="Guardrail-cut rate"
+            baseline={formatPercent(baselinePath.spendingCutRate)}
+            current={formatPercent(primaryPath.spendingCutRate)}
+            delta={showDelta ? formatDeltaPercent(cutRateDelta) : null}
+            goodWhenUp={false}
+          />
+          <EffectRow
+            label="IRMAA exposure rate"
+            baseline={formatPercent(baselinePath.irmaaExposureRate)}
+            current={formatPercent(primaryPath.irmaaExposureRate)}
+            delta={showDelta ? formatDeltaPercent(irmaaRateDelta) : null}
+            goodWhenUp={false}
+          />
+          <EffectRow
+            label="Median ending wealth"
+            baseline={formatCurrency(baselinePath.medianEndingWealth)}
+            current={formatCurrency(primaryPath.medianEndingWealth)}
+            delta={showDelta ? formatDeltaCurrency(Math.round(endingDelta)) : null}
+          />
+          <EffectRow
+            label="10th-percentile ending wealth"
+            baseline={formatCurrency(baselinePath.tenthPercentileEndingWealth)}
+            current={formatCurrency(primaryPath.tenthPercentileEndingWealth)}
+            delta={
+              showDelta
+                ? formatDeltaCurrency(
+                    Math.round(
+                      primaryPath.tenthPercentileEndingWealth -
+                        baselinePath.tenthPercentileEndingWealth,
+                    ),
+                  )
+                : null
+            }
+            goodWhenUp
+          />
+          <EffectRow
+            label="Years funded"
+            baseline={`${baselinePath.yearsFunded} yrs`}
+            current={`${primaryPath.yearsFunded} yrs`}
+            delta={
+              showDelta && primaryPath.yearsFunded !== baselinePath.yearsFunded
+                ? `${primaryPath.yearsFunded > baselinePath.yearsFunded ? '+' : '−'}${Math.abs(
+                    primaryPath.yearsFunded - baselinePath.yearsFunded,
+                  )} yrs`
+                : showDelta
+                  ? 'no change'
+                  : null
+            }
+            goodWhenUp
+          />
+        </div>
+        )}
+      </article>
 
-      <article className="mt-6 rounded-[28px] bg-stone-100/85 p-4">
-        <p className="text-sm font-medium text-stone-500">Simulation parity / validation</p>
+      {/* Engine diagnostics — collapsed by default */}
+      <details className="mb-4 rounded-[24px] border border-stone-200 bg-white p-4 shadow-sm">
+        <summary className="cursor-pointer text-xs font-semibold uppercase tracking-[0.18em] text-stone-500">
+          Engine diagnostics
+        </summary>
         <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+          <MetricTile label="Equity mean" value={formatPercent(assumptions.equityMean)} />
+          <MetricTile
+            label="Equity volatility"
+            value={formatPercent(assumptions.equityVolatility)}
+          />
+          <MetricTile label="Bond mean" value={formatPercent(assumptions.bondMean)} />
+          <MetricTile label="Runs" value={assumptions.simulationRuns.toLocaleString()} />
           <MetricTile
             label="Raw Simulation"
             value={formatPercent(parityReport.rawSimulation.successRate)}
@@ -3350,14 +4137,13 @@ function SimulationScreen({
             value={`${parityReport.runCount.toLocaleString()} @ ${parityReport.seed}`}
           />
         </div>
-        <div className="mt-3 rounded-2xl bg-white p-4 text-sm text-stone-700">
+        <div className="mt-3 rounded-2xl bg-stone-50 p-3 text-xs text-stone-600">
           <p>
-            Planner logic active: {parityReport.plannerEnhancedSimulation.plannerLogicActive ? 'yes' : 'no'} •
-            Raw planner logic active: {parityReport.rawSimulation.plannerLogicActive ? 'yes' : 'no'}
-          </p>
-          <p className="mt-1">
-            Assumptions version: {parityReport.assumptionsVersion} • IRMAA-aware withdrawals (planner/raw):{' '}
-            {parityReport.plannerEnhancedSimulation.simulationConfiguration.withdrawalPolicy.irmaaAware
+            Assumptions version: {parityReport.assumptionsVersion} • Return model:{' '}
+            {parityReport.plannerEnhancedSimulation.simulationConfiguration.returnGeneration.model}{' '}
+            • IRMAA-aware (planner/raw):{' '}
+            {parityReport.plannerEnhancedSimulation.simulationConfiguration.withdrawalPolicy
+              .irmaaAware
               ? 'on'
               : 'off'}
             /
@@ -3366,102 +4152,520 @@ function SimulationScreen({
               : 'off'}
           </p>
           <p className="mt-1">
-            Inflation mean/vol:{' '}
-            {formatPercent(
-              parityReport.plannerEnhancedSimulation.simulationConfiguration.inflationHandling.baseMean,
-            )}{' '}
-            /{' '}
-            {formatPercent(
-              parityReport.plannerEnhancedSimulation.simulationConfiguration.inflationHandling.volatility,
-            )}{' '}
-            • Return model:{' '}
-            {parityReport.plannerEnhancedSimulation.simulationConfiguration.returnGeneration.model}
-          </p>
-          <p className="mt-1">
             Withdrawal order (planner):{' '}
             {parityReport.plannerEnhancedSimulation.simulationConfiguration.withdrawalPolicy.order.join(
-              ' -> ',
+              ' → ',
             )}
           </p>
           <p className="mt-1">
             Withdrawal order (raw):{' '}
-            {parityReport.rawSimulation.simulationConfiguration.withdrawalPolicy.order.join(' -> ')}
+            {parityReport.rawSimulation.simulationConfiguration.withdrawalPolicy.order.join(' → ')}
           </p>
-          <p className="mt-2 text-xs text-stone-500">
-            Raw Simulation and Planner-Enhanced Simulation are not equivalent. Use this panel to validate
-            whether deltas are driven by strategy behavior versus input mismatch.
-          </p>
-          <details className="mt-3 rounded-xl bg-stone-50 p-3">
-            <summary className="cursor-pointer text-xs font-semibold uppercase tracking-[0.14em] text-stone-500">
-              Internal diagnostics
-            </summary>
-            <pre className="mt-2 max-h-56 overflow-auto rounded-lg bg-stone-900 p-3 text-[11px] leading-5 text-stone-100">
-              <code>
-                {JSON.stringify(
-                  {
-                    raw: parityReport.rawSimulation.diagnostics,
-                    planner: parityReport.plannerEnhancedSimulation.diagnostics,
-                  },
-                  null,
-                  2,
-                )}
-              </code>
-            </pre>
-          </details>
         </div>
-      </article>
+        <details className="mt-3 rounded-xl bg-stone-50 p-3">
+          <summary className="cursor-pointer text-xs font-semibold uppercase tracking-[0.14em] text-stone-500">
+            Internal diagnostics JSON
+          </summary>
+          <pre className="mt-2 max-h-56 overflow-auto rounded-lg bg-stone-900 p-3 text-[11px] leading-5 text-stone-100">
+            <code>
+              {JSON.stringify(
+                {
+                  raw: parityReport.rawSimulation.diagnostics,
+                  planner: parityReport.plannerEnhancedSimulation.diagnostics,
+                },
+                null,
+                2,
+              )}
+            </code>
+          </pre>
+        </details>
+      </details>
 
-      <div className="mt-6 grid gap-6 xl:grid-cols-[0.95fr_1.05fr]">
-        <div className="rounded-[28px] bg-stone-100/85 p-4">
-          <div className="mb-4">
+      {/* Charts — collapsed by default */}
+      <details className="rounded-[24px] border border-stone-200 bg-white p-4 shadow-sm">
+        <summary className="cursor-pointer text-xs font-semibold uppercase tracking-[0.18em] text-stone-500">
+          Charts
+        </summary>
+        <div className="mt-4 grid gap-6 xl:grid-cols-[0.95fr_1.05fr]">
+          <div className="rounded-[24px] bg-stone-50 p-4">
             <p className="text-sm font-medium text-stone-500">Path outcome mix</p>
-            <h3 className="text-2xl font-semibold text-stone-900">
-              Success vs failure share
-            </h3>
+            <h3 className="text-lg font-semibold text-stone-900">Success vs failure share</h3>
+            <div className="mt-3 h-64">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={distributionSeries}>
+                  <CartesianGrid stroke="#d6d3d1" strokeDasharray="3 3" />
+                  <XAxis dataKey="name" tickLine={false} axisLine={false} />
+                  <YAxis
+                    tickFormatter={(value) => `${value}%`}
+                    tickLine={false}
+                    axisLine={false}
+                  />
+                  <Tooltip formatter={(value: number) => `${value}%`} />
+                  <Bar dataKey="success" stackId="a" radius={[8, 8, 0, 0]}>
+                    {distributionSeries.map((entry, index) => (
+                      <Cell key={entry.name} fill={chartPalette[index % chartPalette.length]} />
+                    ))}
+                  </Bar>
+                  <Bar dataKey="failure" stackId="a" fill="#d6d3d1" radius={[0, 0, 8, 8]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
           </div>
-          <div className="h-72">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={distributionSeries}>
-                <CartesianGrid stroke="#d6d3d1" strokeDasharray="3 3" />
-                <XAxis dataKey="name" tickLine={false} axisLine={false} />
-                <YAxis tickFormatter={(value) => `${value}%`} tickLine={false} axisLine={false} />
-                <Tooltip formatter={(value: number) => `${value}%`} />
-                <Bar dataKey="success" stackId="a" radius={[8, 8, 0, 0]}>
-                  {distributionSeries.map((entry, index) => (
-                    <Cell key={entry.name} fill={chartPalette[index % chartPalette.length]} />
-                  ))}
-                </Bar>
-                <Bar dataKey="failure" stackId="a" fill="#d6d3d1" radius={[0, 0, 8, 8]} />
-              </BarChart>
-            </ResponsiveContainer>
+          <div className="rounded-[24px] bg-stone-50 p-4">
+            <p className="text-sm font-medium text-stone-500">Income vs spending</p>
+            <h3 className="text-lg font-semibold text-stone-900">Funding pressure over time</h3>
+            <div className="mt-3 h-64">
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={projectionSeries}>
+                  <CartesianGrid stroke="#d6d3d1" strokeDasharray="3 3" />
+                  <XAxis dataKey="year" tickLine={false} axisLine={false} />
+                  <YAxis
+                    tickFormatter={(value) => `${Math.round(value / 1000)}k`}
+                    tickLine={false}
+                    axisLine={false}
+                  />
+                  <Tooltip formatter={(value: number) => formatCurrency(value)} />
+                  <Line
+                    type="monotone"
+                    dataKey="income"
+                    stroke="#2563eb"
+                    strokeWidth={3}
+                    dot={false}
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="spending"
+                    stroke="#1e3a8a"
+                    strokeWidth={3}
+                    dot={false}
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
           </div>
         </div>
-        <div className="rounded-[28px] bg-stone-100/85 p-4">
-          <div className="mb-4">
-            <p className="text-sm font-medium text-stone-500">Income vs spending</p>
-            <h3 className="text-2xl font-semibold text-stone-900">
-              Funding pressure over time
-            </h3>
-          </div>
-          <div className="h-72">
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={projectionSeries}>
-                <CartesianGrid stroke="#d6d3d1" strokeDasharray="3 3" />
-                <XAxis dataKey="year" tickLine={false} axisLine={false} />
-                <YAxis
-                  tickFormatter={(value) => `${Math.round(value / 1000)}k`}
-                  tickLine={false}
-                  axisLine={false}
-                />
-                <Tooltip formatter={(value: number) => formatCurrency(value)} />
-                <Line type="monotone" dataKey="income" stroke="#2563eb" strokeWidth={3} dot={false} />
-                <Line type="monotone" dataKey="spending" stroke="#1e3a8a" strokeWidth={3} dot={false} />
-              </LineChart>
-            </ResponsiveContainer>
-          </div>
+      </details>
+    </Panel>
+  );
+}
+
+// Fixed retirement-smile multipliers used purely for UI display so baseline and
+// stressed scenarios always share the same shape. The solver may find a
+// different optimal shape internally, but for apples-to-apples comparison the
+// three phase cards derive their numbers from a single headline by applying
+// these multipliers (matches Kitces-style retirement smile).
+const DISPLAY_SMILE = { goGo: 1.08, slowGo: 0.92, late: 0.78 };
+
+function SmileCurve({
+  baseline,
+  current,
+  showDelta,
+}: {
+  baseline: SolvedSpendProfile | null;
+  current: SolvedSpendProfile | null;
+  showDelta: boolean;
+}) {
+  if (!baseline || !current) return null;
+
+  type PhaseRow = {
+    label: string;
+    sub: string;
+    base: number;
+    now: number;
+    floor: number;
+    rawNow: number;
+  };
+
+  // Plan-mode solver results predate the floor/raw fields — guard with ?? 0
+  // so we don't leak NaN into the baseline cards.
+  const baseFloor60 = baseline.floorMonthly60s ?? 0;
+  const baseFloor70 = baseline.floorMonthly70s ?? 0;
+  const baseFloor80 = baseline.floorMonthly80Plus ?? 0;
+  const curFloor60 = current.floorMonthly60s ?? 0;
+  const curFloor70 = current.floorMonthly70s ?? 0;
+  const curFloor80 = current.floorMonthly80Plus ?? 0;
+
+  const phases: PhaseRow[] = [
+    {
+      label: 'Now through ~69',
+      sub: 'Go-go years — travel, hobbies, eating out',
+      base: Math.max(baseline.monthlySpendNow * DISPLAY_SMILE.goGo, baseFloor60),
+      now: Math.max(current.monthlySpendNow * DISPLAY_SMILE.goGo, curFloor60),
+      floor: curFloor60,
+      rawNow: current.monthlySpendNow * DISPLAY_SMILE.goGo,
+    },
+    {
+      label: 'Age 70 to 79',
+      sub: 'Slow-go years — travel slows, lifestyle settles',
+      base: Math.max(baseline.monthlySpendNow * DISPLAY_SMILE.slowGo, baseFloor70),
+      now: Math.max(current.monthlySpendNow * DISPLAY_SMILE.slowGo, curFloor70),
+      floor: curFloor70,
+      rawNow: current.monthlySpendNow * DISPLAY_SMILE.slowGo,
+    },
+    {
+      label: 'Age 80+',
+      sub: 'No-go years — mostly home + healthcare',
+      base: Math.max(baseline.monthlySpendNow * DISPLAY_SMILE.late, baseFloor80),
+      now: Math.max(current.monthlySpendNow * DISPLAY_SMILE.late, curFloor80),
+      floor: curFloor80,
+      rawNow: current.monthlySpendNow * DISPLAY_SMILE.late,
+    },
+  ];
+  return (
+    <article className="mb-6 rounded-[24px] border border-stone-200 bg-white p-4 shadow-sm">
+      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-stone-500">
+        Real monthly spend by phase
+      </p>
+      <p className="mt-1 text-sm text-stone-600">
+        Retirement smile: real spending naturally tapers through the decades. Numbers below
+        are inflation-adjusted monthly spend targets at {formatPercent(current.successTarget)}{' '}
+        success.
+      </p>
+      <div className="mt-3 grid gap-3 md:grid-cols-3">
+        {phases.map((phase) => {
+          const delta = phase.now - phase.base;
+          const deltaLabel =
+            Math.abs(delta) < 5
+              ? 'no change'
+              : `${delta > 0 ? '+' : '−'}${formatCurrency(Math.round(Math.abs(delta)))}/mo`;
+          const deltaTone =
+            Math.abs(delta) < 5
+              ? 'text-stone-500'
+              : delta > 0
+                ? 'text-emerald-700'
+                : 'text-rose-700';
+          // Flag when the portfolio alone couldn't support this phase and the
+          // number is being held up by Social Security. Users were (rightly)
+          // confused when the card showed "$6,100/mo" and the delta looked
+          // small, when in truth the portfolio was contributing $0 above SS.
+          const atFloor = phase.floor > 0 && phase.rawNow < phase.floor;
+          const portfolioSupplement = Math.max(0, phase.now - phase.floor);
+          return (
+            <div
+              key={phase.label}
+              className={`rounded-2xl border p-3 ${
+                atFloor
+                  ? 'border-amber-200 bg-amber-50/70'
+                  : 'border-stone-200 bg-stone-50'
+              }`}
+            >
+              <p className="text-xs font-semibold text-stone-700">{phase.label}</p>
+              <p className="mt-0.5 text-[11px] text-stone-500">{phase.sub}</p>
+              <p className="mt-2 text-2xl font-semibold text-teal-700">
+                {formatCurrency(Math.round(phase.now))}
+              </p>
+              {atFloor ? (
+                <p className="mt-1 text-[11px] font-medium text-amber-800">
+                  at SS floor · portfolio supplement {formatCurrency(Math.round(portfolioSupplement))}/mo
+                </p>
+              ) : phase.floor > 0 ? (
+                <p className="mt-1 text-[11px] text-stone-500">
+                  SS floor {formatCurrency(Math.round(phase.floor))} · portfolio +
+                  {formatCurrency(Math.round(portfolioSupplement))}/mo
+                </p>
+              ) : null}
+              <p className="mt-1 text-[11px] text-stone-500">
+                baseline {formatCurrency(Math.round(phase.base))}/mo
+                {showDelta ? (
+                  <>
+                    {' '}
+                    · <span className={`font-semibold ${deltaTone}`}>{deltaLabel}</span>
+                  </>
+                ) : null}
+              </p>
+            </div>
+          );
+        })}
+      </div>
+    </article>
+  );
+}
+
+function EffectRow({
+  label,
+  baseline,
+  current,
+  delta,
+  goodWhenUp,
+}: {
+  label: string;
+  baseline: string;
+  current: string;
+  delta: string | null;
+  goodWhenUp?: boolean;
+}) {
+  const deltaTone = (() => {
+    if (!delta || delta === 'no change') return 'text-stone-500';
+    const isUp = delta.startsWith('+');
+    if (goodWhenUp === undefined) return 'text-stone-700';
+    const good = goodWhenUp ? isUp : !isUp;
+    return good ? 'text-emerald-700' : 'text-rose-700';
+  })();
+  return (
+    <div className="rounded-2xl border border-stone-100 bg-stone-50/70 px-3 py-2">
+      <p className="text-xs font-medium text-stone-500">{label}</p>
+      <p className="mt-1 text-sm font-semibold text-stone-900">{current}</p>
+      <p className="mt-0.5 text-xs text-stone-500">
+        was {baseline}
+        {delta ? (
+          <>
+            {' '}
+            · <span className={`font-semibold ${deltaTone}`}>{delta}</span>
+          </>
+        ) : null}
+      </p>
+    </div>
+  );
+}
+
+// Rank candidates: primary = flex success rate, secondary = monthly supported spend.
+// Compared against the baseline (no additional solution), return a sorted list
+// where the top entry is the most helpful solution.
+interface ScoredSuggestion {
+  responseId: string;
+  successDelta: number;
+  monthlyDelta: number;
+  outcome: SuggestionOutcome;
+}
+function rankSuggestions(
+  baseline: SuggestionBaselineOutcome,
+  candidates: SuggestionOutcome[],
+): ScoredSuggestion[] {
+  return candidates
+    .map<ScoredSuggestion>((c) => ({
+      responseId: c.responseId,
+      successDelta: c.successRate - baseline.successRate,
+      monthlyDelta: c.monthlyEstimate - baseline.monthlyEstimate,
+      outcome: c,
+    }))
+    .sort((a, b) => {
+      if (Math.abs(a.successDelta - b.successDelta) > 0.005) {
+        return b.successDelta - a.successDelta;
+      }
+      return b.monthlyDelta - a.monthlyDelta;
+    });
+}
+
+function describeSuggestion(s: ScoredSuggestion): string {
+  const successFragment =
+    Math.abs(s.successDelta) < 0.005
+      ? 'keeps success about the same'
+      : `${s.successDelta > 0 ? 'lifts' : 'drops'} flex success by ${(
+          Math.abs(s.successDelta) * 100
+        ).toFixed(1)} pts`;
+  const spendFragment =
+    Math.abs(s.monthlyDelta) < 5
+      ? 'monthly spend roughly flat'
+      : `monthly spend ${s.monthlyDelta > 0 ? '+' : '−'}${formatCurrency(
+          Math.round(Math.abs(s.monthlyDelta)),
+        )}`;
+  return `${successFragment}, ${spendFragment}`;
+}
+
+function SuggestionsCard({
+  status,
+  progress,
+  error,
+  results,
+  selectedStressors,
+  selectedResponses,
+  onRun,
+  onCancel,
+  onApply,
+}: {
+  status: 'idle' | 'running' | 'ready' | 'error';
+  progress: { completed: number; total: number };
+  error: string | null;
+  results: {
+    baseline: SuggestionBaselineOutcome;
+    candidates: SuggestionOutcome[];
+    stressorIds: string[];
+    fixedResponseIds: string[];
+  } | null;
+  selectedStressors: string[];
+  selectedResponses: string[];
+  onRun: () => void;
+  onCancel: () => void;
+  onApply: (responseId: string) => void;
+}) {
+  const data = useAppStore((state) => state.data);
+  const hasTweaks = selectedStressors.length > 0;
+  const ranked = results ? rankSuggestions(results.baseline, results.candidates) : [];
+  // Detect "stale" — the user has since changed tweaks/responses, so the results
+  // shown might no longer reflect the current inputs.
+  const isStale =
+    status === 'ready' &&
+    results !== null &&
+    (results.stressorIds.join(',') !== selectedStressors.join(',') ||
+      results.fixedResponseIds.join(',') !== selectedResponses.join(','));
+
+  return (
+    <article className="mb-6 rounded-[24px] border border-stone-200 bg-white p-4 shadow-sm">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-stone-500">
+            Suggestions
+          </p>
+          <p className="mt-1 text-sm text-stone-600">
+            {hasTweaks
+              ? 'Stack-rank the remaining solutions against the tweaks you picked. Runs ~' +
+                (selectedResponses.length > 0 ? '' : '') +
+                'one simulation per candidate, about 10–20 seconds total.'
+              : 'Pick at least one tweak on the left first, then I can rank which solution helps most.'}
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          {status === 'running' ? (
+            <>
+              <span className="text-xs text-stone-500">
+                {progress.completed}/{progress.total}
+              </span>
+              <button
+                type="button"
+                onClick={onCancel}
+                className="rounded-full border border-stone-300 bg-white px-3 py-2 text-sm font-semibold text-stone-700 transition hover:bg-stone-50"
+              >
+                Cancel
+              </button>
+            </>
+          ) : (
+            <button
+              type="button"
+              onClick={onRun}
+              disabled={!hasTweaks}
+              className="rounded-full bg-indigo-700 px-4 py-2 text-sm font-semibold text-white transition hover:bg-indigo-600 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              Find my best solution
+            </button>
+          )}
         </div>
       </div>
-    </Panel>
+
+      {error ? (
+        <p className="mt-3 rounded-xl bg-rose-50 px-3 py-2 text-xs text-rose-800">{error}</p>
+      ) : null}
+
+      {status === 'ready' && ranked.length > 0 ? (
+        <div className="mt-4">
+          {isStale ? (
+            <p className="mb-2 rounded-xl bg-amber-50 px-3 py-2 text-xs text-amber-800">
+              Your tweaks or solutions changed since these suggestions were ranked — run again to
+              refresh.
+            </p>
+          ) : null}
+          <p className="text-xs text-stone-500">
+            Baseline (no new solution): flex success{' '}
+            <span className="font-semibold text-stone-700">
+              {formatPercent(results!.baseline.successRate)}
+            </span>
+            , monthly{' '}
+            <span className="font-semibold text-stone-700">
+              {formatCurrency(Math.round(results!.baseline.monthlyEstimate))}
+            </span>
+            .
+          </p>
+          <ol className="mt-3 flex flex-col gap-2">
+            {ranked.map((s, idx) => {
+              const copy = SOLUTION_COPY[s.responseId] ?? {
+                name: s.responseId,
+                hint: '',
+              };
+              const mechanic = describeResponseMechanic(s.responseId, data);
+              const positive = s.successDelta > 0.005 || s.monthlyDelta > 5;
+              const cutLabel =
+                s.outcome.spendingCutRate >= 0.99
+                  ? 'Almost always trims spending in bad years'
+                  : s.outcome.spendingCutRate >= 0.5
+                    ? 'Often trims spending in bad years'
+                    : s.outcome.spendingCutRate > 0.05
+                      ? 'Occasionally trims spending in bad years'
+                      : 'Rarely trims spending';
+              const irmaaLabel =
+                s.outcome.irmaaExposureRate < 0.01
+                  ? 'No Medicare IRMAA surcharges'
+                  : s.outcome.irmaaExposureRate < 0.25
+                    ? 'Rare Medicare IRMAA surcharges'
+                    : s.outcome.irmaaExposureRate < 0.6
+                      ? 'Some Medicare IRMAA surcharges'
+                      : 'Frequent Medicare IRMAA surcharges';
+              return (
+                <li
+                  key={s.responseId}
+                  className={`flex flex-wrap items-center justify-between gap-4 rounded-2xl border px-3 py-3 ${
+                    idx === 0 && positive
+                      ? 'border-emerald-300 bg-emerald-50/60'
+                      : 'border-stone-200 bg-stone-50'
+                  }`}
+                >
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-semibold text-stone-900">
+                      {idx + 1}. {copy.name}
+                      {idx === 0 && positive ? (
+                        <span className="ml-2 rounded-full bg-emerald-200 px-2 py-0.5 text-[11px] font-semibold text-emerald-900">
+                          Best pick
+                        </span>
+                      ) : null}
+                    </p>
+                    {mechanic ? (
+                      <p className="mt-0.5 text-xs text-stone-600">{mechanic}</p>
+                    ) : null}
+                    <p className="mt-1 text-[11px] text-stone-500">
+                      Plan works {formatPercent(s.outcome.successRate)} of the time · {cutLabel} ·{' '}
+                      {irmaaLabel}
+                    </p>
+                  </div>
+                  <div className="flex flex-col items-end leading-tight">
+                    <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-stone-500">
+                      Monthly spend
+                    </span>
+                    <span className="text-xl font-semibold text-teal-700">
+                      {formatCurrency(Math.round(s.outcome.monthlyEstimate))}
+                    </span>
+                    <span
+                      className={`text-[11px] font-semibold ${
+                        Math.abs(s.monthlyDelta) < 5
+                          ? 'text-stone-500'
+                          : s.monthlyDelta > 0
+                            ? 'text-emerald-700'
+                            : 'text-rose-700'
+                      }`}
+                    >
+                      {Math.abs(s.monthlyDelta) < 5
+                        ? 'no change'
+                        : `${s.monthlyDelta > 0 ? '+' : '−'}${formatCurrency(
+                            Math.round(Math.abs(s.monthlyDelta)),
+                          )}/mo vs baseline`}
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => onApply(s.responseId)}
+                    className="rounded-full border border-indigo-300 bg-indigo-50 px-3 py-1.5 text-xs font-semibold text-indigo-800 transition hover:bg-indigo-100"
+                  >
+                    Apply
+                  </button>
+                </li>
+              );
+            })}
+          </ol>
+          <p className="mt-3 text-[11px] text-stone-400">
+            Ranking uses a reduced-run simulation (1,500 trials) for speed; commit to Plan to
+            refresh at full resolution.
+          </p>
+        </div>
+      ) : null}
+
+      {status === 'running' && progress.total > 0 ? (
+        <div className="mt-3 h-1.5 w-full overflow-hidden rounded-full bg-stone-100">
+          <div
+            className="h-full bg-indigo-500 transition-all"
+            style={{
+              width: `${Math.min(100, Math.round((progress.completed / progress.total) * 100))}%`,
+            }}
+          />
+        </div>
+      ) : null}
+    </article>
   );
 }
 

@@ -20,10 +20,14 @@ const exportPayloadCache = new Map<string, PlanningStateExport>();
 const exportSummaryCache = new Map<string, PlanningStateSummary>();
 
 export function usePlanningExportPayload(exportMode: PlanningExportMode = 'compact') {
-  const data = useAppStore((state) => state.data);
-  const assumptions = useAppStore((state) => state.draftAssumptions);
-  const selectedStressors = useAppStore((state) => state.draftSelectedStressors);
-  const selectedResponses = useAppStore((state) => state.draftSelectedResponses);
+  // Planning export reflects the *committed* plan, not the Simulation sandbox
+  // draft. Reading from draft state here caused Simulation-screen toggles to
+  // bleed into Plan / Plan 2.0 / Explore / Insights views — any screen that
+  // builds off this payload shifted as the user ticked tweaks in the sandbox.
+  const data = useAppStore((state) => state.appliedData);
+  const assumptions = useAppStore((state) => state.appliedAssumptions);
+  const selectedStressors = useAppStore((state) => state.appliedSelectedStressors);
+  const selectedResponses = useAppStore((state) => state.appliedSelectedResponses);
   const latestUnifiedPlanEvaluationContext = useAppStore(
     (state) => state.latestUnifiedPlanEvaluationContext,
   );

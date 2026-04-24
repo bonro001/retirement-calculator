@@ -386,6 +386,15 @@ interface RothConversionTrace {
   projectedRothShareAfter: number;
 }
 
+export interface SimulationStressorKnobs {
+  delayedInheritanceYears?: number;
+  cutSpendingPercent?: number;
+  /** ISO date (YYYY-MM-DD) the layoff stressor uses as salary-end. */
+  layoffRetireDate?: string;
+  /** Lump-sum severance paid in the layoff year, real dollars. */
+  layoffSeverance?: number;
+}
+
 interface SimulationExecutionOptions {
   onProgress?: (progress: number) => void;
   isCancelled?: () => boolean;
@@ -393,6 +402,7 @@ interface SimulationExecutionOptions {
   annualSpendScheduleByYear?: Record<number, number>;
   pathMode?: 'all' | 'selected_only';
   strategyMode?: SimulationStrategyMode;
+  stressorKnobs?: SimulationStressorKnobs;
 }
 
 function throwIfSimulationCancelled(isCancelled?: () => boolean) {
@@ -757,7 +767,11 @@ function shiftDateYears(value: string, years: number) {
   return date.toISOString();
 }
 
-function applyStressors(plan: SimPlan, stressors: Stressor[]) {
+function applyStressors(
+  plan: SimPlan,
+  stressors: Stressor[],
+  knobs?: SimulationStressorKnobs,
+) {
   const nextPlan = {
     ...plan,
     socialSecurity: plan.socialSecurity.map((entry) => ({ ...entry })),
@@ -765,15 +779,40 @@ function applyStressors(plan: SimPlan, stressors: Stressor[]) {
     activeStressors: stressors.map((item) => item.id),
   };
 
+  const delayedInheritanceYears = Math.max(
+    1,
+    Math.round(knobs?.delayedInheritanceYears ?? 5),
+  );
+
   stressors.forEach((stressor) => {
     if (stressor.id === 'layoff') {
-      nextPlan.salaryEndDate = new Date(CURRENT_YEAR, 0, 1).toISOString();
-      nextPlan.retirementYear = CURRENT_YEAR;
+      const rawDate = knobs?.layoffRetireDate;
+      const parsed = rawDate ? new Date(rawDate) : null;
+      const layoffDate =
+        parsed && !Number.isNaN(parsed.getTime())
+          ? parsed
+          : new Date(CURRENT_YEAR, 0, 1);
+      nextPlan.salaryEndDate = layoffDate.toISOString();
+      nextPlan.retirementYear = layoffDate.getFullYear();
+      const severance = Math.max(0, Math.round(knobs?.layoffSeverance ?? 0));
+      if (severance > 0) {
+        nextPlan.windfalls = [
+          ...nextPlan.windfalls,
+          {
+            name: 'severance',
+            year: layoffDate.getFullYear(),
+            amount: severance,
+            taxTreatment: 'ordinary_income',
+          },
+        ];
+      }
     }
 
     if (stressor.id === 'delayed_inheritance') {
       nextPlan.windfalls = nextPlan.windfalls.map((item) =>
-        item.name === 'inheritance' ? { ...item, year: item.year + 5 } : item,
+        item.name === 'inheritance'
+          ? { ...item, year: item.year + delayedInheritanceYears }
+          : item,
       );
     }
   });
@@ -801,7 +840,11 @@ function moveIntoCash(plan: SimPlan, amount: number) {
   });
 }
 
-function applyResponses(plan: SimPlan, responses: ResponseOption[]) {
+function applyResponses(
+  plan: SimPlan,
+  responses: ResponseOption[],
+  knobs?: SimulationStressorKnobs,
+) {
   const nextPlan = {
     ...plan,
     socialSecurity: plan.socialSecurity.map((entry) => ({ ...entry })),
@@ -817,7 +860,11 @@ function applyResponses(plan: SimPlan, responses: ResponseOption[]) {
 
   responses.forEach((response) => {
     if (response.id === 'cut_spending') {
-      const cut = response.optionalReductionPercent ?? 20;
+      const cutFromKnob = knobs?.cutSpendingPercent;
+      const cut =
+        cutFromKnob !== undefined
+          ? Math.max(0, Math.min(100, cutFromKnob))
+          : (response.optionalReductionPercent ?? 20);
       nextPlan.optionalAnnual *= 1 - cut / 100;
     }
 
@@ -901,6 +948,10 @@ function getSalaryForYear(plan: SimPlan, year: number) {
 
   const monthFraction = endDate.getMonth() / 12;
   return plan.salaryAnnual * monthFraction;
+}
+
+export function getSocialSecurityBenefitFactor(claimAge: number) {
+  return getBenefitFactor(claimAge);
 }
 
 function getBenefitFactor(claimAge: number) {
@@ -2823,8 +2874,8 @@ function simulatePath(
   const simulationMode = options?.strategyMode ?? 'planner_enhanced';
   const ages = calculateCurrentAges(data);
   const basePlan = buildPlan(data, assumptions, options?.annualSpendTarget);
-  const stressedPlan = applyStressors(basePlan, stressors);
-  const effectivePlan = applyResponses(stressedPlan, responses);
+  const stressedPlan = applyStressors(basePlan, stressors, options?.stressorKnobs);
+  const effectivePlan = applyResponses(stressedPlan, responses, options?.stressorKnobs);
   const strategyBehavior = getStrategyBehavior(simulationMode, effectivePlan);
   const runCount = Math.max(1, assumptions.simulationRuns);
   const simulationSeed = assumptions.simulationSeed ?? 20260416;
@@ -3948,6 +3999,7 @@ export function buildPathResults(
       annualSpendTarget: options?.annualSpendTarget,
       annualSpendScheduleByYear: options?.annualSpendScheduleByYear,
       strategyMode: options?.strategyMode,
+      stressorKnobs: options?.stressorKnobs,
     });
     completedPathRuns += 1;
     options?.onProgress?.(completedPathRuns / totalRunsForMode);
@@ -4041,7 +4093,7 @@ export function buildSimulationParityReport(
   assumptions: MarketAssumptions,
   selectedStressors: string[],
   selectedResponses: string[],
-  options?: Pick<SimulationExecutionOptions, 'isCancelled'> & {
+  options?: Pick<SimulationExecutionOptions, 'isCancelled' | 'stressorKnobs'> & {
     plannerPathOverride?: PathResult;
   },
 ): SimulationParityReport {
@@ -4056,6 +4108,7 @@ export function buildSimulationParityReport(
         pathMode: 'selected_only',
         strategyMode: 'planner_enhanced',
         isCancelled: options?.isCancelled,
+        stressorKnobs: options?.stressorKnobs,
       },
     )[0];
   const rawPath = buildPathResults(
@@ -4067,6 +4120,7 @@ export function buildSimulationParityReport(
       pathMode: 'selected_only',
       strategyMode: 'raw_simulation',
       isCancelled: options?.isCancelled,
+      stressorKnobs: options?.stressorKnobs,
     },
   )[0];
 

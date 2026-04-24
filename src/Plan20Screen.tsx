@@ -2328,11 +2328,14 @@ function Plan20FastPathState({
       successHeadline?: string;
     }).successHeadline ??
     (() => {
-      const sr = summary.planScorecard.canonical.successRate;
-      if (sr >= 0.9) return `The plan succeeds in ${Math.round(sr * 100)}% of simulated scenarios — a strong baseline.`;
-      if (sr >= 0.75) return `The plan succeeds in ${Math.round(sr * 100)}% of simulated scenarios — on track with some margin to manage.`;
-      if (sr >= 0.6) return `The plan succeeds in ${Math.round(sr * 100)}% of simulated scenarios — workable but worth watching.`;
-      return `The plan succeeds in ${Math.round(sr * 100)}% of simulated scenarios — below target, consider adjustments.`;
+      // Boldin-parity: surface the hands-off constant-real success rate rather
+      // than the flex/guardrail number that quietly counts spending cuts as
+      // wins. Keeps internal verdict thresholds unchanged.
+      const sr = summary.rawOutcomeHeadline.successRate;
+      if (sr >= 0.9) return `The plan succeeds in ${Math.round(sr * 100)}% of scenarios at current spend (hands off) — a strong baseline.`;
+      if (sr >= 0.75) return `The plan succeeds in ${Math.round(sr * 100)}% of scenarios at current spend (hands off) — on track with some margin to manage.`;
+      if (sr >= 0.6) return `The plan succeeds in ${Math.round(sr * 100)}% of scenarios at current spend (hands off) — workable but worth watching.`;
+      return `The plan succeeds in ${Math.round(sr * 100)}% of scenarios at current spend (hands off) — below target, consider adjustments.`;
     })();
 
   return (
@@ -2398,10 +2401,13 @@ function Plan20EmptyState({ title, detail }: { title: string; detail: string }) 
 }
 
 export function Plan20Screen() {
-  const data = useAppStore((state) => state.data);
-  const assumptions = useAppStore((state) => state.draftAssumptions);
-  const selectedStressors = useAppStore((state) => state.draftSelectedStressors);
-  const selectedResponses = useAppStore((state) => state.draftSelectedResponses);
+  // Plan 2.0 reflects the *committed* plan, not the Simulation sandbox draft.
+  // Reading draft state here caused Simulation toggles to bleed into Plan 2.0
+  // numbers.
+  const data = useAppStore((state) => state.appliedData);
+  const assumptions = useAppStore((state) => state.appliedAssumptions);
+  const selectedStressors = useAppStore((state) => state.appliedSelectedStressors);
+  const selectedResponses = useAppStore((state) => state.appliedSelectedResponses);
   const { payload, summary, loadState, loadError } = usePlanningExportPayload('compact');
 
   const compactPayload = payload as PlanningStateExportCompact | null;
@@ -2414,11 +2420,12 @@ export function Plan20Screen() {
         ...activeSummaryBase,
         successHeadline: (activeSummaryBase as typeof activeSummaryBase & { successHeadline?: string }).successHeadline
           ?? (() => {
-              const sr = compactPayload?.planScorecard.canonical.successRate ?? 0;
-              if (sr >= 0.9) return `The plan succeeds in ${Math.round(sr * 100)}% of simulated scenarios — a strong baseline.`;
-              if (sr >= 0.75) return `The plan succeeds in ${Math.round(sr * 100)}% of simulated scenarios — on track with some margin to manage.`;
-              if (sr >= 0.6) return `The plan succeeds in ${Math.round(sr * 100)}% of simulated scenarios — workable but worth watching.`;
-              return `The plan succeeds in ${Math.round(sr * 100)}% of simulated scenarios — below target, consider adjustments.`;
+              // Boldin-parity: hands-off constant-real success rate.
+              const sr = rawOutcome?.successRate ?? compactPayload?.planScorecard.canonical.successRate ?? 0;
+              if (sr >= 0.9) return `The plan succeeds in ${Math.round(sr * 100)}% of scenarios at current spend (hands off) — a strong baseline.`;
+              if (sr >= 0.75) return `The plan succeeds in ${Math.round(sr * 100)}% of scenarios at current spend (hands off) — on track with some margin to manage.`;
+              if (sr >= 0.6) return `The plan succeeds in ${Math.round(sr * 100)}% of scenarios at current spend (hands off) — workable but worth watching.`;
+              return `The plan succeeds in ${Math.round(sr * 100)}% of scenarios at current spend (hands off) — below target, consider adjustments.`;
             })(),
         successDependsOnGuardrailCuts: (activeSummaryBase as typeof activeSummaryBase & { successDependsOnGuardrailCuts?: boolean }).successDependsOnGuardrailCuts
           ?? (activeOutcome?.spendingCutRate ?? 0) > 0.15,
@@ -2639,14 +2646,14 @@ export function Plan20Screen() {
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
             <Plan20SummaryCard
               label="Success rate"
-              value={formatPercent(activeOutcome.successRate)}
-              valueLabel="Flex"
-              secondaryValue={formatPercent(rawOutcome.successRate)}
-              secondaryLabel="Hands off"
+              value={formatPercent(rawOutcome.successRate)}
+              valueLabel="Hands off"
+              secondaryValue={formatPercent(activeOutcome.successRate)}
+              secondaryLabel="Flex"
               detail={
                 activeSummary.successDependsOnGuardrailCuts
-                  ? `Success is paired with a ${formatPercent(activeSummary.spendingCutRate)} guardrail-cut rate.`
-                  : 'Success does not primarily rely on guardrail cuts.'
+                  ? `Hands-off number assumes no guardrail cuts. Flex reaches ${formatPercent(activeOutcome.successRate)} by cutting spending in ${formatPercent(activeSummary.spendingCutRate)} of paths.`
+                  : 'Hands-off assumes constant-real spending; flex allows guardrail adjustments.'
               }
               accent="blue"
             />

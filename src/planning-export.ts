@@ -377,6 +377,13 @@ export function buildPlanningStateSummary(
   };
 }
 
+interface PlanningStressorKnobs {
+  delayedInheritanceYears?: number;
+  cutSpendingPercent?: number;
+  layoffRetireDate?: string;
+  layoffSeverance?: number;
+}
+
 interface BuildPlanningExportInput {
   data: SeedData;
   assumptions: MarketAssumptions;
@@ -386,6 +393,7 @@ interface BuildPlanningExportInput {
   unifiedPlanEvaluation?: PlanEvaluation | null;
   unifiedPlanEvaluationCapturedAtIso?: string | null;
   unifiedPlanEvaluationSource?: 'unified_plan' | 'derived_plan' | 'none';
+  stressorKnobs?: PlanningStressorKnobs;
 }
 
 type InheritanceScenarioId =
@@ -2005,21 +2013,46 @@ function applyStressors(
   data: SeedData,
   activeStressors: Stressor[],
   adjustments: PlanningAdjustment[],
+  knobs?: PlanningStressorKnobs,
 ) {
   const currentYear = getCurrentPlanningYear();
+  const delayedInheritanceYears = Math.max(
+    1,
+    Math.round(knobs?.delayedInheritanceYears ?? 5),
+  );
 
   activeStressors.forEach((stressor) => {
     if (stressor.id === 'layoff') {
-      const nextDate = new Date(Date.UTC(currentYear, 0, 1)).toISOString();
+      const parsed = knobs?.layoffRetireDate ? new Date(knobs.layoffRetireDate) : null;
+      const layoffDate =
+        parsed && !Number.isNaN(parsed.getTime())
+          ? parsed
+          : new Date(Date.UTC(currentYear, 0, 1));
+      const nextDate = layoffDate.toISOString();
+      const layoffYear = layoffDate.getUTCFullYear();
+      const severance = Math.max(0, Math.round(knobs?.layoffSeverance ?? 0));
+      const changes = [
+        `salaryEndDate ${data.income.salaryEndDate} -> ${nextDate}`,
+        `retirementYear -> ${layoffYear}`,
+      ];
+      if (severance > 0) {
+        changes.push(`+ severance windfall year=${layoffYear} amount=${severance}`);
+        data.income.windfalls = [
+          ...data.income.windfalls,
+          {
+            name: 'severance',
+            year: layoffYear,
+            amount: severance,
+            taxTreatment: 'ordinary_income',
+          },
+        ];
+      }
       adjustments.push({
         source: 'stressor',
         id: stressor.id,
         name: stressor.name,
-        changes: [
-          `salaryEndDate ${data.income.salaryEndDate} -> ${nextDate}`,
-          `retirementYear -> ${currentYear}`,
-        ],
-        parameters: { layoffYear: currentYear },
+        changes,
+        parameters: { layoffYear, severance },
       });
       data.income.salaryEndDate = nextDate;
       return;
@@ -2031,13 +2064,13 @@ function applyStressors(
         return;
       }
       const previousYear = inheritance.year;
-      inheritance.year += 5;
+      inheritance.year += delayedInheritanceYears;
       adjustments.push({
         source: 'stressor',
         id: stressor.id,
         name: stressor.name,
         changes: [`inheritance.year ${previousYear} -> ${inheritance.year}`],
-        parameters: { delayYears: 5 },
+        parameters: { delayYears: delayedInheritanceYears },
       });
       return;
     }
@@ -2055,12 +2088,17 @@ function applyResponses(
   data: SeedData,
   activeResponses: ResponseOption[],
   adjustments: PlanningAdjustment[],
+  knobs?: PlanningStressorKnobs,
 ) {
   const currentYear = getCurrentPlanningYear();
 
   activeResponses.forEach((response) => {
     if (response.id === 'cut_spending') {
-      const cut = response.optionalReductionPercent ?? 20;
+      const cutFromKnob = knobs?.cutSpendingPercent;
+      const cut =
+        cutFromKnob !== undefined
+          ? Math.max(0, Math.min(100, cutFromKnob))
+          : (response.optionalReductionPercent ?? 20);
       const previousOptionalMonthly = data.spending.optionalMonthly;
       data.spending.optionalMonthly *= 1 - cut / 100;
       adjustments.push({
@@ -2535,8 +2573,8 @@ export function buildPlanningStateExport(
   const activeStressorIds = activeStressors.map((item) => item.id);
   const activeResponseIds = activeResponses.map((item) => item.id);
 
-  applyStressors(effectiveData, activeStressors, adjustmentsApplied);
-  applyResponses(effectiveData, activeResponses, adjustmentsApplied);
+  applyStressors(effectiveData, activeStressors, adjustmentsApplied, input.stressorKnobs);
+  applyResponses(effectiveData, activeResponses, adjustmentsApplied, input.stressorKnobs);
 
   const baseInputs = buildSnapshot(
     baseData,

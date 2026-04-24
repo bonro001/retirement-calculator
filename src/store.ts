@@ -214,8 +214,37 @@ function normalizeContributionSettings(
   };
 }
 
-const areSeedDataEqual = (left: SeedData, right: SeedData) =>
-  JSON.stringify(left) === JSON.stringify(right);
+const areSeedDataEqual = (left: SeedData, right: SeedData) => {
+  // Fast path: reference equality. Every mutating action creates a new object
+  // via spread/immer, so when the references match, the values are equal and
+  // we can skip an expensive JSON.stringify on the entire seed graph.
+  if (left === right) return true;
+  return JSON.stringify(left) === JSON.stringify(right);
+};
+
+export type StressorKnobs = {
+  delayedInheritanceYears: number;
+  cutSpendingPercent: number;
+  /** ISO date (YYYY-MM-DD) the layoff stressor uses as salary-end. Defaults to today. */
+  layoffRetireDate: string;
+  /** Lump-sum severance paid in the layoff year (real dollars). Defaults to 0. */
+  layoffSeverance: number;
+};
+
+const todayIso = () => new Date().toISOString().slice(0, 10);
+
+export const DEFAULT_STRESSOR_KNOBS: StressorKnobs = {
+  delayedInheritanceYears: 5,
+  cutSpendingPercent: 20,
+  layoffRetireDate: todayIso(),
+  layoffSeverance: 0,
+};
+
+const areStressorKnobsEqual = (a: StressorKnobs, b: StressorKnobs) =>
+  a.delayedInheritanceYears === b.delayedInheritanceYears &&
+  a.cutSpendingPercent === b.cutSpendingPercent &&
+  a.layoffRetireDate === b.layoffRetireDate &&
+  a.layoffSeverance === b.layoffSeverance;
 
 interface PendingState {
   data: SeedData;
@@ -223,16 +252,19 @@ interface PendingState {
   draftSelectedStressors: string[];
   draftSelectedResponses: string[];
   draftAssumptions: MarketAssumptions;
+  draftStressorKnobs: StressorKnobs;
   appliedSelectedStressors: string[];
   appliedSelectedResponses: string[];
   appliedAssumptions: MarketAssumptions;
+  appliedStressorKnobs: StressorKnobs;
 }
 
 const hasPendingChanges = (state: PendingState) =>
   !areSeedDataEqual(state.data, state.appliedData) ||
   !areIdListsEqual(state.draftSelectedStressors, state.appliedSelectedStressors) ||
   !areIdListsEqual(state.draftSelectedResponses, state.appliedSelectedResponses) ||
-  !areAssumptionsEqual(state.draftAssumptions, state.appliedAssumptions);
+  !areAssumptionsEqual(state.draftAssumptions, state.appliedAssumptions) ||
+  !areStressorKnobsEqual(state.draftStressorKnobs, state.appliedStressorKnobs);
 
 interface AppState {
   data: SeedData;
@@ -244,6 +276,9 @@ interface AppState {
   appliedSelectedStressors: string[];
   appliedSelectedResponses: string[];
   appliedAssumptions: MarketAssumptions;
+  draftStressorKnobs: StressorKnobs;
+  appliedStressorKnobs: StressorKnobs;
+  updateStressorKnob: <K extends keyof StressorKnobs>(key: K, value: StressorKnobs[K]) => void;
   hasPendingSimulationChanges: boolean;
   unifiedPlanRerunNonce: number;
   planAnalysisStatus: 'pending' | 'running' | 'fresh' | 'stale';
@@ -354,6 +389,17 @@ export const useAppStore = create<AppState>((set) => ({
   appliedSelectedStressors: [],
   appliedSelectedResponses: [],
   appliedAssumptions: defaultAssumptions,
+  draftStressorKnobs: { ...DEFAULT_STRESSOR_KNOBS },
+  appliedStressorKnobs: { ...DEFAULT_STRESSOR_KNOBS },
+  updateStressorKnob: (key, value) =>
+    set((state) => {
+      const draftStressorKnobs = { ...state.draftStressorKnobs, [key]: value };
+      const hasPendingSimulationChanges = hasPendingChanges({
+        ...state,
+        draftStressorKnobs,
+      });
+      return { draftStressorKnobs, hasPendingSimulationChanges };
+    }),
   hasPendingSimulationChanges: false,
   unifiedPlanRerunNonce: 0,
   planAnalysisStatus: 'pending',
@@ -399,7 +445,8 @@ export const useAppStore = create<AppState>((set) => ({
       return { latestUnifiedPlanEvaluationContext: context };
     }),
   clearLatestUnifiedPlanEvaluationContext: () => set({ latestUnifiedPlanEvaluationContext: null }),
-  toggleStressor: (id) =>
+  toggleStressor: (id) => {
+    const t0 = performance.now();
     set((state) => {
       const draftSelectedStressors = state.draftSelectedStressors.includes(id)
         ? state.draftSelectedStressors.filter((item) => item !== id)
@@ -410,8 +457,24 @@ export const useAppStore = create<AppState>((set) => ({
       });
 
       return { draftSelectedStressors, hasPendingSimulationChanges };
-    }),
-  toggleResponse: (id) =>
+    });
+    // eslint-disable-next-line no-console
+    console.log(
+      `[toggle-perf] toggleStressor(${id}) reducer: ${(performance.now() - t0).toFixed(1)}ms`,
+    );
+    // Log again after the next paint so we see how long React's render+commit took.
+    const clickTs = t0;
+    requestAnimationFrame(() => {
+      // eslint-disable-next-line no-console
+      console.log(
+        `[toggle-perf] toggleStressor(${id}) paint-after: ${(
+          performance.now() - clickTs
+        ).toFixed(1)}ms`,
+      );
+    });
+  },
+  toggleResponse: (id) => {
+    const t0 = performance.now();
     set((state) => {
       const draftSelectedResponses = state.draftSelectedResponses.includes(id)
         ? state.draftSelectedResponses.filter((item) => item !== id)
@@ -422,7 +485,21 @@ export const useAppStore = create<AppState>((set) => ({
       });
 
       return { draftSelectedResponses, hasPendingSimulationChanges };
-    }),
+    });
+    // eslint-disable-next-line no-console
+    console.log(
+      `[toggle-perf] toggleResponse(${id}) reducer: ${(performance.now() - t0).toFixed(1)}ms`,
+    );
+    const clickTs = t0;
+    requestAnimationFrame(() => {
+      // eslint-disable-next-line no-console
+      console.log(
+        `[toggle-perf] toggleResponse(${id}) paint-after: ${(
+          performance.now() - clickTs
+        ).toFixed(1)}ms`,
+      );
+    });
+  },
   updateAssumption: (key, value) =>
     set((state) => {
       const draftAssumptions = {
@@ -601,18 +678,21 @@ export const useAppStore = create<AppState>((set) => ({
       const appliedSelectedStressors = [...state.draftSelectedStressors];
       const appliedSelectedResponses = [...state.draftSelectedResponses];
       const appliedAssumptions = { ...state.draftAssumptions };
+      const appliedStressorKnobs = { ...state.draftStressorKnobs };
 
       return {
         appliedData,
         appliedSelectedStressors,
         appliedSelectedResponses,
         appliedAssumptions,
+        appliedStressorKnobs,
         hasPendingSimulationChanges: hasPendingChanges({
           ...state,
           appliedData,
           appliedSelectedStressors,
           appliedSelectedResponses,
           appliedAssumptions,
+          appliedStressorKnobs,
         }),
       };
     }),
@@ -622,17 +702,20 @@ export const useAppStore = create<AppState>((set) => ({
       const draftSelectedStressors = [...state.appliedSelectedStressors];
       const draftSelectedResponses = [...state.appliedSelectedResponses];
       const draftAssumptions = { ...state.appliedAssumptions };
+      const draftStressorKnobs = { ...state.appliedStressorKnobs };
       return {
         data,
         draftSelectedStressors,
         draftSelectedResponses,
         draftAssumptions,
+        draftStressorKnobs,
         hasPendingSimulationChanges: hasPendingChanges({
           ...state,
           data,
           draftSelectedStressors,
           draftSelectedResponses,
           draftAssumptions,
+          draftStressorKnobs,
         }),
       };
     }),

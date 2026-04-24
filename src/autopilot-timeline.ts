@@ -124,6 +124,11 @@ export interface AutopilotPlanInputs {
     diagnosticsMode?: 'core' | 'full';
     enableSuccessRelaxationProbe?: boolean;
   };
+  stressorKnobs?: {
+    delayedInheritanceYears?: number;
+    layoffRetireDate?: string;
+    layoffSeverance?: number;
+  };
 }
 
 export interface AutopilotYearPlan {
@@ -374,14 +379,43 @@ function normalizeRouteContext(input: AutopilotPlanInputs): WorkingRouteContext 
   let socialSecurity = input.data.income.socialSecurity.map((entry) => ({ ...entry }));
   let windfalls = input.data.income.windfalls.map((entry) => ({ ...entry }));
 
+  const delayedInheritanceYears = Math.max(
+    1,
+    Math.round(input.stressorKnobs?.delayedInheritanceYears ?? 5),
+  );
+
   activeStressors.forEach((stressor) => {
     if (stressor.id === 'layoff') {
-      salaryEndDate = new Date(Date.UTC(CURRENT_YEAR, 0, 1)).toISOString();
-      retirementYear = CURRENT_YEAR;
+      const parsed = input.stressorKnobs?.layoffRetireDate
+        ? new Date(input.stressorKnobs.layoffRetireDate)
+        : null;
+      const layoffDate =
+        parsed && !Number.isNaN(parsed.getTime())
+          ? parsed
+          : new Date(Date.UTC(CURRENT_YEAR, 0, 1));
+      salaryEndDate = layoffDate.toISOString();
+      retirementYear = layoffDate.getUTCFullYear();
+      const severance = Math.max(
+        0,
+        Math.round(input.stressorKnobs?.layoffSeverance ?? 0),
+      );
+      if (severance > 0) {
+        windfalls = [
+          ...windfalls,
+          {
+            name: 'severance',
+            year: retirementYear,
+            amount: severance,
+            taxTreatment: 'ordinary_income',
+          },
+        ];
+      }
     }
     if (stressor.id === 'delayed_inheritance') {
       windfalls = windfalls.map((item) =>
-        item.name === 'inheritance' ? { ...item, year: item.year + 5 } : item,
+        item.name === 'inheritance'
+          ? { ...item, year: item.year + delayedInheritanceYears }
+          : item,
       );
     }
   });
@@ -1488,6 +1522,7 @@ export function generateAutopilotPlan(input: AutopilotPlanInputs): AutopilotPlan
       assumptions: input.assumptions,
       selectedStressors: input.selectedStressors,
       selectedResponses: input.selectedResponses,
+      stressorKnobs: input.stressorKnobs,
       targetLegacyTodayDollars: input.targetLegacyTodayDollars,
       minSuccessRate: input.minSuccessRate,
       successRateRange: input.successRateRange,

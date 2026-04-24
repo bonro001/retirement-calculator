@@ -1,16 +1,21 @@
 import type { PathResult, SimulationParityReport } from './types';
+import type { SolvedSpendProfile } from './simulation-worker-types';
 
 const DB_NAME = 'retirement-sim-cache';
 const DB_VERSION = 1;
 const STORE_NAME = 'simulation-result';
 const RECORD_KEY = 'latest';
 const MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+// Bump when the cached payload shape changes so older entries are ignored.
+const CACHE_SCHEMA_VERSION = 2;
 
 interface CachedSimulationResult {
+  schemaVersion?: number;
   fingerprint: string;
   computedAtIso: string;
   pathResults: PathResult[];
   parityReport: SimulationParityReport;
+  solvedSpendProfile?: SolvedSpendProfile | null;
 }
 
 function openDb(): Promise<IDBDatabase> {
@@ -26,14 +31,17 @@ export async function saveSimulationResultToCache(
   fingerprint: string,
   pathResults: PathResult[],
   parityReport: SimulationParityReport,
+  solvedSpendProfile: SolvedSpendProfile | null = null,
 ): Promise<void> {
   try {
     const db = await openDb();
     const entry: CachedSimulationResult = {
+      schemaVersion: CACHE_SCHEMA_VERSION,
       fingerprint,
       computedAtIso: new Date().toISOString(),
       pathResults,
       parityReport,
+      solvedSpendProfile,
     };
     await new Promise<void>((resolve, reject) => {
       const tx = db.transaction(STORE_NAME, 'readwrite');
@@ -49,7 +57,11 @@ export async function saveSimulationResultToCache(
 
 export async function loadSimulationResultFromCache(
   fingerprint: string,
-): Promise<{ pathResults: PathResult[]; parityReport: SimulationParityReport } | null> {
+): Promise<{
+  pathResults: PathResult[];
+  parityReport: SimulationParityReport;
+  solvedSpendProfile: SolvedSpendProfile | null;
+} | null> {
   try {
     const db = await openDb();
     const entry = await new Promise<CachedSimulationResult | undefined>((resolve, reject) => {
@@ -62,6 +74,15 @@ export async function loadSimulationResultFromCache(
       console.log('[sim-cache] miss: nothing saved');
       return null;
     }
+    if ((entry.schemaVersion ?? 1) !== CACHE_SCHEMA_VERSION) {
+      console.log(
+        '[sim-cache] miss: schema version mismatch',
+        entry.schemaVersion ?? 1,
+        '!=',
+        CACHE_SCHEMA_VERSION,
+      );
+      return null;
+    }
     if (entry.fingerprint !== fingerprint) {
       console.log('[sim-cache] miss: fingerprint mismatch');
       return null;
@@ -72,7 +93,11 @@ export async function loadSimulationResultFromCache(
       return null;
     }
     console.log('[sim-cache] hit,', (ageMs / 60000).toFixed(0), 'min old');
-    return { pathResults: entry.pathResults, parityReport: entry.parityReport };
+    return {
+      pathResults: entry.pathResults,
+      parityReport: entry.parityReport,
+      solvedSpendProfile: entry.solvedSpendProfile ?? null,
+    };
   } catch (e) {
     console.warn('[sim-cache] load failed:', e);
     return null;

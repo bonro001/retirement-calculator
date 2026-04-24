@@ -11,6 +11,7 @@ export type ScreenId =
   | 'income'
   | 'taxes'
   | 'stress'
+  | 'social_security'
   | 'simulation'
   | 'insights'
   | 'export';
