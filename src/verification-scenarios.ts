@@ -8,16 +8,17 @@ export const GOLDEN_SCENARIOS: GoldenScenarioDefinition[] = [
     selectedResponses: [],
     pathKind: 'baseline',
     expected: {
-      // Updated 2026-04-23: absorbed accumulated tax-engine drift including
-      // the NIIT + age-65 standard-deduction-bump additions (commit 4eeea11).
-      // Prior expected annualTaxEstimate was 5050.91 against the old engine
-      // without the age-65 bump.
-      successRate: 0.825,
-      medianEndingWealth: 2764751.23058357,
-      annualTaxEstimate: 3904.735294117647,
-      medianFailureYearRange: { min: 2054, max: 2056 },
+      // Regenerated 2026-04-23 after TRP_2030 proxy tightening landed
+      // (30% → 45% US equity per 2026-03-31 fact sheet), which shifted
+      // every baseline scenario upward. Prior expected successRate 0.825
+      // / medianEndingWealth 2.76M / annualTax 3904.74 dates back to the
+      // pre-fact-sheet proxy.
+      successRate: 0.875,
+      medianEndingWealth: 3286372.7291788994,
+      annualTaxEstimate: 3808.323529411765,
+      medianFailureYearRange: { min: 2055, max: 2057 },
       maxIrmaaTier: 1,
-      averageHealthcarePremiumCost: 13153.47058823529,
+      averageHealthcarePremiumCost: 13160.676470588236,
     },
     tolerance: {
       successRate: 0.02,
@@ -55,14 +56,14 @@ export const GOLDEN_SCENARIOS: GoldenScenarioDefinition[] = [
       data.spending.optionalMonthly = 3000;
     },
     expected: {
-      // Updated 2026-04-23 same as baseline-near-retirement: absorbs tax
-      // drift from NIIT + age-65 standard-deduction-bump. Prior expected
-      // annualTaxEstimate was 4872.03 under the old engine.
-      successRate: 0.99,
-      medianEndingWealth: 5325062.464025388,
-      annualTaxEstimate: 3873.4411764705883,
+      // Regenerated 2026-04-23 after TRP_2030 proxy tightening (see
+      // baseline-near-retirement). Prior expected values (0.99 / 5.33M /
+      // 3873) were calibrated against the older 30%-US-equity proxy.
+      successRate: 0.995,
+      medianEndingWealth: 5972081.123971995,
+      annualTaxEstimate: 3997.823529411765,
       maxIrmaaTier: 1,
-      averageHealthcarePremiumCost: 13043.264705882353,
+      averageHealthcarePremiumCost: 13157.970588235294,
     },
     tolerance: {
       successRate: 0.02,
@@ -110,17 +111,15 @@ export const GOLDEN_SCENARIOS: GoldenScenarioDefinition[] = [
       data.accounts.cash.balance = 40_000;
     },
     expected: {
-      // Updated 2026-04-23: absorbs tax drift from NIIT + age-65 std-ded
-      // (prior annualTaxEstimate was 46752.24). Healthcare cost delta also
-      // crept above the 500 tolerance floor (averagePremium rose ~$500
-      // because of RMD-driven IRMAA interactions with the larger std ded);
-      // accepting new baseline of 17546.09 so this scenario remains the
-      // tier-5 IRMAA canary it was intended as.
+      // Regenerated 2026-04-23 after TRP_2030 proxy tightening. Prior
+      // expected medianEndingWealth 12.27M / annualTax 45357 dates back
+      // to the 30%-US-equity proxy. This scenario remains the tier-5
+      // IRMAA canary it was intended as.
       successRate: 1,
-      medianEndingWealth: 12268032.70872794,
-      annualTaxEstimate: 45357.26470588235,
+      medianEndingWealth: 12955515.235473957,
+      annualTaxEstimate: 45596.882352941175,
       maxIrmaaTier: 5,
-      averageHealthcarePremiumCost: 17546.09,
+      averageHealthcarePremiumCost: 17546.08823529412,
     },
     tolerance: {
       successRate: 0.02,
