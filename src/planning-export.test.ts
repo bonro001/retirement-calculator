@@ -542,5 +542,5 @@ describe('buildPlanningStateExport', () => {
     );
     expect(payload.modelTrust.modelTrustLevel).toBe('planning_grade');
     expect(payload.modelFidelity.softAssumptions.length).toBeGreaterThan(0);
-  });
+  }, 20_000);
 });

@@ -1,5 +1,6 @@
 export type ScreenId =
   | 'overview'
+  | 'plan2'
   | 'paths'
   | 'compare'
   | 'solver'
@@ -85,6 +86,13 @@ export interface IncomeData {
   socialSecurity: SocialSecurityEntry[];
   windfalls: WindfallEntry[];
   preRetirementContributions?: PreRetirementContributionSettings;
+  sabbatical?: SabbaticalObligation;
+}
+
+export interface SabbaticalObligation {
+  returnDate: string;
+  paidWeeks: number;
+  weeksForgivenPerMonth: number;
 }
 
 export interface SpendingData {

@@ -322,6 +322,61 @@ export interface PlanningStateExport {
   exportQualityGate: ExportQualityGate;
 }
 
+/**
+ * Tiny (~2–5 KB) subset of PlanningStateExport used to render the Plan 2.0
+ * top strip (focus card, active-plan headline, summary cards) before the full
+ * ~900 KB export has finished loading. Intentionally excludes yearlySeries,
+ * simulationDiagnostics, flightPath, etc. — anything chart-shaped lives in
+ * the full payload.
+ */
+export interface PlanningStateSummary {
+  version: PlanningStateExport['version'];
+  activeSimulationProfile: ActiveSimulationProfile;
+  activeSimulationSummary: PlanningStateExport['activeSimulationSummary'];
+  activeOutcomeHeadline: {
+    successRate: number;
+    medianEndingWealth: number;
+    irmaaExposureRate: number;
+    spendingCutRate: number;
+    inheritanceDependenceRate: number;
+  };
+  rawOutcomeHeadline: {
+    successRate: number;
+    medianEndingWealth: number;
+    irmaaExposureRate: number;
+    spendingCutRate: number;
+  };
+  planScorecard: PlanningStateExport['planScorecard'];
+  retirementYear: number;
+}
+
+export function buildPlanningStateSummary(
+  payload: PlanningStateExport,
+): PlanningStateSummary {
+  const active = payload.activeSimulationOutcome;
+  const raw = payload.simulationOutcomes.rawSimulation;
+  return {
+    version: payload.version,
+    activeSimulationProfile: payload.activeSimulationProfile,
+    activeSimulationSummary: payload.activeSimulationSummary,
+    activeOutcomeHeadline: {
+      successRate: active.successRate,
+      medianEndingWealth: active.medianEndingWealth,
+      irmaaExposureRate: active.irmaaExposureRate,
+      spendingCutRate: active.spendingCutRate,
+      inheritanceDependenceRate: active.inheritanceDependenceRate ?? 0,
+    },
+    rawOutcomeHeadline: {
+      successRate: raw.successRate,
+      medianEndingWealth: raw.medianEndingWealth,
+      irmaaExposureRate: raw.irmaaExposureRate,
+      spendingCutRate: raw.spendingCutRate,
+    },
+    planScorecard: payload.planScorecard,
+    retirementYear: payload.income.retirementYear,
+  };
+}
+
 interface BuildPlanningExportInput {
   data: SeedData;
   assumptions: MarketAssumptions;
@@ -520,7 +575,7 @@ interface RunwayRiskModelDiagnostics {
 }
 
 function clone<T>(value: T): T {
-  return JSON.parse(JSON.stringify(value)) as T;
+  return structuredClone(value) as T;
 }
 
 function getFirstExecutedConversion(outcome: PathResult) {
@@ -2440,9 +2495,13 @@ export async function buildPlanningStateExportWithResolvedContext(
           },
         },
       };
-      unifiedPlanEvaluation = await evaluatePlan(exportPlan);
-      unifiedPlanEvaluationCapturedAtIso = new Date().toISOString();
-      unifiedPlanEvaluationSource = 'derived_plan';
+      const evalTimeout = new Promise<null>((resolve) => setTimeout(() => resolve(null), 30_000));
+      const result = await Promise.race([evaluatePlan(exportPlan), evalTimeout]);
+      if (result !== null) {
+        unifiedPlanEvaluation = result;
+        unifiedPlanEvaluationCapturedAtIso = new Date().toISOString();
+        unifiedPlanEvaluationSource = 'derived_plan';
+      }
     } catch {
       unifiedPlanEvaluation = null;
       unifiedPlanEvaluationCapturedAtIso = null;

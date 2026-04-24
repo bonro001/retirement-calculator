@@ -273,7 +273,7 @@ function nowMs() {
 }
 
 function cloneSeedData(input: SeedData): SeedData {
-  return JSON.parse(JSON.stringify(input)) as SeedData;
+  return structuredClone(input) as SeedData;
 }
 
 function formatCurrency(value: number) {

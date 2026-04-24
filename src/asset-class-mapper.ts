@@ -46,11 +46,13 @@ const normalizeExposure = (exposure: AssetClassExposure): Required<AssetClassExp
 };
 
 export const DEFAULT_AMBIGUOUS_HOLDING_ASSUMPTIONS: Required<AssetClassMappingAssumptions> = {
+  // T. Rowe Price Retirement 2030 Fund (TRRCX) actual diversification as of 2026-03-31 fact sheet.
+  // US Equity includes Real Assets Equities (4.1%) and Hedged Equities (3.6%).
   TRP_2030: normalizeExposure({
-    US_EQUITY: 0.45,
-    INTL_EQUITY: 0.15,
-    BONDS: 0.35,
-    CASH: 0.05,
+    US_EQUITY: 0.454,
+    INTL_EQUITY: 0.182,
+    BONDS: 0.354,
+    CASH: 0.033,
   }),
   CENTRAL_MANAGED: normalizeExposure({
     US_EQUITY: 0.5,
@@ -78,6 +80,9 @@ const EXPLICIT_HOLDING_MAP: Record<string, AssetClassExposure> = {
   HAIN: { US_EQUITY: 1 },
   FAGIX: { BONDS: 1 },
   FSRIX: { BONDS: 1 },
+  FDLO: { US_EQUITY: 1 },
+  // SCHH is 100% US REITs. Mapped to US_EQUITY under current taxonomy; remap when a REAL_ESTATE bucket is added.
+  SCHH: { US_EQUITY: 1 },
 };
 
 export function getHoldingExposure(

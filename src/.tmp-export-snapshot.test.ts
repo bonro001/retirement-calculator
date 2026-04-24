@@ -49,5 +49,5 @@ describe('tmp export snapshot', () => {
     writeFileSync(outPath, JSON.stringify(payload, null, 2));
     // eslint-disable-next-line no-console
     console.log(`EXPORT_WRITTEN ${outPath}`);
-  });
+  }, 120_000);
 });

@@ -14,14 +14,48 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { UnifiedPlanScreen } from './UnifiedPlanScreen';
+import {
+  InsightCard,
+  MetricTile,
+  Panel,
+  RiskPill,
+  Tag,
+  TimelineCard,
+  WithdrawalStep,
+} from './ui-primitives';
+import { TaxesScreen } from './screens/TaxesScreen';
+import { IncomeScreen } from './screens/IncomeScreen';
+import { SpendingScreen } from './screens/SpendingScreen';
+
+const Plan20Screen = lazy(() =>
+  import('./Plan20Screen').then((m) => ({ default: m.Plan20Screen })),
+);
+
+function LazyScreenFallback({ label }: { label: string }) {
+  return (
+    <div className="flex min-h-[40vh] flex-col items-center justify-center gap-3 text-center">
+      <div className="h-8 w-8 animate-spin rounded-full border-4 border-stone-200 border-t-blue-600" />
+      <p className="text-sm font-medium text-stone-600">{label}</p>
+    </div>
+  );
+}
 import { perfLog, perfStart } from './debug-perf';
 import type {
   SimulationWorkerRequest,
   SimulationWorkerResponse,
 } from './simulation-worker-types';
+import type {
+  PlanAnalysisWorkerRequest,
+  PlanAnalysisWorkerResponse,
+} from './plan-analysis-worker-types';
+import type {
+  DecisionEngineWorkerRequest,
+  DecisionEngineWorkerResponse,
+} from './decision-engine-worker-types';
+import type { Plan } from './plan-evaluation';
 import {
   evaluateDecisionLevers,
   type DecisionEngineReport,
@@ -50,7 +84,13 @@ import type {
 } from './planning-export-worker-types';
 import { solveSpendByReverseTimeline, type SpendSolverResult } from './spend-solver';
 import { useAppStore } from './store';
+import { usePlanningExportPayload } from './usePlanningExportPayload';
 import { buildEvaluationFingerprint } from './evaluation-fingerprint';
+import {
+  loadScenarioCompareFromCache,
+  saveScenarioCompareToCache,
+} from './scenario-compare-cache';
+import { loadSimulationResultFromCache, saveSimulationResultToCache } from './simulation-result-cache';
 import type {
   MarketAssumptions,
   Holding,
@@ -81,6 +121,7 @@ import {
 
 const navigation: { id: ScreenId; label: string; shortLabel: string }[] = [
   { id: 'overview', label: 'Plan', shortLabel: 'Plan' },
+  { id: 'plan2', label: 'Plan 2.0', shortLabel: 'Plan 2.0' },
   { id: 'paths', label: 'Path Comparison', shortLabel: 'Paths' },
   { id: 'compare', label: 'Scenario Compare', shortLabel: 'Compare' },
   { id: 'accounts', label: 'Accounts', shortLabel: 'Accounts' },
@@ -493,6 +534,13 @@ export function App() {
   const clearDraftTradeSetActivities = useAppStore((state) => state.clearDraftTradeSetActivities);
   const currentScreen = useAppStore((state) => state.currentScreen);
   const setCurrentScreen = useAppStore((state) => state.setCurrentScreen);
+  const latestUnifiedPlanEvaluationContext = useAppStore(
+    (state) => state.latestUnifiedPlanEvaluationContext,
+  );
+  const setLatestUnifiedPlanEvaluationContext = useAppStore(
+    (state) => state.setLatestUnifiedPlanEvaluationContext,
+  );
+  const planAnalysisStatus = useAppStore((state) => state.planAnalysisStatus);
 
   useEffect(() => {
     if (currentScreen === 'solver' || currentScreen === 'autopilot') {
@@ -511,9 +559,12 @@ export function App() {
   const analysisTimersRef = useRef(
     new Map<string, { target: AnalysisTarget; end: ReturnType<typeof perfStart> }>(),
   );
+  const bgEvalWorkerRef = useRef<Worker | null>(null);
 
   const [currentPlanResult, setCurrentPlanResult] = useState<SimulationResultState | null>(null);
   const [simulationResult, setSimulationResult] = useState<SimulationResultState | null>(null);
+  const [simCacheCheckPending, setSimCacheCheckPending] = useState(true);
+  const [planResultFromCache, setPlanResultFromCache] = useState(false);
 
   const [planResultStatus, setPlanResultStatus] = useState<SimulationStatus>('running');
   const [simulationStatus, setSimulationStatus] = useState<SimulationStatus>('stale');
@@ -555,6 +606,22 @@ export function App() {
       simulationDraftSelectedStressors,
     ],
   );
+
+  // On mount, try to restore the plan result from IndexedDB before starting a fresh run.
+  useEffect(() => {
+    let cancelled = false;
+    loadSimulationResultFromCache(planInputFingerprint).then((cached) => {
+      if (cancelled) return;
+      if (cached) {
+        setCurrentPlanResult(cached);
+        setPlanResultStatus('fresh');
+        setPlanResultFromCache(true);
+      }
+      setSimCacheCheckPending(false);
+    });
+    return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // intentionally run once on mount only
 
   const stopTrackedAnalysis = useCallback(
     (requestId: string, outcome: 'ok' | 'error' | 'cancelled', extra?: Record<string, unknown>) => {
@@ -628,8 +695,10 @@ export function App() {
             pathResults: message.pathResults,
             parityReport: message.parityReport,
           });
+          setPlanResultFromCache(false);
           if (completedInputFingerprint) {
             lastPlanRunInputsRef.current = completedInputFingerprint;
+            void saveSimulationResultToCache(completedInputFingerprint, message.pathResults, message.parityReport);
           }
           setPlanResultStatus(
             completedInputFingerprint !== latestPlanInputFingerprintRef.current
@@ -896,12 +965,79 @@ export function App() {
   }, [simulationInputFingerprint, simulationStatus]);
 
   useEffect(() => {
-    if (currentPlanResult || activeRequestIdRef.current) {
+    if (simCacheCheckPending || currentPlanResult || activeRequestIdRef.current) {
       return;
     }
     perfLog('simulation', 'effect-triggered initial plan analysis');
     runAnalysis('plan');
-  }, [runAnalysis, currentPlanResult]);
+  }, [runAnalysis, currentPlanResult, simCacheCheckPending]);
+
+  // Proactively run plan evaluation in the background after the main simulation
+  // completes, so Plan 2.0 doesn't need to cold-start its own evaluation.
+  useEffect(() => {
+    if (latestUnifiedPlanEvaluationContext !== null) return;
+    if (planResultStatus === 'running') return;
+    if (bgEvalWorkerRef.current) return;
+
+    const worker = new Worker(new URL('./plan-analysis.worker.ts', import.meta.url), {
+      type: 'module',
+    });
+    bgEvalWorkerRef.current = worker;
+    const requestId = `bg-eval-${Date.now()}`;
+
+    const timeoutId = setTimeout(() => {
+      worker.terminate();
+      bgEvalWorkerRef.current = null;
+    }, 60_000);
+
+    worker.onmessage = (event: MessageEvent<PlanAnalysisWorkerResponse>) => {
+      const msg = event.data;
+      if (msg.type === 'result') {
+        setLatestUnifiedPlanEvaluationContext(msg.evaluation);
+      }
+      if (msg.type === 'result' || msg.type === 'error' || msg.type === 'cancelled') {
+        clearTimeout(timeoutId);
+        worker.terminate();
+        bgEvalWorkerRef.current = null;
+      }
+    };
+
+    const plan: Plan = {
+      data: simulationDraft,
+      assumptions: simulationDraftAssumptions,
+      controls: {
+        selectedStressorIds: simulationDraftSelectedStressors,
+        selectedResponseIds: simulationDraftSelectedResponses,
+        toggles: {
+          preserveRoth: simulationDraftSelectedResponses.includes('preserve_roth'),
+          increaseCashBuffer: simulationDraftSelectedResponses.includes('increase_cash_buffer'),
+        },
+      },
+      preferences: {
+        calibration: { optimizationObjective: 'maximize_time_weighted_spending' },
+      },
+    };
+
+    const request: PlanAnalysisWorkerRequest = {
+      type: 'run',
+      payload: { requestId, plan },
+    };
+    worker.postMessage(request);
+
+    return () => {
+      clearTimeout(timeoutId);
+      worker.terminate();
+      bgEvalWorkerRef.current = null;
+    };
+  }, [
+    latestUnifiedPlanEvaluationContext,
+    planResultStatus,
+    simulationDraft,
+    simulationDraftAssumptions,
+    simulationDraftSelectedStressors,
+    simulationDraftSelectedResponses,
+    setLatestUnifiedPlanEvaluationContext,
+  ]);
 
   const cancelSimulation = () => {
     const worker = workerRef.current;
@@ -921,6 +1057,7 @@ export function App() {
   };
 
   const planPathResults = currentPlanResult?.pathResults ?? [];
+  const isInitialLoad = planPathResults.length === 0 && planResultStatus === 'running';
   const displayedPlanPathResults = planPathResults.length ? planPathResults : EMPTY_PATH_RESULTS;
   const planProjectionSeries = useMemo(
     () => buildProjectionSeries(displayedPlanPathResults),
@@ -946,6 +1083,15 @@ export function App() {
   const annualStretchSpend = getAnnualStretchSpend(currentPlan);
   const horizonYears = getRetirementHorizonYears(currentPlan, currentPlanAssumptions);
   const planPrimaryPath = displayedPlanPathResults[2] ?? displayedPlanPathResults[0];
+  const { payload: planExportPayload } = usePlanningExportPayload('compact');
+  const planExportCompact = planExportPayload as
+    | { activeSimulationOutcome?: { successRate?: number }; simulationOutcomes?: { rawSimulation?: { successRate?: number } }; debug?: { rawSimulation?: { successRate?: number } } }
+    | null;
+  const flexSuccessRate = planExportCompact?.activeSimulationOutcome?.successRate ?? null;
+  const handsOffSuccessRate =
+    planExportCompact?.simulationOutcomes?.rawSimulation?.successRate ??
+    planExportCompact?.debug?.rawSimulation?.successRate ??
+    null;
   const simulationPrimaryPath =
     displayedSimulationPathResults[2] ?? displayedSimulationPathResults[0];
   const isPlanHomeScreen = currentScreen === 'overview' || currentScreen === 'insights';
@@ -1028,18 +1174,29 @@ export function App() {
                       Outdated
                     </span>
                   )}
+                  {planResultFromCache && planResultStatus === 'fresh' ? (
+                    <span className="rounded-full bg-stone-100 px-2.5 py-1 text-xs text-stone-500">
+                      from cache
+                    </span>
+                  ) : null}
                   {planResultError ? (
                     <span className="text-xs text-red-700">Error: {planResultError}</span>
                   ) : null}
                 </div>
                 <div className="flex items-center gap-2">
+                  {planAnalysisStatus === 'fresh' ? (
+                    <span className="flex items-center gap-1.5 text-xs text-stone-500">
+                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+                      Analysis current
+                    </span>
+                  ) : null}
                   <button
                     type="button"
                     onClick={requestUnifiedPlanRerun}
-                    disabled={planResultStatus === 'running'}
+                    disabled={planResultStatus === 'running' || planAnalysisStatus === 'fresh' || planAnalysisStatus === 'running'}
                     className="rounded-full bg-blue-700 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-blue-600 disabled:cursor-not-allowed disabled:opacity-60"
                   >
-                    Run Plan Analysis
+                    {planAnalysisStatus === 'running' ? 'Analyzing…' : 'Run Plan Analysis'}
                   </button>
                   <button
                     type="button"
@@ -1115,17 +1272,28 @@ export function App() {
               <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
                 <SummaryStatCard
                   title="Primary path success"
-                  value={formatPercent(planPrimaryPath.successRate)}
-                  description="Latest known plan snapshot from the most recent completed simulation run."
+                  value={
+                    isInitialLoad
+                      ? '—'
+                      : formatPercent(flexSuccessRate ?? planPrimaryPath.successRate)
+                  }
+                  valueLabel="Flex"
+                  secondaryValue={
+                    isInitialLoad || handsOffSuccessRate === null
+                      ? undefined
+                      : formatPercent(handsOffSuccessRate)
+                  }
+                  secondaryLabel="Hands off"
+                  description="Flex = with adaptive guardrails and planner moves. Hands off = same plan with no adjustments taken."
                 />
                 <SummaryStatCard
                   title="Starting runway"
-                  value={`${planPrimaryPath.yearsFunded} yrs`}
+                  value={isInitialLoad ? '—' : `${planPrimaryPath.yearsFunded} yrs`}
                   description={`Current assets divided by current annual spending. Planning horizon is ${horizonYears} years.`}
                 />
                 <SummaryStatCard
                   title="IRMAA exposure"
-                  value={planPrimaryPath.irmaaExposure}
+                  value={isInitialLoad ? '—' : planPrimaryPath.irmaaExposure}
                   description="Directional signal from the latest run for Medicare-related income pressure."
                 />
               </div>
@@ -1133,6 +1301,17 @@ export function App() {
           ) : null}
 
           <div className="lg:min-h-0 lg:flex-1 lg:overflow-y-auto lg:pr-1">
+            {isInitialLoad || simCacheCheckPending ? (
+              <div className="flex min-h-[60vh] flex-col items-center justify-center gap-4 text-center">
+                <div className="h-10 w-10 animate-spin rounded-full border-4 border-stone-200 border-t-blue-600" />
+                <p className="text-base font-medium text-stone-700">
+                  {simCacheCheckPending ? 'Loading from cache…' : 'Computing your retirement plan…'}
+                </p>
+                <p className="text-sm text-stone-500">
+                  {simCacheCheckPending ? 'Checking saved simulation results' : 'Running Monte Carlo simulation'}
+                </p>
+              </div>
+            ) : (
             <section className="space-y-6">
               <div className={currentScreen === 'overview' ? '' : 'hidden'}>
                 <UnifiedPlanScreen
@@ -1145,6 +1324,11 @@ export function App() {
                   showPlanControls
                 />
               </div>
+              {currentScreen === 'plan2' && (
+                <Suspense fallback={<LazyScreenFallback label="Loading Plan 2.0…" />}>
+                  <Plan20Screen />
+                </Suspense>
+              )}
               {currentScreen === 'paths' && (
                 <PathComparisonScreen
                   pathResults={displayedPlanPathResults}
@@ -1204,6 +1388,7 @@ export function App() {
               )}
               {currentScreen === 'export' && <ExportScreen />}
             </section>
+            )}
           </div>
         </main>
       </div>
@@ -1214,10 +1399,16 @@ export function App() {
 function SummaryStatCard({
   title,
   value,
+  valueLabel,
+  secondaryValue,
+  secondaryLabel,
   description,
 }: {
   title: string;
   value: string;
+  valueLabel?: string;
+  secondaryValue?: string;
+  secondaryLabel?: string;
   description: string;
 }) {
   return (
@@ -1225,31 +1416,24 @@ function SummaryStatCard({
       <p className="text-sm font-medium text-stone-500">{title}</p>
       <p className="mt-3 text-3xl font-semibold tracking-tight text-stone-900">
         {value}
+        {valueLabel ? (
+          <span className="ml-2 align-middle text-xs font-medium uppercase tracking-[0.14em] text-stone-500">
+            {valueLabel}
+          </span>
+        ) : null}
       </p>
+      {secondaryValue ? (
+        <p className="mt-1 text-sm text-stone-500">
+          <span className="font-medium text-stone-700">{secondaryValue}</span>
+          {secondaryLabel ? (
+            <span className="ml-2 text-xs uppercase tracking-[0.14em] text-stone-500">
+              {secondaryLabel}
+            </span>
+          ) : null}
+        </p>
+      ) : null}
       <p className="mt-3 text-sm leading-6 text-stone-600">{description}</p>
     </article>
-  );
-}
-
-function Panel({
-  title,
-  subtitle,
-  children,
-}: {
-  title: string;
-  subtitle?: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <section className="rounded-[32px] border border-white/70 bg-white/80 p-6 shadow-lg shadow-amber-950/5 backdrop-blur">
-      <div className="mb-5">
-        <h2 className="font-serif text-3xl tracking-tight text-stone-900">{title}</h2>
-        {subtitle ? (
-          <p className="mt-2 max-w-[68ch] text-sm leading-6 text-stone-600">{subtitle}</p>
-        ) : null}
-      </div>
-      {children}
-    </section>
   );
 }
 
@@ -1476,6 +1660,36 @@ function ScenarioCompareScreen({
   const [report, setReport] = useState<ScenarioCompareReport | null>(null);
   const [isRunning, setIsRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [fromCache, setFromCache] = useState(false);
+
+  const compareFingerprint = useMemo(
+    () =>
+      `${[...selectedScenarioIds].sort().join(',')}|${assumptions.simulationSeed}|${buildEvaluationFingerprint(
+        {
+          data,
+          assumptions,
+          selectedStressors,
+          selectedResponses,
+        },
+      )}`,
+    [data, assumptions, selectedStressors, selectedResponses, selectedScenarioIds],
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const cached =
+        await loadScenarioCompareFromCache<ScenarioCompareReport>(compareFingerprint);
+      if (cancelled) return;
+      if (cached) {
+        setReport(cached);
+        setFromCache(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [compareFingerprint]);
 
   const displayRows = useMemo(
     () => (report ? buildScenarioCompareDisplayRows(report) : []),
@@ -1506,6 +1720,7 @@ function ScenarioCompareScreen({
 
     setError(null);
     setIsRunning(true);
+    setFromCache(false);
     nextPaint(() => {
       void (async () => {
         try {
@@ -1526,6 +1741,7 @@ function ScenarioCompareScreen({
             },
           );
           setReport(compareReport);
+          void saveScenarioCompareToCache(compareFingerprint, compareReport);
           console.log('[Scenario Compare] full report', compareReport);
         } catch (runError) {
           setError(runError instanceof Error ? runError.message : 'Scenario compare failed.');
@@ -1548,12 +1764,21 @@ function ScenarioCompareScreen({
           disabled={isRunning}
           className="rounded-full bg-blue-700 px-5 py-2.5 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
         >
-          {isRunning ? 'Running Scenario Compare…' : 'Run Scenario Compare'}
+          {isRunning
+            ? 'Running Scenario Compare…'
+            : fromCache
+              ? 'Re-run Scenario Compare'
+              : 'Run Scenario Compare'}
         </button>
         <p className="text-sm text-stone-600">
           Running {selectedScenarioIds.length} scenario
           {selectedScenarioIds.length === 1 ? '' : 's'} with deterministic seeds.
         </p>
+        {fromCache && !isRunning ? (
+          <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-700">
+            Loaded from cache
+          </span>
+        ) : null}
       </div>
 
       <div className="mb-5 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
@@ -2750,12 +2975,20 @@ function AutopilotPlanScreen({
 function AccountsScreen() {
   const data = useAppStore((state) => state.data);
   const bucketEntries = Object.entries(data.accounts);
+  const totalBalance = bucketEntries.reduce(
+    (sum, [, bucket]) => sum + (bucket.balance ?? 0),
+    0,
+  );
 
   return (
     <Panel
       title="Accounts"
       subtitle="This pass seeds the real bucket totals from your current accounts, keeps the bucket-level allocation view, and adds the source accounts and holdings underneath so the shell is no longer empty."
     >
+      <div className="mb-5 flex items-baseline justify-between rounded-2xl bg-stone-900 px-5 py-4 text-stone-50">
+        <p className="text-xs uppercase tracking-[0.18em] text-stone-300">Total portfolio</p>
+        <p className="text-3xl font-semibold">{formatCurrency(totalBalance)}</p>
+      </div>
       <div className="grid gap-4 md:grid-cols-2">
         {bucketEntries.map(([key, bucket]) => (
           <article
@@ -2848,154 +3081,6 @@ function AccountsScreen() {
             ) : null}
           </article>
         ))}
-      </div>
-    </Panel>
-  );
-}
-
-function SpendingScreen({
-  annualCoreSpend,
-  annualStretchSpend,
-  retirementDate,
-}: {
-  annualCoreSpend: number;
-  annualStretchSpend: number;
-  retirementDate: string;
-}) {
-  const data = useAppStore((state) => state.data);
-
-  return (
-    <Panel
-      title="Spending"
-      subtitle="The spending model is deliberately small: essential, optional, taxes and insurance, plus an early-retirement travel bump. That keeps experiments fast while still matching the way you think about tradeoffs."
-    >
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <MetricTile
-          label="Essential"
-          value={`${formatCurrency(data.spending.essentialMonthly)}/mo`}
-        />
-        <MetricTile
-          label="Optional"
-          value={`${formatCurrency(data.spending.optionalMonthly)}/mo`}
-        />
-        <MetricTile
-          label="Taxes + insurance"
-          value={`${formatCurrency(data.spending.annualTaxesInsurance)}/yr`}
-        />
-        <MetricTile
-          label="Travel phase"
-          value={`${formatCurrency(data.spending.travelEarlyRetirementAnnual)}/yr`}
-        />
-      </div>
-      <div className="mt-6 grid gap-4 lg:grid-cols-[0.9fr_1.1fr]">
-        <InsightCard
-          eyebrow="Core spend"
-          title={`${formatCurrency(annualCoreSpend)} yearly before travel.`}
-          body="This acts as the stable planning floor and keeps stress tests from overstating the amount you can realistically cut."
-        />
-        <InsightCard
-          eyebrow="Early retirement phase"
-          title={`${formatCurrency(annualStretchSpend)} yearly with travel included.`}
-          body={`The shell assumes the higher travel phase begins around retirement on ${formatDate(retirementDate)} and can be scaled down as a response when paths turn fragile.`}
-        />
-      </div>
-    </Panel>
-  );
-}
-
-function IncomeScreen() {
-  const data = useAppStore((state) => state.data);
-
-  return (
-    <Panel
-      title="Income"
-      subtitle="This view shows the income timeline that powers the plan. Salary end date, Social Security claim ages, and windfall timing are all editable from the drawer."
-    >
-      <div className="grid gap-4 lg:grid-cols-[1fr_1fr]">
-        <article className="rounded-[28px] bg-stone-100/85 p-5">
-          <p className="text-sm uppercase tracking-[0.18em] text-stone-500">Salary</p>
-          <h3 className="mt-2 text-3xl font-semibold text-stone-900">
-            {formatCurrency(data.income.salaryAnnual)}
-          </h3>
-          <p className="mt-3 text-sm text-stone-600">
-            Active until {formatDate(data.income.salaryEndDate)}.
-          </p>
-        </article>
-
-        <article className="rounded-[28px] bg-stone-100/85 p-5">
-          <p className="text-sm uppercase tracking-[0.18em] text-stone-500">
-            Social Security
-          </p>
-          <div className="mt-4 space-y-4">
-            {data.income.socialSecurity.map((item) => (
-              <div key={item.person} className="flex items-center justify-between gap-4">
-                <div>
-                  <p className="font-medium capitalize text-stone-800">{item.person}</p>
-                  <p className="text-sm text-stone-500">Claim age {item.claimAge}</p>
-                </div>
-                <p className="text-lg font-semibold text-stone-900">
-                  {formatCurrency(item.fraMonthly)}/mo
-                </p>
-              </div>
-            ))}
-          </div>
-        </article>
-      </div>
-
-      <div className="mt-6 grid gap-4 md:grid-cols-2">
-        {data.income.windfalls.map((item) => (
-          <InsightCard
-            key={item.name}
-            eyebrow={`Windfall ${item.year}`}
-            title={`${item.name.replaceAll('_', ' ')}: ${formatCurrency(item.amount)}`}
-            body="Windfalls are modeled as explicit decision support levers rather than assumed guarantees, so delayed-arrival stress tests can be layered on later."
-          />
-        ))}
-      </div>
-    </Panel>
-  );
-}
-
-function TaxesScreen() {
-  const data = useAppStore((state) => state.data);
-
-  return (
-    <Panel
-      title="Taxes"
-      subtitle="The spec calls for tax-aware withdrawals and IRMAA awareness without a full tax engine in V1. This shell frames taxes as guidance and constraints instead of pretending exact optimization already exists."
-    >
-      <div className="grid gap-4 lg:grid-cols-[0.95fr_1.05fr]">
-        <div className="space-y-4">
-          <InsightCard
-            eyebrow="Planning mode"
-            title={data.rules.irmaaAware ? 'IRMAA-aware routing is on.' : 'IRMAA routing is off.'}
-            body="Use this panel to decide when future withdrawal heuristics should prefer taxable or cash first to keep Medicare-related income spikes manageable."
-          />
-          <InsightCard
-            eyebrow="MVP heuristic"
-            title="Use cash and taxable flexibility first when the market is weak."
-            body="The initial shell is set up for practical decision support: avoid forcing pretax withdrawals at the worst possible time if cash or planned windfalls can absorb the hit."
-          />
-        </div>
-        <article className="rounded-[28px] bg-stone-100/85 p-5">
-          <p className="text-sm uppercase tracking-[0.18em] text-stone-500">
-            Withdrawal order draft
-          </p>
-          <div className="mt-4 grid gap-3">
-            <WithdrawalStep
-              title="1. Cash buffer"
-              body="Protects against selling risk assets into a drawdown and smooths year-to-year MAGI."
-            />
-            <WithdrawalStep
-              title="2. Taxable bucket"
-              body="Flexible for bad markets, especially when paired with lower optional spend."
-            />
-            <WithdrawalStep
-              title="3. Pretax and Roth mix"
-              body="The engine now uses a simple IRMAA-aware sequence, with room left for a later detailed tax-bracket layer."
-            />
-          </div>
-        </article>
       </div>
     </Panel>
   );
@@ -3421,60 +3506,143 @@ function InsightsScreen({
     ],
   );
 
+  const decisionEngineWorkerRef = useRef<Worker | null>(null);
+  const activeAnalysisRequestIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    return () => {
+      const activeId = activeAnalysisRequestIdRef.current;
+      const worker = decisionEngineWorkerRef.current;
+      if (worker && activeId) {
+        const cancelMsg: DecisionEngineWorkerRequest = { type: 'cancel', requestId: activeId };
+        worker.postMessage(cancelMsg);
+      }
+      if (worker) {
+        worker.terminate();
+        decisionEngineWorkerRef.current = null;
+      }
+    };
+  }, []);
+
   const handleRunAnalysis = () => {
     const priorReportSnapshot = currentReport
       ? cloneDecisionEngineReport(currentReport)
       : null;
+    const runStartMs = performance.now();
     setAnalysisError(null);
     setIsRunningAnalysis(true);
     setExplainabilityReport(null);
-    nextPaint(() => {
-      void (async () => {
-        try {
-          const interactiveAssumptions = getInteractiveDecisionAssumptions(assumptions);
-          const [nextBaselinePath] = buildPathResults(
-            data,
-            interactiveAssumptions,
-            selectedStressors,
-            selectedResponses,
-            {
-              pathMode: 'selected_only',
-              strategyMode: 'planner_enhanced',
-            },
-          );
 
-          const nextReport = await evaluateDecisionLevers(
-            {
+    if (typeof Worker === 'undefined') {
+      // Graceful fallback: keep the old main-thread path for non-worker envs
+      // (mainly SSR / tests). Wrapped in nextPaint so the spinner paints first.
+      nextPaint(() => {
+        void (async () => {
+          try {
+            const interactiveAssumptions = getInteractiveDecisionAssumptions(assumptions);
+            const [nextBaselinePath] = buildPathResults(
               data,
-              assumptions: interactiveAssumptions,
+              interactiveAssumptions,
               selectedStressors,
               selectedResponses,
-              strategyMode: 'planner_enhanced',
-            },
-            {
-              strategyMode: 'planner_enhanced',
-              simulationRunsOverride: interactiveAssumptions.simulationRuns,
-              seedBase: interactiveAssumptions.simulationSeed,
-              seedStrategy: 'shared',
-              constraints: recommendationConstraints,
-              evaluateExcludedScenarios: true,
-            },
-          );
+              { pathMode: 'selected_only', strategyMode: 'planner_enhanced' },
+            );
+            const nextReport = await evaluateDecisionLevers(
+              {
+                data,
+                assumptions: interactiveAssumptions,
+                selectedStressors,
+                selectedResponses,
+                strategyMode: 'planner_enhanced',
+              },
+              {
+                strategyMode: 'planner_enhanced',
+                simulationRunsOverride: interactiveAssumptions.simulationRuns,
+                seedBase: interactiveAssumptions.simulationSeed,
+                seedStrategy: 'shared',
+                constraints: recommendationConstraints,
+                evaluateExcludedScenarios: true,
+              },
+            );
+            setBaselinePath(nextBaselinePath);
+            setPreviousReport(priorReportSnapshot);
+            setCurrentReport(nextReport);
+            setExplainabilityReport(
+              buildExplainabilityReportFromSimulation(nextBaselinePath, nextReport),
+            );
+          } catch (error) {
+            setAnalysisError(error instanceof Error ? error.message : 'Analysis failed');
+          } finally {
+            setIsRunningAnalysis(false);
+          }
+        })();
+      });
+      return;
+    }
 
-          setBaselinePath(nextBaselinePath);
+    // Cancel any prior in-flight analysis on the same worker before
+    // dispatching a new one.
+    if (decisionEngineWorkerRef.current && activeAnalysisRequestIdRef.current) {
+      const cancelMsg: DecisionEngineWorkerRequest = {
+        type: 'cancel',
+        requestId: activeAnalysisRequestIdRef.current,
+      };
+      decisionEngineWorkerRef.current.postMessage(cancelMsg);
+    }
+
+    if (!decisionEngineWorkerRef.current) {
+      decisionEngineWorkerRef.current = new Worker(
+        new URL('./decision-engine.worker.ts', import.meta.url),
+        { type: 'module' },
+      );
+      decisionEngineWorkerRef.current.onmessage = (
+        event: MessageEvent<DecisionEngineWorkerResponse>,
+      ) => {
+        const msg = event.data;
+        if (msg.requestId !== activeAnalysisRequestIdRef.current) return;
+        if (msg.type === 'result') {
+          setBaselinePath(msg.baselinePath);
           setPreviousReport(priorReportSnapshot);
-          setCurrentReport(nextReport);
+          setCurrentReport(msg.report);
           setExplainabilityReport(
-            buildExplainabilityReportFromSimulation(nextBaselinePath, nextReport),
+            buildExplainabilityReportFromSimulation(msg.baselinePath, msg.report),
           );
-          console.log('[Decision Engine] full report', nextReport);
-        } catch (error) {
-          setAnalysisError(error instanceof Error ? error.message : 'Analysis failed');
-        } finally {
           setIsRunningAnalysis(false);
+          activeAnalysisRequestIdRef.current = null;
+          console.log(
+            `[perf] run-analysis (worker): ${(performance.now() - runStartMs).toFixed(0)}ms`,
+          );
+        } else if (msg.type === 'error') {
+          setAnalysisError(msg.error || 'Analysis failed');
+          setIsRunningAnalysis(false);
+          activeAnalysisRequestIdRef.current = null;
+        } else if (msg.type === 'cancelled') {
+          // Don't clear spinner — a fresher analysis is presumably running.
+          if (activeAnalysisRequestIdRef.current === null) {
+            setIsRunningAnalysis(false);
+          }
         }
-      })();
-    });
+      };
+    }
+
+    const interactiveAssumptions = getInteractiveDecisionAssumptions(assumptions);
+    const requestId = `decision-engine-${Date.now()}`;
+    activeAnalysisRequestIdRef.current = requestId;
+    const runMsg: DecisionEngineWorkerRequest = {
+      type: 'run',
+      payload: {
+        requestId,
+        data,
+        assumptions: interactiveAssumptions,
+        selectedStressors,
+        selectedResponses,
+        strategyMode: 'planner_enhanced',
+        simulationRunsOverride: interactiveAssumptions.simulationRuns,
+        seedBase: interactiveAssumptions.simulationSeed,
+        constraints: recommendationConstraints,
+      },
+    };
+    decisionEngineWorkerRef.current.postMessage(runMsg);
   };
 
   return (
@@ -4079,88 +4247,6 @@ function AccordionSection({
   );
 }
 
-function MetricTile({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-[24px] bg-stone-100/85 p-4">
-      <p className="text-sm font-medium text-stone-500">{label}</p>
-      <p className="mt-2 text-2xl font-semibold text-stone-900">{value}</p>
-    </div>
-  );
-}
-
-function InsightCard({
-  eyebrow,
-  title,
-  body,
-}: {
-  eyebrow: string;
-  title: string;
-  body: string;
-}) {
-  return (
-    <article className="rounded-[28px] bg-stone-100/85 p-5">
-      <p className="text-xs uppercase tracking-[0.2em] text-blue-700">{eyebrow}</p>
-      <h3 className="mt-3 text-2xl font-semibold leading-tight text-stone-900">{title}</h3>
-      <p className="mt-3 text-sm leading-6 text-stone-600">{body}</p>
-    </article>
-  );
-}
-
-function TimelineCard({
-  year,
-  title,
-  body,
-}: {
-  year: string;
-  title: string;
-  body: string;
-}) {
-  return (
-    <article className="rounded-[28px] bg-stone-100/85 p-5">
-      <p className="text-sm font-medium text-stone-500">{year}</p>
-      <h3 className="mt-2 text-2xl font-semibold text-stone-900">{title}</h3>
-      <p className="mt-3 text-sm leading-6 text-stone-600">{body}</p>
-    </article>
-  );
-}
-
-function Tag({
-  children,
-  tone,
-}: {
-  children: React.ReactNode;
-  tone: 'stress' | 'response';
-}) {
-  return (
-    <span
-      className={`rounded-full px-3 py-1 text-sm font-medium ${
-        tone === 'stress'
-          ? 'bg-cyan-100 text-cyan-900'
-          : 'bg-blue-100 text-blue-900'
-      }`}
-    >
-      {children}
-    </span>
-  );
-}
-
-function RiskPill({ children }: { children: React.ReactNode }) {
-  return (
-    <span className="rounded-full bg-stone-100 px-3 py-1 text-sm font-medium text-stone-700">
-      {children}
-    </span>
-  );
-}
-
-function WithdrawalStep({ title, body }: { title: string; body: string }) {
-  return (
-    <div className="rounded-[20px] bg-white px-4 py-3">
-      <p className="font-semibold text-stone-900">{title}</p>
-      <p className="mt-1 text-sm leading-6 text-stone-600">{body}</p>
-    </div>
-  );
-}
-
 function InfoPopover({
   title,
   body,
@@ -4623,7 +4709,7 @@ function getDeltaPresentation(
 }
 
 function cloneDecisionEngineReport(report: DecisionEngineReport): DecisionEngineReport {
-  return JSON.parse(JSON.stringify(report)) as DecisionEngineReport;
+  return structuredClone(report) as DecisionEngineReport;
 }
 
 function formatDriverLabel(

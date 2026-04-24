@@ -26,8 +26,10 @@ import {
 import { buildFlightPathPhasePlaybook } from './flight-path-action-playbook';
 import { buildExecutiveFlightSummary } from './flight-path-summary';
 import { buildProbeChecklist, type ProbeStatus } from './probe-checklist';
+import { computeRetirementDateSensitivity } from './sabbatical';
 import { getRmdStartAgeForBirthYear } from './retirement-rules';
 import type { IrmaaPosture } from './retirement-plan';
+import { loadAnalysisResultFromCache, saveAnalysisResultToCache } from './analysis-result-cache';
 import { useAppStore } from './store';
 import { formatCurrency, formatPercent } from './utils';
 
@@ -1078,6 +1080,7 @@ export function UnifiedPlanScreen({
   const setLatestUnifiedPlanEvaluationContext = useAppStore(
     (state) => state.setLatestUnifiedPlanEvaluationContext,
   );
+  const setPlanAnalysisStatusInStore = useAppStore((state) => state.setPlanAnalysisStatus);
   const unifiedPlanRerunNonce = useAppStore((state) => state.unifiedPlanRerunNonce);
 
   const [legacyTargetTodayDollars, setLegacyTargetTodayDollars] = useState(1_000_000);
@@ -1103,6 +1106,7 @@ export function UnifiedPlanScreen({
   const [currentEvaluation, setCurrentEvaluation] = useState<PlanEvaluation | null>(null);
   const [previousEvaluation, setPreviousEvaluation] = useState<PlanEvaluation | null>(null);
   const [isRunning, setIsRunning] = useState(false);
+  const [analysisCacheCheckPending, setAnalysisCacheCheckPending] = useState(true);
   const [planAnalysisStatus, setPlanAnalysisStatus] = useState<PlanAnalysisStatus>('running');
   const [error, setError] = useState<string | null>(null);
   const [playbookApplyMessage, setPlaybookApplyMessage] = useState<string | null>(null);
@@ -1289,7 +1293,7 @@ export function UnifiedPlanScreen({
         return;
       }
       const sourceSignature = JSON.stringify(data);
-      const snapshot = JSON.parse(JSON.stringify(data)) as SeedData;
+      const snapshot = structuredClone(data) as SeedData;
       const scenarioName = `${actionTitle} (${new Date().toLocaleTimeString('en-US', {
         hour: 'numeric',
         minute: '2-digit',
@@ -1343,7 +1347,7 @@ export function UnifiedPlanScreen({
         return;
       }
       const sourceSignature = JSON.stringify(data);
-      const snapshot = JSON.parse(JSON.stringify(data)) as SeedData;
+      const snapshot = structuredClone(data) as SeedData;
       const scenarioName = `${actionTitle} (${new Date().toLocaleTimeString('en-US', {
         hour: 'numeric',
         minute: '2-digit',
@@ -1499,6 +1503,9 @@ export function UnifiedPlanScreen({
       setLatestUnifiedPlanEvaluationContext(message.evaluation);
       latestEvaluationRef.current = message.evaluation;
       lastRunFingerprintRef.current = runFingerprint;
+      if (runFingerprint === latestFingerprintRef.current) {
+        void saveAnalysisResultToCache(runFingerprint, message.evaluation);
+      }
       setPlanAnalysisStatus(
         runFingerprint === latestFingerprintRef.current ? 'fresh' : 'stale',
       );
@@ -1716,6 +1723,9 @@ export function UnifiedPlanScreen({
           setLatestUnifiedPlanEvaluationContext(evaluation);
           latestEvaluationRef.current = evaluation;
           lastRunFingerprintRef.current = runFingerprint;
+          if (runFingerprint === latestFingerprintRef.current) {
+            void saveAnalysisResultToCache(runFingerprint, evaluation);
+          }
           setPlanAnalysisStatus(
             runFingerprint === latestFingerprintRef.current ? 'fresh' : 'stale',
           );
@@ -1905,13 +1915,32 @@ export function UnifiedPlanScreen({
   }, [analysisInputFingerprint]);
 
   useEffect(() => {
+    setPlanAnalysisStatusInStore(planAnalysisStatus);
+  }, [planAnalysisStatus, setPlanAnalysisStatusInStore]);
+
+  useEffect(() => {
     if (hasInitializedRef.current) {
       return;
     }
     hasInitializedRef.current = true;
-    perfLog('unified-plan', 'effect-triggered initial plan analysis');
-    runUnifiedAnalysis('initial-load', appliedConstraintModifiers);
-  }, [appliedConstraintModifiers, runUnifiedAnalysis]);
+    void (async () => {
+      try {
+        const cached = await loadAnalysisResultFromCache(analysisInputFingerprint);
+        if (cached) {
+          setCurrentEvaluation(cached);
+          lastRunFingerprintRef.current = analysisInputFingerprint;
+          setPlanAnalysisStatus('fresh');
+          perfLog('unified-plan', 'restored from cache, skipping initial analysis');
+        } else {
+          perfLog('unified-plan', 'effect-triggered initial plan analysis');
+          runUnifiedAnalysis('initial-load', appliedConstraintModifiers);
+        }
+      } finally {
+        setAnalysisCacheCheckPending(false);
+      }
+    })();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // intentionally run once on mount — analysisInputFingerprint captured at mount time
 
   const currentRun = currentEvaluation?.raw.run ?? null;
   const runDelta = currentEvaluation ? buildRunDelta(previousEvaluation, currentEvaluation) : null;
@@ -2239,7 +2268,7 @@ export function UnifiedPlanScreen({
       rangeEndLabel: formatMonthYear(new Date(timelineEndMs)),
       nowPositionPct: clampPercent(((nowMs - timelineStartMs) / timelineSpanMs) * 100),
     };
-  }, [currentEvaluation, data]);
+  }, [currentEvaluation, data.household, data.income]);
   const strategicPrepPolicy = useMemo(
     () =>
       buildFlightPathStrategicPrepRecommendations({
@@ -2264,6 +2293,10 @@ export function UnifiedPlanScreen({
     [assumptions, currentEvaluation, data, selectedResponses, selectedStressors],
   );
   const acaBridgeMetrics = phasePlaybook.phases.find((phase) => phase.id === 'aca_bridge')?.acaMetrics;
+  const retirementDateSensitivity = useMemo(
+    () => computeRetirementDateSensitivity(data.income),
+    [data.income],
+  );
   const acaGuardrailAdjustment = phasePlaybook.diagnostics.acaGuardrailAdjustment;
   const subsidyRecoveryModeActive = acaGuardrailAdjustment.mode === 'recovery';
   const subsidyWatchModeActive = acaGuardrailAdjustment.mode === 'watch';
@@ -2336,6 +2369,19 @@ export function UnifiedPlanScreen({
     [assumptions, currentEvaluation, data],
   );
   const trustPanel = currentEvaluation?.trustPanel ?? null;
+  const inheritanceDependenceRate = trustPanel?.metrics.inheritanceDependenceRate ?? 0;
+  const inheritanceSensitivityDelta =
+    currentEvaluation?.raw.decision.allScenarioResults.find(
+      (s) => s.scenarioId === 'assumption_remove_inheritance',
+    )?.delta.deltaSuccessRate ?? null;
+  const baselineSuccessRate = currentEvaluation?.summary.successRate ?? null;
+  const successWithoutInheritance =
+    baselineSuccessRate !== null && inheritanceSensitivityDelta !== null
+      ? Math.max(0, baselineSuccessRate + inheritanceSensitivityDelta)
+      : null;
+  const showInheritanceFragility =
+    inheritanceDependenceRate >= 0.35 ||
+    (inheritanceSensitivityDelta !== null && inheritanceSensitivityDelta <= -0.1);
   const debugDiagnosticsPayloadWithStrategicPrep = debugDiagnosticsPayload
     ? {
         ...debugDiagnosticsPayload,
@@ -2379,15 +2425,17 @@ export function UnifiedPlanScreen({
         <h2 className="font-serif text-3xl tracking-tight text-stone-900">Current Flight Path</h2>
         <div className="flex flex-wrap items-center gap-3">
           <span className="rounded-full bg-stone-100 px-3 py-1 text-xs font-semibold text-stone-700">
-            {isRunning
-              ? 'Analysis running'
-              : error
-                ? 'Analysis error'
-                : planAnalysisStatus === 'stale'
-                  ? 'Analysis outdated'
-                : currentEvaluation
-                  ? 'Analysis current'
-                  : 'Analysis pending'}
+            {analysisCacheCheckPending
+              ? 'Loading from cache…'
+              : isRunning
+                ? 'Analysis running'
+                : error
+                  ? 'Analysis error'
+                  : planAnalysisStatus === 'stale'
+                    ? 'Analysis outdated'
+                  : currentEvaluation
+                    ? 'Analysis current'
+                    : 'Analysis pending'}
           </span>
           <span
             className={`rounded-full px-3 py-1 text-xs font-semibold ${
@@ -2488,6 +2536,69 @@ export function UnifiedPlanScreen({
           ) : null}
         </div>
       ) : null}
+      {retirementDateSensitivity.length ? (
+        <div className="mb-4 rounded-2xl border border-stone-200 bg-white px-4 py-3 text-sm text-stone-700">
+          <p className="font-semibold text-stone-900">Retirement date sensitivity</p>
+          <p className="mt-1 text-xs text-stone-600">
+            Passive readout only — current plan ends salary on{' '}
+            {new Date(data.income.salaryEndDate).toLocaleDateString(undefined, {
+              year: 'numeric',
+              month: 'short',
+              day: 'numeric',
+            })}
+            . Earlier exits reduce wage MAGI (helpful for ACA bridge years) but may trigger sabbatical repayment.
+          </p>
+          <div className="mt-2 overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="text-left text-stone-500">
+                  <th className="py-1 pr-4 font-medium">Shift</th>
+                  <th className="py-1 pr-4 font-medium">Shifted date</th>
+                  <th className="py-1 pr-4 font-medium">Wage income Δ</th>
+                  <th className="py-1 pr-4 font-medium">Wage MAGI Δ</th>
+                  <th className="py-1 pr-4 font-medium">Sabbatical owed</th>
+                  <th className="py-1 pr-4 font-medium">Net cash Δ</th>
+                </tr>
+              </thead>
+              <tbody>
+                {retirementDateSensitivity.map((point) => (
+                  <tr key={point.monthsShift} className="border-t border-stone-100">
+                    <td className="py-1 pr-4">
+                      {point.monthsShift > 0 ? '+' : ''}
+                      {point.monthsShift} mo
+                    </td>
+                    <td className="py-1 pr-4 text-stone-600">{point.shiftedRetireDate}</td>
+                    <td className="py-1 pr-4">
+                      {point.salaryIncomeDelta >= 0 ? '+' : ''}
+                      {formatCurrency(point.salaryIncomeDelta)}
+                    </td>
+                    <td className="py-1 pr-4">
+                      {point.magiDelta >= 0 ? '+' : ''}
+                      {formatCurrency(point.magiDelta)}
+                    </td>
+                    <td className="py-1 pr-4 text-rose-700">
+                      {point.sabbaticalRepayment
+                        ? `-${formatCurrency(point.sabbaticalRepayment)}`
+                        : '$0'}
+                    </td>
+                    <td className="py-1 pr-4 font-semibold">
+                      {point.netCashDelta >= 0 ? '+' : ''}
+                      {formatCurrency(point.netCashDelta)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {data.income.sabbatical ? (
+            <p className="mt-2 text-xs text-stone-500">
+              Sabbatical: {data.income.sabbatical.paidWeeks} paid weeks from{' '}
+              {data.income.sabbatical.returnDate}; {data.income.sabbatical.weeksForgivenPerMonth}{' '}
+              week forgiven per month worked.
+            </p>
+          ) : null}
+        </div>
+      ) : null}
 
       <SectionCard title="Flight Path">
         <div className="rounded-xl bg-white p-4 text-sm text-stone-700">
@@ -2540,6 +2651,48 @@ export function UnifiedPlanScreen({
               </div>
             </div>
           ) : null}
+
+          {showInheritanceFragility ? (
+            <div className="mb-3 rounded-xl border border-amber-200 bg-amber-50/70 p-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="text-xs uppercase tracking-[0.14em] text-amber-700">Inheritance Fragility</p>
+                <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-amber-800">
+                  {inheritanceSensitivityDelta !== null
+                    ? `${Math.round(Math.abs(inheritanceSensitivityDelta) * 100)} pt drop if removed`
+                    : `${Math.round(inheritanceDependenceRate * 100)}% dependent`}
+                </span>
+              </div>
+              <div className="mt-2 grid gap-2 md:grid-cols-3">
+                <div className="rounded-lg bg-white px-3 py-2">
+                  <p className="text-[10px] uppercase tracking-[0.12em] text-stone-500">With inheritance</p>
+                  <p className="mt-1 text-sm font-semibold text-stone-900">
+                    {baselineSuccessRate !== null ? `${Math.round(baselineSuccessRate * 100)}%` : '—'}
+                  </p>
+                  <p className="text-[11px] text-stone-500">success rate</p>
+                </div>
+                <div className="rounded-lg bg-white px-3 py-2">
+                  <p className="text-[10px] uppercase tracking-[0.12em] text-stone-500">Without inheritance</p>
+                  <p className="mt-1 text-sm font-semibold text-rose-700">
+                    {successWithoutInheritance !== null ? `${Math.round(successWithoutInheritance * 100)}%` : '—'}
+                  </p>
+                  <p className="text-[11px] text-stone-500">success rate</p>
+                </div>
+                <div className="rounded-lg bg-white px-3 py-2">
+                  <p className="text-[10px] uppercase tracking-[0.12em] text-stone-500">Delta</p>
+                  <p className="mt-1 text-sm font-semibold text-rose-700">
+                    {inheritanceSensitivityDelta !== null
+                      ? `${(inheritanceSensitivityDelta * 100).toFixed(0)} pts`
+                      : '—'}
+                  </p>
+                  <p className="text-[11px] text-stone-500">success impact</p>
+                </div>
+              </div>
+              <p className="mt-2 text-xs text-amber-900">
+                This plan relies heavily on a $500K inheritance arriving on schedule. If it is delayed or does not arrive, ACA bridge liquidity and spending flexibility become the primary resilience levers. Consider the &ldquo;Delayed inheritance&rdquo; stressor to stress-test this scenario.
+              </p>
+            </div>
+          ) : null}
+
           <div className="rounded-xl border border-stone-200 bg-stone-50/70 p-3">
             <p className="text-xs uppercase tracking-[0.14em] text-stone-500">Executive Summary</p>
             <div className="mt-2 grid gap-2 md:grid-cols-4">

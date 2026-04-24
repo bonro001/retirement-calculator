@@ -358,7 +358,7 @@ function normalizeAllocation(allocation: Record<string, number>) {
 }
 
 function cloneSeedData(data: SeedData): SeedData {
-  return JSON.parse(JSON.stringify(data)) as SeedData;
+  return structuredClone(data) as SeedData;
 }
 
 function firstYearSupportedMonthly(path: PathResult) {

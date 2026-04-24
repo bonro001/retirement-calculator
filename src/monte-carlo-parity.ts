@@ -90,7 +90,7 @@ const DEFAULT_SEED = 20260416;
 const round = (value: number) => Number(value.toFixed(6));
 
 function cloneSeedData(data: SeedData): SeedData {
-  return JSON.parse(JSON.stringify(data)) as SeedData;
+  return structuredClone(data) as SeedData;
 }
 
 function fromSnapshotToSeedData(

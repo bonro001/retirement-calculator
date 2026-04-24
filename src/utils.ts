@@ -2150,7 +2150,9 @@ function buildSimulationModeDiagnostics({
       ? 'converged_thresholds_met'
       : value === 'no_change'
         ? 'no_change'
-        : 'max_pass_limit_reached';
+        : value === 'oscillation_detected'
+          ? 'oscillation_detected'
+          : 'max_pass_limit_reached';
   const averageConvergedRate = yearlySeries.length
     ? yearlySeries.reduce((sum, point) => sum + point.closedLoopConvergedRate, 0) /
       yearlySeries.length
@@ -2842,18 +2844,14 @@ function simulatePath(
             ({ realized }) =>
               realized.cashInflow > 0 || realized.ordinaryIncome > 0 || realized.ltcgIncome > 0,
           );
-        const windfallCashInflow = windfallRealizations.reduce(
-          (total, entry) => total + entry.realized.cashInflow,
-          0,
-        );
-        const windfallOrdinaryIncome = windfallRealizations.reduce(
-          (total, entry) => total + entry.realized.ordinaryIncome,
-          0,
-        );
-        const windfallLtcgIncome = windfallRealizations.reduce(
-          (total, entry) => total + entry.realized.ltcgIncome,
-          0,
-        );
+        let windfallCashInflow = 0;
+        let windfallOrdinaryIncome = 0;
+        let windfallLtcgIncome = 0;
+        for (const entry of windfallRealizations) {
+          windfallCashInflow += entry.realized.cashInflow;
+          windfallOrdinaryIncome += entry.realized.ordinaryIncome;
+          windfallLtcgIncome += entry.realized.ltcgIncome;
+        }
 
         windfallRealizations.forEach(({ item, realized }) => {
           if (realized.cashInflow <= 0) {
@@ -2944,6 +2942,12 @@ function simulatePath(
 
         const lookbackMagi =
           magiHistory.get(year - DEFAULT_IRMAA_CONFIG.lookbackYears) ?? null;
+        // Hoist IRMAA tier when lookback MAGI is available — it's constant across
+        // closed-loop passes since the input (lookbackMagi + filingStatus) doesn't change.
+        const hoistedIrmaaTier =
+          lookbackMagi !== null
+            ? calculateIrmaaTier(lookbackMagi, data.household.filingStatus)
+            : null;
         const convergenceThresholds = DEFAULT_CLOSED_LOOP_CONVERGENCE_THRESHOLDS;
         let closedLoopPreviousState: ClosedLoopIterationState | null = null;
         let closedLoopFinalState: ClosedLoopIterationState | null = null;
@@ -2956,15 +2960,19 @@ function simulatePath(
           healthcarePremium: 0,
         };
         let closedLoopNeeded = shortfallBeforeHealthcare;
+        // Track oscillation: sign of (nextNeeded - closedLoopNeeded). When the sign
+        // flips, we're bouncing around a cliff (ACA 400% FPL or IRMAA tier boundary)
+        // and uniform 0.5 damping can't resolve the discontinuity. Count flips and
+        // dampen progressively harder; after 2 flips, take the midpoint and stop.
+        let lastNeededSign = 0;
+        let oscillationFlips = 0;
 
         for (let pass = 1; pass <= DEFAULT_MAX_CLOSED_LOOP_PASSES; pass += 1) {
           const attempt = runWithdrawalAttempt(closedLoopNeeded);
           const magi = attempt.result.taxResult.MAGI;
-          const irmaaReferenceMagi = lookbackMagi ?? magi;
-          const irmaaTierForPass = calculateIrmaaTier(
-            irmaaReferenceMagi,
-            data.household.filingStatus,
-          );
+          const irmaaTierForPass =
+            hoistedIrmaaTier ??
+            calculateIrmaaTier(magi, data.household.filingStatus);
           const healthcareForPass = calculateHealthcarePremiums({
             ...baseHealthcareInputs,
             MAGI: magi,
@@ -3036,19 +3044,32 @@ function simulatePath(
             break;
           }
           closedLoopPreviousState = currentState;
-          // Damped needed update reduces oscillation near MAGI/healthcare cliffs so
-          // the 3-pass closed loop is more likely to settle without over-shooting.
+          // Detect oscillation across a discontinuity (ACA 400% FPL cliff, IRMAA
+          // tier edge). Each flip of sign(nextNeeded - closedLoopNeeded) means we
+          // straddled the cliff; dampen harder. After two flips, take the midpoint
+          // and stop — further passes won't help.
+          const neededDiff = nextNeeded - closedLoopNeeded;
+          const currentSign = neededDiff > 0 ? 1 : neededDiff < 0 ? -1 : 0;
+          if (lastNeededSign !== 0 && currentSign !== 0 && currentSign !== lastNeededSign) {
+            oscillationFlips += 1;
+          }
+          lastNeededSign = currentSign !== 0 ? currentSign : lastNeededSign;
+          if (oscillationFlips >= 2) {
+            closedLoopNeeded = (closedLoopNeeded + nextNeeded) / 2;
+            closedLoopStopReason = 'oscillation_detected';
+            break;
+          }
+          const dampingFactor = oscillationFlips >= 1 ? 0.3 : 0.5;
           closedLoopNeeded =
-            pass === 1 ? nextNeeded : (closedLoopNeeded + nextNeeded) / 2;
+            closedLoopNeeded + dampingFactor * (nextNeeded - closedLoopNeeded);
         }
 
         const resolvedClosedLoopState = closedLoopFinalState ?? (() => {
           const fallback = runWithdrawalAttempt(shortfallBeforeHealthcare);
           const fallbackMagi = fallback.result.taxResult.MAGI;
-          const fallbackIrmaaTier = calculateIrmaaTier(
-            lookbackMagi ?? fallbackMagi,
-            data.household.filingStatus,
-          );
+          const fallbackIrmaaTier =
+            hoistedIrmaaTier ??
+            calculateIrmaaTier(fallbackMagi, data.household.filingStatus);
           const fallbackHealthcare = calculateHealthcarePremiums({
             ...baseHealthcareInputs,
             MAGI: fallbackMagi,
