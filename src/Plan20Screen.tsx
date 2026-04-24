@@ -197,6 +197,65 @@ function getRmdStartYear(data: SeedData): number | null {
   return Number.isFinite(soonest) ? soonest : null;
 }
 
+interface BridgeGap {
+  bridgeYears: number;
+  retirementYear: number;
+  ssClaimYear: number;
+  annualSpend: number;
+  totalNeed: number;
+  liquidity: number;
+  gap: number; // positive = shortfall
+}
+
+function computeBridgeGap(data: SeedData, today: Date = new Date()): BridgeGap | null {
+  const todayYear = today.getUTCFullYear();
+  const salaryEnd = data.income.salaryEndDate ? new Date(data.income.salaryEndDate) : null;
+  if (!salaryEnd || Number.isNaN(salaryEnd.getTime())) return null;
+  const retirementYear = salaryEnd.getUTCFullYear();
+  const ssClaimYear = getSoonestSocialSecurityClaimYear(data);
+  if (ssClaimYear === null) return null;
+  const bridgeYears = Math.max(0, ssClaimYear - retirementYear);
+  if (bridgeYears === 0) return null;
+
+  // Annual net spend during bridge (no SS yet). This is a sizing number —
+  // rough, conservative, deliberately ignoring the small LTCG tax on taxable
+  // draws so we don't under-report the bridge need.
+  const spending = data.spending;
+  const annualSpend =
+    (spending.essentialMonthly + spending.optionalMonthly) * 12 +
+    spending.annualTaxesInsurance +
+    spending.travelEarlyRetirementAnnual;
+  const totalNeed = bridgeYears * annualSpend;
+
+  // Liquidity available for the bridge: current taxable + cash, plus any
+  // non-taxable cash windfalls or primary-home-sale proceeds landing between
+  // today and first SS claim. Pretax/Roth excluded by design — the whole
+  // point of the bridge is not to tap them.
+  const taxable = data.accounts.taxable?.balance ?? 0;
+  const cash = data.accounts.cash?.balance ?? 0;
+  const windfallLiquidity = (data.income.windfalls ?? []).reduce((sum, w) => {
+    if (!w || typeof w.year !== 'number' || typeof w.amount !== 'number') return sum;
+    if (w.year < todayYear || w.year >= ssClaimYear) return sum;
+    const treatment = w.taxTreatment ?? 'cash_non_taxable';
+    if (treatment === 'cash_non_taxable' || treatment === 'primary_home_sale') {
+      const available = typeof w.liquidityAmount === 'number' ? w.liquidityAmount : w.amount;
+      return sum + Math.max(0, available);
+    }
+    return sum;
+  }, 0);
+  const liquidity = taxable + cash + windfallLiquidity;
+
+  return {
+    bridgeYears,
+    retirementYear,
+    ssClaimYear,
+    annualSpend,
+    totalNeed,
+    liquidity,
+    gap: totalNeed - liquidity,
+  };
+}
+
 function buildThisYearsFocus(data: SeedData, today: Date = new Date()): ThisYearsFocus {
   const todayYear = today.getUTCFullYear();
   const salaryEnd = data.income.salaryEndDate ? new Date(data.income.salaryEndDate) : null;
@@ -233,21 +292,41 @@ function buildThisYearsFocus(data: SeedData, today: Date = new Date()): ThisYear
     return `${years}y ${remaining}m`;
   };
 
+  const bridge = computeBridgeGap(data, today);
+
   switch (phase) {
-    case 'accumulate':
+    case 'accumulate': {
+      const actions: string[] = [
+        'Max the 401(k) — including the catch-up if you\'re 50+.',
+        'Fund the HSA in full; it is the most tax-efficient dollar in the plan.',
+      ];
+      if (bridge && bridge.gap > 0) {
+        actions.push(
+          `Direct new after-tax savings to taxable brokerage until the bridge is covered — shortfall today is ${formatCurrency(Math.round(bridge.gap))} (need ${formatCurrency(Math.round(bridge.totalNeed))} for ${bridge.bridgeYears} year${bridge.bridgeYears === 1 ? '' : 's'} from ${bridge.retirementYear} to ${bridge.ssClaimYear}; have ${formatCurrency(Math.round(bridge.liquidity))} in taxable + cash + pre-SS windfalls).`,
+        );
+      } else if (!bridge) {
+        actions.push(
+          'Pre-build the taxable bridge bucket so early-retirement spending doesn\'t force pretax withdrawals.',
+        );
+      }
+      // If bridge.gap <= 0, drop the line — the action is done.
+      let why: string;
+      if (retirementYear) {
+        why = `You retire in ${retirementYear}. The glidepath re-risk starts roughly 12 months before that — after which the focus shifts from contributing to de-risking.`;
+      } else {
+        why = 'These contribution years compound into the low-income conversion window ahead.';
+      }
+      if (bridge && bridge.gap <= 0) {
+        why = `${why} Bridge bucket is already covered (${formatCurrency(Math.round(bridge.liquidity))} liquid vs. ${formatCurrency(Math.round(bridge.totalNeed))} needed across ${bridge.bridgeYears} bridge year${bridge.bridgeYears === 1 ? '' : 's'}).`;
+      }
       return {
         phase,
         phaseLabel: 'Accumulate',
         headline: `Retirement is ${monthsFmt(monthsToRetirement)} out. Every pre-tax dollar you shovel in now is one you don't pull taxed later.`,
-        actions: [
-          'Max the 401(k) — including the catch-up if you\'re 50+.',
-          'Fund the HSA in full; it is the most tax-efficient dollar in the plan.',
-          'Pre-build the taxable bridge bucket so early-retirement spending doesn\'t force pretax withdrawals.',
-        ],
-        why: retirementYear
-          ? `You retire in ${retirementYear}. The glidepath re-risk starts roughly 12 months before that — after which the focus shifts from contributing to de-risking.`
-          : 'These contribution years compound into the low-income conversion window ahead.',
+        actions,
+        why,
       };
+    }
     case 'glidepath':
       return {
         phase,
