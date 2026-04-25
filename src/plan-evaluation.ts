@@ -143,6 +143,19 @@ export interface PlanEvaluation {
     activeOptimizationObjective: OptimizationObjective;
     irmaaOutlook: string;
     legacyOutlook: string;
+    /**
+     * Approximate P(ending wealth >= North Star), interpolated from the
+     * solver's five today-dollar percentiles. Distinct from `successRate`,
+     * which only measures P(didn't run out of money). The two differ when
+     * the plan is solvent but the bequest target is above $0 — a 90%
+     * solvent plan can have a 60% bequest-attainment rate, and the gap is
+     * what the user needs to see to decide whether to spend more, gift
+     * more, or convert more pretax to Roth.
+     *
+     * `null` when the legacy goal is off, or when the solver hasn't
+     * produced percentile data yet.
+     */
+    bequestAttainmentRate: number | null;
   };
   calibration: {
     userTargetMonthlySpendNow: number;
@@ -190,6 +203,19 @@ export interface PlanEvaluation {
       monthlySpend: number;
     }>;
     projectedLegacyTodayDollars: number;
+    // Bequest distribution in today's dollars. The single
+    // `projectedLegacyTodayDollars` value above is just the median; surfacing
+    // percentiles lets the UI show whether the plan over- or under-shoots the
+    // North Star and how spread the outcomes are. All values come from the
+    // solver, which already deflates the engine's nominal endingWealth
+    // percentiles by the planning horizon's inflation drag.
+    bequestDistributionTodayDollars: {
+      p10: number;
+      p25: number;
+      p50: number;
+      p75: number;
+      p90: number;
+    };
     endingWealthOneSigmaApproxTodayDollars: number;
     endingWealthOneSigmaLowerTodayDollars: number;
     endingWealthOneSigmaUpperTodayDollars: number;
@@ -372,6 +398,54 @@ function applyLegacyPriorityToTargets(input: {
     effectiveLegacyTargetTodayDollars: requestedLegacyTargetTodayDollars,
     effectiveMinSuccessRate: requestedMinSuccessRate,
   };
+}
+
+/**
+ * Approximate P(ending wealth >= target) from the five known today-dollar
+ * percentiles (P10, P25, P50, P75, P90).
+ *
+ * The engine doesn't currently expose the full sorted ending-wealth array
+ * (it would bloat the cached PathResult by ~10K floats), so we interpolate
+ * across the five quantiles we have. By definition, value-at-Pq means q×100%
+ * of paths fall below it, so P(X >= value) = 1 - q. Linear interpolation
+ * between adjacent knots gives the rate at any in-range target.
+ *
+ * Outside the [P10, P90] range the rate is *unmeasured* — we only know it's
+ * above 0.9 or below 0.1. We clamp at 0.95 / 0.05 to make the bound explicit
+ * rather than silently extrapolating into the tails.
+ *
+ * If precision becomes important (e.g. for solver constraints, not just UI
+ * display), plumb the nominal bequest target into the engine and count the
+ * exact rate from the ending-wealths array. Until then, this is good enough
+ * to surface the gap between "didn't run out" and "hit the bequest target."
+ */
+export function approximateBequestAttainmentRate(
+  targetTodayDollars: number,
+  dist: { p10: number; p25: number; p50: number; p75: number; p90: number },
+): number {
+  if (!Number.isFinite(targetTodayDollars) || targetTodayDollars <= 0) return 1;
+  const knots: Array<{ value: number; pAbove: number }> = [
+    { value: dist.p10, pAbove: 0.9 },
+    { value: dist.p25, pAbove: 0.75 },
+    { value: dist.p50, pAbove: 0.5 },
+    { value: dist.p75, pAbove: 0.25 },
+    { value: dist.p90, pAbove: 0.1 },
+  ];
+  // Strict inequality on the clamp so that an exact-knot target returns the
+  // measured pAbove (0.9 / 0.1) rather than the unmeasured-tail clamp.
+  if (targetTodayDollars < knots[0].value) return 0.95;
+  if (targetTodayDollars > knots[knots.length - 1].value) return 0.05;
+  for (let i = 0; i < knots.length - 1; i += 1) {
+    const a = knots[i];
+    const b = knots[i + 1];
+    if (targetTodayDollars >= a.value && targetTodayDollars <= b.value) {
+      const span = b.value - a.value;
+      if (span <= 0) return a.pAbove;
+      const frac = (targetTodayDollars - a.value) / span;
+      return a.pAbove + frac * (b.pAbove - a.pAbove);
+    }
+  }
+  return 0.5;
 }
 
 function toLegacyOutlook(input: {
@@ -1052,6 +1126,16 @@ export async function evaluatePlan(
           : ''
       }`,
       legacyOutlook,
+      bequestAttainmentRate:
+        legacyPriority === 'off'
+          ? null
+          : approximateBequestAttainmentRate(requestedLegacyTargetTodayDollars, {
+              p10: planRun.solver.p10EndingWealthTodayDollars,
+              p25: planRun.solver.p25EndingWealthTodayDollars,
+              p50: planRun.solver.medianEndingWealthTodayDollars,
+              p75: planRun.solver.p75EndingWealthTodayDollars,
+              p90: planRun.solver.p90EndingWealthTodayDollars,
+            }),
     },
     calibration: {
       userTargetMonthlySpendNow: planRun.solver.userTargetSpendNowMonthly,
@@ -1094,6 +1178,13 @@ export async function evaluatePlan(
       nextUnlock: planRun.solver.nextUnlock,
       supportedSpendingSchedule: planRun.solver.supportedSpendingSchedule,
       projectedLegacyTodayDollars: planRun.solver.projectedLegacyOutcomeTodayDollars,
+      bequestDistributionTodayDollars: {
+        p10: planRun.solver.p10EndingWealthTodayDollars,
+        p25: planRun.solver.p25EndingWealthTodayDollars,
+        p50: planRun.solver.medianEndingWealthTodayDollars,
+        p75: planRun.solver.p75EndingWealthTodayDollars,
+        p90: planRun.solver.p90EndingWealthTodayDollars,
+      },
       endingWealthOneSigmaApproxTodayDollars:
         planRun.solver.endingWealthOneSigmaApproxTodayDollars,
       endingWealthOneSigmaLowerTodayDollars:

@@ -3950,21 +3950,43 @@ export function UnifiedPlanScreen({
       ) : null}
 
       {currentEvaluation && currentRun ? (
-        <div className="mt-4">
+        <div className="mt-4 space-y-4">
           <SectionCard title="Plan Verdict">
-          <div className="grid gap-3 md:grid-cols-2">
+          <div className={`grid gap-3 ${currentEvaluation.summary.bequestAttainmentRate !== null ? 'md:grid-cols-3' : 'md:grid-cols-2'}`}>
             <div className="rounded-xl bg-white p-3">
               <p className="text-xs text-stone-500">Verdict</p>
               <p className={`mt-1 text-lg font-semibold ${verdictClassName(currentEvaluation.summary.planVerdict)}`}>
                 {currentEvaluation.summary.planVerdict}
               </p>
             </div>
-            <div className="rounded-xl bg-white p-3">
+            <div
+              className="rounded-xl bg-white p-3"
+              title="Probability the plan does not run out of money before end of horizon. Distinct from bequest attainment — a plan can be solvent and still fall short of the legacy goal."
+            >
               <p className="text-xs text-stone-500">Modeled success</p>
               <p className="mt-1 text-lg font-semibold text-stone-900">
                 {formatPercent(currentEvaluation.summary.successRate)}
               </p>
+              <p className="mt-0.5 text-[10px] text-stone-500">
+                Did not run out of money
+              </p>
             </div>
+            {currentEvaluation.summary.bequestAttainmentRate !== null ? (
+              <div
+                className="rounded-xl bg-white p-3"
+                title="Approximate probability ending wealth meets or exceeds your North Star bequest. Interpolated from the P10/P25/P50/P75/P90 distribution; clamped at 95% / 5% in the unmeasured tails."
+              >
+                <p className="text-xs text-stone-500">Bequest on target</p>
+                <p className="mt-1 text-lg font-semibold text-stone-900">
+                  {formatPercent(currentEvaluation.summary.bequestAttainmentRate)}
+                </p>
+                <p className="mt-0.5 text-[10px] text-stone-500">
+                  Reaches{' '}
+                  {formatCurrency(currentEvaluation.calibration.targetLegacyTodayDollars)}{' '}
+                  bequest
+                </p>
+              </div>
+            ) : null}
           </div>
           <div className="mt-3 rounded-xl bg-white p-4 text-sm text-stone-700">
             <p>{verdictExplanation}</p>
@@ -3985,6 +4007,84 @@ export function UnifiedPlanScreen({
             </p>
           </div>
           </SectionCard>
+          {(() => {
+            // Bequest distribution panel. The single legacyOutlook line
+            // above only describes the median; this panel surfaces the
+            // full distribution so the user can see whether the plan
+            // over- or under-shoots their North Star, and how much of
+            // any "overshoot" is the cost of bad-tail insurance vs.
+            // genuine unspent capacity.
+            const target = currentEvaluation.calibration.targetLegacyTodayDollars;
+            const dist = currentEvaluation.calibration.bequestDistributionTodayDollars;
+            const legacyOff = currentEvaluation.calibration.legacyPriority === 'off';
+            if (legacyOff || !target || target <= 0) return null;
+            const medianGap = dist.p50 - target;
+            const p10Gap = dist.p10 - target;
+            const isBigOvershoot = medianGap > Math.max(target * 0.5, 250_000);
+            const p10Below = p10Gap < 0;
+            const headline = (() => {
+              if (medianGap < 0) {
+                return `Median ending wealth lands ${formatCurrency(Math.abs(medianGap))} below your ${formatCurrency(target)} North Star — the plan is not currently funded to clear the bequest at the median.`;
+              }
+              if (isBigOvershoot && p10Below) {
+                return `At the median you overshoot the ${formatCurrency(target)} North Star by ${formatCurrency(medianGap)} — but the bottom 10% of paths still falls ${formatCurrency(Math.abs(p10Gap))} short. The median surplus is the cost of insuring against the bad tail, not free money.`;
+              }
+              if (isBigOvershoot && !p10Below) {
+                return `Median ending wealth overshoots your ${formatCurrency(target)} North Star by ${formatCurrency(medianGap)}, and even the bottom 10% of paths clears the target. That's real unspent capacity — there's room to spend more, gift more, or convert more aggressively to Roth without violating the goal.`;
+              }
+              if (medianGap > 0 && p10Below) {
+                return `Median ending wealth clears your ${formatCurrency(target)} North Star by ${formatCurrency(medianGap)}, but the bottom 10% of paths falls ${formatCurrency(Math.abs(p10Gap))} short.`;
+              }
+              return `Median ending wealth clears the ${formatCurrency(target)} North Star by ${formatCurrency(medianGap)}; the distribution stays above target through P10.`;
+            })();
+            const cells: Array<{ label: string; value: number }> = [
+              { label: 'P10', value: dist.p10 },
+              { label: 'P25', value: dist.p25 },
+              { label: 'P50', value: dist.p50 },
+              { label: 'P75', value: dist.p75 },
+              { label: 'P90', value: dist.p90 },
+            ];
+            return (
+              <SectionCard title="Bequest distribution">
+                <div className="rounded-xl bg-white p-4 text-sm text-stone-700">
+                  <p>{headline}</p>
+                  <div className="mt-3 grid grid-cols-5 gap-2">
+                    {cells.map(({ label, value }) => {
+                      const above = value >= target;
+                      const gap = value - target;
+                      return (
+                        <div
+                          key={label}
+                          className={`rounded-lg p-2 text-center ${
+                            above ? 'bg-emerald-50' : 'bg-rose-50'
+                          }`}
+                          title={`${
+                            above ? 'Above' : 'Below'
+                          } North Star by ${formatCurrency(Math.abs(gap))}`}
+                        >
+                          <p className="text-[10px] font-semibold uppercase tracking-wide text-stone-500">
+                            {label}
+                          </p>
+                          <p
+                            className={`mt-0.5 tabular-nums text-xs ${
+                              above ? 'text-emerald-800' : 'text-rose-800'
+                            }`}
+                          >
+                            {formatCurrency(Math.round(value))}
+                          </p>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <p className="mt-2 text-xs text-stone-500">
+                    Today's dollars. North Star: {formatCurrency(target)}. Green
+                    cells clear the target; red cells fall short. P10 = bottom
+                    10% of Monte Carlo paths; P90 = top 10%.
+                  </p>
+                </div>
+              </SectionCard>
+            );
+          })()}
         </div>
       ) : (
         <div className="mt-4 rounded-[24px] bg-stone-100/80 p-5 text-sm text-stone-600">
