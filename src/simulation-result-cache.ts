@@ -6,8 +6,16 @@ const DB_VERSION = 1;
 const STORE_NAME = 'simulation-result';
 const RECORD_KEY = 'latest';
 const MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
-// Bump when the cached payload shape changes so older entries are ignored.
-const CACHE_SCHEMA_VERSION = 2;
+// Bump when the cached payload shape changes OR when engine logic changes
+// in a way that invalidates previously-computed values. Bumping here is the
+// kill-switch for stale cached simulation results across all users.
+//
+//  - v2: initial schema-versioned payload (post-solvedSpendProfile addition).
+//  - v3 (2026-04-25): healthcare-premium-engine ACA-during-working-years fix
+//    — pre-v3 cached payloads had non-zero acaPremiumEstimate for working
+//    years, which surfaced as a phantom "ACA subsidy lost" chip in the
+//    Year card even after the engine fix landed. Bumping invalidates them.
+const CACHE_SCHEMA_VERSION = 3;
 
 interface CachedSimulationResult {
   schemaVersion?: number;
