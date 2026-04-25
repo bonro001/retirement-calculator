@@ -128,7 +128,18 @@ export function calculateHealthcarePremiums(
 ): HealthcarePremiumCalculationOutput {
   const nonMedicareCount = input.medicareEligibilityByPerson.filter((isEligible) => !isEligible).length;
   const medicareCount = input.medicareEligibilityByPerson.filter(Boolean).length;
-  const acaPremiumEstimate = clamp(input.baselineAcaPremiumAnnual) * nonMedicareCount;
+  // ACA premium only applies once the household is actually retired. While
+  // someone is still in the workforce we assume they (and any covered
+  // spouse) are on employer-provided health insurance, so we should not
+  // bill them for a hypothetical marketplace plan. Previously this code
+  // charged the full ACA premium with no subsidy during working years —
+  // surfacing as a misleading "ACA subsidy lost / paying full freight"
+  // signal in the Advisor card. Gating the premium itself on
+  // `retirementStatus` is the simpler / more honest model: when working,
+  // healthcare cost lives in baseline spending, not in this output.
+  const acaPremiumEstimate = input.retirementStatus
+    ? clamp(input.baselineAcaPremiumAnnual) * nonMedicareCount
+    : 0;
   const medicarePremiumEstimate = clamp(input.baselineMedicarePremiumAnnual) * medicareCount;
   const irmaaSurcharge = clamp(input.irmaaSurchargeAnnualPerEligible) * medicareCount;
 

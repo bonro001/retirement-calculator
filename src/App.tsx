@@ -39,6 +39,10 @@ const ExploreScreen = lazy(() =>
   import('./ExploreScreen').then((m) => ({ default: m.ExploreScreen })),
 );
 
+const ExportScreen = lazy(() =>
+  import('./ExportScreen').then((m) => ({ default: m.ExportScreen })),
+);
+
 function LazyScreenFallback({ label }: { label: string }) {
   return (
     <div className="flex min-h-[40vh] flex-col items-center justify-center gap-3 text-center">
@@ -85,17 +89,20 @@ import {
   type ScenarioCompareReport,
 } from './scenario-compare';
 import { generateAutopilotPlan, type AutopilotPlanResult } from './autopilot-timeline';
-import {
-  buildPlanningStateExportWithResolvedContext,
-  PLANNING_EXPORT_CACHE_VERSION,
-  type PlanningStateExport,
-} from './planning-export';
-import type {
-  PlanningExportWorkerRequest,
-  PlanningExportWorkerResponse,
-} from './planning-export-worker-types';
 import { solveSpendByReverseTimeline, type SpendSolverResult } from './spend-solver';
 import { useAppStore } from './store';
+import {
+  SANDBOX_STRESSORS,
+  buildSandboxEngineRun,
+  estimateScenarioImpact,
+  getReactionDef,
+  getStressorDef,
+  type SandboxReactionId,
+  type SandboxStressorId,
+  type ScenarioImpact,
+  type ScenarioReactionSelection,
+} from './sandbox-scenarios';
+import { rollupHoldingsToAssetClasses } from './asset-class-mapper';
 import { usePlanningExportPayload } from './usePlanningExportPayload';
 import { buildEvaluationFingerprint } from './evaluation-fingerprint';
 import {
@@ -104,9 +111,12 @@ import {
 } from './scenario-compare-cache';
 import { loadSimulationResultFromCache, saveSimulationResultToCache } from './simulation-result-cache';
 import type {
+  GuardrailTier,
+  AccountsData,
   MarketAssumptions,
   Holding,
   PathResult,
+  PathYearResult,
   SeedData,
   ScreenId,
   SimulationParityReport,
@@ -131,6 +141,27 @@ import {
   DEFAULT_MAX_CLOSED_LOOP_PASSES,
 } from './closed-loop-config';
 
+/**
+ * Top-level "rooms" — the household-facing reframe.
+ *
+ *   ADVISOR   the monthly check-in. Spend headline, flight path, "easy to miss".
+ *             No knobs. Default landing.
+ *   SANDBOX   "what if X happens, and I react Y" — the existing stressor +
+ *             response sim, surfaced as its own room.
+ *   INSPECTOR everything we built before — current tabbed UI lives here
+ *             unchanged. Keeps debugging / curiosity surface available.
+ *
+ * PR-1 scope is just the navigation shell + stubs. The existing per-screen
+ * sidebar (the `navigation` array below) continues to work inside Inspector;
+ * Advisor and Sandbox get filled in by PR-2 / PR-3.
+ */
+type Room = 'advisor' | 'sandbox' | 'inspector';
+const ROOMS: { id: Room; label: string }[] = [
+  { id: 'advisor', label: 'Advisor' },
+  { id: 'sandbox', label: 'Sandbox' },
+  { id: 'inspector', label: 'Inspector' },
+];
+
 const navigation: { id: ScreenId; label: string; shortLabel: string }[] = [
   { id: 'overview', label: 'Plan', shortLabel: 'Plan' },
   { id: 'plan2', label: 'Plan 2.0', shortLabel: 'Plan 2.0' },
@@ -149,8 +180,6 @@ const navigation: { id: ScreenId; label: string; shortLabel: string }[] = [
 
 const chartPalette = ['#2563eb', '#0891b2', '#1d4ed8', '#0369a1'];
 const SIMULATION_REQUEST_PREFIX = 'simulation-request';
-const EXPORT_REQUEST_PREFIX = 'planning-export-request';
-const exportPayloadCache = new Map<string, PlanningStateExport>();
 
 const EMPTY_SIMULATION_DIAGNOSTICS: PathResult['simulationDiagnostics'] = {
   effectiveSpendPath: [],
@@ -599,6 +628,18 @@ export function App() {
   const bgEvalWorkerRef = useRef<Worker | null>(null);
   const suggestionRankerWorkerRef = useRef<Worker | null>(null);
   const suggestionRankerRequestIdRef = useRef<string | null>(null);
+
+  // Top-level room. Local state for PR-1 — promote into the Zustand store later
+  // if we want it to persist across reloads. Default to Advisor: the household
+  // should land in the "monthly check-in" view, not the engine-internals tab list.
+  const [room, setRoom] = useState<Room>('advisor');
+  /**
+   * Deep-link handoff: Advisor's Easy-to-miss cards push a scenario in here
+   * before flipping the room to 'sandbox'. SandboxRoom consumes it on mount
+   * and clears the slot so it doesn't re-apply on refresh.
+   */
+  const [pendingSandboxScenario, setPendingSandboxScenario] =
+    useState<SandboxInitialScenario | null>(null);
 
   const [currentPlanResult, setCurrentPlanResult] = useState<SimulationResultState | null>(null);
   const [simulationResult, setSimulationResult] = useState<SimulationResultState | null>(null);
@@ -1300,6 +1341,62 @@ export function App() {
 
   return (
     <div className="min-h-screen bg-[radial-gradient(circle_at_top_left,_rgba(96,165,250,0.22),_transparent_30%),linear-gradient(135deg,#f6fbff_0%,#edf5fb_42%,#dce9f5_100%)] text-slate-900">
+      {/* Top-level Room nav — Advisor / Sandbox / Inspector. Sticky so it
+          remains the household's anchor as they scroll inside any room. The
+          existing per-screen sidebar/tab UI (Plan, Accounts, Spending, etc.)
+          continues to work below this, gated to the Inspector room. */}
+      <header className="no-print sticky top-0 z-40 border-b border-stone-300/60 bg-white/85 backdrop-blur">
+        <div className="mx-auto flex max-w-[1700px] items-center gap-4 px-4 py-3 sm:px-6 lg:px-8">
+          <p className="font-mono text-[11px] uppercase tracking-[0.24em] text-blue-700">
+            Retirement Path Lab
+          </p>
+          <nav className="ml-auto flex gap-1 rounded-full bg-stone-100 p-1">
+            {ROOMS.map((r) => (
+              <button
+                key={r.id}
+                type="button"
+                onClick={() => setRoom(r.id)}
+                className={`rounded-full px-4 py-1.5 text-sm font-medium transition ${
+                  room === r.id
+                    ? 'bg-stone-900 text-white shadow'
+                    : 'text-stone-700 hover:text-stone-900'
+                }`}
+              >
+                {r.label}
+              </button>
+            ))}
+          </nav>
+        </div>
+      </header>
+
+      {room === 'advisor' && (
+        <AdvisorRoom
+          data={currentPlan}
+          assumptions={currentPlanAssumptions}
+          solvedSpendProfile={currentPlanResult?.solvedSpendProfile ?? null}
+          planResultStatus={planResultStatus}
+          baselinePathResult={currentPlanResult?.pathResults?.[0] ?? null}
+          onOpenSandbox={(scenario) => {
+            setPendingSandboxScenario(scenario ?? null);
+            setRoom('sandbox');
+          }}
+        />
+      )}
+      {room === 'sandbox' && (
+        <SandboxRoom
+          data={currentPlan}
+          assumptions={currentPlanAssumptions}
+          initialScenario={pendingSandboxScenario}
+          onConsumeInitialScenario={() => setPendingSandboxScenario(null)}
+          baselineMonthlySpendNow={
+            currentPlanResult?.solvedSpendProfile?.monthlySpendNow ?? null
+          }
+          baselineMedianEndingWealth={
+            currentPlanResult?.pathResults?.[0]?.medianEndingWealth ?? null
+          }
+        />
+      )}
+      {room === 'inspector' && (
       <div className="mx-auto flex min-h-screen max-w-[1700px] flex-col xl:flex-row">
         <aside className="border-b border-stone-300/60 bg-white/75 px-4 py-5 backdrop-blur xl:min-h-screen xl:w-[280px] xl:border-b-0 xl:border-r">
           <div className="mb-6 flex items-center justify-between xl:block">
@@ -1516,15 +1613,23 @@ export function App() {
             ) : (
             <section className="space-y-6">
               {currentScreen === 'overview' && (
-                <UnifiedPlanScreen
-                  data={currentPlan}
-                  assumptions={currentPlanAssumptions}
-                  simulationStatus={planResultStatus}
-                  selectedStressors={currentPlanSelectedStressors}
-                  selectedResponses={currentPlanSelectedResponses}
-                  pathResults={displayedPlanPathResults}
-                  showPlanControls
-                />
+                <>
+                  <PlanReadingCard
+                    data={currentPlan}
+                    assumptions={currentPlanAssumptions}
+                    solvedSpendProfile={currentPlanResult?.solvedSpendProfile ?? null}
+                    onJumpToSandbox={() => setCurrentScreen('simulation')}
+                  />
+                  <UnifiedPlanScreen
+                    data={currentPlan}
+                    assumptions={currentPlanAssumptions}
+                    simulationStatus={planResultStatus}
+                    selectedStressors={currentPlanSelectedStressors}
+                    selectedResponses={currentPlanSelectedResponses}
+                    pathResults={displayedPlanPathResults}
+                    showPlanControls
+                  />
+                </>
               )}
               {currentScreen === 'plan2' && (
                 <Suspense fallback={<LazyScreenFallback label="Loading Plan 2.0…" />}>
@@ -1604,12 +1709,3556 @@ export function App() {
                   showPlanControls={false}
                 />
               )}
-              {currentScreen === 'export' && <ExportScreen />}
+              {currentScreen === 'export' && (
+                <Suspense fallback={<LazyScreenFallback label="Loading Export…" />}>
+                  <ExportScreen />
+                </Suspense>
+              )}
             </section>
             )}
           </div>
         </main>
       </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Advisor room — the household-facing monthly check-in.
+ *
+ * Two sections in PR-2:
+ *
+ *   "This month"  one spend number, one confidence sentence, one "what to do
+ *                 right now" sentence based on the current guardrail zone.
+ *
+ *   "Flight path" the next ~6 dated events from the household's plan: SS
+ *                 claim ages, Medicare eligibility, RMD start, retirement
+ *                 date, inheritance windfalls, spending-phase shifts. Pure
+ *                 derivation from SeedData + today's date — no path data
+ *                 required, so it renders even before the simulation finishes.
+ *
+ * "Easy to miss" (Roth window, ACA cliff, IRMAA, withdrawal sequencing) is
+ * PR-3.
+ */
+interface FlightPathEvent {
+  date: Date;
+  /** Sort key when two events share a month (stable ordering for the list). */
+  tieBreak: number;
+  title: string;
+  detail: string;
+  category:
+    | 'social_security'
+    | 'medicare'
+    | 'rmd'
+    | 'retirement'
+    | 'spending_phase'
+    | 'windfall';
+}
+
+/**
+ * Rough estimate of how long until the portfolio recovers above the guardrail
+ * ceiling (the "Restore @" line). Pure analytic projection — NOT a Monte
+ * Carlo. Intentionally simple so the Advisor can answer "how long until we're
+ * back?" with a single sentence.
+ *
+ * Math:
+ *   - Weighted nominal expected return = sum over asset classes (allocation
+ *     share × class expected return), using the household's actual mix.
+ *   - Real return = nominal − inflation.
+ *   - Net annual draw = post-cut annual spend − Social Security currently
+ *     being received (spouses already past their claim age).
+ *   - Iterate P(t+1) = P(t) × (1 + r) − netDraw until P >= ceiling, capped
+ *     at `maxYears`.
+ *
+ * Limitations the caller should be aware of:
+ *   - No volatility, sequence risk, taxes, or future SS step-ups during the
+ *     recovery window. The Monte Carlo handles all of that — this is the
+ *     advisor's "back of the envelope" so the household has a number to hold.
+ *   - If the projection never recovers within `maxYears`, returns the next
+ *     unclaimed SS event so the advisor can say "but X starts in N years,
+ *     which changes the math."
+ */
+function estimateRecoveryYears(args: {
+  portfolio: number;
+  ceilingPortfolio: number;
+  postCutAnnualSpend: number;
+  data: SeedData;
+  assumptions: MarketAssumptions;
+  today: Date;
+  maxYears?: number;
+}): {
+  years: number | null;
+  realReturnPct: number;
+  nextSocialSecurity: { person: string; yearsAway: number } | null;
+} {
+  const {
+    portfolio,
+    ceilingPortfolio,
+    postCutAnnualSpend,
+    data,
+    assumptions,
+    today,
+    maxYears = 30,
+  } = args;
+
+  // ---- Weighted real return from the household's actual allocation. -------
+  // Walk every account bucket; for each, multiply its dollars by its target
+  // allocation fractions and accumulate per-asset-class dollars. Then divide
+  // by household total to get fractional weights.
+  const weighted = { US_EQUITY: 0, INTL_EQUITY: 0, BONDS: 0, CASH: 0 };
+  let totalWithAllocation = 0;
+  let cashOnlyDollars = 0;
+  const buckets = [
+    data.accounts?.pretax,
+    data.accounts?.roth,
+    data.accounts?.taxable,
+    data.accounts?.cash,
+    data.accounts?.hsa,
+  ];
+  for (const bucket of buckets) {
+    if (!bucket) continue;
+    const balance = bucket.balance ?? 0;
+    if (balance <= 0) continue;
+    const allocation = bucket.targetAllocation ?? {};
+    const sumAllocated = Object.values(allocation).reduce(
+      (sum, frac) => sum + (frac || 0),
+      0,
+    );
+    if (sumAllocated <= 0) {
+      // No allocation declared — assume cash-equivalent. The cash bucket
+      // typically lands here (no targetAllocation set), as does any custodial
+      // account we haven't classified yet.
+      cashOnlyDollars += balance;
+      continue;
+    }
+    totalWithAllocation += balance;
+    weighted.US_EQUITY += balance * (allocation.US_EQUITY ?? 0);
+    weighted.INTL_EQUITY += balance * (allocation.INTL_EQUITY ?? 0);
+    weighted.BONDS += balance * (allocation.BONDS ?? 0);
+    weighted.CASH += balance * (allocation.CASH ?? 0);
+  }
+  const total = totalWithAllocation + cashOnlyDollars;
+  const w =
+    total > 0
+      ? {
+          US_EQUITY: weighted.US_EQUITY / total,
+          INTL_EQUITY: weighted.INTL_EQUITY / total,
+          BONDS: weighted.BONDS / total,
+          CASH: (weighted.CASH + cashOnlyDollars) / total,
+        }
+      : { US_EQUITY: 0, INTL_EQUITY: 0, BONDS: 0, CASH: 1 };
+  const nominalReturn =
+    w.US_EQUITY * assumptions.equityMean +
+    w.INTL_EQUITY * assumptions.internationalEquityMean +
+    w.BONDS * assumptions.bondMean +
+    w.CASH * assumptions.cashMean;
+  const realReturn = nominalReturn - assumptions.inflation;
+
+  // ---- Currently active Social Security ------------------------------------
+  // Sum monthly benefits for spouses who are already past their claim age.
+  // Apply a rough actuarial factor (8%/yr after 67, 6.67%/yr before) so the
+  // dollar number isn't wildly off when the user has chosen 62 or 70 claim.
+  const ssEntries = data.income?.socialSecurity ?? [];
+  const personBirthDates = new Map<string, string>();
+  if (data.household?.robBirthDate) {
+    personBirthDates.set('rob', data.household.robBirthDate);
+  }
+  if (data.household?.debbieBirthDate) {
+    personBirthDates.set('debbie', data.household.debbieBirthDate);
+  }
+  let currentMonthlySS = 0;
+  let nextSocialSecurity: { person: string; yearsAway: number } | null = null;
+  for (const entry of ssEntries) {
+    const personKey = entry.person?.toLowerCase() ?? '';
+    const birth = personBirthDates.get(personKey);
+    if (!birth) continue;
+    const claimDate = dateAtAge(birth, entry.claimAge);
+    const factor =
+      entry.claimAge >= 67
+        ? 1 + (entry.claimAge - 67) * 0.08
+        : Math.max(0, 1 - (67 - entry.claimAge) * 0.0667);
+    if (claimDate <= today) {
+      currentMonthlySS += entry.fraMonthly * factor;
+    } else {
+      const yearsAway = Math.max(0, yearsBetween(today, claimDate));
+      if (!nextSocialSecurity || yearsAway < nextSocialSecurity.yearsAway) {
+        nextSocialSecurity = {
+          person: entry.person ?? personKey,
+          yearsAway,
+        };
+      }
+    }
+  }
+  const currentAnnualSS = currentMonthlySS * 12;
+
+  // ---- Iterate forward until recovery or maxYears ----
+  const netAnnualDraw = Math.max(0, postCutAnnualSpend - currentAnnualSS);
+  let p = portfolio;
+  for (let y = 1; y <= maxYears; y += 1) {
+    p = p * (1 + realReturn) - netAnnualDraw;
+    if (p >= ceilingPortfolio) {
+      return { years: y, realReturnPct: realReturn, nextSocialSecurity };
+    }
+    if (p <= 0) break;
+  }
+  return { years: null, realReturnPct: realReturn, nextSocialSecurity };
+}
+
+/** Required Minimum Distribution start age — SECURE 2.0 rules. */
+function getRmdStartAge(birthDate: string): number {
+  const birthYear = new Date(birthDate).getUTCFullYear();
+  if (birthYear >= 1960) return 75;
+  if (birthYear >= 1951) return 73;
+  return 72; // legacy SECURE 1.0 cohort — unlikely in this household but keep safe.
+}
+
+/** Date a person reaches a given age (using their birth month/day). */
+function dateAtAge(birthDate: string, age: number): Date {
+  const birth = new Date(birthDate);
+  return new Date(
+    Date.UTC(
+      birth.getUTCFullYear() + age,
+      birth.getUTCMonth(),
+      birth.getUTCDate(),
+    ),
+  );
+}
+
+/** Whole years between two dates (positive when `later` is after `earlier`). */
+function yearsBetween(earlier: Date, later: Date): number {
+  const ms = later.getTime() - earlier.getTime();
+  return ms / (365.2425 * 24 * 60 * 60 * 1000);
+}
+
+function formatFlightPathDate(date: Date): string {
+  return date.toLocaleDateString('en-US', {
+    month: 'short',
+    year: 'numeric',
+    timeZone: 'UTC',
+  });
+}
+
+/** "in 7 months" / "in 4 years" — copy that tells you what's near vs far. */
+function describeRelativeTime(today: Date, when: Date): string {
+  const months = Math.round(
+    (when.getUTCFullYear() - today.getUTCFullYear()) * 12 +
+      (when.getUTCMonth() - today.getUTCMonth()),
+  );
+  if (months <= 0) return 'this month';
+  if (months === 1) return 'next month';
+  if (months < 12) return `in ${months} months`;
+  const years = months / 12;
+  if (years < 1.5) return 'in about a year';
+  if (years < 10) return `in ${Math.round(years)} years`;
+  return `in ${Math.round(years)} years`;
+}
+
+/**
+ * Derive the next N dated events from SeedData. Pure function, deterministic,
+ * does not consume path results — so it renders correctly even before the
+ * Monte Carlo finishes (or fails). Sort by date, drop anything in the past,
+ * cap at `limit`.
+ */
+function buildFlightPath(
+  data: SeedData,
+  today: Date,
+  limit: number,
+): FlightPathEvent[] {
+  const events: FlightPathEvent[] = [];
+  const household = data.household;
+  const people: Array<{ name: string; birthDate: string }> = [];
+  if (household?.robBirthDate) {
+    people.push({ name: 'Rob', birthDate: household.robBirthDate });
+  }
+  if (household?.debbieBirthDate) {
+    people.push({ name: 'Debbie', birthDate: household.debbieBirthDate });
+  }
+
+  // Retirement date (when the salary stops). Only meaningful if it's still in
+  // the future; otherwise the household is already retired and this isn't an
+  // upcoming event.
+  if (data.income?.salaryEndDate) {
+    const retire = new Date(data.income.salaryEndDate);
+    if (!Number.isNaN(retire.getTime()) && retire > today) {
+      events.push({
+        date: retire,
+        tieBreak: 0,
+        title: 'Retirement — salary ends',
+        detail:
+          'After this date the portfolio carries the full spend until Social Security and other guaranteed income kick in.',
+        category: 'retirement',
+      });
+    }
+  }
+
+  // Per-person life-stage markers.
+  for (const person of people) {
+    // Social Security claim age (per SS entry attributed to this person).
+    const ssEntries = (data.income?.socialSecurity ?? []).filter(
+      (entry) =>
+        entry.person?.toLowerCase() === person.name.toLowerCase() ||
+        entry.person?.toLowerCase().startsWith(person.name.toLowerCase()),
+    );
+    for (const entry of ssEntries) {
+      const claimDate = dateAtAge(person.birthDate, entry.claimAge);
+      if (claimDate > today) {
+        const monthly = Math.round(
+          entry.fraMonthly *
+            // FRA is approximately 67; if claiming earlier or later we'd
+            // apply the actuarial factor. The advisor headline doesn't need
+            // that precision — surface the FRA-equivalent figure and let
+            // Inspector show the exact factor.
+            (entry.claimAge >= 67 ? 1 + (entry.claimAge - 67) * 0.08 : 1 - (67 - entry.claimAge) * 0.0667),
+        );
+        events.push({
+          date: claimDate,
+          tieBreak: 1,
+          title: `${person.name} claims Social Security at ${entry.claimAge}`,
+          detail: `Adds roughly ${formatCurrency(monthly)}/mo of guaranteed real income — the portfolio's job shrinks accordingly.`,
+          category: 'social_security',
+        });
+      }
+    }
+
+    // Medicare eligibility (age 65). Worth flagging because it ends the ACA
+    // bridge for this person and brings IRMAA into play.
+    const medicare = dateAtAge(person.birthDate, 65);
+    if (medicare > today) {
+      events.push({
+        date: medicare,
+        tieBreak: 2,
+        title: `${person.name} turns 65 — Medicare starts`,
+        detail:
+          'Premiums (Part B + IRMAA surcharge if MAGI is over the threshold) begin. The pre-65 ACA-subsidy window closes for this spouse.',
+        category: 'medicare',
+      });
+    }
+
+    // First RMD year — the bracket cliff that ends the cheap-conversion window.
+    const rmdAge = getRmdStartAge(person.birthDate);
+    const rmdStart = dateAtAge(person.birthDate, rmdAge);
+    if (rmdStart > today) {
+      events.push({
+        date: rmdStart,
+        tieBreak: 3,
+        title: `${person.name} hits ${rmdAge} — RMDs begin`,
+        detail:
+          'Forced pretax withdrawals start. After this point Roth conversions stop being cheap; the window before this date is when the math works.',
+        category: 'rmd',
+      });
+    }
+
+    // Spending-phase transitions — the household-side milestones of the
+    // retirement smile. We mark transitions for the FIRST spouse to hit each
+    // age (typically the household reads their spend by the older spouse).
+    if (person === people[0]) {
+      const slowGo = dateAtAge(person.birthDate, 70);
+      if (slowGo > today) {
+        events.push({
+          date: slowGo,
+          tieBreak: 4,
+          title: 'Travel-heavy phase ends (~age 70)',
+          detail:
+            'The plan shifts from go-go spending to a quieter pace. Travel budget steps down; portfolio glide path eases.',
+          category: 'spending_phase',
+        });
+      }
+      const lateLife = dateAtAge(person.birthDate, 80);
+      if (lateLife > today) {
+        events.push({
+          date: lateLife,
+          tieBreak: 5,
+          title: 'Late-life phase begins (~age 80)',
+          detail:
+            'Discretionary spending steps down again; healthcare and long-term-care reserves carry more weight.',
+          category: 'spending_phase',
+        });
+      }
+    }
+  }
+
+  // Windfalls — inheritance, home sales, anything dated in the future.
+  for (const windfall of data.income?.windfalls ?? []) {
+    if (!windfall?.year || windfall.year < today.getUTCFullYear()) continue;
+    const when = new Date(Date.UTC(windfall.year, 0, 1));
+    if (when <= today) continue;
+    events.push({
+      date: when,
+      tieBreak: 6,
+      title: `${windfall.name.charAt(0).toUpperCase() + windfall.name.slice(1)} expected`,
+      detail: `Roughly ${formatCurrency(windfall.amount)} ${
+        windfall.certainty && windfall.certainty !== 'certain'
+          ? `(${windfall.certainty} timing)`
+          : ''
+      }`.trim(),
+      category: 'windfall',
+    });
+  }
+
+  events.sort((a, b) => {
+    const dt = a.date.getTime() - b.date.getTime();
+    if (dt !== 0) return dt;
+    return a.tieBreak - b.tieBreak;
+  });
+  return events.slice(0, limit);
+}
+
+// ============================================================================
+// "Easy to miss" — the advisor's watchlist of expensive things retirees forget.
+//
+// MVP rule pack (PR-3): Roth window, ACA cliff, IRMAA bracket, withdrawal
+// sequencing. Each rule is a pure function of (data, assumptions, today) that
+// returns a card if applicable to this household, or null. Registry pattern
+// makes adding the next card a one-liner.
+//
+// The dollar tags are deliberately back-of-envelope — order-of-magnitude
+// directional, not precise. Where we can compute a real number from SeedData
+// (Roth window pretax balance × bracket spread, IRMAA per-spouse surcharge),
+// we do. Where we can't easily (ACA cliff projection, sequencing), we surface
+// a typical range. PR-4 would upgrade individual cards to "diff-scenario"
+// (run two simulations and report the actual delta) once we know which cards
+// are pulling weight.
+// ============================================================================
+interface EasyToMissCard {
+  id: string;
+  title: string;
+  /** Big-text dollar callout on the right of the card. */
+  dollarTag: string;
+  /** 1-2 sentence plain-English explanation. */
+  body: string;
+  /** Optional dated window ("Through Apr 2032"). */
+  window?: string;
+  /** Sort key: rough lifetime dollars at stake. Higher = more prominent. */
+  priority: number;
+  /**
+   * Optional Sandbox deep-link. When present, the card renders a "Try in
+   * Sandbox" affordance that pre-selects the listed stressor + reactions.
+   * Cards whose topic doesn't map to a real Sandbox stressor (ACA cliff,
+   * IRMAA, withdrawal sequencing — these are planner choices, not external
+   * shocks) leave this undefined; they instead get a generic "Open Sandbox"
+   * button so the household can explore from a clean slate.
+   */
+  sandboxScenario?: SandboxInitialScenario;
+}
+
+interface EasyToMissRuleArgs {
+  data: SeedData;
+  assumptions: MarketAssumptions;
+  today: Date;
+}
+
+type EasyToMissRule = (args: EasyToMissRuleArgs) => EasyToMissCard | null;
+
+/** Conservative estimate of MFJ headroom in the 12% bracket post-deduction. */
+const ROTH_ANNUAL_HEADROOM_MFJ = 50_000;
+/** Bracket arbitrage assumed for Roth window math: 12% now → 22% later. */
+const ROTH_BRACKET_SPREAD = 0.10;
+/** Round dollar amount to nearest thousand for headline display. */
+const roundToThousand = (n: number) => Math.round(n / 1000) * 1000;
+
+/**
+ * Roth conversion window. Triggers when the household has meaningful pretax
+ * balance and at least one year before RMDs start. Estimates lifetime tax
+ * savings as `min(pretax, yearsAvailable × annualHeadroom) × bracketSpread`.
+ *
+ * Why this rule matters: the years between "stopped earning" and "RMDs start"
+ * are typically the lowest-bracket years of a household's lifetime. Filling
+ * the 12% bracket with conversions during this window converts pretax to
+ * Roth at half the rate it would otherwise come out as forced RMDs.
+ */
+const rothConversionWindowRule: EasyToMissRule = ({ data, today }) => {
+  const people: Array<{ name: string; birthDate: string }> = [];
+  if (data.household?.robBirthDate) {
+    people.push({ name: 'Rob', birthDate: data.household.robBirthDate });
+  }
+  if (data.household?.debbieBirthDate) {
+    people.push({ name: 'Debbie', birthDate: data.household.debbieBirthDate });
+  }
+  if (people.length === 0) return null;
+
+  const pretaxBalance = data.accounts?.pretax?.balance ?? 0;
+  if (pretaxBalance < 100_000) return null;
+
+  // Window closes the year the FIRST spouse hits their RMD age.
+  const firstRmdEvent = people
+    .map((p) => ({
+      name: p.name,
+      date: dateAtAge(p.birthDate, getRmdStartAge(p.birthDate)),
+    }))
+    .sort((a, b) => a.date.getTime() - b.date.getTime())[0];
+
+  const yearsAvailable = yearsBetween(today, firstRmdEvent.date);
+  if (yearsAvailable < 0.5) return null;
+
+  const maxConvertible = Math.min(
+    pretaxBalance,
+    Math.floor(yearsAvailable) * ROTH_ANNUAL_HEADROOM_MFJ,
+  );
+  const lifetimeSavings = roundToThousand(
+    maxConvertible * ROTH_BRACKET_SPREAD,
+  );
+  if (lifetimeSavings < 5_000) return null;
+
+  return {
+    id: 'roth_window',
+    title: 'Roth conversion window',
+    dollarTag: `~${formatCurrency(lifetimeSavings)} of lifetime tax in play`,
+    body: `Pretax balance is ${formatCurrency(pretaxBalance)} and you have about ${Math.round(yearsAvailable)} years until RMDs start. Filling the 12% bracket each year now converts pretax to Roth at roughly half the rate it would otherwise come out as forced RMDs.`,
+    window: `Window closes ${formatFlightPathDate(firstRmdEvent.date)}`,
+    priority: lifetimeSavings,
+    // Sandbox mapping: market crashes are the highest-leverage moment for
+    // Roth conversions (convert at depressed values, recover tax-free). This
+    // isn't the only Roth-window scenario, but it's the one where the
+    // Sandbox math has something to say.
+    sandboxScenario: {
+      stressorId: 'market_down',
+      stressorKnobValue: 25,
+      reactions: [],
+    },
+  };
+};
+
+/**
+ * ACA subsidy cliff. Triggers when at least one spouse is pre-65 (still
+ * eligible for marketplace coverage) and the household isn't currently drawing
+ * salary (subsidy planning is meaningful only when you control your MAGI).
+ *
+ * The dollar number is generic — we don't have a household MAGI projection
+ * available without the simulator's tax engine. The card's job is to flag
+ * existence of the window, not compute the exact subsidy.
+ */
+const acaSubsidyCliffRule: EasyToMissRule = ({ data, today }) => {
+  const people: Array<{ name: string; birthDate: string }> = [];
+  if (data.household?.robBirthDate) {
+    people.push({ name: 'Rob', birthDate: data.household.robBirthDate });
+  }
+  if (data.household?.debbieBirthDate) {
+    people.push({ name: 'Debbie', birthDate: data.household.debbieBirthDate });
+  }
+  if (people.length === 0) return null;
+
+  // Skip if the household is still earning salary — ACA optimization is much
+  // less actionable while W-2 income dominates.
+  const salaryEnd = data.income?.salaryEndDate
+    ? new Date(data.income.salaryEndDate)
+    : null;
+  if (salaryEnd && salaryEnd > today) return null;
+
+  // Find the pre-65 spouse who hits Medicare LAST — that's when the ACA
+  // window closes for the household.
+  const preMedicare = people
+    .map((p) => ({ name: p.name, date: dateAtAge(p.birthDate, 65) }))
+    .filter((m) => m.date > today)
+    .sort((a, b) => b.date.getTime() - a.date.getTime())[0];
+  if (!preMedicare) return null;
+
+  const yearsRemaining = Math.max(1, Math.round(yearsBetween(today, preMedicare.date)));
+  // Conservative MFJ subsidy estimate at moderate income — actual subsidy can
+  // be $0–$25K/yr depending on MAGI position vs threshold. We display the
+  // upper-mid end as "up to" so we're not overpromising.
+  const ANNUAL_SUBSIDY_ESTIMATE = 12_000;
+  const lifetimeAtStake = ANNUAL_SUBSIDY_ESTIMATE * yearsRemaining;
+
+  return {
+    id: 'aca_cliff',
+    title: 'ACA subsidy window',
+    dollarTag: `Up to ~${formatCurrency(ANNUAL_SUBSIDY_ESTIMATE)}/yr through ${formatFlightPathDate(preMedicare.date)}`,
+    body: `Until ${preMedicare.name} hits Medicare at 65, keeping household MAGI under the ACA cliff is worth real subsidy dollars on health insurance. Roth conversions and large IRA withdrawals are the usual income that pushes a household over.`,
+    window: `~${yearsRemaining} ${yearsRemaining === 1 ? 'year' : 'years'} remaining`,
+    priority: lifetimeAtStake,
+  };
+};
+
+/**
+ * IRMAA Medicare premium surcharge. Triggers when at least one spouse is age
+ * 63+ (Medicare imminent or active) AND the household has meaningful pretax
+ * balance (RMDs and conversions can push MAGI over a threshold).
+ *
+ * IRMAA is a "cliff" tax — crossing a threshold by $1 costs $1,000+/yr per
+ * spouse. The most common own-goal: a year-end Roth conversion that pushes
+ * MAGI just over the next bracket. Worth standing watch for.
+ */
+const irmaaBracketRule: EasyToMissRule = ({ data, assumptions, today }) => {
+  const people: Array<{ name: string; birthDate: string }> = [];
+  if (data.household?.robBirthDate) {
+    people.push({ name: 'Rob', birthDate: data.household.robBirthDate });
+  }
+  if (data.household?.debbieBirthDate) {
+    people.push({ name: 'Debbie', birthDate: data.household.debbieBirthDate });
+  }
+  if (people.length === 0) return null;
+
+  const oldestAge = Math.max(
+    ...people.map((p) =>
+      Math.floor(yearsBetween(new Date(p.birthDate), today)),
+    ),
+  );
+  if (oldestAge < 63) return null;
+
+  const pretaxBalance = data.accounts?.pretax?.balance ?? 0;
+  if (pretaxBalance < 250_000) return null; // RMDs unlikely to push MAGI over
+
+  // Per-spouse Part B + Part D surcharge at the first IRMAA tier is roughly
+  // $1,700/yr in current dollars. Real number depends on bracket; this is
+  // the typical "first-cliff" cost to put a number on it.
+  const PER_SPOUSE_FIRST_TIER_COST = 1_700;
+  const annualCost = PER_SPOUSE_FIRST_TIER_COST * people.length;
+
+  return {
+    id: 'irmaa',
+    title: 'IRMAA Medicare surcharge',
+    dollarTag: `~${formatCurrency(annualCost)}/yr if MAGI crosses ${formatCurrency(assumptions.irmaaThreshold)}`,
+    body: `IRMAA is a cliff: crossing the next bracket by $1 adds the full surcharge for the year. Year-end Roth conversions and unexpected capital gains are the usual offender — worth checking December tax positioning before year-end.`,
+    priority: annualCost * 10, // 10-year rough horizon for sort priority
+  };
+};
+
+/**
+ * Withdrawal sequencing. Triggers when the household has meaningful balance
+ * across at least two account-tax-treatments (taxable + pretax + Roth) and is
+ * already retired. The plan models the optimal sequence; the risk is the
+ * household's REAL withdrawals don't match what the model assumed.
+ */
+const withdrawalSequencingRule: EasyToMissRule = ({ data, today }) => {
+  const taxableBalance = data.accounts?.taxable?.balance ?? 0;
+  const pretaxBalance = data.accounts?.pretax?.balance ?? 0;
+  const rothBalance = data.accounts?.roth?.balance ?? 0;
+  const distinctTypesWithBalance =
+    (taxableBalance > 0 ? 1 : 0) +
+    (pretaxBalance > 0 ? 1 : 0) +
+    (rothBalance > 0 ? 1 : 0);
+  if (distinctTypesWithBalance < 2) return null;
+
+  const salaryEnd = data.income?.salaryEndDate
+    ? new Date(data.income.salaryEndDate)
+    : null;
+  if (salaryEnd && salaryEnd > today) return null; // not retired yet
+
+  const totalLiquid = taxableBalance + pretaxBalance + rothBalance;
+  // Order of magnitude: 10-15bps of leakage per year on a poorly-sequenced
+  // withdrawal mix over 20 years ≈ 2-3% of portfolio cumulative. Round.
+  const lifetimeImpact = roundToThousand(totalLiquid * 0.025);
+
+  return {
+    id: 'sequencing',
+    title: 'Withdrawal sequencing',
+    dollarTag: `~${formatCurrency(lifetimeImpact)} cumulative if your real withdrawals drift from the plan`,
+    body: `You have meaningful balances across taxable, pretax, and Roth. The plan models the optimal sequence (taxable → pretax → Roth, with Roth conversions in the gap). Worth a quarterly check that your actual transfers match — pulling from the wrong account quietly leaks five-figure tax over a decade.`,
+    priority: lifetimeImpact,
+  };
+};
+
+const EASY_TO_MISS_RULES: EasyToMissRule[] = [
+  rothConversionWindowRule,
+  acaSubsidyCliffRule,
+  irmaaBracketRule,
+  withdrawalSequencingRule,
+];
+
+/**
+ * Top N highest-priority cards that apply to this household. Higher priority
+ * (rough lifetime dollars at stake) sorts first — we want the household's
+ * eyes on the most expensive miss, not whatever happens to be alphabetically
+ * earliest.
+ */
+function buildEasyToMissCards(
+  args: EasyToMissRuleArgs,
+  limit = 3,
+): EasyToMissCard[] {
+  const cards: EasyToMissCard[] = [];
+  for (const rule of EASY_TO_MISS_RULES) {
+    const card = rule(args);
+    if (card) cards.push(card);
+  }
+  cards.sort((a, b) => b.priority - a.priority);
+  return cards.slice(0, limit);
+}
+
+/**
+ * Per-year card on the Advisor flight path. Renders one slice of the
+ * `yearlySeries` median trajectory: target spend, where the dollars come
+ * from (per-bucket withdrawals), and any flight-path events that land in
+ * the same calendar year. Used three places: "This year", "Next year",
+ * and the dropdown-selected future year.
+ *
+ * Withdrawal bar buckets:
+ *   pretax   — `medianWithdrawalIra401k`
+ *   roth     — `medianWithdrawalRoth`
+ *   taxable  — `medianWithdrawalTaxable`
+ *   cash     — `medianWithdrawalCash`
+ *
+ * If `yearData` is null (i.e. the year is past the simulation horizon)
+ * we still render the card with events so the household sees the dated
+ * milestones, just without numbers — better than hiding it.
+ */
+// ---------------------------------------------------------------------------
+// Tax & coverage signals for the YearCard
+// ---------------------------------------------------------------------------
+// We turn the raw engine numbers (`medianFederalTax`, `medianMagi`,
+// `dominantIrmaaTier`, `medianAcaSubsidyEstimate`, `medianRothConversion`)
+// into 2-4 plain-English status rows that tell the household whether this
+// year's spending is "thoughtfully funded":
+//   - tax bite (effective federal tax as % of spend) — sanity check on
+//     whether withdrawal sequencing keeps tax drag reasonable
+//   - IRMAA tier (post-65) — staying in tier 1 means no Medicare surcharge
+//   - ACA subsidy (pre-65) — non-zero subsidy means MAGI is below the
+//     premium-tax-credit cliff, which is the big pre-65 trap
+//   - Roth conversion — surfaced when present so "extra tax this year"
+//     reads as deliberate planning, not an accident
+//
+// We don't try to replicate Inspector's full tax detail here; the Advisor
+// surface should answer "is this OK?" not "show me every number."
+type SignalTone = 'good' | 'watch' | 'bad' | 'info';
+interface YearTaxSignal {
+  key: string;
+  label: string;
+  value: string;
+  tone: SignalTone;
+  /**
+   * Optional one-sentence "what could I do?" nudge, rendered as small
+   * italic text below the row. Omitted when the signal is already
+   * optimal AND there's nothing useful to suggest — silence is better
+   * than padding the UI with "looks good!" filler.
+   */
+  hint?: string;
+}
+const SIGNAL_DOT_CLASS: Record<SignalTone, string> = {
+  good: 'bg-emerald-500',
+  watch: 'bg-amber-500',
+  bad: 'bg-rose-500',
+  info: 'bg-blue-500',
+};
+const SIGNAL_TEXT_CLASS: Record<SignalTone, string> = {
+  good: 'text-emerald-700',
+  watch: 'text-amber-700',
+  bad: 'text-rose-700',
+  info: 'text-blue-700',
+};
+function buildYearTaxSignals(yearData: PathYearResult): YearTaxSignal[] {
+  const signals: YearTaxSignal[] = [];
+  const spend = Math.max(0, yearData.medianSpending ?? 0);
+  const tax = Math.max(0, yearData.medianFederalTax ?? 0);
+  const conversion = Math.max(0, yearData.medianRothConversion ?? 0);
+  const hasConversion = conversion >= 1000;
+  const wages = Math.max(0, yearData.medianAdjustedWages ?? 0);
+  // "Working year" proxy — W-2 wages dominate the tax picture, so the
+  // levers are very different from a retired year. Used both for the ACA
+  // gating below and for the tax-bite hint copy.
+  const isWorkingYear = wages >= 5000;
+
+  // --- Tax bite -----------------------------------------------------------
+  // Effective federal tax / spend gives a quick "is the engine over-paying
+  // tax to fund this lifestyle?" read. We use spend (not income) as the
+  // denominator because the household reasons in spend dollars. Bands are
+  // intentionally coarse: <12% feels good, 12–20% is normal-but-watch,
+  // >20% is paying real money to the IRS and worth a Sandbox look.
+  //
+  // Hint copy is *honest about the actual lever*. The right lever depends
+  // entirely on whether the household is still working:
+  //   - Working year: tax is mostly federal income tax on W-2 wages.
+  //     Withdrawal sequencing does ~nothing. The real movers are
+  //     401k/HSA contributions, timing of any large sales / conversions,
+  //     and (long term) the retirement date itself.
+  //   - Retired year: the engine actually picks the withdrawal mix, so
+  //     "draw more from Roth/cash, less from pretax" is a real lever and
+  //     trimming a Roth conversion lowers tax now (at the cost of bigger
+  //     RMDs / IRMAA risk later).
+  // We branch the hint accordingly so we never tell a W-2 employee to
+  // "draw from Roth" — they're not drawing from anything.
+  if (spend > 0) {
+    const ratio = tax / spend;
+    const pct = Math.round(ratio * 100);
+    const tone: SignalTone = ratio < 0.12 ? 'good' : ratio < 0.2 ? 'watch' : 'bad';
+    let hint: string | undefined;
+    if (isWorkingYear) {
+      // Working-year hints. We don't tag tones as "watch/bad" too
+      // aggressively here because a 12-20% effective federal rate on
+      // wages is just normal — not a planning failure.
+      if (tone === 'good') {
+        hint = undefined; // Already efficient — nothing useful to add.
+      } else {
+        hint =
+          'Mostly federal income tax on W-2 wages — withdrawal sequencing won\u2019t move this. Real levers in working years: max 401k / HSA contributions, time any large sales or Roth conversions, and (long-term) the retirement date.';
+      }
+    } else if (tone === 'good' && hasConversion) {
+      hint =
+        'Most of this tax is the Roth conversion below — trim the conversion to pay less now (but expect bigger RMDs and possible IRMAA later).';
+    } else if (tone === 'watch') {
+      hint =
+        'Lower by drawing more from Roth/cash and less from pretax this year, or trim the Roth conversion if there is one.';
+    } else if (tone === 'bad') {
+      hint =
+        'Big tax bite — try Sandbox: shift the order to Roth/cash first, or split this year\u2019s Roth conversion across more years.';
+    }
+    signals.push({
+      key: 'tax',
+      label: 'Federal tax vs spend',
+      value: `${pct}% (${formatCurrency(Math.round(tax))})`,
+      tone,
+      hint,
+    });
+  }
+
+  // --- IRMAA --------------------------------------------------------------
+  // Only show when the household is actually on Medicare this year (proxy:
+  // the engine is modeling a Medicare premium). Tier 1 = no surcharge,
+  // which is the goal. Tier 2 is a minor brush; tier 3+ is real money.
+  //
+  // Note on the hint for tier 1: the relevant "lookback" is the *2-year-
+  // prior* MAGI per the IRMAA rules. We don't have that per-year here, so
+  // the hint stays directional rather than naming a dollar threshold.
+  const onMedicare = (yearData.medianMedicarePremiumEstimate ?? 0) > 0;
+  if (onMedicare) {
+    const tierLabel = yearData.dominantIrmaaTier || 'Tier 1';
+    const tierNum = Number.parseInt(tierLabel.replace(/[^0-9]/g, ''), 10) || 1;
+    const surcharge = Math.max(0, yearData.medianIrmaaSurcharge ?? 0);
+    let tone: SignalTone;
+    let value: string;
+    let hint: string | undefined;
+    if (tierNum <= 1) {
+      tone = 'good';
+      value = 'Tier 1 · no surcharge';
+      // Intentionally no hint — already optimal.
+    } else if (tierNum === 2) {
+      tone = 'watch';
+      value = `Tier 2 · +${formatCurrency(Math.round(surcharge))}/yr`;
+      hint =
+        'One Medicare bracket up. Reduce 2-year-prior MAGI by leaning on Roth/cash before pretax, or by spreading conversions thinner.';
+    } else {
+      tone = 'bad';
+      value = `Tier ${tierNum} · +${formatCurrency(Math.round(surcharge))}/yr`;
+      hint =
+        'Real surcharge dollars. Consider larger Roth conversions in earlier (lower-MAGI) years so future MAGI lands in a lower bracket.';
+    }
+    signals.push({
+      key: 'irmaa',
+      label: 'IRMAA (Medicare)',
+      value,
+      tone,
+      hint,
+    });
+  }
+
+  // --- ACA ----------------------------------------------------------------
+  // Trust the engine here. Since the 2026-04-25 healthcare-premium-engine
+  // fix, `acaPremiumEstimate` is gated on `retirementStatus` — it's only
+  // non-zero when the household is actually retired and pre-Medicare (the
+  // "needs marketplace coverage" window). Earlier we layered a UI-side
+  // `!isWorkingYear` guard on top to mask the engine bug, but that guard
+  // is now redundant *and* actively wrong for retirement-transition years
+  // like the salary-ends-July case: the household has W-2 wages for half
+  // the year (so `isWorkingYear=true`) but is genuinely on the ACA from
+  // July onward. Dropping the guard lets the chip surface in those
+  // transition years too. If the engine ever emits ACA cost for a year
+  // that shouldn't have it, that's an engine bug — not a UI gate to fix.
+  const onAca = (yearData.medianAcaPremiumEstimate ?? 0) > 0;
+  if (onAca) {
+    const subsidy = Math.max(0, yearData.medianAcaSubsidyEstimate ?? 0);
+    const netCost = Math.max(0, yearData.medianNetAcaCost ?? 0);
+    if (subsidy > 0) {
+      signals.push({
+        key: 'aca',
+        label: 'ACA subsidy preserved',
+        value: `${formatCurrency(Math.round(subsidy))}/yr off premium`,
+        tone: 'good',
+        // Soft warning, not a "do something" — but worth knowing.
+        hint: hasConversion
+          ? 'Subsidy held even with the Roth conversion. Watch headroom if you add more conversion or take a windfall this year.'
+          : undefined,
+      });
+    } else {
+      signals.push({
+        key: 'aca',
+        label: 'ACA subsidy lost',
+        value: `paying ${formatCurrency(Math.round(netCost))}/yr full freight`,
+        tone: 'bad',
+        // Hint depends on what's driving MAGI this year. In a transition
+        // year (still some W-2 wages) the wages dominate MAGI and the
+        // engine's withdrawal sequencing can't fix it — the real lever
+        // is retirement timing or a smaller conversion. In a fully
+        // retired year, sequencing is the lever.
+        hint: isWorkingYear
+          ? 'MAGI driven by W-2 wages this year — withdrawal sequencing can\u2019t lower it. The real levers are the retirement date, deferring this year\u2019s Roth conversion, or accepting full-freight ACA for a partial year.'
+          : 'MAGI is over the cliff. Try drawing from Roth/cash instead of pretax this year, or trim the Roth conversion — even a small shift can put the subsidy back.',
+      });
+    }
+  }
+
+  // --- Roth conversion ---------------------------------------------------
+  // Surfaced as informational ("we're paying extra tax now on purpose") so
+  // the year's tax bite reads as deliberate, not a surprise. $1k floor
+  // suppresses noise from sub-cent or tiny optimization passes.
+  if (hasConversion) {
+    signals.push({
+      key: 'roth',
+      label: 'Roth conversion this year',
+      value: `${formatCurrency(Math.round(conversion))} pretax → Roth`,
+      tone: 'info',
+      hint:
+        'Deliberate — paying tax now at a low rate to shrink future RMDs (and IRMAA risk at 65+). Trim only if cash flow is tight.',
+    });
+  }
+
+  return signals;
+}
+
+interface YearCardProps {
+  year: number;
+  label: string;
+  yearData: PathYearResult | null;
+  events: FlightPathEvent[];
+  isPrimary?: boolean;
+}
+function YearCard({ year, label, yearData, events, isPrimary }: YearCardProps) {
+  const totalWithdrawals = yearData
+    ? Math.max(
+        0,
+        (yearData.medianWithdrawalIra401k ?? 0) +
+          (yearData.medianWithdrawalRoth ?? 0) +
+          (yearData.medianWithdrawalTaxable ?? 0) +
+          (yearData.medianWithdrawalCash ?? 0),
+      )
+    : 0;
+  // Bucket order is intentional — we want the chart to read tax-deferred
+  // first (the bucket that grows if untouched), then tax-free (Roth),
+  // then taxable, then cash. Cash last because it's typically smallest
+  // and the "spend down" of cash early is the household's intuition
+  // anyway. Color contract is reused across the page.
+  const buckets: Array<{
+    key: 'pretax' | 'roth' | 'taxable' | 'cash';
+    label: string;
+    amount: number;
+    fillClass: string;
+    textClass: string;
+  }> = yearData
+    ? [
+        {
+          key: 'pretax',
+          label: 'Pre-tax (IRA / 401k)',
+          amount: yearData.medianWithdrawalIra401k ?? 0,
+          fillClass: 'bg-blue-500',
+          textClass: 'text-blue-700',
+        },
+        {
+          key: 'roth',
+          label: 'Roth',
+          amount: yearData.medianWithdrawalRoth ?? 0,
+          fillClass: 'bg-emerald-500',
+          textClass: 'text-emerald-700',
+        },
+        {
+          key: 'taxable',
+          label: 'Taxable',
+          amount: yearData.medianWithdrawalTaxable ?? 0,
+          fillClass: 'bg-amber-500',
+          textClass: 'text-amber-700',
+        },
+        {
+          key: 'cash',
+          label: 'Cash',
+          amount: yearData.medianWithdrawalCash ?? 0,
+          fillClass: 'bg-stone-500',
+          textClass: 'text-stone-700',
+        },
+      ]
+    : [];
+
+  const cardClass = isPrimary
+    ? 'rounded-[24px] border border-blue-200 bg-white p-5 shadow-sm'
+    : 'rounded-[24px] border border-stone-200 bg-white/80 p-5 shadow-sm';
+
+  return (
+    <article className={cardClass}>
+      <div className="flex items-baseline justify-between gap-3">
+        <div>
+          <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-stone-500">
+            {label}
+          </p>
+          <p className="text-2xl font-semibold tabular-nums text-stone-900">
+            {year}
+          </p>
+        </div>
+        {yearData && (
+          <div className="text-right">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-stone-500">
+              Spend (median)
+            </p>
+            <p className="text-xl font-semibold tabular-nums text-stone-900">
+              {formatCurrency(Math.round(yearData.medianSpending ?? 0))}
+            </p>
+          </div>
+        )}
+      </div>
+
+      {/* Where the money comes from — stacked bar + per-bucket dollar list.
+          The mix bar percentages are scoped to *withdrawals*, not spend.
+          When portfolio withdrawals are a small share of total spend (e.g.
+          working years where wages cover most of spending), we surface
+          the implied "income covered $X" line so the household doesn't
+          read "Cash 100%" as "all my spending is cash". */}
+      {yearData && totalWithdrawals > 0 && (() => {
+        const spend = Math.max(0, yearData.medianSpending ?? 0);
+        const incomeCovered = Math.max(0, spend - totalWithdrawals);
+        const portfolioShareOfSpend = spend > 0 ? totalWithdrawals / spend : 1;
+        const showIncomeCoverNote = incomeCovered > 0 && portfolioShareOfSpend < 0.95;
+        return (
+          <div className="mt-4">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-stone-500">
+              Where it comes from
+            </p>
+            {showIncomeCoverNote && (
+              <p className="mt-1 text-[11px] text-stone-500">
+                Income (wages / SS / pension) covers{' '}
+                <span className="font-medium text-stone-700">
+                  {formatCurrency(Math.round(incomeCovered))}
+                </span>
+                . Portfolio withdrawals fund the remaining{' '}
+                <span className="font-medium text-stone-700">
+                  {formatCurrency(Math.round(totalWithdrawals))}
+                </span>
+                {spend > 0 && (
+                  <> ({Math.round(portfolioShareOfSpend * 100)}% of spend).</>
+                )}
+              </p>
+            )}
+            <div className="mt-2 flex h-2.5 w-full overflow-hidden rounded-full bg-stone-100">
+              {buckets.map((b) =>
+                b.amount > 0 ? (
+                  <div
+                    key={b.key}
+                    className={b.fillClass}
+                    style={{ width: `${(b.amount / totalWithdrawals) * 100}%` }}
+                    title={`${b.label}: ${formatCurrency(Math.round(b.amount))}`}
+                  />
+                ) : null,
+              )}
+            </div>
+            <ul className="mt-2 space-y-1 text-xs">
+              {buckets.map((b) => (
+                <li
+                  key={b.key}
+                  className="flex items-baseline justify-between gap-3"
+                >
+                  <span className="flex items-center gap-1.5 text-stone-700">
+                    <span className={`h-2 w-2 rounded-full ${b.fillClass}`} />
+                    {b.label}
+                  </span>
+                  <span className={`tabular-nums ${b.textClass}`}>
+                    {b.amount > 0
+                      ? `${formatCurrency(Math.round(b.amount))} · ${Math.round((b.amount / totalWithdrawals) * 100)}% of withdrawals`
+                      : '—'}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        );
+      })()}
+
+      {yearData && totalWithdrawals === 0 && (
+        <p className="mt-4 text-xs text-stone-500">
+          No portfolio withdrawals modeled this year — income (salary, SS,
+          pension) is covering plan spend.
+        </p>
+      )}
+
+      {/* Tax & coverage signals — gives the household a 5-second read on
+          whether this year's spend is "thoughtfully funded": is the tax
+          bite reasonable, are we preserving ACA subsidy (pre-Medicare),
+          and are we staying in low IRMAA tiers (post-65)? Each row is a
+          single phrase with a traffic-light dot — no charts, no jargon.
+          We deliberately omit chips that don't apply this year (e.g.
+          ACA when both members are on Medicare). */}
+      {yearData && (() => {
+        const signals = buildYearTaxSignals(yearData);
+        if (signals.length === 0) return null;
+        return (
+          <div className="mt-4 border-t border-stone-100 pt-3">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-stone-500">
+              Tax &amp; coverage
+            </p>
+            <ul className="mt-2 space-y-2 text-xs">
+              {signals.map((sig) => (
+                <li key={sig.key}>
+                  <div className="flex items-baseline justify-between gap-3">
+                    <span className="flex items-center gap-1.5 text-stone-700">
+                      <span
+                        className={`h-2 w-2 rounded-full ${SIGNAL_DOT_CLASS[sig.tone]}`}
+                      />
+                      {sig.label}
+                    </span>
+                    <span
+                      className={`tabular-nums ${SIGNAL_TEXT_CLASS[sig.tone]}`}
+                    >
+                      {sig.value}
+                    </span>
+                  </div>
+                  {sig.hint && (
+                    <p className="mt-0.5 pl-3.5 text-[11px] leading-snug text-stone-500">
+                      {sig.hint}
+                    </p>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </div>
+        );
+      })()}
+
+      {/* Dated milestones in this year. */}
+      {events.length > 0 && (
+        <div className="mt-4 border-t border-stone-100 pt-3">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-stone-500">
+            Milestones
+          </p>
+          <ul className="mt-2 space-y-2 text-sm">
+            {events.map((event) => (
+              <li key={`${event.date.toISOString()}-${event.title}`}>
+                <p className="font-medium text-stone-900">
+                  <span className="mr-2 text-xs font-normal text-stone-500">
+                    {formatFlightPathDate(event.date)}
+                  </span>
+                  {event.title}
+                </p>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {!yearData && events.length === 0 && (
+        <p className="mt-4 text-xs text-stone-500">
+          No simulation data or events for this year.
+        </p>
+      )}
+    </article>
+  );
+}
+
+/**
+ * Tiny inline editor used by the Advisor's North Star card when no legacy
+ * target is set yet. Kept deliberately dumb: a number field + Save button.
+ * The full edit affordance for the populated state is a window.prompt
+ * inline on the card — no need for a second floating form when the target
+ * already exists. Empty / non-numeric / negative input is silently rejected
+ * so the household can't accidentally save a $0 goal.
+ */
+interface LegacyTargetEditorProps {
+  currentValue: number | undefined;
+  onSave: (value: number | undefined) => void;
+}
+function LegacyTargetEditor({ currentValue, onSave }: LegacyTargetEditorProps) {
+  const [draft, setDraft] = useState(
+    currentValue !== undefined ? String(currentValue) : '',
+  );
+  const submit = () => {
+    const cleaned = draft.replace(/[$,\s]/g, '');
+    if (cleaned === '') {
+      onSave(undefined);
+      return;
+    }
+    const parsed = Number.parseFloat(cleaned);
+    if (Number.isFinite(parsed) && parsed >= 0) {
+      onSave(parsed);
+    }
+  };
+  return (
+    <div className="mt-3 flex flex-wrap items-center gap-2">
+      <span className="text-sm text-stone-700">$</span>
+      <input
+        type="text"
+        inputMode="decimal"
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') submit();
+        }}
+        placeholder="e.g. 250,000"
+        className="w-40 rounded-xl border border-stone-200 bg-white px-3 py-2 text-sm tabular-nums text-stone-900 shadow-inner focus:border-blue-400 focus:outline-none"
+      />
+      <button
+        type="button"
+        onClick={submit}
+        className="rounded-full bg-blue-700 px-4 py-1.5 text-sm font-semibold text-white shadow hover:bg-blue-800"
+      >
+        Set as North Star
+      </button>
+    </div>
+  );
+}
+
+
+interface AdvisorRoomProps {
+  data: SeedData;
+  assumptions: MarketAssumptions;
+  solvedSpendProfile: SolvedSpendProfile | null;
+  planResultStatus: SimulationStatus;
+  /**
+   * Baseline (no-stressor) path result from the most recent simulation.
+   * Used to read the projected end-of-plan portfolio (median + p10) so the
+   * North Star card can compare the household's stated legacy goal against
+   * what the engine actually projects. Null while the first run is still
+   * pending — the card renders a "running…" state in that case.
+   */
+  baselinePathResult: PathResult | null;
+  /**
+   * Deep-link to Sandbox. Called from Easy-to-miss cards' "Try in Sandbox"
+   * affordance. `scenario` is omitted for cards without a clean stressor
+   * mapping — Sandbox opens to its empty state in that case.
+   */
+  onOpenSandbox: (scenario?: SandboxInitialScenario) => void;
+}
+
+function AdvisorRoom({
+  data,
+  assumptions,
+  solvedSpendProfile,
+  planResultStatus,
+  baselinePathResult,
+  onOpenSandbox,
+}: AdvisorRoomProps) {
+  const setLegacyTarget = useAppStore((state) => state.setLegacyTarget);
+  // Memoize the flight path so we don't recompute it on every parent render.
+  // Today's date is the only "live" input — fine to recompute when seedData
+  // changes (rare). Capture it once per render so all calls inside this
+  // component agree on "now".
+  const today = useMemo(() => new Date(), []);
+  const flightPath = useMemo(
+    () => buildFlightPath(data, today, 6),
+    [data, today],
+  );
+  const easyToMiss = useMemo(
+    () => buildEasyToMissCards({ data, assumptions, today }),
+    [data, assumptions, today],
+  );
+
+  // ----- Loading + empty states ---------------------------------------------
+  // The plan auto-runs on load; until it produces a SolvedSpendProfile we
+  // can still show the flight path (it's pure SeedData), but the spend
+  // headline gets a placeholder.
+  const spendReady = solvedSpendProfile !== null;
+  const planRunning = planResultStatus === 'running';
+
+  // ----- "This month" derivations --------------------------------------------
+  // Mirror the GuardrailZonePanel logic: compute portfolio, fundedYears, zone.
+  // Same formula as the engine's runtime trigger so the Advisor sentence
+  // matches what the simulator actually does in each path.
+  const portfolio =
+    (data.accounts?.pretax?.balance ?? 0) +
+    (data.accounts?.roth?.balance ?? 0) +
+    (data.accounts?.taxable?.balance ?? 0) +
+    (data.accounts?.cash?.balance ?? 0) +
+    (data.accounts?.hsa?.balance ?? 0);
+
+  const monthlySpend = solvedSpendProfile?.monthlySpendNow ?? 0;
+  const annualSpend = monthlySpend * 12;
+  const fundedYears = annualSpend > 0 ? portfolio / annualSpend : 0;
+  const floorYears = assumptions.guardrailFloorYears;
+  const ceilingYears = assumptions.guardrailCeilingYears;
+  const cutPercent = assumptions.guardrailCutPercent;
+
+  const zone: 'green' | 'yellow' | 'red' = !spendReady
+    ? 'green'
+    : fundedYears >= ceilingYears
+      ? 'green'
+      : fundedYears <= floorYears
+        ? 'red'
+        : 'yellow';
+
+  // Plain-English sentence about what to do this month. The numbers are
+  // intentionally implicit ("comfortable", "watch zone", "below the action
+  // line") — the dollar tags belong in Inspector for users who want to drill in.
+  // The red-zone version also includes a back-of-envelope recovery estimate
+  // so the household has a number to hold ("how long until we're back?").
+  const optionalMonthly = data.spending?.optionalMonthly ?? 0;
+  const travelMonthly = (data.spending?.travelEarlyRetirementAnnual ?? 0) / 12;
+  const cutAmount = (optionalMonthly + travelMonthly) * cutPercent;
+  const postCutAnnualSpend = annualSpend - cutAmount * 12;
+  const ceilingPortfolio = ceilingYears * annualSpend;
+
+  const recovery =
+    zone === 'red' && spendReady
+      ? estimateRecoveryYears({
+          portfolio,
+          ceilingPortfolio,
+          postCutAnnualSpend,
+          data,
+          assumptions,
+          today,
+        })
+      : null;
+
+  // Recovery clause — only for red zone. Two flavors:
+  //   - Recovery happens in N years at the household's expected real return:
+  //     give the year count and the return assumption used.
+  //   - Recovery doesn't happen at current rates: be honest about it, and
+  //     point at the next SS event as the thing that changes the math.
+  const recoveryClause = recovery
+    ? recovery.years !== null
+      ? ` At today's mix (~${formatPercent(recovery.realReturnPct)} real expected return), recovery looks like about ${recovery.years} ${recovery.years === 1 ? 'year' : 'years'}.`
+      : recovery.nextSocialSecurity
+        ? ` At today's draw rate the portfolio doesn't recover on its own — ${recovery.nextSocialSecurity.person}'s Social Security starts in about ${Math.round(recovery.nextSocialSecurity.yearsAway)} ${Math.round(recovery.nextSocialSecurity.yearsAway) === 1 ? 'year' : 'years'}, which materially changes the math.`
+        : ` At today's draw rate the portfolio is not projected to recover on its own.`
+    : '';
+
+  const ruleSentence =
+    zone === 'green'
+      ? `Your portfolio is comfortably above the planned cushion. Spend the full target this month.`
+      : zone === 'yellow'
+        ? `You're in the watch zone. Hold current spending; don't expand travel or big-ticket optional this month.`
+        : `Your portfolio is below the action line. The plan calls for trimming travel + optional by a combined ~${formatCurrency(Math.round(cutAmount))}/mo until it recovers.${recoveryClause}`;
+
+  const zoneStyles = {
+    green: {
+      eyebrow: 'text-emerald-700',
+      dot: 'bg-emerald-500',
+    },
+    yellow: {
+      eyebrow: 'text-amber-700',
+      dot: 'bg-amber-500',
+    },
+    red: {
+      eyebrow: 'text-rose-700',
+      dot: 'bg-rose-500',
+    },
+  }[zone];
+
+  // ----- Year-by-year flight path -----------------------------------------
+  // The household plans in calendar years. We split the dated FlightPath
+  // events into per-year buckets, then pair each bucket with the matching
+  // PathYearResult (median trajectory) so each year card can show
+  // "what you spend, where it comes from, what changes" as a single read.
+  const eventsByYear = useMemo(() => {
+    // Bucket by UTC year — the display formatter (formatFlightPathDate)
+    // uses timeZone: 'UTC' so a Jan-1 UTC inheritance event must be bucketed
+    // into its UTC year, not the local-time year (which can shift it back
+    // a day in negative-offset zones like PST).
+    const map = new Map<number, FlightPathEvent[]>();
+    for (const event of flightPath) {
+      const year = event.date.getUTCFullYear();
+      const list = map.get(year) ?? [];
+      list.push(event);
+      map.set(year, list);
+    }
+    return map;
+  }, [flightPath]);
+  const yearlySeriesByYear = useMemo(() => {
+    const map = new Map<number, PathYearResult>();
+    if (!baselinePathResult) return map;
+    for (const row of baselinePathResult.yearlySeries) {
+      map.set(row.year, row);
+    }
+    return map;
+  }, [baselinePathResult]);
+  const currentCalendarYear = today.getFullYear();
+  const firstSimYear = baselinePathResult?.yearlySeries?.[0]?.year ?? currentCalendarYear;
+  const lastSimYear =
+    baselinePathResult?.yearlySeries?.length
+      ? baselinePathResult.yearlySeries[baselinePathResult.yearlySeries.length - 1]?.year
+      : currentCalendarYear + 30;
+  const flightPathYearChoices = useMemo(() => {
+    const start = Math.max(currentCalendarYear + 2, firstSimYear);
+    const end = lastSimYear ?? currentCalendarYear + 30;
+    const out: number[] = [];
+    for (let y = start; y <= end; y++) out.push(y);
+    return out;
+  }, [currentCalendarYear, firstSimYear, lastSimYear]);
+  const [extraFlightYear, setExtraFlightYear] = useState<number | null>(null);
+  const yearCardSpec: Array<{ year: number; label: string; isPrimary: boolean }> = [
+    { year: currentCalendarYear, label: 'This year', isPrimary: true },
+    { year: currentCalendarYear + 1, label: 'Next year', isPrimary: false },
+  ];
+  if (extraFlightYear !== null) {
+    yearCardSpec.push({
+      year: extraFlightYear,
+      label: `In ${extraFlightYear - currentCalendarYear} years`,
+      isPrimary: false,
+    });
+  }
+
+  // ----- North Star (end-of-plan / legacy goal) -----------------------------
+  // The thing this app respects that other calculators don't: the dollar
+  // amount the household wants left at the end of the plan. We compare the
+  // household's stated target against the engine's projected median ending
+  // wealth from the baseline path. p10 (10th-percentile) is the honest
+  // "bad luck" read so the household sees both the typical outcome and the
+  // tail.
+  const legacyTarget = data.goals?.legacyTargetTodayDollars;
+  const projectedMedianLegacy = baselinePathResult?.medianEndingWealth ?? null;
+  const projectedP10Legacy = baselinePathResult?.tenthPercentileEndingWealth ?? null;
+  const legacyGap =
+    legacyTarget !== undefined && projectedMedianLegacy !== null
+      ? projectedMedianLegacy - legacyTarget
+      : null;
+  const legacyOnTrack = legacyGap !== null && legacyGap >= 0;
+
+  // ----- Bucket allocation guidance ---------------------------------------
+  // The household reads year-by-year flight cards above to see *which*
+  // buckets fund each year. This card zooms out to the next ~5 years of
+  // planned withdrawals per bucket and pairs that against the current
+  // bucket balance — so they (or their stock advisor) can see which
+  // bucket is over-/under-funded for the upcoming spending.
+  //
+  // Safety reserve — what we're actually trying to measure: sequence-of-
+  // returns defense. If equities drop 30% in year 1 of retirement, you
+  // don't want to be forced to sell equities to fund spending — so you
+  // want enough non-equity (cash + bonds) to cover the *portfolio*
+  // outflow until equities recover.
+  //
+  // Two corrections vs. the original v1 of this card:
+  //   (a) Target is 2y of NET PORTFOLIO WITHDRAWALS, not gross spending.
+  //       SS / pension / wages already cover most spending; the reserve
+  //       only has to bridge what the portfolio actually pays. Using
+  //       `medianWithdrawal*` series (already in PathYearResult) gives
+  //       the honest number.
+  //   (b) "Cash on hand" is too narrow — bonds and money-market positions
+  //       inside taxable / pretax / roth are sellable in a bear market
+  //       without realizing equity losses. Roll up each bucket's
+  //       targetAllocation through `rollupHoldingsToAssetClasses` and
+  //       count CASH + BONDS exposure as the real liquid runway.
+  const ALLOCATION_HORIZON_YEARS = 5;
+  const allocationGuidance = useMemo(() => {
+    if (!baselinePathResult) return null;
+    const series = baselinePathResult.yearlySeries;
+    if (!series || series.length === 0) return null;
+    const horizonRows = series
+      .filter((r) => r.year >= currentCalendarYear)
+      .slice(0, ALLOCATION_HORIZON_YEARS);
+    if (horizonRows.length === 0) return null;
+    const sum = (pick: (r: PathYearResult) => number) =>
+      horizonRows.reduce((acc, r) => acc + Math.max(0, pick(r) ?? 0), 0);
+    const need = {
+      pretax: sum((r) => r.medianWithdrawalIra401k ?? 0),
+      roth: sum((r) => r.medianWithdrawalRoth ?? 0),
+      taxable: sum((r) => r.medianWithdrawalTaxable ?? 0),
+      cash: sum((r) => r.medianWithdrawalCash ?? 0),
+    };
+    const have = {
+      pretax: data.accounts?.pretax?.balance ?? 0,
+      roth: data.accounts?.roth?.balance ?? 0,
+      taxable: data.accounts?.taxable?.balance ?? 0,
+      cash: data.accounts?.cash?.balance ?? 0,
+    };
+    const totalWithdrawn =
+      need.pretax + need.roth + need.taxable + need.cash;
+
+    // Reserve target: 2 years of *portfolio* outflow. Sums every bucket's
+    // median withdrawal across the next two horizon rows — the actual
+    // dollars the portfolio must produce after income covers what it
+    // covers. For households whose SS/pension covers most of spending
+    // this can be 1/3 to 1/2 of the gross-spending number we used to
+    // show.
+    const reserveHorizonYears = Math.min(2, horizonRows.length);
+    const twoYearReserveTarget = horizonRows
+      .slice(0, reserveHorizonYears)
+      .reduce(
+        (acc, r) =>
+          acc +
+          Math.max(0, r.medianWithdrawalCash ?? 0) +
+          Math.max(0, r.medianWithdrawalTaxable ?? 0) +
+          Math.max(0, r.medianWithdrawalIra401k ?? 0) +
+          Math.max(0, r.medianWithdrawalRoth ?? 0),
+        0,
+      );
+
+    // Liquid runway: cash + bond exposure across all buckets the
+    // household would actually draw against in a downturn. Roll up each
+    // account's targetAllocation to {US_EQUITY, INTL_EQUITY, BONDS, CASH}
+    // and sum balance × (CASH + BONDS) per bucket. Pretax bonds count
+    // because withdrawing from pretax doesn't force selling pretax
+    // equities — you can choose to liquidate the bond sleeve inside the
+    // bucket.
+    const accountsForLiquidity = data.accounts;
+    const assumptions = data.rules?.assetClassMappingAssumptions;
+    const liquidFromBucket = (bucket: keyof AccountsData) => {
+      const account = accountsForLiquidity?.[bucket];
+      if (!account) return 0;
+      const exposure = rollupHoldingsToAssetClasses(
+        account.targetAllocation ?? {},
+        assumptions,
+      );
+      const liquidShare = exposure.CASH + exposure.BONDS;
+      return Math.max(0, account.balance) * liquidShare;
+    };
+    const liquidByBucket = {
+      cash: liquidFromBucket('cash'),
+      taxable: liquidFromBucket('taxable'),
+      pretax: liquidFromBucket('pretax'),
+      roth: liquidFromBucket('roth'),
+      hsa: liquidFromBucket('hsa'),
+    };
+    const liquidRunwayTotal =
+      liquidByBucket.cash +
+      liquidByBucket.taxable +
+      liquidByBucket.pretax +
+      liquidByBucket.roth +
+      liquidByBucket.hsa;
+    // "Reachable without tax friction" view: cash + taxable bond/cash
+    // sleeve. This is the number a household can actually tap this year
+    // without triggering ordinary-income or penalty consequences.
+    const liquidRunwayTaxFree =
+      liquidByBucket.cash + liquidByBucket.taxable;
+
+    // Gap — measured against the broader liquid runway, since bonds in
+    // any bucket are sellable in a downturn. Negative means surplus.
+    const reserveGap = twoYearReserveTarget - liquidRunwayTotal;
+    const reserveGapTaxFree = twoYearReserveTarget - liquidRunwayTaxFree;
+    // Taxable cushion vs. its own planned draws — same honesty check as
+    // before, used by the advice copy when the household is short on
+    // tax-frictionless runway specifically.
+    const taxableCushion = have.taxable - need.taxable;
+
+    return {
+      horizonYears: horizonRows.length,
+      reserveHorizonYears,
+      need,
+      have,
+      totalWithdrawn,
+      twoYearReserveTarget,
+      liquidByBucket,
+      liquidRunwayTotal,
+      liquidRunwayTaxFree,
+      reserveGap,
+      reserveGapTaxFree,
+      taxableCushion,
+    };
+  }, [baselinePathResult, currentCalendarYear, data]);
+
+  // ----- PDF export ---------------------------------------------------------
+  // The household wants a printable "rubber hits the road" handout. We use
+  // window.print() with a body class that toggles a print-only stylesheet
+  // (see src/styles.css). The button itself is .no-print so it doesn't
+  // render on paper. Cleanup is in `afterprint` so it always runs even if
+  // the user cancels the dialog.
+  const handleSaveAsPdf = () => {
+    if (typeof document === 'undefined' || typeof window === 'undefined') return;
+    document.body.classList.add('print-advisor-only');
+    const cleanup = () => {
+      document.body.classList.remove('print-advisor-only');
+      window.removeEventListener('afterprint', cleanup);
+    };
+    window.addEventListener('afterprint', cleanup);
+    window.print();
+  };
+
+  return (
+    <main
+      id="advisor-print-root"
+      className="mx-auto max-w-[900px] px-4 py-8 sm:px-6 lg:px-8"
+    >
+      {/* Greeting line — sets the "advisor sitting with you" tone. */}
+      <div className="mb-6 flex items-center justify-between gap-3">
+        <p className="font-mono text-[11px] uppercase tracking-[0.24em] text-blue-700">
+          Advisor · monthly check-in
+        </p>
+        <button
+          type="button"
+          onClick={handleSaveAsPdf}
+          className="no-print rounded-full border border-stone-200 bg-white px-3 py-1.5 text-xs font-medium text-stone-700 shadow-sm hover:border-blue-300 hover:text-blue-800"
+          title="Open the print dialog. Choose 'Save as PDF' to download a printable copy."
+        >
+          Save as PDF
+        </button>
+      </div>
+
+      {/* ------------------------ North Star (end-of-plan goal) ------------ */}
+      {/* Sits ABOVE everything else — it's the anchor the rest of the page
+          reads against. The household's stated end-of-plan target compared
+          to the engine's projected median + p10. If no target is set yet,
+          the card prompts the household to enter one rather than rendering
+          a hollow $0 reading. */}
+      <section className="mb-6 rounded-[28px] border border-blue-200 bg-blue-50/60 p-6 shadow-sm">
+        <div className="flex items-center gap-2">
+          <span className="h-2.5 w-2.5 rounded-full bg-blue-700" />
+          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-blue-800">
+            North Star · end-of-plan goal
+          </p>
+        </div>
+        {legacyTarget === undefined ? (
+          <div className="mt-3">
+            <p className="max-w-[60ch] text-base leading-relaxed text-stone-800">
+              Set the dollar amount you want left at the end of the plan —
+              inheritance, charitable bequest, or your own late-life cushion.
+              Every other number on this page reads against it.
+            </p>
+            <LegacyTargetEditor
+              currentValue={undefined}
+              onSave={(next) => setLegacyTarget(next)}
+            />
+          </div>
+        ) : (
+          <div className="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-3">
+            <div>
+              <p className="text-[11px] font-medium uppercase tracking-wider text-stone-500">
+                Target (today $)
+              </p>
+              <p className="mt-1 text-3xl font-semibold tabular-nums text-stone-900">
+                {formatCurrency(Math.round(legacyTarget))}
+              </p>
+              <button
+                type="button"
+                onClick={() => {
+                  const raw = window.prompt(
+                    'New end-of-plan target (today\u0027s dollars). Leave blank to clear.',
+                    String(legacyTarget),
+                  );
+                  if (raw === null) return;
+                  const cleaned = raw.replace(/[$,\s]/g, '');
+                  if (cleaned === '') {
+                    setLegacyTarget(undefined);
+                    return;
+                  }
+                  const parsed = Number.parseFloat(cleaned);
+                  if (Number.isFinite(parsed) && parsed >= 0) {
+                    setLegacyTarget(parsed);
+                  }
+                }}
+                className="mt-1 text-[11px] font-medium text-blue-700 hover:text-blue-900"
+              >
+                Edit target
+              </button>
+            </div>
+            <div>
+              <p className="text-[11px] font-medium uppercase tracking-wider text-stone-500">
+                Projected median
+              </p>
+              <p className="mt-1 text-3xl font-semibold tabular-nums text-stone-900">
+                {projectedMedianLegacy !== null
+                  ? formatCurrency(Math.round(projectedMedianLegacy))
+                  : planRunning ? '…' : '—'}
+              </p>
+              <p className="mt-1 text-[11px] text-stone-500">
+                {projectedP10Legacy !== null
+                  ? `p10: ${formatCurrency(Math.round(projectedP10Legacy))}`
+                  : 'engine running'}
+              </p>
+            </div>
+            <div>
+              <p className="text-[11px] font-medium uppercase tracking-wider text-stone-500">
+                Cushion vs target
+              </p>
+              <p
+                className={`mt-1 text-3xl font-semibold tabular-nums ${
+                  legacyGap === null
+                    ? 'text-stone-400'
+                    : legacyOnTrack
+                      ? 'text-emerald-700'
+                      : 'text-rose-700'
+                }`}
+              >
+                {legacyGap === null
+                  ? '—'
+                  : `${legacyGap >= 0 ? '+' : '−'}${formatCurrency(Math.round(Math.abs(legacyGap)))}`}
+              </p>
+              <p className="mt-1 text-[11px] text-stone-500">
+                {legacyGap === null
+                  ? 'awaiting plan run'
+                  : legacyOnTrack
+                    ? 'on track at median outcome'
+                    : 'short of target at median'}
+              </p>
+            </div>
+          </div>
+        )}
+      </section>
+
+      {/* ------------------------ This month ------------------------------- */}
+      <section className="mb-8 rounded-[28px] border border-stone-200 bg-white/80 p-6 shadow-sm">
+        <div className="flex items-center gap-2">
+          <span className={`h-2.5 w-2.5 rounded-full ${zoneStyles.dot}`} />
+          <p
+            className={`text-[11px] font-semibold uppercase tracking-[0.18em] ${zoneStyles.eyebrow}`}
+          >
+            This month
+          </p>
+        </div>
+
+        {spendReady ? (
+          <>
+            <p className="mt-3 text-[42px] font-semibold leading-none text-stone-900">
+              {formatCurrency(Math.round(monthlySpend))}
+              <span className="ml-1 text-base font-normal text-stone-500">
+                /mo
+              </span>
+            </p>
+            <p className="mt-2 text-sm text-stone-600">
+              {formatPercent(solvedSpendProfile.achievedSuccess)} of
+              simulated futures finish with money left over.
+            </p>
+            <p className="mt-4 max-w-[60ch] text-base leading-relaxed text-stone-800">
+              {ruleSentence}
+            </p>
+          </>
+        ) : (
+          <>
+            <p className="mt-3 text-[42px] font-semibold leading-none text-stone-400">
+              {planRunning ? '…' : '—'}
+            </p>
+            <p className="mt-2 text-sm text-stone-500">
+              {planRunning
+                ? 'Running the model — your spend headline appears here once the simulation finishes (~30 seconds on first load).'
+                : 'No plan result yet. Open Inspector to run a simulation.'}
+            </p>
+          </>
+        )}
+      </section>
+
+      {/* ------------------------ Flight path ----------------------------- */}
+      {/* Year-by-year cards: This year, Next year, plus an optional
+          household-picked future year. Each card shows median spend, the
+          per-bucket withdrawal mix (so the household sees *where* the money
+          comes from), and any dated milestones that fall inside the year. */}
+      <section className="mb-8 rounded-[28px] border border-stone-200 bg-white/80 p-6 shadow-sm">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <span className="h-2.5 w-2.5 rounded-full bg-blue-500" />
+            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-blue-700">
+              Flight path · year by year
+            </p>
+          </div>
+          {flightPathYearChoices.length > 0 && (
+            <label className="flex items-center gap-2 text-xs text-stone-600">
+              <span>See another year:</span>
+              <select
+                value={extraFlightYear ?? ''}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  setExtraFlightYear(v === '' ? null : Number.parseInt(v, 10));
+                }}
+                className="rounded-full border border-stone-200 bg-white px-3 py-1 text-xs text-stone-800 shadow-sm focus:border-blue-400 focus:outline-none"
+              >
+                <option value="">— pick a year —</option>
+                {flightPathYearChoices.map((y) => (
+                  <option key={y} value={y}>
+                    {y} (in {y - currentCalendarYear} years)
+                  </option>
+                ))}
+              </select>
+              {extraFlightYear !== null && (
+                <button
+                  type="button"
+                  onClick={() => setExtraFlightYear(null)}
+                  className="rounded-full px-2 py-1 text-[11px] text-stone-500 hover:text-stone-800"
+                >
+                  Clear
+                </button>
+              )}
+            </label>
+          )}
+        </div>
+
+        <div className="mt-5 grid gap-4 md:grid-cols-2">
+          {yearCardSpec.map((spec) => (
+            <YearCard
+              key={spec.year}
+              year={spec.year}
+              label={spec.label}
+              yearData={yearlySeriesByYear.get(spec.year) ?? null}
+              events={eventsByYear.get(spec.year) ?? []}
+              isPrimary={spec.isPrimary}
+            />
+          ))}
+        </div>
+
+        {/* Long-horizon dated milestones that don't fall inside a rendered
+            year card — surfaced as a compact list so they don't disappear. */}
+        {(() => {
+          const renderedYears = new Set(yearCardSpec.map((s) => s.year));
+          const remaining = flightPath.filter(
+            (e) => !renderedYears.has(e.date.getUTCFullYear()),
+          );
+          if (remaining.length === 0) return null;
+          return (
+            <div className="mt-6 border-t border-stone-100 pt-4">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-stone-500">
+                Other dated milestones
+              </p>
+              <ol className="mt-3 space-y-2">
+                {remaining.slice(0, 6).map((event) => (
+                  <li
+                    key={`${event.date.toISOString()}-${event.title}`}
+                    className="grid grid-cols-[110px_1fr] items-baseline gap-3 text-sm"
+                  >
+                    <div>
+                      <p className="font-medium text-stone-800">
+                        {formatFlightPathDate(event.date)}
+                      </p>
+                      <p className="text-xs text-stone-500">
+                        {describeRelativeTime(today, event.date)}
+                      </p>
+                    </div>
+                    <p className="text-stone-700">{event.title}</p>
+                  </li>
+                ))}
+              </ol>
+            </div>
+          );
+        })()}
+
+        {flightPath.length === 0 && !baselinePathResult && (
+          <p className="mt-4 text-sm text-stone-600">
+            No upcoming dated events and no simulation result yet. Open
+            Inspector to run a baseline plan or add Social Security claim
+            ages, retirement dates, or windfalls.
+          </p>
+        )}
+      </section>
+
+      {/* ------------------------ Allocation guidance --------------------- */}
+      {/* "What should sit where" — the page above tells the household which
+          bucket funds each year. This card zooms out and tells them how the
+          balances should look across the next ~5 years of spending. Two
+          parts: (a) per-bucket need-vs-have table, (b) safety-reserve check
+          (liquid bond/cash sleeve across all buckets vs. next 2 years of
+          actual portfolio withdrawals — net of SS, pension, wages). */}
+      {allocationGuidance && allocationGuidance.totalWithdrawn > 0 && (
+        <section className="mb-8 rounded-[28px] border border-stone-200 bg-white/80 p-6 shadow-sm">
+          <div className="flex items-center gap-2">
+            <span className="h-2.5 w-2.5 rounded-full bg-emerald-500" />
+            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-emerald-700">
+              Allocation · what should sit where
+            </p>
+          </div>
+          <p className="mt-3 text-sm text-stone-700">
+            Over the next {allocationGuidance.horizonYears} years your plan
+            pulls about{' '}
+            <span className="font-semibold tabular-nums text-stone-900">
+              {formatCurrency(Math.round(allocationGuidance.totalWithdrawn))}
+            </span>{' '}
+            from your portfolio. Here&rsquo;s how the buckets line up against
+            that draw — useful to share with your stock advisor.
+          </p>
+
+          {/* Bucket need-vs-have table */}
+          <div className="mt-4 overflow-hidden rounded-2xl border border-stone-100">
+            <table className="w-full text-sm">
+              <thead className="bg-stone-50 text-[10px] uppercase tracking-[0.14em] text-stone-500">
+                <tr>
+                  <th className="px-3 py-2 text-left font-semibold">Bucket</th>
+                  <th className="px-3 py-2 text-right font-semibold">
+                    Balance now
+                  </th>
+                  <th className="px-3 py-2 text-right font-semibold">
+                    Needed next {allocationGuidance.horizonYears}y
+                  </th>
+                  <th className="px-3 py-2 text-right font-semibold">
+                    Cushion
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-stone-100 text-stone-800">
+                {(
+                  [
+                    {
+                      key: 'pretax' as const,
+                      label: 'Pre-tax (IRA / 401k)',
+                      dot: 'bg-blue-500',
+                    },
+                    { key: 'roth' as const, label: 'Roth', dot: 'bg-emerald-500' },
+                    {
+                      key: 'taxable' as const,
+                      label: 'Taxable',
+                      dot: 'bg-amber-500',
+                    },
+                    { key: 'cash' as const, label: 'Cash', dot: 'bg-stone-500' },
+                  ]
+                ).map((b) => {
+                  const have = allocationGuidance.have[b.key];
+                  const need = allocationGuidance.need[b.key];
+                  const cushion = have - need;
+                  return (
+                    <tr key={b.key}>
+                      <td className="px-3 py-2">
+                        <span className="flex items-center gap-2">
+                          <span className={`h-2 w-2 rounded-full ${b.dot}`} />
+                          {b.label}
+                        </span>
+                      </td>
+                      <td className="px-3 py-2 text-right tabular-nums">
+                        {formatCurrency(Math.round(have))}
+                      </td>
+                      <td className="px-3 py-2 text-right tabular-nums">
+                        {need > 0 ? formatCurrency(Math.round(need)) : '—'}
+                      </td>
+                      <td
+                        className={`px-3 py-2 text-right tabular-nums ${
+                          cushion >= 0 ? 'text-emerald-700' : 'text-rose-700'
+                        }`}
+                      >
+                        {cushion >= 0 ? '+' : '−'}
+                        {formatCurrency(Math.abs(Math.round(cushion)))}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Safety reserve guidance — measured against the *liquid runway*
+              (cash + bond/MM exposure across all buckets), not just the
+              cash account, and against 2 years of *portfolio withdrawals*
+              rather than 2 years of gross spending. SS / pension / wages
+              cover most of the spending; the reserve only has to bridge
+              what the portfolio actually pays. */}
+          <div className="mt-4 rounded-2xl border border-stone-100 bg-stone-50/60 p-4">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-stone-500">
+              Safety reserve · {allocationGuidance.reserveHorizonYears} years of portfolio draws
+            </p>
+            <div className="mt-2 grid grid-cols-3 gap-3 text-sm">
+              <div>
+                <p className="text-xs text-stone-500">
+                  Target ({allocationGuidance.reserveHorizonYears}y of withdrawals)
+                </p>
+                <p className="text-base font-semibold tabular-nums text-stone-900">
+                  {formatCurrency(
+                    Math.round(allocationGuidance.twoYearReserveTarget),
+                  )}
+                </p>
+              </div>
+              <div>
+                <p className="text-xs text-stone-500">Liquid runway (cash + bonds)</p>
+                <p className="text-base font-semibold tabular-nums text-stone-900">
+                  {formatCurrency(
+                    Math.round(allocationGuidance.liquidRunwayTotal),
+                  )}
+                </p>
+                <p className="mt-0.5 text-[11px] text-stone-500">
+                  of which cash + taxable bonds:{' '}
+                  {formatCurrency(
+                    Math.round(allocationGuidance.liquidRunwayTaxFree),
+                  )}
+                </p>
+              </div>
+              <div>
+                <p className="text-xs text-stone-500">Pure cash</p>
+                <p className="text-base font-semibold tabular-nums text-stone-900">
+                  {formatCurrency(Math.round(allocationGuidance.have.cash))}
+                </p>
+              </div>
+            </div>
+            {/* Honest source-of-funds. The total liquid runway (any-bucket
+                bonds + cash) is the right defense against sequence risk;
+                the tax-free runway is a tighter check for "can I tap this
+                without triggering ordinary-income consequences this year?". */}
+            {(() => {
+              const {
+                reserveGap,
+                reserveGapTaxFree,
+                taxableCushion,
+              } = allocationGuidance;
+              if (reserveGap <= 0) {
+                return (
+                  <p className="mt-3 text-sm leading-relaxed text-emerald-700">
+                    Reserve covered — your bond/cash sleeve across all
+                    buckets carries roughly{' '}
+                    {formatCurrency(Math.round(-reserveGap))} of headroom
+                    beyond two years of portfolio draws.
+                    {reserveGapTaxFree > 0
+                      ? ` Note ${formatCurrency(Math.round(reserveGapTaxFree))} of that comes from pretax/Roth bonds — selling those still requires an account withdrawal, but doesn't force selling equities.`
+                      : ' You can also tap it without an IRA withdrawal — taxable cash + bonds alone exceed the target.'}
+                  </p>
+                );
+              }
+              if (reserveGapTaxFree <= 0) {
+                return (
+                  <p className="mt-3 text-sm leading-relaxed text-amber-700">
+                    Total liquid runway is short by about{' '}
+                    {formatCurrency(Math.round(reserveGap))} versus two
+                    years of portfolio draws. Taxable cash + bonds alone
+                    cover it, so the gap can be closed without forcing an
+                    early IRA/401k withdrawal — worth a conversation with
+                    your advisor about which sleeve to draw from first.
+                  </p>
+                );
+              }
+              return (
+                <p className="mt-3 text-sm leading-relaxed text-amber-700">
+                  Liquid runway is short by about{' '}
+                  {formatCurrency(Math.round(reserveGap))} versus two years
+                  of portfolio draws.{' '}
+                  {taxableCushion > 0
+                    ? `Taxable has about ${formatCurrency(Math.round(taxableCushion))} of cushion beyond its own planned draws — shifting some of that into bonds or money-market would be the cheapest way to close the gap.`
+                    : 'Realistic levers are shifting more of the bond allocation into the buckets you draw from first, or accepting a thinner reserve.'}{' '}
+                  Worth a conversation with your advisor.
+                </p>
+              );
+            })()}
+          </div>
+
+          <p className="mt-3 text-xs text-stone-500">
+            These figures are median plan draws — actual years vary. Use them
+            as a planning anchor, not a precise allocation prescription.
+          </p>
+        </section>
+      )}
+
+      {/* ------------------------ Easy to miss ---------------------------- */}
+      <section className="rounded-[28px] border border-stone-200 bg-white/80 p-6 shadow-sm">
+        <div className="flex items-center gap-2">
+          <span className="h-2.5 w-2.5 rounded-full bg-amber-500" />
+          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-amber-700">
+            Easy to miss · what we&rsquo;re watching
+          </p>
+        </div>
+        {easyToMiss.length === 0 ? (
+          <p className="mt-4 text-sm text-stone-600">
+            Nothing material on the advisor&rsquo;s watchlist right now —
+            either the household is past the high-leverage windows or the
+            applicable rules don&rsquo;t fire on your current plan. Re-run
+            the simulation in Inspector for a deeper read.
+          </p>
+        ) : (
+          <ol className="mt-5 space-y-4">
+            {easyToMiss.map((card) => (
+              <li
+                key={card.id}
+                className="rounded-2xl border border-stone-100 bg-white/90 p-4"
+              >
+                <div className="flex items-baseline justify-between gap-3">
+                  <p className="text-base font-semibold text-stone-900">
+                    {card.title}
+                  </p>
+                  <p className="whitespace-nowrap text-sm font-semibold text-amber-700">
+                    {card.dollarTag}
+                  </p>
+                </div>
+                <p className="mt-2 text-sm leading-relaxed text-stone-600">
+                  {card.body}
+                </p>
+                <div className="mt-3 flex items-center justify-between gap-3">
+                  {card.window ? (
+                    <p className="text-xs text-stone-500">{card.window}</p>
+                  ) : (
+                    <span />
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => onOpenSandbox(card.sandboxScenario)}
+                    className="rounded-full px-3 py-1 text-xs font-medium text-blue-700 hover:text-blue-900"
+                  >
+                    {card.sandboxScenario
+                      ? 'Try in Sandbox →'
+                      : 'Explore in Sandbox →'}
+                  </button>
+                </div>
+              </li>
+            ))}
+          </ol>
+        )}
+        <p className="mt-4 border-t border-stone-100 pt-3 text-[11px] text-stone-500">
+          Dollar amounts are advisor estimates — back-of-envelope math, not the
+          full Monte Carlo. Open Inspector to see the simulator&rsquo;s
+          honest projection for any of these.
+        </p>
+      </section>
+
+      {/* Audit / recent-months disclosure removed — credit-card / actuals
+          ingestion is out of scope for this tool. The household tracks
+          spend in their own accounting tool and brings the headline back
+          here as a plan input. */}
+    </main>
+  );
+}
+
+/**
+ * Sandbox room — scenario builder. The household picks ONE stressor, dials
+ * its knob, picks zero or more reactions (each with their own knob), and
+ * Sandbox returns a plain-English impact estimate plus a horizontal-bar
+ * comparison of unmitigated vs mitigated damage.
+ *
+ * Scope decision: heuristic estimates only (see sandbox-scenarios.ts for the
+ * math). The full Monte Carlo lives in Inspector — Sandbox is the
+ * conversation surface, Inspector is the proof. A "Run this in the engine"
+ * affordance bridges the two.
+ *
+ * Single-stressor selection (vs. multi-select) is deliberate: real household
+ * conversations are "what if THIS happens?", not "what if all five happen at
+ * once?" Compounding stressors is a useful Monte Carlo question and stays in
+ * Inspector where the engine handles them honestly.
+ *
+ * `initialScenario` is the deep-link entry point used by the Advisor's
+ * Easy-to-Miss cards — they pre-select a stressor + reaction combo so the
+ * household lands in Sandbox already on the right page.
+ */
+// ─── Sandbox engine run hook ────────────────────────────────────────────────
+// Self-contained simulation worker driver for Sandbox. Owns its own worker
+// instance and request id, exposes run/cancel + status/progress/result, and
+// terminates the worker on unmount. Intentionally NOT plugged into the
+// shared simulation cache / fingerprint pipeline used by Plan/Simulation —
+// Sandbox runs are short-lived "what if I push this knob" experiments and
+// the household leaving the room shouldn't pollute Plan's cache state.
+
+type SandboxRunStatus = 'idle' | 'running' | 'ready' | 'error' | 'cancelled';
+
+interface SandboxRunResult {
+  baseline: PathResult;
+  stressed: PathResult;
+  mitigated: PathResult | null;
+  solvedSpendProfile: SolvedSpendProfile | null;
+  /** Wall-clock seconds the run took; surfaced in the result panel footer. */
+  elapsedSeconds: number;
+  /** Mutation notes from the synthesizer, for the diagnostic disclosure. */
+  mutationNotes: string[];
+}
+
+function useSandboxSimulation() {
+  const [status, setStatus] = useState<SandboxRunStatus>('idle');
+  const [progress, setProgress] = useState(0);
+  const [result, setResult] = useState<SandboxRunResult | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const workerRef = useRef<Worker | null>(null);
+  const activeRequestIdRef = useRef<string | null>(null);
+  const requestCounterRef = useRef(0);
+  const runStartMsRef = useRef(0);
+  const pendingNotesRef = useRef<string[]>([]);
+
+  // Always tear down the worker on unmount — leaving it dangling spams
+  // postMessages into the void and holds the SeedData primed.
+  useEffect(() => {
+    return () => {
+      if (workerRef.current) {
+        workerRef.current.terminate();
+        workerRef.current = null;
+      }
+    };
+  }, []);
+
+  const cancel = useCallback(() => {
+    const requestId = activeRequestIdRef.current;
+    if (workerRef.current && requestId) {
+      const cancelMessage: SimulationWorkerRequest = { type: 'cancel', requestId };
+      workerRef.current.postMessage(cancelMessage);
+    }
+    setStatus('cancelled');
+  }, []);
+
+  const run = useCallback((engineRun: ReturnType<typeof buildSandboxEngineRun>) => {
+    if (typeof Worker === 'undefined') {
+      setError('Worker unavailable in this environment.');
+      setStatus('error');
+      return;
+    }
+    // Spin up a fresh worker each run. They're cheap, and a fresh worker
+    // means we never have to reason about lingering state from a prior run.
+    if (workerRef.current) {
+      workerRef.current.terminate();
+      workerRef.current = null;
+    }
+    const requestId = `sandbox-sim-${requestCounterRef.current++}`;
+    activeRequestIdRef.current = requestId;
+    runStartMsRef.current = performance.now();
+    pendingNotesRef.current = engineRun.mutationNotes;
+    setStatus('running');
+    setProgress(0);
+    setError(null);
+
+    const worker = new Worker(new URL('./simulation.worker.ts', import.meta.url), {
+      type: 'module',
+    });
+    workerRef.current = worker;
+
+    worker.onmessage = (event: MessageEvent<SimulationWorkerResponse>) => {
+      const msg = event.data;
+      if (msg.requestId !== activeRequestIdRef.current) return;
+      if (msg.type === 'progress') {
+        setProgress(msg.progress);
+        return;
+      }
+      if (msg.type === 'cancelled') {
+        setStatus('cancelled');
+        return;
+      }
+      if (msg.type === 'error') {
+        setError(msg.error);
+        setStatus('error');
+        return;
+      }
+      // 'result' — pathResults is [baseline, stressed, mitigated?] following
+      // buildPathResults' convention. Mitigated is only present when
+      // selectedResponses is non-empty.
+      const [baseline, stressed, mitigated] = msg.pathResults;
+      if (!baseline || !stressed) {
+        setError('Engine returned an incomplete result set.');
+        setStatus('error');
+        return;
+      }
+      setResult({
+        baseline,
+        stressed,
+        mitigated: mitigated ?? null,
+        solvedSpendProfile: msg.solvedSpendProfile,
+        elapsedSeconds: (performance.now() - runStartMsRef.current) / 1000,
+        mutationNotes: pendingNotesRef.current,
+      });
+      setStatus('ready');
+      setProgress(1);
+    };
+
+    const runMessage: SimulationWorkerRequest = {
+      type: 'run',
+      payload: {
+        requestId,
+        data: engineRun.data,
+        assumptions: engineRun.assumptions,
+        selectedStressors: engineRun.selectedStressorIds,
+        selectedResponses: engineRun.selectedResponseIds,
+        stressorKnobs: engineRun.stressorKnobs,
+      },
+    };
+    worker.postMessage(runMessage);
+  }, []);
+
+  const reset = useCallback(() => {
+    if (workerRef.current) {
+      workerRef.current.terminate();
+      workerRef.current = null;
+    }
+    activeRequestIdRef.current = null;
+    setStatus('idle');
+    setProgress(0);
+    setResult(null);
+    setError(null);
+  }, []);
+
+  return { status, progress, result, error, run, cancel, reset };
+}
+
+/**
+ * Translate a reaction + slider value into a "current → new $/mo" line for
+ * the mixer row. Returns null for reactions where a dollar before/after is
+ * not the right framing (timing levers like delay_retirement / early_ss).
+ *
+ * Why this lives here: the dollar buckets each reaction touches come from
+ * SeedData (optional spend, travel spend, home-sale windfall), which the
+ * SandboxRoom already has. Computing the strings inline at the call site
+ * would clutter the mixer JSX; computing them in sandbox-scenarios.ts would
+ * leak presentation concerns into the data layer.
+ */
+function computeReactionConcreteImpact(
+  reactionId: SandboxReactionId,
+  value: number,
+  data: SeedData,
+): { currentLabel: string; nextLabel?: string } | null {
+  const fmtMoPerMo = (n: number) =>
+    `$${Math.round(n).toLocaleString()}/mo`;
+  const fmtYrPerYr = (n: number) =>
+    `$${Math.round(n).toLocaleString()}/yr`;
+
+  switch (reactionId) {
+    case 'cut_spending': {
+      const current = data.spending?.optionalMonthly ?? 0;
+      if (current <= 0) return null;
+      const next = current * (1 - Math.max(0, Math.min(100, value)) / 100);
+      return {
+        currentLabel: `Optional now: ${fmtMoPerMo(current)}`,
+        nextLabel: value > 0 ? fmtMoPerMo(next) : undefined,
+      };
+    }
+    case 'cut_travel': {
+      const annual = data.spending?.travelEarlyRetirementAnnual ?? 0;
+      if (annual <= 0) return null;
+      const next = annual * (1 - Math.max(0, Math.min(100, value)) / 100);
+      return {
+        currentLabel: `Travel now: ${fmtYrPerYr(annual)}`,
+        nextLabel: value > 0 ? fmtYrPerYr(next) : undefined,
+      };
+    }
+    case 'defer_travel': {
+      const annual = data.spending?.travelEarlyRetirementAnnual ?? 0;
+      if (annual <= 0) return null;
+      // "Pause" framing: dollars freed = annual × years deferred.
+      const yrs = Math.max(0, Math.round(value));
+      return {
+        currentLabel: `Travel now: ${fmtYrPerYr(annual)}`,
+        nextLabel:
+          yrs > 0
+            ? `paused ${yrs}yr (~${fmtYrPerYr(annual * yrs).replace('/yr', '')} freed)`
+            : undefined,
+      };
+    }
+    default:
+      // delay_retirement, early_ss, sell_home_early — already self-explanatory
+      // from the def.description + the slider value; no $-bucket framing.
+      return null;
+  }
+}
+
+interface SandboxRoomProps {
+  data: SeedData;
+  assumptions: MarketAssumptions;
+  initialScenario: SandboxInitialScenario | null;
+  onConsumeInitialScenario: () => void;
+  /**
+   * The committed plan's solved monthly spend (today's $/mo). Used as the
+   * "before" reference in the Sandbox header's Monthly-spend stat so the
+   * household can see how a scenario moves their sustainable spend, not
+   * just an absolute number with no comparison.
+   */
+  baselineMonthlySpendNow: number | null;
+  /**
+   * The committed plan's projected median ending wealth from the baseline
+   * (no-stressor) path. Anchors the North Star stat in the Sandbox header
+   * so every scenario the household tries reads as "what does this do to
+   * the end goal" — the single thing this tool respects that calculators
+   * don't.
+   */
+  baselineMedianEndingWealth: number | null;
+}
+
+interface SandboxInitialScenario {
+  stressorId: SandboxStressorId;
+  /** Optional: knob value for the stressor (else uses the default). */
+  stressorKnobValue?: number;
+  /** Optional: pre-selected reactions with knob values. */
+  reactions?: ScenarioReactionSelection[];
+}
+
+function SandboxRoom({
+  data,
+  assumptions,
+  initialScenario,
+  onConsumeInitialScenario,
+  baselineMonthlySpendNow,
+  baselineMedianEndingWealth,
+}: SandboxRoomProps) {
+  const today = useMemo(() => new Date(), []);
+
+  // Selected stressor + its knob value. Single-select; switching stressors
+  // resets the reactions because the applicable list differs per stressor.
+  const [stressorId, setStressorId] = useState<SandboxStressorId | null>(null);
+  const [stressorKnobValue, setStressorKnobValue] = useState<number>(0);
+  const [reactions, setReactions] = useState<ScenarioReactionSelection[]>([]);
+
+  // One-shot deep-link consumption: when Advisor hands us an initial scenario
+  // we apply it once, then notify the parent to clear the handoff slot so a
+  // refresh / re-mount doesn't keep re-applying it.
+  useEffect(() => {
+    if (!initialScenario) return;
+    const def = getStressorDef(initialScenario.stressorId);
+    setStressorId(initialScenario.stressorId);
+    setStressorKnobValue(
+      initialScenario.stressorKnobValue ?? def.knob?.defaultValue ?? 0,
+    );
+    setReactions(initialScenario.reactions ?? []);
+    onConsumeInitialScenario();
+  }, [initialScenario, onConsumeInitialScenario]);
+
+  const stressorDef = stressorId ? getStressorDef(stressorId) : null;
+
+  // Picker-side card click: select-only (no toggle-off). Switching crises
+  // resets reactions because the applicable list differs per stressor; the
+  // knob defaults to the new crisis's default.
+  const selectStressor = (id: SandboxStressorId) => {
+    if (stressorId === id) return;
+    const def = getStressorDef(id);
+    setStressorId(id);
+    setStressorKnobValue(def.knob?.defaultValue ?? 0);
+    setReactions([]);
+  };
+
+  const impact = useMemo(() => {
+    if (!stressorId) return null;
+    return estimateScenarioImpact({
+      data,
+      assumptions,
+      today,
+      stressorId,
+      stressorKnobValue,
+      reactions,
+    });
+  }, [data, assumptions, today, stressorId, stressorKnobValue, reactions]);
+
+  // Engine run: lives below the heuristic preview. Knob changes don't auto-
+  // re-fire (sims are ~30s) — the user clicks "Run the simulator" and a
+  // result sticks until they tweak the knobs again, at which point it's
+  // marked stale and they can re-run.
+  const sim = useSandboxSimulation();
+  // Fingerprint of the current knob state. When it changes after a run, the
+  // last engine result is stale and the panel surfaces a re-run prompt.
+  const knobsFingerprint = useMemo(
+    () =>
+      JSON.stringify({
+        stressorId,
+        stressorKnobValue,
+        reactions: reactions.map((r) => [r.id, r.knobValue]),
+      }),
+    [stressorId, stressorKnobValue, reactions],
+  );
+  const lastRunFingerprintRef = useRef<string | null>(null);
+  const engineResultStale =
+    sim.status === 'ready' &&
+    lastRunFingerprintRef.current !== null &&
+    lastRunFingerprintRef.current !== knobsFingerprint;
+
+  const runEngine = () => {
+    if (!stressorId) return;
+    const engineRun = buildSandboxEngineRun({
+      data,
+      assumptions,
+      today,
+      stressorId,
+      stressorKnobValue,
+      reactions,
+    });
+    lastRunFingerprintRef.current = knobsFingerprint;
+    sim.run(engineRun);
+  };
+
+  /**
+   * Auto-tune currently-engaged reactions until heuristic damage hits zero.
+   *
+   * The household's manual workflow is "nudge sliders until 'With your
+   * reactions' lands near $0." That's a target-seek the page can do for
+   * them. Binary-search a single scalar α that scales every engaged knob
+   * proportionally — preserves the user's chosen mix of levers, just
+   * dials them up (or down) together until the offset covers the damage.
+   *
+   * Why proportional scale instead of independent per-reaction solve:
+   * the user already expressed intent by which reactions they enabled
+   * and at what relative weight. Independently maxing levers would erase
+   * that signal. Linear-in-knob offsets (see `reactionOffset()` in
+   * sandbox-scenarios.ts) make the proportional scale well-behaved.
+   *
+   * Reactions without a knob (`early_ss`) are passed through unchanged.
+   * If no knob'd reaction is engaged we can't solve — caller disables
+   * the button in that case.
+   */
+  const solveForBreakeven = () => {
+    if (!stressorId || !impact || impact.baselineImpactDollars <= 0) return;
+    if (reactions.length === 0) return;
+
+    const knobReactions: Array<{
+      id: SandboxReactionId;
+      base: number;
+      min: number;
+      max: number;
+      step: number;
+    }> = [];
+    const fixedReactions: ScenarioReactionSelection[] = [];
+    for (const r of reactions) {
+      const def = getReactionDef(r.id);
+      if (def.knob) {
+        // If the row is engaged at 0 (shouldn't happen — mixer drops
+        // those), fall back to the knob default so the scale has
+        // something to work with.
+        const base = r.knobValue > 0 ? r.knobValue : def.knob.defaultValue;
+        knobReactions.push({
+          id: r.id,
+          base,
+          min: def.knob.min,
+          max: def.knob.max,
+          step: def.knob.step,
+        });
+      } else {
+        fixedReactions.push({ id: r.id, knobValue: r.knobValue });
+      }
+    }
+    if (knobReactions.length === 0) return;
+
+    const buildSelection = (alpha: number): ScenarioReactionSelection[] => {
+      const scaled = knobReactions.map((k) => {
+        const raw = alpha * k.base;
+        const stepped = Math.round(raw / k.step) * k.step;
+        const clamped = Math.max(k.min, Math.min(k.max, stepped));
+        return { id: k.id, knobValue: clamped };
+      });
+      return [...fixedReactions, ...scaled];
+    };
+
+    const evalAlpha = (alpha: number): number =>
+      estimateScenarioImpact({
+        data,
+        assumptions,
+        today,
+        stressorId,
+        stressorKnobValue,
+        reactions: buildSelection(alpha),
+      }).mitigatedImpactDollars;
+
+    // Find an upper bound that covers the damage. αHi grows until either
+    // it lands at zero or every knob is pinned to its max.
+    let alphaHi = 1;
+    let mitigatedHi = evalAlpha(alphaHi);
+    let allPinned = false;
+    for (let i = 0; i < 12 && mitigatedHi > 0 && !allPinned; i++) {
+      alphaHi *= 2;
+      mitigatedHi = evalAlpha(alphaHi);
+      allPinned = knobReactions.every((k) => alphaHi * k.base >= k.max);
+    }
+
+    // Binary search the smallest α where mitigated == 0. ~25 iterations
+    // get us within 1/2^25 of the true root; cheap because each eval is
+    // a closed-form arithmetic on the reaction breakdown.
+    let lo = 0;
+    let hi = alphaHi;
+    for (let i = 0; i < 25; i++) {
+      const mid = (lo + hi) / 2;
+      if (evalAlpha(mid) <= 0) {
+        hi = mid;
+      } else {
+        lo = mid;
+      }
+    }
+
+    setReactions(buildSelection(hi));
+  };
+
+  const reset = () => {
+    setStressorId(null);
+    setStressorKnobValue(0);
+    setReactions([]);
+    sim.reset();
+    lastRunFingerprintRef.current = null;
+  };
+
+  // Engaged-reaction count for the header chip ("+ 2 reactions").
+  const engagedReactionCount = reactions.length;
+
+  // Reaction-row toggler factored out — was inlined twice in the old picker /
+  // solver views. The mixer manages its own per-row knob state via the slider.
+  const updateReactionFromMixer = (
+    reactionId: SandboxReactionId,
+    next: number,
+    hasKnob: boolean,
+  ) => {
+    if (next === 0) {
+      setReactions((prev) => prev.filter((r) => r.id !== reactionId));
+      return;
+    }
+    if (hasKnob) {
+      setReactions((prev) => {
+        const exists = prev.find((r) => r.id === reactionId);
+        if (exists) {
+          return prev.map((r) =>
+            r.id === reactionId ? { ...r, knobValue: next } : r,
+          );
+        }
+        return [...prev, { id: reactionId, knobValue: next }];
+      });
+    } else {
+      setReactions((prev) => {
+        if (prev.some((r) => r.id === reactionId)) return prev;
+        return [...prev, { id: reactionId, knobValue: 1 }];
+      });
+    }
+  };
+
+  return (
+    <div className="mx-auto max-w-[1280px] px-4 pb-12 sm:px-6 lg:px-8">
+      {/*
+        ── Fixed header ────────────────────────────────────────────────────
+        Always-visible status strip carrying the scenario identity, headline
+        numbers, and Run/Cancel control. Stays put as the user scrolls
+        through the solver below so they never lose sight of the read.
+      */}
+      <div className="sticky top-0 z-20 -mx-4 mb-5 border-b border-stone-200 bg-white/85 px-4 py-3 backdrop-blur sm:-mx-6 sm:px-6 lg:-mx-8 lg:px-8">
+        <SandboxStickyHeader
+          stressorDef={stressorDef}
+          stressorKnobValue={stressorKnobValue}
+          reactionCount={engagedReactionCount}
+          impact={impact}
+          simStatus={sim.status}
+          simProgress={sim.progress}
+          simResult={sim.result}
+          isStale={engineResultStale}
+          canRun={!!stressorId}
+          baselineMonthlySpendNow={baselineMonthlySpendNow}
+          baselineMedianEndingWealth={baselineMedianEndingWealth}
+          legacyTarget={data.goals?.legacyTargetTodayDollars ?? null}
+          onRun={runEngine}
+          onCancel={sim.cancel}
+          onReset={reset}
+          onSolveBreakeven={solveForBreakeven}
+          canSolveBreakeven={
+            reactions.some((r) => getReactionDef(r.id).knob !== null) &&
+            !!impact &&
+            impact.baselineImpactDollars > 0
+          }
+        />
+      </div>
+
+      {/*
+        ── Crisis row ──────────────────────────────────────────────────────
+        Compact pill bar — labels only, no descriptions. Selecting a pill
+        reveals the inline knob ("how bad?") and unlocks the reaction
+        mixer + results below. No nav stack: everything happens on this
+        page.
+      */}
+      <section className="mb-5">
+        <div className="flex flex-wrap gap-2">
+          {SANDBOX_STRESSORS.map((s) => {
+            const isSelected = stressorId === s.id;
+            return (
+              <button
+                key={s.id}
+                type="button"
+                onClick={() => selectStressor(s.id)}
+                aria-pressed={isSelected}
+                className={`rounded-full border px-4 py-1.5 text-sm font-medium transition ${
+                  isSelected
+                    ? 'border-stone-900 bg-stone-900 text-stone-50'
+                    : 'border-stone-300 bg-white text-stone-800 hover:border-stone-500'
+                }`}
+              >
+                {s.label}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Inline knob — appears only when a crisis is selected */}
+        {stressorDef?.knob && (
+          <div className="mt-3 flex items-center gap-3 rounded-2xl border border-stone-200 bg-white/70 px-4 py-3">
+            <span className="text-sm font-medium text-stone-700">
+              {stressorDef.knob.label}
+            </span>
+            <input
+              type="range"
+              min={stressorDef.knob.min}
+              max={stressorDef.knob.max}
+              step={stressorDef.knob.step}
+              value={stressorKnobValue}
+              onChange={(e) => setStressorKnobValue(Number(e.target.value))}
+              className="flex-1"
+            />
+            <span className="w-16 shrink-0 text-right text-sm tabular-nums text-stone-700">
+              {stressorKnobValue}
+              {stressorDef.knob.unit}
+            </span>
+          </div>
+        )}
+      </section>
+
+      {/*
+        ── Solver ──────────────────────────────────────────────────────────
+        Reactions on the left, results on the right. Hidden until a crisis
+        is selected (no point showing empty levers).
+      */}
+      {stressorDef ? (
+        <div className="grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.35fr)]">
+          {/* Reactions mixer — no header, no descriptions, just the rows. */}
+          <div className="space-y-3">
+            <div className="divide-y divide-stone-100 rounded-2xl border border-stone-200 bg-white/80">
+              {stressorDef.applicableReactions.map((reactionId) => {
+                const def = getReactionDef(reactionId);
+                const selected = reactions.find((r) => r.id === reactionId);
+                const value = selected?.knobValue ?? 0;
+                const engaged = def.knob ? value > 0 : !!selected;
+                const concreteImpact = computeReactionConcreteImpact(
+                  reactionId,
+                  value,
+                  data,
+                );
+                return (
+                  <ReactionMixerRow
+                    key={reactionId}
+                    def={def}
+                    value={value}
+                    engaged={engaged}
+                    concreteImpact={concreteImpact}
+                    onChange={(next) =>
+                      updateReactionFromMixer(reactionId, next, !!def.knob)
+                    }
+                  />
+                );
+              })}
+            </div>
+            <p className="px-1 text-[11px] italic text-stone-500">
+              Essentials never on the table.
+            </p>
+          </div>
+
+          {/* Results column */}
+          <div className="space-y-4">
+            {impact && (
+              <SandboxResultPanel
+                stressorLabel={stressorDef.label}
+                impact={impact}
+                onReset={reset}
+              />
+            )}
+            <SandboxEngineSection
+              stressorLabel={stressorDef.label}
+              status={sim.status}
+              progress={sim.progress}
+              result={sim.result}
+              error={sim.error}
+              isStale={engineResultStale}
+              onRun={runEngine}
+              onCancel={sim.cancel}
+            />
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * Result block for the Sandbox. Shows the plain-English summary, a per-
+ * reaction breakdown so the household can see where the offset comes from,
+ * and a two-bar visual comparing unmitigated to mitigated damage.
+ *
+ * Bar visual rather than a line chart: the heuristic estimate is a single
+ * dollar number, not a time series, and a fake time-series chart would
+ * suggest precision the math doesn't have. The bar is honest.
+ */
+
+/**
+ * Sticky status strip that rides at the top of the Sandbox screen as the
+ * household tweaks knobs below. It carries three things at all times:
+ *   • What scenario is loaded (label + knob value + reaction count)
+ *   • The best-available headline numbers — heuristic dollars before the
+ *     engine has run, real success% / median legacy after it has
+ *   • The Run / Cancel control + a Clear-scenario escape hatch
+ *
+ * Why sticky and not a fixed page header: the rest of the app uses scrolling
+ * non-sticky chrome, so a position:fixed bar would float over other rooms
+ * after navigation. `sticky top-0` glues it to the top of the Sandbox view
+ * and unsticks naturally when the user leaves.
+ */
+function SandboxStickyHeader({
+  stressorDef,
+  stressorKnobValue,
+  reactionCount,
+  impact,
+  simStatus,
+  simProgress,
+  simResult,
+  isStale,
+  canRun,
+  baselineMonthlySpendNow,
+  baselineMedianEndingWealth,
+  legacyTarget,
+  onRun,
+  onCancel,
+  onReset,
+  onSolveBreakeven,
+  canSolveBreakeven,
+}: {
+  stressorDef: ReturnType<typeof getStressorDef> | null;
+  stressorKnobValue: number;
+  reactionCount: number;
+  impact: ScenarioImpact | null;
+  simStatus: SandboxRunStatus;
+  simProgress: number;
+  simResult: SandboxRunResult | null;
+  isStale: boolean;
+  canRun: boolean;
+  /** Committed-plan monthly spend; used as the "before" reference. */
+  baselineMonthlySpendNow: number | null;
+  /** Committed-plan median ending wealth — anchors the North Star compare. */
+  baselineMedianEndingWealth: number | null;
+  /** Household-stated end-of-plan target (today $). Null when unset. */
+  legacyTarget: number | null;
+  onRun: () => void;
+  onCancel: () => void;
+  onReset: () => void;
+  /** Auto-tune engaged reaction knobs to neutralize heuristic damage. */
+  onSolveBreakeven: () => void;
+  /** Solver enabled only when there's damage AND a knob'd reaction engaged. */
+  canSolveBreakeven: boolean;
+}) {
+  const formatPct = (n: number) => `${(n * 100).toFixed(1)}%`;
+  const formatDollars = (n: number) => {
+    const abs = Math.abs(Math.round(n));
+    if (abs >= 1_000_000) return `$${(n / 1_000_000).toFixed(1)}M`;
+    if (abs >= 1_000) return `$${Math.round(n / 1_000)}k`;
+    return `$${Math.round(n)}`;
+  };
+  const formatDeltaPp = (next: number, base: number) => {
+    const delta = next - base;
+    const sign = delta > 0 ? '+' : delta < 0 ? '' : '±';
+    return `${sign}${(delta * 100).toFixed(1)}pp`;
+  };
+  const formatDeltaDollars = (next: number, base: number) => {
+    const delta = next - base;
+    const abs = Math.abs(Math.round(delta));
+    const prefix = delta > 0 ? '+' : delta < 0 ? '−' : '±';
+    if (abs >= 1_000_000) return `${prefix}$${(abs / 1_000_000).toFixed(1)}M`;
+    if (abs >= 1_000) return `${prefix}$${Math.round(abs / 1_000)}k`;
+    return `${prefix}$${abs}`;
+  };
+
+  // ── Empty state: no stressor selected ─────────────────────────────────────
+  if (!stressorDef) {
+    return (
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-stone-500">
+            Sandbox
+          </p>
+          <p className="text-sm text-stone-700">
+            Pick a stressor below to start a what-if.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  const knobChip = stressorDef.knob
+    ? `${stressorKnobValue}${stressorDef.knob.unit}`
+    : null;
+  const reactionChip =
+    reactionCount > 0
+      ? `+ ${reactionCount} reaction${reactionCount === 1 ? '' : 's'}`
+      : null;
+
+  // Decide which numbers to surface in the headline. Engine result wins when
+  // available; heuristic dollars fill in until the user runs the sim.
+  const useEngineNumbers = simResult !== null;
+
+  return (
+    <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+      {/* LEFT: scenario identity */}
+      <div className="min-w-0">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-rose-700">
+          Scenario
+        </p>
+        <div className="mt-0.5 flex flex-wrap items-baseline gap-x-3 gap-y-1">
+          <p className="truncate text-base font-semibold text-stone-900">
+            {stressorDef.label}
+          </p>
+          {knobChip && (
+            <span className="rounded-full bg-stone-100 px-2 py-0.5 text-xs font-medium text-stone-700">
+              {knobChip}
+            </span>
+          )}
+          {reactionChip && (
+            <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-800">
+              {reactionChip}
+            </span>
+          )}
+          {isStale && (
+            <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800">
+              stale
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* MIDDLE: headline numbers (engine if available, heuristic otherwise) */}
+      <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
+        {useEngineNumbers ? (
+          <>
+            <HeaderStat
+              label="Success"
+              base={formatPct(simResult.baseline.successRate)}
+              now={formatPct(
+                (simResult.mitigated ?? simResult.stressed).successRate,
+              )}
+              delta={formatDeltaPp(
+                (simResult.mitigated ?? simResult.stressed).successRate,
+                simResult.baseline.successRate,
+              )}
+            />
+            {(() => {
+              const nowLegacy = (simResult.mitigated ?? simResult.stressed).medianEndingWealth;
+              const gapToTarget = legacyTarget !== null ? nowLegacy - legacyTarget : null;
+              return (
+                <HeaderStat
+                  label="Legacy"
+                  base={formatDollars(simResult.baseline.medianEndingWealth)}
+                  now={formatDollars(nowLegacy)}
+                  delta={formatDeltaDollars(
+                    nowLegacy,
+                    simResult.baseline.medianEndingWealth,
+                  )}
+                  caption={
+                    gapToTarget === null
+                      ? undefined
+                      : `vs goal ${gapToTarget >= 0 ? '+' : '−'}${formatDollars(Math.abs(gapToTarget))}`
+                  }
+                  captionTone={
+                    gapToTarget === null
+                      ? 'neutral'
+                      : gapToTarget >= 0
+                        ? 'positive'
+                        : 'negative'
+                  }
+                />
+              );
+            })()}
+            {simResult.solvedSpendProfile && (
+              <HeaderStat
+                label="Monthly spend"
+                base={
+                  baselineMonthlySpendNow !== null
+                    ? formatDollars(baselineMonthlySpendNow)
+                    : ''
+                }
+                now={formatDollars(simResult.solvedSpendProfile.monthlySpendNow)}
+                delta={
+                  baselineMonthlySpendNow !== null
+                    ? formatDeltaDollars(
+                        simResult.solvedSpendProfile.monthlySpendNow,
+                        baselineMonthlySpendNow,
+                      )
+                    : 'solver'
+                }
+              />
+            )}
+          </>
+        ) : impact ? (
+          <>
+            <HeaderStat
+              label="Unmitigated"
+              base=""
+              now={formatDollars(impact.baselineImpactDollars)}
+              delta="estimate"
+            />
+            <HeaderStat
+              label="With reactions"
+              base=""
+              now={formatDollars(impact.mitigatedImpactDollars)}
+              delta="estimate"
+            />
+            {/* Pre-run Legacy stat — surfaces the household's North Star
+                target alongside the heuristic damage so they see the goal
+                being threatened before the engine confirms it. */}
+            {legacyTarget !== null && baselineMedianEndingWealth !== null && (
+              <HeaderStat
+                label="Legacy goal"
+                base={formatDollars(baselineMedianEndingWealth)}
+                now={formatDollars(legacyTarget)}
+                delta="target"
+                caption={(() => {
+                  const gap = baselineMedianEndingWealth - legacyTarget;
+                  return `${gap >= 0 ? '+' : '−'}${formatDollars(Math.abs(gap))} cushion at median`;
+                })()}
+                captionTone={
+                  baselineMedianEndingWealth >= legacyTarget ? 'positive' : 'negative'
+                }
+              />
+            )}
+          </>
+        ) : null}
+      </div>
+
+      {/* RIGHT: run / cancel + escape hatch */}
+      <div className="flex shrink-0 items-center gap-2">
+        {simStatus === 'running' ? (
+          <>
+            <div className="flex h-8 w-32 items-center overflow-hidden rounded-full bg-stone-100">
+              <div
+                className="h-full bg-amber-500 transition-all duration-300"
+                style={{
+                  width: `${Math.min(100, Math.round(simProgress * 100))}%`,
+                }}
+              />
+            </div>
+            <button
+              type="button"
+              onClick={onCancel}
+              className="rounded-full px-3 py-1.5 text-xs font-medium text-stone-700 hover:text-stone-900"
+            >
+              Cancel
+            </button>
+          </>
+        ) : (
+          <>
+            <button
+              type="button"
+              onClick={onSolveBreakeven}
+              disabled={!canSolveBreakeven}
+              title={
+                canSolveBreakeven
+                  ? 'Auto-tune the engaged reactions until heuristic damage hits zero'
+                  : 'Engage at least one reaction with a slider to enable the solver'
+              }
+              className={`rounded-full px-3 py-2 text-xs font-medium transition ${
+                canSolveBreakeven
+                  ? 'border border-stone-300 bg-white text-stone-800 hover:border-stone-500'
+                  : 'cursor-not-allowed border border-stone-200 bg-stone-100 text-stone-400'
+              }`}
+            >
+              Solve for break-even
+            </button>
+            <button
+              type="button"
+              onClick={onRun}
+              disabled={!canRun}
+              className={`rounded-full px-4 py-2 text-sm font-medium transition ${
+                canRun
+                  ? 'bg-stone-900 text-stone-50 hover:bg-stone-700'
+                  : 'cursor-not-allowed bg-stone-200 text-stone-400'
+              }`}
+            >
+              {simResult ? 'Re-run' : 'Run sim →'}
+            </button>
+          </>
+        )}
+        <button
+          type="button"
+          onClick={onReset}
+          className="rounded-full px-3 py-1.5 text-xs font-medium text-stone-500 hover:text-stone-800"
+          title="Clear scenario"
+        >
+          Clear
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Compact stat block for the sticky header. Shows current value bold,
+ * baseline as a faint "from $X" label, and a delta chip on the right.
+ * Empty `base` collapses the "from" line — used for heuristic-mode
+ * numbers where there's no baseline-vs-scenario pair to compare.
+ *
+ * `caption` adds a second line below the headline numbers — used by the
+ * Legacy stat to show "vs target: ±$X" when the household has set a
+ * North Star goal. `captionTone` colorizes it (positive = on track,
+ * negative = short of target).
+ */
+function HeaderStat({
+  label,
+  base,
+  now,
+  delta,
+  caption,
+  captionTone,
+}: {
+  label: string;
+  base: string;
+  now: string;
+  delta: string;
+  caption?: string;
+  captionTone?: 'positive' | 'negative' | 'neutral';
+}) {
+  const captionClass =
+    captionTone === 'positive'
+      ? 'text-emerald-700'
+      : captionTone === 'negative'
+        ? 'text-rose-700'
+        : 'text-stone-500';
+  return (
+    <div className="leading-tight">
+      <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-stone-500">
+        {label}
+      </p>
+      <div className="flex items-baseline gap-2">
+        {base && (
+          <span className="text-xs tabular-nums text-stone-400">
+            {base} →
+          </span>
+        )}
+        <span className="text-base font-semibold tabular-nums text-stone-900">
+          {now}
+        </span>
+        <span className="text-[11px] font-medium tabular-nums text-stone-500">
+          {delta}
+        </span>
+      </div>
+      {caption && (
+        <p className={`text-[10px] font-medium tabular-nums ${captionClass}`}>
+          {caption}
+        </p>
+      )}
+    </div>
+  );
+}
+
+function SandboxResultPanel({
+  stressorLabel,
+  impact,
+  onReset,
+}: {
+  stressorLabel: string;
+  impact: ScenarioImpact;
+  onReset: () => void;
+}) {
+  const { baselineImpactDollars, mitigatedImpactDollars, summary, reactionBreakdown } =
+    impact;
+  // Bar widths: scale to baseline so "fully offset" reads as a tiny bar
+  // rather than zero (which feels like nothing happened).
+  const baselineWidth = baselineImpactDollars > 0 ? '100%' : '0%';
+  const mitigatedWidth =
+    baselineImpactDollars > 0
+      ? `${Math.max(2, (mitigatedImpactDollars / baselineImpactDollars) * 100)}%`
+      : '0%';
+  const formatBig = (n: number): string => {
+    const abs = Math.abs(Math.round(n));
+    if (abs >= 1_000_000) return `~$${(abs / 1_000_000).toFixed(1)}M`;
+    if (abs >= 1_000) return `~$${Math.round(abs / 1_000)}k`;
+    return `~$${abs}`;
+  };
+
+  return (
+    <section className="mb-8 rounded-[28px] border border-stone-200 bg-white/80 p-6 shadow-sm">
+      <div className="flex items-center gap-2">
+        <span className="h-2.5 w-2.5 rounded-full bg-blue-500" />
+        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-blue-700">
+          Estimated impact
+        </p>
+      </div>
+
+      <p className="mt-3 max-w-[60ch] text-base leading-relaxed text-stone-800">
+        {summary}
+      </p>
+
+      {/* Two-bar comparison */}
+      {baselineImpactDollars > 0 && (
+        <div className="mt-5 space-y-4">
+          <div>
+            <div className="flex items-baseline justify-between text-sm">
+              <span className="font-medium text-stone-800">
+                {stressorLabel}, no reaction
+              </span>
+              <span className="tabular-nums font-semibold text-rose-700">
+                {formatBig(baselineImpactDollars)}
+              </span>
+            </div>
+            <div className="mt-1.5 h-3 w-full overflow-hidden rounded-full bg-stone-100">
+              <div
+                className="h-full bg-rose-500"
+                style={{ width: baselineWidth }}
+              />
+            </div>
+          </div>
+          <div>
+            <div className="flex items-baseline justify-between text-sm">
+              <span className="font-medium text-stone-800">
+                With your reactions
+              </span>
+              <span className="tabular-nums font-semibold text-emerald-700">
+                {formatBig(mitigatedImpactDollars)}
+              </span>
+            </div>
+            <div className="mt-1.5 h-3 w-full overflow-hidden rounded-full bg-stone-100">
+              <div
+                className="h-full bg-emerald-500"
+                style={{ width: mitigatedWidth }}
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Per-reaction breakdown — only show when there are reactions */}
+      {reactionBreakdown.length > 0 && (
+        <ol className="mt-5 space-y-2 border-t border-stone-100 pt-4 text-sm">
+          {reactionBreakdown.map((r) => (
+            <li key={r.id} className="text-stone-700">
+              <span className="font-medium text-stone-900">{r.label}</span>
+              <span className="text-stone-500"> · </span>
+              <span>{r.note}</span>
+            </li>
+          ))}
+        </ol>
+      )}
+
+      <div className="mt-5 flex items-center justify-between border-t border-stone-100 pt-4">
+        <p className="text-[11px] text-stone-500">
+          Back-of-envelope estimate. Run the simulator below for the honest
+          Monte Carlo projection.
+        </p>
+        <button
+          type="button"
+          onClick={onReset}
+          className="rounded-full px-3 py-1.5 text-xs font-medium text-stone-700 hover:text-stone-900"
+        >
+          Clear scenario
+        </button>
+      </div>
+    </section>
+  );
+}
+
+/**
+ * Sandbox's "real engine" panel — sits below the heuristic preview. Owns its
+ * own run lifecycle: idle ⇒ "Run the simulator" CTA, running ⇒ progress bar
+ * + cancel, ready ⇒ baseline-vs-scenario(-vs-mitigated) success/wealth cards
+ * with a stale-state indicator when the user tweaks knobs after a run.
+ *
+ * Honesty principles for the result panel:
+ *   - Always show baseline alongside scenario so deltas are obvious
+ *   - Show wall-clock time and trial count so the household sees this is
+ *     a measured number, not a guess
+ *   - Surface the "what we mutated" disclosure so the engine treatment is
+ *     auditable (especially important for market_down, where we swap a
+ *     true sequence-of-returns event for an instant-haircut approximation)
+ */
+function SandboxEngineSection({
+  stressorLabel,
+  status,
+  progress,
+  result,
+  error,
+  isStale,
+  onRun,
+  onCancel,
+}: {
+  stressorLabel: string;
+  status: SandboxRunStatus;
+  progress: number;
+  result: SandboxRunResult | null;
+  error: string | null;
+  isStale: boolean;
+  onRun: () => void;
+  onCancel: () => void;
+}) {
+  const formatPct = (n: number) => `${(n * 100).toFixed(1)}%`;
+  const formatDollars = (n: number) => {
+    const abs = Math.abs(Math.round(n));
+    if (abs >= 1_000_000) return `$${(n / 1_000_000).toFixed(1)}M`;
+    if (abs >= 1_000) return `$${Math.round(n / 1_000)}k`;
+    return `$${Math.round(n)}`;
+  };
+  const formatPctDelta = (next: number, base: number) => {
+    const delta = next - base;
+    const sign = delta > 0 ? '+' : delta < 0 ? '' : '±';
+    return `${sign}${(delta * 100).toFixed(1)}pp`;
+  };
+  const formatDollarDelta = (next: number, base: number) => {
+    const delta = next - base;
+    const abs = Math.abs(Math.round(delta));
+    const prefix = delta > 0 ? '+' : delta < 0 ? '−' : '±';
+    if (abs >= 1_000_000) return `${prefix}$${(abs / 1_000_000).toFixed(1)}M`;
+    if (abs >= 1_000) return `${prefix}$${Math.round(abs / 1_000)}k`;
+    return `${prefix}$${abs}`;
+  };
+
+  return (
+    <section className="mb-8 rounded-[28px] border border-stone-200 bg-white/80 p-6 shadow-sm">
+      <div className="flex items-center gap-2">
+        <span className="h-2.5 w-2.5 rounded-full bg-amber-500" />
+        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-amber-700">
+          Honest sim · monte carlo
+        </p>
+      </div>
+
+      {/*
+        Idle/running/cancelled/error states: the sticky header already owns
+        the Run button, Cancel button, and progress bar — we don't repeat
+        them here. This panel just narrates state for context.
+      */}
+      {status === 'idle' && (
+        <p className="mt-3 text-sm leading-relaxed text-stone-600">
+          The estimate above is a back-of-envelope read. Hit{' '}
+          <strong>Run sim</strong> in the header for the honest Monte Carlo
+          (about <strong>30 seconds</strong>).
+        </p>
+      )}
+      {status === 'running' && (
+        <p className="mt-3 text-sm text-stone-600">
+          Running {stressorLabel.toLowerCase()} scenario… {Math.round(progress * 100)}%
+        </p>
+      )}
+      {status === 'cancelled' && (
+        <p className="mt-3 text-sm text-stone-600">
+          Cancelled — re-run from the header when you&rsquo;re ready.
+        </p>
+      )}
+      {status === 'error' && (
+        <p className="mt-3 text-sm text-rose-700">
+          Simulation failed: {error ?? 'unknown error'}
+        </p>
+      )}
+
+      {/* READY — show baseline vs scenario vs mitigated */}
+      {status === 'ready' && result && (
+        <div className="mt-4 space-y-5">
+          {isStale && (
+            <div className="flex items-center justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-2.5">
+              <p className="text-xs text-amber-900">
+                Knob values changed since this run — results may be stale.
+              </p>
+              <button
+                type="button"
+                onClick={onRun}
+                className="rounded-full bg-amber-700 px-3 py-1 text-xs font-medium text-amber-50 hover:bg-amber-800"
+              >
+                Re-run
+              </button>
+            </div>
+          )}
+
+          {/* Success-rate row */}
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <EngineMetricCard
+              label="Baseline"
+              accent="stone"
+              primary={formatPct(result.baseline.successRate)}
+              primaryLabel="plan success"
+              secondary={formatDollars(result.baseline.medianEndingWealth)}
+              secondaryLabel="median legacy"
+            />
+            <EngineMetricCard
+              label="With stressor"
+              accent="rose"
+              primary={formatPct(result.stressed.successRate)}
+              primaryLabel="plan success"
+              primaryDelta={formatPctDelta(
+                result.stressed.successRate,
+                result.baseline.successRate,
+              )}
+              secondary={formatDollars(result.stressed.medianEndingWealth)}
+              secondaryLabel="median legacy"
+              secondaryDelta={formatDollarDelta(
+                result.stressed.medianEndingWealth,
+                result.baseline.medianEndingWealth,
+              )}
+            />
+            {result.mitigated ? (
+              <EngineMetricCard
+                label="With your reactions"
+                accent="emerald"
+                primary={formatPct(result.mitigated.successRate)}
+                primaryLabel="plan success"
+                primaryDelta={formatPctDelta(
+                  result.mitigated.successRate,
+                  result.baseline.successRate,
+                )}
+                secondary={formatDollars(result.mitigated.medianEndingWealth)}
+                secondaryLabel="median legacy"
+                secondaryDelta={formatDollarDelta(
+                  result.mitigated.medianEndingWealth,
+                  result.baseline.medianEndingWealth,
+                )}
+              />
+            ) : (
+              <div className="rounded-2xl border border-dashed border-stone-300 bg-white/40 p-4">
+                <p className="text-xs text-stone-500">
+                  Pick one or more reactions to see how they offset the
+                  scenario.
+                </p>
+              </div>
+            )}
+          </div>
+
+          {/* Solved spend headline (if solver succeeded) */}
+          {result.solvedSpendProfile && (
+            <div className="rounded-2xl bg-stone-50 p-4">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-stone-600">
+                Sustainable monthly spend (
+                {Math.round(result.solvedSpendProfile.successTarget * 100)}%
+                target)
+              </p>
+              <p className="mt-1 text-2xl font-semibold tabular-nums text-stone-900">
+                ${Math.round(result.solvedSpendProfile.monthlySpendNow).toLocaleString()}
+                <span className="ml-2 align-middle text-xs font-medium uppercase tracking-[0.14em] text-stone-500">
+                  / mo
+                </span>
+              </p>
+              <p className="mt-1 text-xs text-stone-600">
+                Achieved {formatPct(result.solvedSpendProfile.achievedSuccess)}{' '}
+                success at this constant-real spend.
+              </p>
+            </div>
+          )}
+
+          {/* Diagnostic disclosure: what we mutated */}
+          {result.mutationNotes.length > 0 && (
+            <details className="rounded-xl bg-stone-50/80 px-4 py-3 text-xs text-stone-700">
+              <summary className="cursor-pointer font-medium text-stone-800">
+                What the engine actually ran
+              </summary>
+              <ul className="mt-2 list-disc space-y-1 pl-5">
+                {result.mutationNotes.map((note, idx) => (
+                  <li key={idx}>{note}</li>
+                ))}
+              </ul>
+            </details>
+          )}
+
+          <div className="flex items-center justify-between border-t border-stone-100 pt-3">
+            <p className="text-[11px] text-stone-500">
+              Real Monte Carlo · {result.elapsedSeconds.toFixed(1)}s ·{' '}
+              {result.baseline.successRate !== undefined
+                ? 'measured, not estimated'
+                : ''}
+            </p>
+            <button
+              type="button"
+              onClick={onRun}
+              className="rounded-full px-3 py-1.5 text-xs font-medium text-stone-700 hover:text-stone-900"
+            >
+              Re-run
+            </button>
+          </div>
+        </div>
+      )}
+    </section>
+  );
+}
+
+/**
+ * One row in the Sandbox reaction mixing board. Always rendered (no
+ * "click to enable" gate) — engagement comes from the slider being above 0.
+ *
+ * Visual treatment:
+ *   - Engaged rows tint emerald + show the dialed value in green
+ *   - Idle rows stay neutral so the engaged ones pop
+ *   - The slider track shows a colored fill that grows with the value
+ *     (custom CSS via background gradient on the input — keeps the row
+ *     compact without needing a separate progress div)
+ */
+function ReactionMixerRow({
+  def,
+  value,
+  engaged,
+  onChange,
+  concreteImpact,
+}: {
+  def: ReturnType<typeof getReactionDef>;
+  value: number;
+  engaged: boolean;
+  onChange: (next: number) => void;
+  /**
+   * Optional plain-English "current → new" line that appears under the
+   * description while the row is engaged. For dollar-bucket reactions
+   * (`cut_spending`, `cut_travel`) the parent computes the live before/after
+   * so the household sees real numbers as they slide instead of just a
+   * percentage.
+   */
+  concreteImpact?: { currentLabel: string; nextLabel?: string } | null;
+}) {
+  const knob = def.knob;
+  // Slider goes from 0 → max so 0 is "off" without needing a separate
+  // toggle. Below the def.knob.min would be a partial step; step still
+  // applies, so values snap (e.g. 0 → 5 → 10 for cut_spending).
+  const sliderMin = 0;
+  const sliderMax = knob?.max ?? 1;
+  const sliderStep = knob?.step ?? 1;
+  const fillPct = sliderMax > 0 ? (value / sliderMax) * 100 : 0;
+  return (
+    <div
+      className={`flex flex-col gap-2 px-4 py-3 transition-colors sm:flex-row sm:items-center sm:gap-4 ${
+        engaged ? 'bg-emerald-50/60' : ''
+      }`}
+    >
+      <div className="min-w-0 flex-1">
+        <p
+          className={`text-sm font-semibold ${
+            engaged ? 'text-emerald-900' : 'text-stone-900'
+          }`}
+        >
+          {def.label}
+        </p>
+        {concreteImpact && (
+          <p
+            className={`mt-0.5 text-xs tabular-nums ${
+              engaged ? 'text-emerald-800' : 'text-stone-500'
+            }`}
+          >
+            {concreteImpact.currentLabel}
+            {concreteImpact.nextLabel && (
+              <>
+                {' '}
+                <span aria-hidden>→</span>{' '}
+                <span
+                  className={engaged ? 'font-semibold' : ''}
+                >
+                  {concreteImpact.nextLabel}
+                </span>
+              </>
+            )}
+          </p>
+        )}
+      </div>
+      {knob ? (
+        <div className="flex items-center gap-3 sm:w-[260px]">
+          <input
+            type="range"
+            min={sliderMin}
+            max={sliderMax}
+            step={sliderStep}
+            value={value}
+            onChange={(e) => onChange(Number(e.target.value))}
+            // Inline gradient gives the slider track a colored fill matching
+            // the current value without depending on a Tailwind plugin.
+            style={{
+              background: `linear-gradient(to right, ${
+                engaged ? '#10b981' : '#a8a29e'
+              } 0%, ${engaged ? '#10b981' : '#a8a29e'} ${fillPct}%, #e7e5e4 ${fillPct}%, #e7e5e4 100%)`,
+            }}
+            className="h-1.5 flex-1 cursor-pointer appearance-none rounded-full"
+          />
+          <span
+            className={`w-16 shrink-0 text-right text-sm tabular-nums ${
+              engaged ? 'font-semibold text-emerald-700' : 'text-stone-400'
+            }`}
+          >
+            {engaged ? `${value}${knob.unit}` : 'off'}
+          </span>
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={() => onChange(engaged ? 0 : 1)}
+          className={`shrink-0 rounded-full px-3 py-1 text-xs font-medium transition-colors ${
+            engaged
+              ? 'bg-emerald-600 text-emerald-50 hover:bg-emerald-700'
+              : 'bg-stone-200 text-stone-600 hover:bg-stone-300'
+          }`}
+        >
+          {engaged ? 'on' : 'off'}
+        </button>
+      )}
+    </div>
+  );
+}
+
+function EngineMetricCard({
+  label,
+  accent,
+  primary,
+  primaryLabel,
+  primaryDelta,
+  secondary,
+  secondaryLabel,
+  secondaryDelta,
+}: {
+  label: string;
+  accent: 'stone' | 'rose' | 'emerald';
+  primary: string;
+  primaryLabel: string;
+  primaryDelta?: string;
+  secondary: string;
+  secondaryLabel: string;
+  secondaryDelta?: string;
+}) {
+  // Tailwind's JIT needs concrete class names — can't interpolate accent
+  // into bg-${accent}-500 because the safelist won't pick it up.
+  const accentClasses = {
+    stone: { dot: 'bg-stone-400', delta: 'text-stone-600' },
+    rose: { dot: 'bg-rose-500', delta: 'text-rose-700' },
+    emerald: { dot: 'bg-emerald-500', delta: 'text-emerald-700' },
+  }[accent];
+  return (
+    <div className="rounded-2xl border border-stone-200 bg-white/90 p-4">
+      <div className="flex items-center gap-2">
+        <span className={`h-2 w-2 rounded-full ${accentClasses.dot}`} />
+        <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-stone-600">
+          {label}
+        </p>
+      </div>
+      <p className="mt-2 text-2xl font-semibold tabular-nums text-stone-900">
+        {primary}
+        {primaryDelta && (
+          <span className={`ml-2 align-middle text-xs font-medium ${accentClasses.delta}`}>
+            {primaryDelta}
+          </span>
+        )}
+      </p>
+      <p className="text-[11px] uppercase tracking-[0.14em] text-stone-500">
+        {primaryLabel}
+      </p>
+      <p className="mt-3 text-sm tabular-nums text-stone-700">
+        {secondary}
+        {secondaryDelta && (
+          <span className={`ml-1.5 text-xs ${accentClasses.delta}`}>
+            {secondaryDelta}
+          </span>
+        )}
+      </p>
+      <p className="text-[11px] uppercase tracking-[0.14em] text-stone-500">
+        {secondaryLabel}
+      </p>
     </div>
   );
 }
@@ -2209,32 +5858,34 @@ function SpendSolverScreen({
     setIsSolving(true);
     setResult(null);
     nextPaint(() => {
-      try {
-        const solved = solveSpendByReverseTimeline({
-          data,
-          assumptions: getInteractiveSolverAssumptions(assumptions),
-          selectedStressors,
-          selectedResponses,
-          stressorKnobs: spendSolverStressorKnobs,
-          targetLegacyTodayDollars: Math.max(0, targetLegacy),
-          minSuccessRate: normalizedMinSuccessRate,
-          successRateRange: normalizedRange,
-          spendingFloorAnnual: parsedFloor,
-          spendingCeilingAnnual: parsedCeiling,
-          toleranceAnnual: Math.max(10, toleranceAnnual),
-          maxIterations: 14,
-          housingFundingPolicy: doNotSellPrimaryResidence
-            ? 'do_not_sell_primary_residence'
-            : 'allow_primary_residence_sale',
-        });
-        setResult(solved);
-      } catch (solverError) {
-        setError(
-          solverError instanceof Error ? solverError.message : 'Spend solve failed.',
-        );
-      } finally {
-        setIsSolving(false);
-      }
+      void (async () => {
+        try {
+          const solved = await solveSpendByReverseTimeline({
+            data,
+            assumptions: getInteractiveSolverAssumptions(assumptions),
+            selectedStressors,
+            selectedResponses,
+            stressorKnobs: spendSolverStressorKnobs,
+            targetLegacyTodayDollars: Math.max(0, targetLegacy),
+            minSuccessRate: normalizedMinSuccessRate,
+            successRateRange: normalizedRange,
+            spendingFloorAnnual: parsedFloor,
+            spendingCeilingAnnual: parsedCeiling,
+            toleranceAnnual: Math.max(10, toleranceAnnual),
+            maxIterations: 14,
+            housingFundingPolicy: doNotSellPrimaryResidence
+              ? 'do_not_sell_primary_residence'
+              : 'allow_primary_residence_sale',
+          });
+          setResult(solved);
+        } catch (solverError) {
+          setError(
+            solverError instanceof Error ? solverError.message : 'Spend solve failed.',
+          );
+        } finally {
+          setIsSolving(false);
+        }
+      })();
     });
   };
 
@@ -2907,30 +6558,32 @@ function AutopilotPlanScreen({
     setResult(null);
 
     nextPaint(() => {
-      try {
-        const plan = generateAutopilotPlan({
-          data,
-          assumptions: getInteractiveSolverAssumptions(assumptions),
-          selectedStressors,
-          selectedResponses,
-          targetLegacyTodayDollars: Math.max(0, targetLegacy),
-          minSuccessRate: clampRate(minSuccessRatePercent / 100),
-          doNotSellPrimaryResidence,
-          successRateRange: undefined,
-          stressorKnobs: {
-            delayedInheritanceYears: delayedInheritanceYearsKnob,
-            layoffRetireDate: layoffRetireDateKnob,
-            layoffSeverance: layoffSeveranceKnob,
-          },
-        });
-        setResult(plan);
-      } catch (autopilotError) {
-        setError(
-          autopilotError instanceof Error ? autopilotError.message : 'Autopilot generation failed.',
-        );
-      } finally {
-        setIsRunning(false);
-      }
+      void (async () => {
+        try {
+          const plan = await generateAutopilotPlan({
+            data,
+            assumptions: getInteractiveSolverAssumptions(assumptions),
+            selectedStressors,
+            selectedResponses,
+            targetLegacyTodayDollars: Math.max(0, targetLegacy),
+            minSuccessRate: clampRate(minSuccessRatePercent / 100),
+            doNotSellPrimaryResidence,
+            successRateRange: undefined,
+            stressorKnobs: {
+              delayedInheritanceYears: delayedInheritanceYearsKnob,
+              layoffRetireDate: layoffRetireDateKnob,
+              layoffSeverance: layoffSeveranceKnob,
+            },
+          });
+          setResult(plan);
+        } catch (autopilotError) {
+          setError(
+            autopilotError instanceof Error ? autopilotError.message : 'Autopilot generation failed.',
+          );
+        } finally {
+          setIsRunning(false);
+        }
+      })();
     });
   };
 
@@ -3628,6 +7281,7 @@ function SimulationScreen({
   onCancelSuggestionRanking: () => void;
   onApplySuggestion: (responseId: string) => void;
 }) {
+  const data = useAppStore((state) => state.data);
   const stressors = useAppStore((state) => state.data.stressors);
   const responses = useAppStore((state) => state.data.responses);
   const selectedStressors = useAppStore((state) => state.draftSelectedStressors);
@@ -3762,6 +7416,20 @@ function SimulationScreen({
         </div>
       </div>
 
+      {/* Guardrail zone — where the household stands TODAY against the
+          dynamic-withdrawal triggers the engine already simulates inside
+          every path. Tells the user "green / yellow / red" in plain English
+          and in dollar terms, so the monthly headline stops feeling like a
+          fixed verdict and starts feeling like the first reading of a living
+          rulebook. */}
+      {usingSolvedNumber ? (
+        <GuardrailZonePanel
+          data={data}
+          assumptions={assumptions}
+          current={solvedSpendProfile}
+        />
+      ) : null}
+
       {/* Retirement smile — shows how real spending tapers through retirement */}
       {usingSolvedNumber ? (
         <SmileCurve
@@ -3769,6 +7437,11 @@ function SimulationScreen({
           current={solvedSpendProfile}
           showDelta={showDelta}
         />
+      ) : null}
+
+      {/* Cemetery card — how much is left at planning horizon across futures */}
+      {usingSolvedNumber ? (
+        <CemeteryCard current={solvedSpendProfile} />
       ) : null}
 
       {/* Tweaks & Solutions */}
@@ -4377,6 +8050,801 @@ function SmileCurve({
           );
         })}
       </div>
+    </article>
+  );
+}
+
+/**
+ * Compact "what the plan is telling you to do today" card for the home
+ * (overview) screen. One line: zone + monthly spend + key trigger thresholds.
+ * Click-through jumps to the Simulations sandbox for the full panel.
+ */
+function PlanReadingCard({
+  data,
+  assumptions,
+  solvedSpendProfile,
+  onJumpToSandbox,
+}: {
+  data: SeedData;
+  assumptions: MarketAssumptions;
+  solvedSpendProfile: SolvedSpendProfile | null;
+  onJumpToSandbox: () => void;
+}) {
+  if (!solvedSpendProfile) {
+    return (
+      <article className="mb-4 rounded-[24px] border border-stone-200 bg-stone-50/70 p-4">
+        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-stone-500">
+          Today's plan reading
+        </p>
+        <p className="mt-1 text-sm text-stone-600">
+          Run the sandbox to compute today's monthly spend and guardrail zone.
+        </p>
+        <button
+          type="button"
+          onClick={onJumpToSandbox}
+          className="mt-3 rounded-full border border-stone-300 bg-white px-3 py-1.5 text-xs font-semibold text-stone-700 transition hover:bg-stone-100"
+        >
+          Open sandbox →
+        </button>
+      </article>
+    );
+  }
+
+  const portfolio =
+    (data.accounts.pretax?.balance ?? 0) +
+    (data.accounts.roth?.balance ?? 0) +
+    (data.accounts.taxable?.balance ?? 0) +
+    (data.accounts.cash?.balance ?? 0) +
+    (data.accounts.hsa?.balance ?? 0);
+  const annualSpend = solvedSpendProfile.monthlySpendNow * 12;
+  const fundedYears = annualSpend > 0 ? portfolio / annualSpend : 0;
+  const floorYears = assumptions.guardrailFloorYears;
+  const ceilingYears = assumptions.guardrailCeilingYears;
+  const cutPercent = assumptions.guardrailCutPercent;
+
+  const zone: 'green' | 'yellow' | 'red' =
+    fundedYears >= ceilingYears ? 'green' : fundedYears <= floorYears ? 'red' : 'yellow';
+
+  const action =
+    zone === 'green'
+      ? `Spend up to ${formatCurrency(Math.round(solvedSpendProfile.monthlySpendNow))}/mo this month.`
+      : zone === 'yellow'
+        ? `Hold spending at ${formatCurrency(Math.round(solvedSpendProfile.monthlySpendNow))}/mo. Don't expand travel or big-ticket optional.`
+        : `Cut optional + travel by ${Math.round(cutPercent * 100)}% until portfolio recovers above ${formatCurrency(Math.round(ceilingYears * annualSpend))}.`;
+
+  const tone = {
+    green: { border: 'border-emerald-300', bg: 'bg-emerald-50/80', dot: 'bg-emerald-500', text: 'text-emerald-900', sub: 'text-emerald-700' },
+    yellow: { border: 'border-amber-300', bg: 'bg-amber-50/80', dot: 'bg-amber-500', text: 'text-amber-900', sub: 'text-amber-700' },
+    red: { border: 'border-rose-300', bg: 'bg-rose-50/80', dot: 'bg-rose-500', text: 'text-rose-900', sub: 'text-rose-700' },
+  }[zone];
+
+  const zoneLabel = zone === 'green' ? 'GREEN' : zone === 'yellow' ? 'YELLOW' : 'RED';
+
+  return (
+    <article className={`mb-4 rounded-[24px] border p-4 shadow-sm ${tone.border} ${tone.bg}`}>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2">
+            <span className={`h-3 w-3 rounded-full ${tone.dot}`} />
+            <p className={`text-xs font-semibold uppercase tracking-[0.18em] ${tone.sub}`}>
+              Today's plan reading · {zoneLabel} zone · {fundedYears.toFixed(1)}yr runway
+            </p>
+          </div>
+          <h3 className={`mt-2 text-lg font-semibold leading-snug ${tone.text}`}>{action}</h3>
+          <p className={`mt-1 text-xs ${tone.sub}`}>
+            Cut trigger {formatCurrency(Math.round(floorYears * annualSpend))} · Restore trigger{' '}
+            {formatCurrency(Math.round(ceilingYears * annualSpend))} · Portfolio today{' '}
+            <strong>{formatCurrency(Math.round(portfolio))}</strong>.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={onJumpToSandbox}
+          className="rounded-full border border-stone-300 bg-white/70 px-3 py-1.5 text-xs font-semibold text-stone-700 transition hover:bg-white"
+        >
+          Tune in sandbox →
+        </button>
+      </div>
+    </article>
+  );
+}
+
+/**
+ * Current guardrail-zone reading for the household today.
+ *
+ * The Monte Carlo engine already runs Guyton-Klinger-style optional-spending
+ * guardrails inside every simulated path (see `guardrails` block in utils.ts):
+ *   - If fundedYears drops below `floorYears` → cut optional + travel by `cutPercent`.
+ *   - If fundedYears recovers above `ceilingYears` → restore optional + travel.
+ *
+ * This card surfaces where the household is RIGHT NOW against those triggers,
+ * so the committed monthly spend stops reading as a verdict and starts reading
+ * as the first reading of a live rulebook. Every recalc moves the needle.
+ *
+ * fundedYears = totalPortfolio / annualSpendTarget. Zones:
+ *   RED    → fundedYears <= floorYears         (cut-triggered in the sim)
+ *   YELLOW → floorYears < fundedYears < ceilingYears (restore band)
+ *   GREEN  → fundedYears >= ceilingYears       (full-throttle spend)
+ */
+/**
+ * Sensible default ladder when the user toggles staircase mode on. Mirrors
+ * the kind of pivot sequence someone would actually plan: trim travel mildly
+ * → start cutting optional → sell the house → cut harder. Each tier is
+ * editable in the UI; this is just the seed.
+ */
+function defaultGuardrailLadder(): GuardrailTier[] {
+  return [
+    {
+      id: 'tier-mild-travel',
+      triggerFundedYears: 16,
+      action: 'cut_travel',
+      amountPercent: 0.2,
+      label: 'Trim travel',
+    },
+    {
+      id: 'tier-mild-optional',
+      triggerFundedYears: 12,
+      action: 'cut_optional',
+      amountPercent: 0.1,
+      label: 'Cut optional',
+    },
+    {
+      id: 'tier-sell-house',
+      triggerFundedYears: 9,
+      action: 'sell_house',
+      label: 'Sell house early',
+    },
+    {
+      id: 'tier-deep-optional',
+      triggerFundedYears: 7,
+      action: 'cut_optional',
+      amountPercent: 0.15,
+      label: 'Deeper optional cut',
+    },
+  ];
+}
+
+const TIER_ACTION_LABELS: Record<GuardrailTier['action'], string> = {
+  cut_optional: 'Cut optional',
+  cut_travel: 'Cut travel',
+  sell_house: 'Sell house early',
+  claim_ss_early: 'Claim SS early',
+};
+
+function GuardrailZonePanel({
+  data,
+  assumptions,
+  current,
+}: {
+  data: SeedData;
+  assumptions: MarketAssumptions;
+  current: SolvedSpendProfile | null;
+}) {
+  const updateAssumption = useAppStore((state) => state.updateAssumption);
+  const [tunerOpen, setTunerOpen] = useState(false);
+  if (!current) return null;
+
+  const floorYears = assumptions.guardrailFloorYears;
+  const ceilingYears = assumptions.guardrailCeilingYears;
+  const cutPercent = assumptions.guardrailCutPercent;
+  const pivotSellHouseFloorYears = assumptions.pivotSellHouseFloorYears ?? 0;
+  const pivotClaimSSEarlyFloorYears = assumptions.pivotClaimSSEarlyFloorYears ?? 0;
+  const pivotSellEnabled = pivotSellHouseFloorYears > 0;
+  const pivotSSEnabled = pivotClaimSSEarlyFloorYears > 0;
+  const ladder = assumptions.guardrailLadder;
+  const ladderEnabled = !!ladder && ladder.length > 0;
+
+  // Mutator helper: replaces the whole ladder. Cheap given small tier counts.
+  const setLadder = (next: GuardrailTier[] | undefined) =>
+    updateAssumption('guardrailLadder', next);
+
+  const portfolio =
+    (data.accounts.pretax?.balance ?? 0) +
+    (data.accounts.roth?.balance ?? 0) +
+    (data.accounts.taxable?.balance ?? 0) +
+    (data.accounts.cash?.balance ?? 0) +
+    (data.accounts.hsa?.balance ?? 0);
+
+  const annualSpend = current.monthlySpendNow * 12;
+  const fundedYears = annualSpend > 0 ? portfolio / annualSpend : 0;
+  const floorPortfolio = floorYears * annualSpend;
+  const ceilingPortfolio = ceilingYears * annualSpend;
+
+  const zone: 'green' | 'yellow' | 'red' =
+    fundedYears >= ceilingYears ? 'green' : fundedYears <= floorYears ? 'red' : 'yellow';
+
+  const zoneColors = {
+    green: {
+      border: 'border-emerald-200',
+      bg: 'bg-emerald-50/80',
+      dot: 'bg-emerald-500',
+      eyebrow: 'text-emerald-700',
+      headline: 'text-emerald-900',
+      accent: 'text-emerald-800',
+    },
+    yellow: {
+      border: 'border-amber-200',
+      bg: 'bg-amber-50/80',
+      dot: 'bg-amber-500',
+      eyebrow: 'text-amber-700',
+      headline: 'text-amber-900',
+      accent: 'text-amber-800',
+    },
+    red: {
+      border: 'border-rose-200',
+      bg: 'bg-rose-50/80',
+      dot: 'bg-rose-500',
+      eyebrow: 'text-rose-700',
+      headline: 'text-rose-900',
+      accent: 'text-rose-800',
+    },
+  }[zone];
+
+  const zoneLabel =
+    zone === 'green'
+      ? 'GREEN · full spending'
+      : zone === 'yellow'
+        ? 'YELLOW · watch'
+        : 'RED · hunker down';
+
+  const zoneBlurb =
+    zone === 'green'
+      ? `Portfolio covers ${fundedYears.toFixed(1)}yr of current spending — above the ${ceilingYears}-year ceiling. Spend the full monthly target.`
+      : zone === 'yellow'
+        ? `Portfolio covers ${fundedYears.toFixed(1)}yr of current spending — between the ${floorYears}yr cut trigger and the ${ceilingYears}yr restore trigger. Hold current spending; watch the ratio.`
+        : `Portfolio covers only ${fundedYears.toFixed(1)}yr of current spending — at or below the ${floorYears}yr floor. The plan calls for cutting optional + travel by ${Math.round(cutPercent * 100)}% until the portfolio recovers.`;
+
+  // Estimated monthly optional + travel dollars from seed spending (travel is
+  // annual so divide by 12). Lets us show the actual dollar cut instead of
+  // just a percent.
+  const optionalMonthly = data.spending?.optionalMonthly ?? 0;
+  const travelMonthly = (data.spending?.travelEarlyRetirementAnnual ?? 0) / 12;
+  const cutAmountMonthly = (optionalMonthly + travelMonthly) * cutPercent;
+
+  // Progress bar: where the portfolio sits on a 0 → ceiling scale.
+  const barMax = Math.max(ceilingPortfolio * 1.25, portfolio);
+  const floorPct = Math.min(100, (floorPortfolio / barMax) * 100);
+  const ceilingPct = Math.min(100, (ceilingPortfolio / barMax) * 100);
+  const portfolioPct = Math.min(100, (portfolio / barMax) * 100);
+
+  return (
+    <article className={`mb-6 rounded-[24px] border p-4 shadow-sm ${zoneColors.border} ${zoneColors.bg}`}>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2">
+            <span className={`h-3 w-3 rounded-full ${zoneColors.dot}`} />
+            <p className={`text-xs font-semibold uppercase tracking-[0.18em] ${zoneColors.eyebrow}`}>
+              Zone today · {zoneLabel}
+            </p>
+          </div>
+          <h3 className={`mt-2 text-xl font-semibold leading-snug ${zoneColors.headline}`}>
+            {zoneBlurb}
+          </h3>
+        </div>
+        <div className="text-right">
+          <p className={`text-[11px] font-semibold uppercase tracking-[0.14em] ${zoneColors.eyebrow}`}>
+            funded years
+          </p>
+          <p className={`text-3xl font-semibold ${zoneColors.headline}`}>
+            {fundedYears.toFixed(1)}
+          </p>
+        </div>
+      </div>
+
+      {/* Trigger bar: RED below floor, YELLOW between, GREEN above ceiling. */}
+      <div className="mt-4">
+        <div className="relative h-3 rounded-full bg-white/70 ring-1 ring-stone-200">
+          <div
+            className="absolute inset-y-0 left-0 rounded-l-full bg-rose-300/70"
+            style={{ width: `${floorPct}%` }}
+          />
+          <div
+            className="absolute inset-y-0 bg-amber-200/80"
+            style={{ left: `${floorPct}%`, width: `${Math.max(0, ceilingPct - floorPct)}%` }}
+          />
+          <div
+            className="absolute inset-y-0 right-0 rounded-r-full bg-emerald-200/80"
+            style={{ left: `${ceilingPct}%` }}
+          />
+          <div
+            className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 h-5 w-1 rounded-full bg-stone-900"
+            style={{ left: `${portfolioPct}%` }}
+            title={`Portfolio ${formatCurrency(Math.round(portfolio))}`}
+          />
+        </div>
+        <div className="mt-1 flex justify-between text-[11px] text-stone-600">
+          <span>
+            Cut @ {formatCurrency(Math.round(floorPortfolio))}
+          </span>
+          <span>
+            Portfolio today · <strong>{formatCurrency(Math.round(portfolio))}</strong>
+          </span>
+          <span>
+            Restore @ {formatCurrency(Math.round(ceilingPortfolio))}
+          </span>
+        </div>
+      </div>
+
+      {/* Rulebook: legacy 3-zone view OR staircase tier list when ladder is on. */}
+      {ladderEnabled && ladder ? (
+        <div className="mt-4 rounded-2xl border border-stone-200 bg-white/70 p-3">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-stone-700">
+            Staircase · pivots fire as runway drops
+          </p>
+          <p className="mt-1 text-[11px] text-stone-500">
+            Tiers compose: every active tier applies. Today&rsquo;s portfolio covers{' '}
+            <strong>{fundedYears.toFixed(1)}yr</strong> of spend; tiers below that trigger fire on
+            this path.
+          </p>
+          <ol className="mt-3 space-y-1.5">
+            {[...ladder]
+              .sort((a, b) => b.triggerFundedYears - a.triggerFundedYears)
+              .map((tier) => {
+                const active = fundedYears < tier.triggerFundedYears;
+                const amt =
+                  tier.amountPercent != null
+                    ? ` ${Math.round(tier.amountPercent * 100)}%`
+                    : '';
+                return (
+                  <li
+                    key={tier.id}
+                    className={`flex items-center justify-between gap-3 rounded-lg border px-3 py-2 text-sm ${
+                      active
+                        ? 'border-rose-300 bg-rose-50/80 text-rose-900'
+                        : 'border-stone-200 bg-white text-stone-700'
+                    }`}
+                  >
+                    <span className="flex items-center gap-2">
+                      <span
+                        className={`inline-block h-2 w-2 rounded-full ${
+                          active ? 'bg-rose-500' : 'bg-stone-300'
+                        }`}
+                      />
+                      <span>
+                        <strong>{tier.label ?? TIER_ACTION_LABELS[tier.action]}</strong>
+                        <span className="ml-1 text-stone-500">
+                          · {TIER_ACTION_LABELS[tier.action]}
+                          {amt}
+                        </span>
+                      </span>
+                    </span>
+                    <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-stone-500">
+                      {active ? 'firing' : `at ${tier.triggerFundedYears}yr`}
+                    </span>
+                  </li>
+                );
+              })}
+          </ol>
+        </div>
+      ) : (
+        <div className="mt-4 grid gap-2 md:grid-cols-3">
+          <div
+            className={`rounded-2xl border bg-white/70 p-3 ${
+              zone === 'green' ? 'border-emerald-300 ring-1 ring-emerald-400' : 'border-stone-200'
+            }`}
+          >
+            <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-emerald-700">
+              Green · full spend
+            </p>
+            <p className="mt-1 text-sm text-stone-700">
+              Portfolio &gt; {formatCurrency(Math.round(ceilingPortfolio))}.<br />
+              Spend up to <strong>{formatCurrency(Math.round(current.monthlySpendNow))}/mo</strong>.
+            </p>
+          </div>
+          <div
+            className={`rounded-2xl border bg-white/70 p-3 ${
+              zone === 'yellow' ? 'border-amber-300 ring-1 ring-amber-400' : 'border-stone-200'
+            }`}
+          >
+            <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-amber-700">
+              Yellow · hold &amp; watch
+            </p>
+            <p className="mt-1 text-sm text-stone-700">
+              Between {formatCurrency(Math.round(floorPortfolio))} and{' '}
+              {formatCurrency(Math.round(ceilingPortfolio))}. Hold current spend; don&rsquo;t
+              expand travel or big-ticket optional.
+            </p>
+          </div>
+          <div
+            className={`rounded-2xl border bg-white/70 p-3 ${
+              zone === 'red' ? 'border-rose-300 ring-1 ring-rose-400' : 'border-stone-200'
+            }`}
+          >
+            <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-rose-700">
+              Red · hunker down
+            </p>
+            <p className="mt-1 text-sm text-stone-700">
+              Portfolio &lt; {formatCurrency(Math.round(floorPortfolio))}. Cut optional + travel
+              by {Math.round(cutPercent * 100)}% (≈{formatCurrency(Math.round(cutAmountMonthly))}/mo) until
+              funded-years recovers above {ceilingYears}.
+            </p>
+          </div>
+        </div>
+      )}
+
+      <p className="mt-3 text-[11px] text-stone-500">
+        This is the same dynamic-guardrail rule the Monte Carlo engine already runs
+        inside every one of the {assumptions.simulationRuns.toLocaleString()} simulated paths behind the
+        monthly spend headline. Re-run the sim any time to refresh the zone reading.
+      </p>
+
+      {/* Tuner — own the rules. Sliders + pivot toggles. */}
+      <div className="mt-4 border-t border-stone-200/70 pt-3">
+        <button
+          type="button"
+          onClick={() => setTunerOpen((v) => !v)}
+          className="text-[11px] font-semibold uppercase tracking-[0.14em] text-stone-600 hover:text-stone-900"
+        >
+          {tunerOpen ? '▾ Hide rules' : '▸ Tune the rules'}
+        </button>
+        {tunerOpen ? (
+          <div className="mt-3 grid gap-4 lg:grid-cols-2">
+            <div className="rounded-2xl border border-stone-200 bg-white/70 p-3">
+              <div className="flex items-start justify-between gap-2">
+                <div>
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-stone-700">
+                    Core guardrail
+                  </p>
+                  <p className="mt-1 text-[11px] text-stone-500">
+                    {ladderEnabled
+                      ? 'Staircase mode: tiers compose as runway drops. Restore band still uses the ceiling below.'
+                      : 'When portfolio runway drops, cut optional + travel; when it recovers, restore.'}
+                  </p>
+                </div>
+                <label className="flex shrink-0 items-center gap-2 text-[11px] text-stone-700">
+                  <input
+                    type="checkbox"
+                    checked={ladderEnabled}
+                    onChange={(e) =>
+                      setLadder(e.target.checked ? defaultGuardrailLadder() : undefined)
+                    }
+                  />
+                  <span className="font-semibold">Staircase</span>
+                </label>
+              </div>
+
+              {ladderEnabled && ladder ? (
+                <div className="mt-3 space-y-2">
+                  {[...ladder]
+                    .sort((a, b) => b.triggerFundedYears - a.triggerFundedYears)
+                    .map((tier) => {
+                      const idx = ladder.findIndex((t) => t.id === tier.id);
+                      const updateTier = (patch: Partial<GuardrailTier>) => {
+                        const next = ladder.map((t) =>
+                          t.id === tier.id ? { ...t, ...patch } : t,
+                        );
+                        setLadder(next);
+                      };
+                      const removeTier = () => {
+                        const next = ladder.filter((t) => t.id !== tier.id);
+                        setLadder(next.length ? next : undefined);
+                      };
+                      const showAmount =
+                        tier.action === 'cut_optional' || tier.action === 'cut_travel';
+                      return (
+                        <div
+                          key={tier.id}
+                          className="rounded-lg border border-stone-200 bg-white p-2"
+                        >
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="text"
+                              value={tier.label ?? ''}
+                              placeholder={TIER_ACTION_LABELS[tier.action]}
+                              onChange={(e) => updateTier({ label: e.target.value })}
+                              className="flex-1 rounded border border-stone-200 px-2 py-1 text-xs"
+                            />
+                            <select
+                              value={tier.action}
+                              onChange={(e) =>
+                                updateTier({
+                                  action: e.target.value as GuardrailTier['action'],
+                                })
+                              }
+                              className="rounded border border-stone-200 px-2 py-1 text-xs"
+                            >
+                              <option value="cut_optional">Cut optional</option>
+                              <option value="cut_travel">Cut travel</option>
+                              <option value="sell_house">Sell house early</option>
+                              <option value="claim_ss_early">Claim SS early</option>
+                            </select>
+                            <button
+                              type="button"
+                              onClick={removeTier}
+                              className="rounded px-2 py-1 text-[11px] text-rose-600 hover:bg-rose-50"
+                              title="Remove tier"
+                            >
+                              ✕
+                            </button>
+                          </div>
+                          <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                            <SliderRow
+                              label={`Trigger: < ${tier.triggerFundedYears}yr funded`}
+                              value={tier.triggerFundedYears}
+                              min={4}
+                              max={25}
+                              step={1}
+                              onChange={(v) => updateTier({ triggerFundedYears: v })}
+                            />
+                            {showAmount ? (
+                              <SliderRow
+                                label={`Amount: ${Math.round((tier.amountPercent ?? 0) * 100)}%`}
+                                value={Math.round((tier.amountPercent ?? 0) * 100)}
+                                min={5}
+                                max={50}
+                                step={5}
+                                onChange={(v) => updateTier({ amountPercent: v / 100 })}
+                              />
+                            ) : (
+                              <div className="flex items-end pb-1 text-[11px] text-stone-500">
+                                {tier.action === 'sell_house'
+                                  ? 'One-shot · home_sale windfall pulled to trigger year.'
+                                  : 'One-shot · SS claim age dropped to 62 (engine wiring pending).'}
+                              </div>
+                            )}
+                          </div>
+                          <input type="hidden" value={idx} readOnly />
+                        </div>
+                      );
+                    })}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const newTier: GuardrailTier = {
+                        id: `tier-${Date.now()}`,
+                        triggerFundedYears: 10,
+                        action: 'cut_optional',
+                        amountPercent: 0.1,
+                      };
+                      setLadder([...(ladder ?? []), newTier]);
+                    }}
+                    className="w-full rounded-lg border border-dashed border-stone-300 py-1.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-stone-600 hover:border-stone-400 hover:text-stone-900"
+                  >
+                    + Add tier
+                  </button>
+                  <SliderRow
+                    label={`Restore trigger (ceiling): ${ceilingYears}yr`}
+                    value={ceilingYears}
+                    min={8}
+                    max={30}
+                    step={1}
+                    onChange={(v) => updateAssumption('guardrailCeilingYears', v)}
+                  />
+                </div>
+              ) : (
+                <div className="mt-3 space-y-3">
+                  <SliderRow
+                    label={`Cut trigger (floor): ${floorYears}yr`}
+                    value={floorYears}
+                    min={6}
+                    max={20}
+                    step={1}
+                    onChange={(v) => updateAssumption('guardrailFloorYears', v)}
+                  />
+                  <SliderRow
+                    label={`Restore trigger (ceiling): ${ceilingYears}yr`}
+                    value={ceilingYears}
+                    min={Math.max(8, floorYears + 1)}
+                    max={30}
+                    step={1}
+                    onChange={(v) => updateAssumption('guardrailCeilingYears', v)}
+                  />
+                  <SliderRow
+                    label={`Cut size: ${Math.round(cutPercent * 100)}% of optional + travel`}
+                    value={Math.round(cutPercent * 100)}
+                    min={5}
+                    max={50}
+                    step={5}
+                    onChange={(v) => updateAssumption('guardrailCutPercent', v / 100)}
+                  />
+                </div>
+              )}
+            </div>
+
+            <div className="rounded-2xl border border-stone-200 bg-white/70 p-3">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-stone-700">
+                Pre-committed pivots
+              </p>
+              <p className="mt-1 text-[11px] text-stone-500">
+                Levers you'd actually pull "if shit hits the fan." Turning these on tells
+                the engine the household will respond — should raise the monthly headline
+                by reducing the worst-case ruin paths.
+              </p>
+              <div className="mt-3 space-y-3">
+                <div>
+                  <label className="flex items-center gap-2 text-sm text-stone-700">
+                    <input
+                      type="checkbox"
+                      checked={pivotSellEnabled}
+                      onChange={(e) =>
+                        updateAssumption(
+                          'pivotSellHouseFloorYears',
+                          e.target.checked ? 8 : undefined,
+                        )
+                      }
+                    />
+                    <span>
+                      <strong>Sell house early</strong> if runway drops below trigger
+                    </span>
+                  </label>
+                  {pivotSellEnabled ? (
+                    <div className="mt-2 pl-6">
+                      <SliderRow
+                        label={`Trigger: fundedYears < ${pivotSellHouseFloorYears}yr`}
+                        value={pivotSellHouseFloorYears}
+                        min={4}
+                        max={Math.max(4, floorYears)}
+                        step={1}
+                        onChange={(v) => updateAssumption('pivotSellHouseFloorYears', v)}
+                      />
+                      <p className="mt-1 text-[11px] text-stone-500">
+                        Engine wired ✓ — home_sale windfall ({formatCurrency(
+                          data.income.windfalls?.find((w) => w.name === 'home_sale')?.amount ?? 0,
+                        )}
+                        ) moves to the trigger year on any path where this fires.
+                      </p>
+                    </div>
+                  ) : null}
+                </div>
+                <div className="border-t border-stone-100 pt-3">
+                  <label className="flex items-center gap-2 text-sm text-stone-700">
+                    <input
+                      type="checkbox"
+                      checked={pivotSSEnabled}
+                      onChange={(e) =>
+                        updateAssumption(
+                          'pivotClaimSSEarlyFloorYears',
+                          e.target.checked ? 8 : undefined,
+                        )
+                      }
+                    />
+                    <span>
+                      <strong>Claim SS early</strong> if runway drops below trigger
+                    </span>
+                  </label>
+                  {pivotSSEnabled ? (
+                    <div className="mt-2 pl-6">
+                      <SliderRow
+                        label={`Trigger: fundedYears < ${pivotClaimSSEarlyFloorYears}yr`}
+                        value={pivotClaimSSEarlyFloorYears}
+                        min={4}
+                        max={Math.max(4, floorYears)}
+                        step={1}
+                        onChange={(v) => updateAssumption('pivotClaimSSEarlyFloorYears', v)}
+                      />
+                      <p className="mt-1 text-[11px] text-amber-700">
+                        UI ready · engine integration pending — toggle is captured but the
+                        per-path SS claim-age override is on the next pass.
+                      </p>
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : null}
+      </div>
+    </article>
+  );
+}
+
+function SliderRow({
+  label,
+  value,
+  min,
+  max,
+  step,
+  onChange,
+}: {
+  label: string;
+  value: number;
+  min: number;
+  max: number;
+  step: number;
+  onChange: (v: number) => void;
+}) {
+  return (
+    <div>
+      <label className="block text-[11px] font-medium text-stone-600">{label}</label>
+      <input
+        type="range"
+        min={min}
+        max={max}
+        step={step}
+        value={value}
+        onChange={(e) => onChange(Number(e.target.value))}
+        className="mt-1 w-full accent-blue-600"
+      />
+    </div>
+  );
+}
+
+function CemeteryCard({ current }: { current: SolvedSpendProfile | null }) {
+  if (!current) return null;
+  // Plan-mode cache (pre-cemetery fields) won't have this block — bail cleanly.
+  const cem = current.cemetery;
+  if (!cem) return null;
+
+  const median = Math.max(0, Math.round(cem.medianTodayDollars));
+  const p25 = Math.max(0, Math.round(cem.p25TodayDollars));
+  const p75 = Math.max(0, Math.round(cem.p75TodayDollars));
+  const p10 = Math.max(0, Math.round(cem.p10TodayDollars));
+  const p90 = Math.max(0, Math.round(cem.p90TodayDollars));
+
+  // Use $25k of cemetery legacy as the threshold for "meaningfully unspent."
+  // Below that it's rounding noise; above that we should draw attention to it.
+  const hasMeaningfulLegacy = median >= 25_000;
+
+  return (
+    <article
+      className={`mb-6 rounded-[24px] border p-4 shadow-sm ${
+        hasMeaningfulLegacy
+          ? 'border-indigo-200 bg-indigo-50/60'
+          : 'border-stone-200 bg-white'
+      }`}
+    >
+      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-indigo-700">
+        What's left in the cemetery
+      </p>
+      <p className="mt-1 text-sm text-stone-600">
+        Unspent portfolio at age {95} across 1,000 simulated futures, in today's dollars. This
+        is money the solver is holding back to satisfy the{' '}
+        {formatPercent(current.successTarget)} success target on the worst sequence-risk paths.
+      </p>
+      <div className="mt-3 grid gap-3 md:grid-cols-5">
+        <div className="rounded-2xl border border-stone-200 bg-white/70 px-3 py-2">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-stone-500">
+            worst 10%
+          </p>
+          <p className="mt-1 text-lg font-semibold text-stone-900">{formatCurrency(p10)}</p>
+          <p className="mt-0.5 text-[11px] text-stone-500">sequence-risk paths</p>
+        </div>
+        <div className="rounded-2xl border border-stone-200 bg-white/70 px-3 py-2">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-stone-500">
+            25th pct
+          </p>
+          <p className="mt-1 text-lg font-semibold text-stone-900">{formatCurrency(p25)}</p>
+          <p className="mt-0.5 text-[11px] text-stone-500">below-average</p>
+        </div>
+        <div className="rounded-2xl border border-indigo-300 bg-white px-3 py-2">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-indigo-700">
+            median
+          </p>
+          <p className="mt-1 text-2xl font-semibold text-indigo-900">
+            {formatCurrency(median)}
+          </p>
+          <p className="mt-0.5 text-[11px] text-indigo-700/80">typical future</p>
+        </div>
+        <div className="rounded-2xl border border-stone-200 bg-white/70 px-3 py-2">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-stone-500">
+            75th pct
+          </p>
+          <p className="mt-1 text-lg font-semibold text-stone-900">{formatCurrency(p75)}</p>
+          <p className="mt-0.5 text-[11px] text-stone-500">above-average</p>
+        </div>
+        <div className="rounded-2xl border border-stone-200 bg-white/70 px-3 py-2">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-stone-500">
+            best 10%
+          </p>
+          <p className="mt-1 text-lg font-semibold text-stone-900">{formatCurrency(p90)}</p>
+          <p className="mt-0.5 text-[11px] text-stone-500">upside paths</p>
+        </div>
+      </div>
+      {hasMeaningfulLegacy ? (
+        <p className="mt-3 text-sm text-indigo-900">
+          In the typical future you die with{' '}
+          <strong>{formatCurrency(median)}</strong> unspent. Half of the simulated futures end
+          with <em>more</em> than that. The solver can't raise your monthly spend without
+          pushing the worst 10% (
+          {formatCurrency(p10)}) below zero — so this legacy is the cost of insuring against
+          the bottom sequence-risk paths.
+        </p>
+      ) : (
+        <p className="mt-3 text-sm text-stone-600">
+          The typical future has essentially nothing left at horizon — the solver is spending
+          the portfolio down on purpose to maximize lifetime spending.
+        </p>
+      )}
     </article>
   );
 }
@@ -5173,245 +9641,6 @@ function ConstraintToggle({
   );
 }
 
-function ExportScreen() {
-  const data = useAppStore((state) => state.data);
-  const assumptions = useAppStore((state) => state.draftAssumptions);
-  const selectedStressors = useAppStore((state) => state.draftSelectedStressors);
-  const selectedResponses = useAppStore((state) => state.draftSelectedResponses);
-  const latestUnifiedPlanEvaluationContext = useAppStore(
-    (state) => state.latestUnifiedPlanEvaluationContext,
-  );
-  const [copied, setCopied] = useState(false);
-  const [payload, setPayload] = useState<PlanningStateExport | null>(null);
-  const [loadState, setLoadState] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
-  const [loadError, setLoadError] = useState<string | null>(null);
-  const requestCounterRef = useRef(0);
-  const activeRequestIdRef = useRef<string | null>(null);
-  const currentEvaluationFingerprint = useMemo(
-    () =>
-      buildEvaluationFingerprint({
-        data,
-        assumptions,
-        selectedStressors,
-        selectedResponses,
-      }),
-    [assumptions, data, selectedResponses, selectedStressors],
-  );
-  const unifiedPlanContextIsFresh =
-    latestUnifiedPlanEvaluationContext?.fingerprint === currentEvaluationFingerprint;
-
-  const exportCacheKey = useMemo(
-    () =>
-      JSON.stringify({
-        cacheVersion: PLANNING_EXPORT_CACHE_VERSION,
-        fingerprint: currentEvaluationFingerprint,
-        unifiedPlanContext: unifiedPlanContextIsFresh
-          ? {
-              fingerprint: latestUnifiedPlanEvaluationContext?.fingerprint ?? null,
-              capturedAtIso: latestUnifiedPlanEvaluationContext?.capturedAtIso ?? null,
-            }
-          : null,
-      }),
-    [
-      currentEvaluationFingerprint,
-      latestUnifiedPlanEvaluationContext,
-      unifiedPlanContextIsFresh,
-    ],
-  );
-  useEffect(() => {
-    const cached = exportPayloadCache.get(exportCacheKey) ?? null;
-    if (cached) {
-      setPayload(cached);
-      setLoadState('ready');
-      setLoadError(null);
-      return;
-    }
-
-    setLoadState('loading');
-    setLoadError(null);
-
-    const requestId = `${EXPORT_REQUEST_PREFIX}-${requestCounterRef.current++}`;
-    activeRequestIdRef.current = requestId;
-
-    const workerAvailable = typeof Worker !== 'undefined';
-    if (!workerAvailable) {
-      void (async () => {
-        try {
-          const next = await buildPlanningStateExportWithResolvedContext({
-            data,
-            assumptions,
-            selectedStressorIds: selectedStressors,
-            selectedResponseIds: selectedResponses,
-            unifiedPlanEvaluation:
-              unifiedPlanContextIsFresh
-                ? latestUnifiedPlanEvaluationContext?.evaluation ?? null
-                : null,
-            unifiedPlanEvaluationCapturedAtIso:
-              unifiedPlanContextIsFresh
-                ? latestUnifiedPlanEvaluationContext?.capturedAtIso ?? null
-                : null,
-          });
-          exportPayloadCache.set(exportCacheKey, next);
-          if (activeRequestIdRef.current === requestId) {
-            setPayload(next);
-            setLoadState('ready');
-            setLoadError(null);
-          }
-        } catch (error) {
-          if (activeRequestIdRef.current === requestId) {
-            setLoadState('error');
-            setLoadError(error instanceof Error ? error.message : 'Failed to generate export.');
-          }
-        }
-      })();
-      return;
-    }
-
-    const worker = new Worker(new URL('./planning-export.worker.ts', import.meta.url), {
-      type: 'module',
-    });
-
-    worker.onmessage = (event: MessageEvent<PlanningExportWorkerResponse>) => {
-      const message = event.data;
-      if (message.requestId !== activeRequestIdRef.current) {
-        return;
-      }
-      if (message.type === 'error') {
-        setLoadState('error');
-        setLoadError(message.error);
-        return;
-      }
-      exportPayloadCache.set(exportCacheKey, message.payload);
-      setPayload(message.payload);
-      setLoadState('ready');
-      setLoadError(null);
-    };
-
-    const requestMessage: PlanningExportWorkerRequest = {
-      type: 'run',
-      payload: {
-        requestId,
-        data,
-        assumptions,
-        selectedStressorIds: selectedStressors,
-        selectedResponseIds: selectedResponses,
-        unifiedPlanEvaluation:
-          unifiedPlanContextIsFresh
-            ? latestUnifiedPlanEvaluationContext?.evaluation ?? null
-            : null,
-        unifiedPlanEvaluationCapturedAtIso:
-          unifiedPlanContextIsFresh
-            ? latestUnifiedPlanEvaluationContext?.capturedAtIso ?? null
-            : null,
-      },
-    };
-    worker.postMessage(requestMessage);
-
-    return () => {
-      worker.terminate();
-    };
-  }, [
-    assumptions,
-    data,
-    exportCacheKey,
-    latestUnifiedPlanEvaluationContext,
-    selectedResponses,
-    selectedStressors,
-    unifiedPlanContextIsFresh,
-  ]);
-  const payloadJson = useMemo(
-    () => (payload ? JSON.stringify(payload, null, 2) : ''),
-    [payload],
-  );
-  const probeStatusCounts = useMemo(() => {
-    const counts = {
-      modeled: 0,
-      partial: 0,
-      attention: 0,
-      missing: 0,
-    };
-    payload?.probeChecklist.items.forEach((item) => {
-      counts[item.status] += 1;
-    });
-    return counts;
-  }, [payload?.probeChecklist.items]);
-
-  const copyPayload = async () => {
-    const text = payloadJson;
-    if (!text) {
-      return;
-    }
-    try {
-      if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(text);
-      } else if (typeof document !== 'undefined') {
-        const element = document.createElement('textarea');
-        element.value = text;
-        element.setAttribute('readonly', 'true');
-        element.style.position = 'absolute';
-        element.style.left = '-9999px';
-        document.body.appendChild(element);
-        element.select();
-        document.execCommand('copy');
-        document.body.removeChild(element);
-      }
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 1500);
-    } catch {
-      setCopied(false);
-    }
-  };
-
-  return (
-    <Panel
-      title="Export"
-      subtitle="Machine-readable snapshot of the current planning state for external AI/simulation runners."
-    >
-      <div className="rounded-[24px] bg-stone-100/85 p-4">
-        <div className="flex items-center justify-between gap-3">
-          <div className="space-y-1">
-            <p className="text-sm font-medium text-stone-600">
-              Current state export ({payload?.version.schema ?? 'pending'})
-            </p>
-            <p className="text-xs text-stone-500">
-              Unified plan context: {payload?.flightPath.evaluationContext.available
-                ? `included (${payload.flightPath.evaluationContext.capturedAtIso ?? 'timestamp unavailable'})`
-                : latestUnifiedPlanEvaluationContext
-                  ? 'stale versus current draft inputs (rerun Unified Plan to refresh summary metrics)'
-                  : 'not available (run Unified Plan to include route-based recommendations)'}
-            </p>
-            <p className="text-xs text-stone-500">
-              Probe checklist: {payload?.probeChecklist.items.length ?? 0} items · modeled {probeStatusCounts.modeled} · partial {probeStatusCounts.partial} · attention {probeStatusCounts.attention} · missing {probeStatusCounts.missing}
-            </p>
-            {loadState === 'loading' ? (
-              <p className="text-xs text-blue-700">Generating export in background…</p>
-            ) : null}
-            {loadState === 'error' ? (
-              <p className="text-xs text-red-700">Export failed: {loadError}</p>
-            ) : null}
-          </div>
-          <button
-            type="button"
-            onClick={copyPayload}
-            disabled={!payload}
-            className="rounded-xl bg-blue-600 px-3 py-2 text-xs font-semibold text-white transition hover:bg-blue-500"
-          >
-            {copied ? 'Copied' : 'Copy'}
-          </button>
-        </div>
-        {payload ? (
-          <pre className="mt-3 max-h-[640px] overflow-auto rounded-xl bg-stone-950 p-4 text-xs leading-6 text-stone-100">
-            <code>{payloadJson}</code>
-          </pre>
-        ) : (
-          <div className="mt-3 rounded-xl bg-stone-950 p-4 text-xs leading-6 text-stone-200">
-            Building export payload...
-          </div>
-        )}
-      </div>
-    </Panel>
-  );
-}
 
 function AccordionSection({
   title,

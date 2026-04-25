@@ -4,6 +4,10 @@ import type { PlanEvaluation } from './plan-evaluation';
 import { buildEvaluationFingerprint } from './evaluation-fingerprint';
 import { loadPlanEvalFromCache, savePlanEvalToCache } from './plan-eval-cache';
 import {
+  loadLegacyTargetFromCache,
+  saveLegacyTargetToCache,
+} from './legacy-target-cache';
+import {
   buildSnapshot,
   loadSnapshots,
   saveSnapshots,
@@ -298,6 +302,15 @@ interface AppState {
     value: MarketAssumptions[K],
   ) => void;
   updateSpending: <K extends keyof SpendingData>(key: K, value: SpendingData[K]) => void;
+  /**
+   * Set (or clear) the household's end-of-plan legacy goal in today's
+   * dollars. Lives on `data.goals.legacyTargetTodayDollars`. Pass
+   * `undefined` to clear the target — the Advisor falls back to its
+   * "no target set" prompt. Touches both `data` and `appliedData` so the
+   * North Star reads consistently across draft and committed views; goals
+   * are presentation-only today and don't trigger a pending-changes flag.
+   */
+  setLegacyTarget: (value: number | undefined) => void;
   updateIncome: <K extends 'salaryAnnual' | 'salaryEndDate'>(
     key: K,
     value: IncomeData[K],
@@ -350,6 +363,15 @@ const defaultAssumptions: MarketAssumptions = {
   guardrailFloorYears: 12,
   guardrailCeilingYears: 18,
   guardrailCutPercent: 0.2,
+  // Pre-committed pivots are off by default — enabling them makes the model
+  // assume the household will actually pull these levers under stress, which
+  // can raise the supported monthly headline by reducing late-life ruin risk.
+  pivotSellHouseFloorYears: undefined,
+  pivotClaimSSEarlyFloorYears: undefined,
+  // Staircase guardrail OFF by default — falls back to single-tier rule.
+  // Users can toggle it on in the sandbox tuner; we then seed a sensible
+  // 4-tier ladder they can edit row-by-row.
+  guardrailLadder: undefined,
   robPlanningEndAge: 90,
   debbiePlanningEndAge: 95,
   travelPhaseYears: 10,
@@ -364,6 +386,23 @@ const initialFingerprint = buildEvaluationFingerprint({
   selectedResponses: [],
 });
 const restoredEvalContext = loadPlanEvalFromCache(initialFingerprint);
+
+// Restore the household's North Star (`legacyTargetTodayDollars`) from
+// localStorage so a refresh doesn't force them to re-enter it. We splice
+// the cached value into the seed data here rather than as a follow-up
+// `set()` call so the very first render already shows the right number
+// — no flash of the seed default.
+const restoredLegacyTarget = loadLegacyTargetFromCache();
+const seedDataWithRestoredLegacy: SeedData =
+  restoredLegacyTarget === undefined
+    ? initialSeedData
+    : {
+        ...initialSeedData,
+        goals: {
+          ...(initialSeedData.goals ?? {}),
+          legacyTargetTodayDollars: restoredLegacyTarget,
+        },
+      };
 
 const initialSnapshots: PlanSnapshot[] = (() => {
   const existing = loadSnapshots();
@@ -380,8 +419,8 @@ const initialSnapshots: PlanSnapshot[] = (() => {
 })();
 
 export const useAppStore = create<AppState>((set) => ({
-  data: cloneSeedData(initialSeedData),
-  appliedData: cloneSeedData(initialSeedData),
+  data: cloneSeedData(seedDataWithRestoredLegacy),
+  appliedData: cloneSeedData(seedDataWithRestoredLegacy),
   currentScreen: 'overview',
   draftSelectedStressors: [],
   draftSelectedResponses: [],
@@ -528,6 +567,24 @@ export const useAppStore = create<AppState>((set) => ({
       });
 
       return { data, hasPendingSimulationChanges };
+    }),
+  setLegacyTarget: (value) =>
+    set((state) => {
+      // Mirror the value into both draft (`data`) and committed
+      // (`appliedData`) — goals don't drive simulation today, so there's
+      // no reason to gate the North Star behind a "Run plan" click.
+      const writeGoals = (target: SeedData) => ({
+        ...target,
+        goals: { ...(target.goals ?? {}), legacyTargetTodayDollars: value },
+      });
+      // Persist to localStorage so the value survives a page refresh.
+      // Cache writes are best-effort (storage may be full or disabled);
+      // failures are swallowed inside the cache helper.
+      saveLegacyTargetToCache(value);
+      return {
+        data: writeGoals(state.data),
+        appliedData: writeGoals(state.appliedData),
+      };
     }),
   updateIncome: (key, value) =>
     set((state) => {

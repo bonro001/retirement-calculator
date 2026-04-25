@@ -81,13 +81,21 @@ describe('ACA subsidy / FPL-band behavior', () => {
     expect(out.netAcaCost).toBe(BASE_PREMIUM_PER_PERSON * 2);
   });
 
-  it('no subsidy if not retired (working ACA enrollee outside scope)', () => {
+  it('no ACA cost if not retired (working household assumed on employer insurance)', () => {
+    // Updated semantics: working households are assumed to be on
+    // employer-provided health insurance, so the engine no longer models
+    // a hypothetical marketplace premium. Previously this test pinned the
+    // old behavior of charging the full ACA premium with zero subsidy
+    // during working years, which surfaced as a misleading "ACA subsidy
+    // lost" signal in the Advisor "Tax & coverage" card. See
+    // healthcare-premium-engine.ts for the matching gating logic.
     const magi = FPL_HOUSEHOLD_2 * 2;
     const out = calculateHealthcarePremiums(
       mkInput({ MAGI: magi, retirementStatus: false }),
     );
+    expect(out.acaPremiumEstimate).toBe(0);
     expect(out.acaSubsidyEstimate).toBe(0);
-    expect(out.netAcaCost).toBe(BASE_PREMIUM_PER_PERSON * 2);
+    expect(out.netAcaCost).toBe(0);
   });
 
   it('no subsidy if all members on Medicare', () => {
