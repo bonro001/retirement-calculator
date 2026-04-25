@@ -72,6 +72,7 @@ import type {
   DecisionEngineWorkerResponse,
 } from './decision-engine-worker-types';
 import type { Plan } from './plan-evaluation';
+import { approximateBequestAttainmentRate } from './plan-evaluation';
 import {
   evaluateDecisionLevers,
   type DecisionEngineReport,
@@ -2772,12 +2773,31 @@ function YearCard({ year, label, yearData, events, isPrimary }: YearCardProps) {
           ACA when both members are on Medicare). */}
       {yearData && (() => {
         const signals = buildYearTaxSignals(yearData);
-        if (signals.length === 0) return null;
+        // MAGI = Modified Adjusted Gross Income — the single number the IRS,
+        // ACA, and IRMAA all key off. We surface it as the "context number"
+        // above the chips so the household can see *what's driving* the
+        // signals (a chip saying "ACA subsidy lost" makes a lot more sense
+        // when the MAGI line right above it reads $300k). Hidden if missing
+        // or non-positive (early-year noise, or scenarios where the engine
+        // didn't compute it).
+        const magi = Math.round(yearData.medianMagi ?? 0);
+        const showMagi = magi > 0;
+        if (signals.length === 0 && !showMagi) return null;
         return (
           <div className="mt-4 border-t border-stone-100 pt-3">
             <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-stone-500">
               Tax &amp; coverage
             </p>
+            {showMagi && (
+              <div className="mt-2 flex items-baseline justify-between gap-3 text-xs text-stone-700">
+                <span title="Modified Adjusted Gross Income — the IRS-relevant income figure that drives your tax bracket, ACA subsidy, and IRMAA tier">
+                  Projected income (MAGI)
+                </span>
+                <span className="tabular-nums text-stone-900">
+                  {formatCurrency(magi)}
+                </span>
+              </div>
+            )}
             <ul className="mt-2 space-y-2 text-xs">
               {signals.map((sig) => (
                 <li key={sig.key}>
@@ -3079,19 +3099,40 @@ function AdvisorRoom({
 
   // ----- North Star (end-of-plan / legacy goal) -----------------------------
   // The thing this app respects that other calculators don't: the dollar
-  // amount the household wants left at the end of the plan. We compare the
-  // household's stated target against the engine's projected median ending
-  // wealth from the baseline path. p10 (10th-percentile) is the honest
-  // "bad luck" read so the household sees both the typical outcome and the
-  // tail.
+  // amount the household wants left at the end of the plan.
+  //
+  // We pull ending-wealth percentiles from `solvedSpendProfile.cemetery` —
+  // those are denominated in TODAY'S dollars, which is the same unit the
+  // user enters their target in. The previous version of this card pulled
+  // `baselinePathResult.medianEndingWealth` instead, which is nominal future
+  // dollars — that's why a $1M target showed a phantom "+$2.4M cushion"
+  // even on plans that were actually cutting it close in real terms.
+  //
+  // The headline metric households actually care about is "what's the chance
+  // I leave at least my goal?" — computed from the 5-percentile cemetery
+  // distribution via linear interpolation of the CDF.
   const legacyTarget = data.goals?.legacyTargetTodayDollars;
-  const projectedMedianLegacy = baselinePathResult?.medianEndingWealth ?? null;
-  const projectedP10Legacy = baselinePathResult?.tenthPercentileEndingWealth ?? null;
-  const legacyGap =
-    legacyTarget !== undefined && projectedMedianLegacy !== null
-      ? projectedMedianLegacy - legacyTarget
+  const cemetery = solvedSpendProfile?.cemetery ?? null;
+  const projectedMedianLegacy = cemetery?.medianTodayDollars ?? null;
+  const projectedP10Legacy = cemetery?.p10TodayDollars ?? null;
+  const projectedP90Legacy = cemetery?.p90TodayDollars ?? null;
+  const bequestAttainmentRate =
+    legacyTarget !== undefined && legacyTarget > 0 && cemetery !== null
+      ? approximateBequestAttainmentRate(legacyTarget, {
+          p10: cemetery.p10TodayDollars,
+          p25: cemetery.p25TodayDollars,
+          p50: cemetery.medianTodayDollars,
+          p75: cemetery.p75TodayDollars,
+          p90: cemetery.p90TodayDollars,
+        })
       : null;
-  const legacyOnTrack = legacyGap !== null && legacyGap >= 0;
+  // 80% is the soft "comfortable" threshold — same standard used elsewhere
+  // for plan-level success targets. Below that we paint amber/rose so the
+  // household sees the gap; at or above we paint emerald.
+  const bequestComfortable =
+    bequestAttainmentRate !== null && bequestAttainmentRate >= 0.8;
+  const bequestStretched =
+    bequestAttainmentRate !== null && bequestAttainmentRate < 0.5;
 
   // ----- Bucket allocation guidance ---------------------------------------
   // The household reads year-by-year flight cards above to see *which*
@@ -3288,10 +3329,11 @@ function AdvisorRoom({
             />
           </div>
         ) : (
-          <div className="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-3">
+          <div className="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            {/* GOAL — the household's stated target. Editable. */}
             <div>
               <p className="text-[11px] font-medium uppercase tracking-wider text-stone-500">
-                Target (today $)
+                Goal
               </p>
               <p className="mt-1 text-3xl font-semibold tabular-nums text-stone-900">
                 {formatCurrency(Math.round(legacyTarget))}
@@ -3300,7 +3342,7 @@ function AdvisorRoom({
                 type="button"
                 onClick={() => {
                   const raw = window.prompt(
-                    'New end-of-plan target (today\u0027s dollars). Leave blank to clear.',
+                    'New end-of-plan goal (today\u0027s dollars). Leave blank to clear.',
                     String(legacyTarget),
                   );
                   if (raw === null) return;
@@ -3316,12 +3358,49 @@ function AdvisorRoom({
                 }}
                 className="mt-1 text-[11px] font-medium text-blue-700 hover:text-blue-900"
               >
-                Edit target
+                Edit goal
               </button>
             </div>
+
+            {/* HEADLINE METRIC — chance of leaving ≥ the goal. This is the
+                question the household is actually asking when they set a
+                North Star. Color-coded vs the 80% comfortable threshold. */}
             <div>
               <p className="text-[11px] font-medium uppercase tracking-wider text-stone-500">
-                Projected median
+                Likely to leave at least your goal
+              </p>
+              <p
+                className={`mt-1 text-3xl font-semibold tabular-nums ${
+                  bequestAttainmentRate === null
+                    ? 'text-stone-400'
+                    : bequestComfortable
+                      ? 'text-emerald-700'
+                      : bequestStretched
+                        ? 'text-rose-700'
+                        : 'text-amber-700'
+                }`}
+              >
+                {bequestAttainmentRate === null
+                  ? planRunning ? '…' : '—'
+                  : `${Math.round(bequestAttainmentRate * 100)}%`}
+              </p>
+              <p className="mt-1 text-[11px] text-stone-500">
+                {bequestAttainmentRate === null
+                  ? 'engine running'
+                  : bequestComfortable
+                    ? 'comfortable margin'
+                    : bequestStretched
+                      ? 'stretched — would you spend less or work longer?'
+                      : 'doable but tight — small misses matter'}
+              </p>
+            </div>
+
+            {/* TYPICAL OUTCOME — what the middle path actually leaves behind,
+                in today's dollars. The number that answers "if things go
+                roughly as expected, how much will I leave?" */}
+            <div>
+              <p className="text-[11px] font-medium uppercase tracking-wider text-stone-500">
+                Typical outcome
               </p>
               <p className="mt-1 text-3xl font-semibold tabular-nums text-stone-900">
                 {projectedMedianLegacy !== null
@@ -3329,37 +3408,36 @@ function AdvisorRoom({
                   : planRunning ? '…' : '—'}
               </p>
               <p className="mt-1 text-[11px] text-stone-500">
-                {projectedP10Legacy !== null
-                  ? `p10: ${formatCurrency(Math.round(projectedP10Legacy))}`
-                  : 'engine running'}
+                middle of all simulated paths
               </p>
             </div>
+
+            {/* TAIL READ — what the worst 10% of paths leave. The number
+                that answers "if markets misbehave, how much do I leave?" */}
             <div>
               <p className="text-[11px] font-medium uppercase tracking-wider text-stone-500">
-                Cushion vs target
+                If markets misbehave
               </p>
-              <p
-                className={`mt-1 text-3xl font-semibold tabular-nums ${
-                  legacyGap === null
-                    ? 'text-stone-400'
-                    : legacyOnTrack
-                      ? 'text-emerald-700'
-                      : 'text-rose-700'
-                }`}
-              >
-                {legacyGap === null
-                  ? '—'
-                  : `${legacyGap >= 0 ? '+' : '−'}${formatCurrency(Math.round(Math.abs(legacyGap)))}`}
+              <p className="mt-1 text-3xl font-semibold tabular-nums text-stone-900">
+                {projectedP10Legacy !== null
+                  ? formatCurrency(Math.round(projectedP10Legacy))
+                  : planRunning ? '…' : '—'}
               </p>
               <p className="mt-1 text-[11px] text-stone-500">
-                {legacyGap === null
-                  ? 'awaiting plan run'
-                  : legacyOnTrack
-                    ? 'on track at median outcome'
-                    : 'short of target at median'}
+                worst 10% of paths leave at least this
               </p>
             </div>
           </div>
+        )}
+        {/* Subtle reminder so it's clear all three numbers are in the same
+            unit as the goal. Suppress while no goal is set (the prompt copy
+            above already explains today-dollar framing). */}
+        {legacyTarget !== undefined && cemetery !== null && (
+          <p className="mt-3 text-[11px] text-stone-500">
+            All values in today&rsquo;s dollars. {projectedP90Legacy !== null
+              ? `If markets are kind, the best 10% of paths leave more than ${formatCurrency(Math.round(projectedP90Legacy))}.`
+              : ''}
+          </p>
         )}
       </section>
 
