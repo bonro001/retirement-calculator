@@ -222,6 +222,15 @@ function generatePeerId(displayName: string, roles: PeerRole[]): string {
 // ---------------------------------------------------------------------------
 
 const SELF_HOST = hostname();
+
+// Where session corpora land. `undefined` lets corpus-writer fall back to
+// its DEFAULT_DATA_DIR (cluster/data, relative to the dispatcher source).
+// Set CLUSTER_DATA_DIR for systemd / NAS / read-only-/opt deploys where
+// the source tree isn't writable.
+const CLUSTER_DATA_ROOT: string | undefined =
+  process.env.CLUSTER_DATA_DIR && process.env.CLUSTER_DATA_DIR.length > 0
+    ? process.env.CLUSTER_DATA_DIR
+    : undefined;
 function log(level: 'info' | 'warn' | 'error', message: string, meta?: Record<string, unknown>) {
   const ts = new Date().toISOString();
   const metaStr = meta ? ' ' + JSON.stringify(meta) : '';
@@ -533,7 +542,7 @@ function handleStartSession(peer: Peer, message: StartSessionMessage): void {
     startedBy: peer.displayName,
   };
   try {
-    openSessionForWrite(manifest, undefined, { resume: isResume });
+    openSessionForWrite(manifest, CLUSTER_DATA_ROOT, { resume: isResume });
   } catch (err) {
     log('error', 'session: corpus open failed', { err: String(err), sessionId });
     return;
@@ -1056,10 +1065,9 @@ function sendNotFound(
  */
 function getCorpusRoot(): string | undefined {
   // undefined → corpus-reader uses its DEFAULT_DATA_DIR (cluster/data
-  // resolved relative to the dispatcher source). An explicit env var
-  // overrides for NAS-mount setups.
-  const env = process.env.CLUSTER_DATA_DIR;
-  return env && env.length > 0 ? env : undefined;
+  // resolved relative to the dispatcher source). Reads the same env-resolved
+  // root the writer uses, so reads always match writes.
+  return CLUSTER_DATA_ROOT;
 }
 
 function startDispatcher(port: number): void {
