@@ -285,10 +285,16 @@ function runBatchOnPool(
   return new Promise((resolve, reject) => {
     const slot = pickFreeSlot();
     if (!slot) {
-      // Shouldn't happen: dispatcher is supposed to respect freeWorkerSlots.
-      // If it does happen, nack would be the right answer; for D.2 we just
-      // reject and let the dispatcher's reassign logic (D.5) handle it.
-      reject(new Error('host: no free worker slots — dispatcher overpacked'));
+      // handleBatchAssign pre-checks freeSlotCount() and nacks before
+      // ever calling us — so this branch is reachable only if a slot was
+      // free at pre-check and got grabbed in between (no concurrent path
+      // exists today, but defensively we tag the rejection so the catch
+      // in handleBatchAssign can distinguish "host overpacked → must
+      // nack, NOT batch_result with 0 evals" from a real worker error.)
+      const err = Object.assign(new Error('host: no free worker slots — dispatcher overpacked'), {
+        kind: 'host_no_free_slots' as const,
+      });
+      reject(err);
       return;
     }
     if (!slot.primedSessionIds.has(sessionId)) {
@@ -556,6 +562,24 @@ async function handleBatchAssign(message: BatchAssignMessage): Promise<void> {
     sendNack(sessionId, batch.batchId, 'engine_version_mismatch');
     return;
   }
+  // Pre-flight slot check. The dispatcher MAY overpack — its heartbeat
+  // bookkeeping can lag behind in-flight work — so a batch can land
+  // when every worker is busy. Nack instead of running through
+  // runBatchOnPool's `reject` path: an error there would surface as a
+  // batch_result with 0 evaluations + partialFailure, which the
+  // dispatcher currently treats as a (zero-policy) completion and
+  // silently drops the work. A nack hits the dispatcher's existing
+  // requeue-with-cooldown + per-policy retry-cap path, so the policies
+  // stay alive in the queue and a healthier host (or this one a moment
+  // later) picks them up.
+  if (freeSlotCount() <= 0) {
+    log('warn', 'no free worker slots — nacking for requeue', {
+      batchId: batch.batchId,
+      policies: batch.policies.length,
+    });
+    sendNack(sessionId, batch.batchId, 'host_no_free_slots');
+    return;
+  }
 
   inFlightBatchIds.add(batch.batchId);
   primeAllSlotsForSession(
@@ -574,6 +598,18 @@ async function handleBatchAssign(message: BatchAssignMessage): Promise<void> {
   try {
     evaluations = await runBatchOnPool(sessionId, batch.batchId, batch.policies);
   } catch (err) {
+    // Race fallback: precheck thought a slot was free but it got taken
+    // before runBatchOnPool grabbed it. Nack and bail — same reasoning
+    // as the precheck in handleBatchAssign above.
+    const tagged = err as Error & { kind?: string };
+    if (tagged.kind === 'host_no_free_slots') {
+      log('warn', 'no free worker slots at run-time — nacking for requeue', {
+        batchId: batch.batchId,
+      });
+      inFlightBatchIds.delete(batch.batchId);
+      sendNack(sessionId, batch.batchId, 'host_no_free_slots');
+      return;
+    }
     const partial = (err as Error & { partial?: PolicyEvaluation[] }).partial;
     if (partial && partial.length > 0) {
       evaluations = partial;

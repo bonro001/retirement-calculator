@@ -129,6 +129,26 @@ interface Peer {
  *  bouncing one bad batch doesn't sit idle. */
 const NACK_COOLDOWN_MS = 1_000;
 
+/**
+ * Authoritative free-slot count for a peer. The peer's heartbeat-reported
+ * `freeWorkerSlots` is informational only — it can be sampled BEFORE a
+ * just-dispatched batch arrives at the host's worker pool, in which case
+ * trusting it would let pumpDispatch issue more batches than the host
+ * can run. The host then either nacks (best case) or — in the original
+ * D.4 implementation — threw an error that surfaced as a 0-evaluation
+ * `batch_result`, which the dispatcher treated as "complete" and
+ * silently dropped the policies.
+ *
+ * The fix: derive free slots from `workerCount - inFlightBatchIds.size`.
+ * Both numbers are owned by the dispatcher: workerCount comes from
+ * register; inFlightBatchIds is updated whenever we assign / complete /
+ * nack / disconnect. By construction this can't lie.
+ */
+function effectiveFreeSlots(peer: Peer): number {
+  const total = peer.capabilities?.workerCount ?? 0;
+  return Math.max(0, total - peer.inFlightBatchIds.size);
+}
+
 const peers = new Map<string, Peer>();
 
 // ---------------------------------------------------------------------------
@@ -700,7 +720,9 @@ function pumpDispatch(): void {
   const now = Date.now();
   for (const peer of hostsByName) {
     if (session.queue.pendingCount() === 0) break;
-    if (peer.freeWorkerSlots <= 0) continue;
+    // Authoritative — see `effectiveFreeSlots` above for why heartbeat
+    // can't be trusted here.
+    if (effectiveFreeSlots(peer) <= 0) continue;
     if (peer.socket.readyState !== peer.socket.OPEN) continue;
     if (peer.pumpCooldownUntilMs > now) continue;
 
@@ -733,9 +755,9 @@ function pumpDispatch(): void {
     };
     sendTo(peer, batchAssign);
     peer.inFlightBatchIds.add(assigned.batchId);
-    // Optimistic decrement; the next heartbeat will correct us if the
-    // host's worker pool was actually busier than we thought.
-    peer.freeWorkerSlots = Math.max(0, peer.freeWorkerSlots - 1);
+    // No optimistic decrement of peer.freeWorkerSlots: that field is
+    // now informational only. inFlightBatchIds.add IS the decrement
+    // (effectiveFreeSlots reads it directly).
   }
 }
 
@@ -826,9 +848,8 @@ function handleBatchResult(peer: Peer, message: Extract<ClusterMessage, { kind: 
     session.bestPolicyId = appendOutcome.runningBest.id;
   }
   peer.inFlightBatchIds.delete(message.result.batchId);
-  // Heartbeats refine free-slot count; the result implies +1 since one
-  // worker just freed up.
-  peer.freeWorkerSlots += 1;
+  // No need to bump peer.freeWorkerSlots — effectiveFreeSlots reads
+  // inFlightBatchIds.size directly, and the delete above IS the bump.
 
   // Ack so the host clears its in-flight tracking.
   sendTo(peer, {
@@ -868,7 +889,8 @@ function handleBatchNack(peer: Peer, message: Extract<ClusterMessage, { kind: 'b
   }
   const r = activeSession.queue.requeueBatch(message.batchId);
   peer.inFlightBatchIds.delete(message.batchId);
-  peer.freeWorkerSlots += 1;
+  // effectiveFreeSlots reads inFlightBatchIds.size directly — no need
+  // to touch peer.freeWorkerSlots.
   // Cool-down: don't reassign to this peer for a moment. Without this, a
   // peer that's permanently broken (priming failure, stale state) and a
   // dispatcher that always pumps on nack go into a tight infinite-loop
@@ -909,12 +931,14 @@ function handleMessage(peer: Peer, message: ClusterMessage): void {
 
     case 'heartbeat': {
       peer.lastHeartbeatTs = Date.now();
-      const prevFree = peer.freeWorkerSlots;
+      // Kept for diagnostics / snapshot, but NOT used by pumpDispatch —
+      // see effectiveFreeSlots for why heartbeat-reported free can lag
+      // and lead to overpacking.
       peer.freeWorkerSlots = message.freeWorkerSlots;
-      // If the host now thinks it has more free slots than we did, pump
-      // — this catches the case where our optimistic decrement was wrong
-      // or where an in-flight batch finished without us noticing.
-      if (activeSession && message.freeWorkerSlots > prevFree) {
+      // Heartbeat is a cheap secondary trigger for the pump (the 1Hz
+      // failsafe and the post-result/nack pumps are the primary ones).
+      // pumpDispatch is itself early-exit-cheap when there's no work.
+      if (activeSession && effectiveFreeSlots(peer) > 0) {
         pumpDispatch();
       }
       return;
