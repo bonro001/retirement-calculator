@@ -7,7 +7,10 @@ import type {
   MiningSessionHandle,
 } from './policy-miner';
 import { runMiningSessionWithPool } from './policy-miner';
-import { describeMinerPoolSizing } from './policy-miner-pool';
+import {
+  describeMinerPoolSizing,
+  getMinerPoolSize,
+} from './policy-miner-pool';
 import {
   buildDefaultPolicyAxes,
   enumeratePolicies,
@@ -199,10 +202,20 @@ export function PolicyMiningStatusCard({
   const canResume = !!controls && liveState === 'paused';
   const canCancel = !!controls && (liveState === 'running' || liveState === 'paused');
 
-  // Surface pool size to the user so the half-idle CPU on Apple Silicon
+  // Surface pool sizing to the user so the half-idle CPU on Apple Silicon
   // makes sense at a glance — workers are pinned to the performance
-  // cluster and the efficiency cores stay parked. Cheap pure read.
+  // cluster and the efficiency cores stay parked. We show BOTH the target
+  // (defaultPoolSize) and the actually-spawned count (getMinerPoolSize)
+  // so you can spot when a browser limit (Safari historically caps
+  // dedicated workers at 8 per page) silently lowered the real count.
   const poolSizing = describeMinerPoolSizing();
+  // getMinerPoolSize() lazily initializes the pool — call it only when
+  // a session has actually started so we don't spawn workers just to
+  // render a status card preview.
+  const actualPoolSize =
+    sessionState !== null && sessionState !== 'idle'
+      ? getMinerPoolSize()
+      : null;
 
   const renderControls = () =>
     !controls ? null : (
@@ -243,10 +256,15 @@ export function PolicyMiningStatusCard({
           <span className="text-xs text-rose-600">{startError}</span>
         )}
         <span className="ml-auto text-[11px] text-stone-500">
-          pool: {poolSizing.poolSize} workers
-          {poolSizing.poolSize > poolSizing.hardwareConcurrency
-            ? ` (oversubscribed ${poolSizing.hardwareConcurrency} cores to push onto efficiency cluster)`
-            : ` of ${poolSizing.hardwareConcurrency} cores`}
+          pool:{' '}
+          {actualPoolSize !== null && actualPoolSize !== poolSizing.poolSize
+            ? `${actualPoolSize} actual / ${poolSizing.poolSize} target workers`
+            : `${poolSizing.poolSize} workers`}
+          {' · '}
+          {poolSizing.hardwareConcurrency} cores reported
+          {actualPoolSize !== null && actualPoolSize < poolSizing.poolSize
+            ? ' · browser capped some workers'
+            : ''}
         </span>
       </div>
     );
@@ -319,13 +337,22 @@ export function PolicyMiningStatusCard({
             Throughput
           </p>
           <p className="mt-1 text-2xl font-semibold tabular-nums text-stone-900">
-            {stats && stats.meanMsPerPolicy > 0
-              ? `${(60_000 / stats.meanMsPerPolicy).toFixed(0)}/min`
-              : '—'}
+            {(() => {
+              if (!stats || !stats.sessionStartedAtIso) return '—';
+              // Real wall-clock throughput beats `60000 / meanMsPerPolicy`
+              // because that formula is per-WORKER (assumes serial); real
+              // throughput is policiesEvaluated / elapsedMin and scales
+              // with pool size automatically.
+              const elapsedMs =
+                Date.now() - new Date(stats.sessionStartedAtIso).getTime();
+              if (elapsedMs <= 0 || stats.policiesEvaluated === 0) return '—';
+              const perMin = (stats.policiesEvaluated / elapsedMs) * 60_000;
+              return `${perMin.toFixed(0)}/min`;
+            })()}
           </p>
           <p className="mt-1 text-[11px] text-stone-500">
             {stats && stats.meanMsPerPolicy > 0
-              ? `mean ${(stats.meanMsPerPolicy / 1000).toFixed(1)}s per policy`
+              ? `worker mean ${(stats.meanMsPerPolicy / 1000).toFixed(1)}s/policy`
               : 'awaiting first batch'}
           </p>
         </div>
