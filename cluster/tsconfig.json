@@ -1,21 +1,19 @@
 {
   "compilerOptions": {
+    "composite": true,
     "target": "ES2022",
-    "useDefineForClassFields": true,
-    "lib": ["ES2022", "DOM", "DOM.Iterable"],
-    "types": ["vite/client"],
-    "allowJs": false,
+    "lib": ["ES2022"],
+    "types": ["node"],
     "skipLibCheck": true,
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
     "esModuleInterop": true,
     "allowSyntheticDefaultImports": true,
     "strict": true,
     "forceConsistentCasingInFileNames": true,
-    "module": "ESNext",
-    "moduleResolution": "Bundler",
     "resolveJsonModule": true,
     "isolatedModules": true,
-    "noEmit": true,
-    "jsx": "react-jsx"
+    "noEmit": true
   },
-  "include": ["src"]
+  "include": ["**/*.ts", "../src/mining-protocol.ts", "../src/policy-miner-types.ts"]
 }
