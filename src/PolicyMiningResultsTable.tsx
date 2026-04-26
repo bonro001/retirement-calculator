@@ -7,6 +7,7 @@ import {
   type ClusterSessionListing,
 } from './policy-mining-cluster';
 import { PolicyAdoptionModal } from './PolicyAdoptionModal';
+import { SensitivityPanel } from './SensitivityPanel';
 import { useAppStore } from './store';
 
 /**
@@ -83,6 +84,18 @@ interface Props {
   defaultFeasibilityThreshold?: number;
   /** Max rows to render. Defaults to 25. */
   rowLimit?: number;
+  /**
+   * E.5 — when present, the post-adoption banner renders a Sensitivity
+   * Panel that re-mines a 3⁴ grid around the adopted policy so the
+   * household can see "is my pick stable if I bump one knob?". Optional
+   * because callers without a live cluster baseline (read-only views)
+   * can't run new mines anyway.
+   */
+  sensitivityControls?: {
+    baseline: import('./types').SeedData;
+    assumptions: import('./types').MarketAssumptions;
+    legacyTargetTodayDollars: number;
+  };
 }
 
 type Source = 'local' | 'cluster';
@@ -232,6 +245,7 @@ export function PolicyMiningResultsTable({
   currentPlan,
   defaultFeasibilityThreshold = DEFAULT_FEASIBILITY_THRESHOLD,
   rowLimit = DEFAULT_ROW_LIMIT,
+  sensitivityControls,
 }: Props): JSX.Element | null {
   const [source, setSource] = useState<Source>('local');
   const [evaluations, setEvaluations] = useState<PolicyEvaluation[]>([]);
@@ -460,6 +474,20 @@ export function PolicyMiningResultsTable({
             </button>
           </div>
         </div>
+      )}
+      {/* E.5 — sensitivity check sits directly below the adoption banner.
+          Only renders when (a) the household has just adopted a policy
+          (so there's something to test sensitivity around) and (b) the
+          parent passed the controls needed to launch a cluster session. */}
+      {lastPolicyAdoption && sensitivityControls && baselineFingerprint && (
+        <SensitivityPanel
+          adoptedPolicy={lastPolicyAdoption.policy}
+          baseline={sensitivityControls.baseline}
+          baselineFingerprint={baselineFingerprint}
+          assumptions={sensitivityControls.assumptions}
+          legacyTargetTodayDollars={sensitivityControls.legacyTargetTodayDollars}
+          dispatcherUrl={dispatcherUrl ?? null}
+        />
       )}
       <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
         <div>

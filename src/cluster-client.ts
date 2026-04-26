@@ -148,6 +148,13 @@ export interface StartSessionOptions {
   maxPoliciesPerSession?: number;
   /** Default 2000 — the production-grade trial count. */
   trialCount?: number;
+  /**
+   * Override the default axes (which come from `buildDefaultPolicyAxes`
+   * applied to the baseline). Used by the E.5 sensitivity sweep to feed
+   * a tight grid centered on an adopted policy. When set, the dispatcher
+   * still does cartesian enumeration — caller controls the shape.
+   */
+  axesOverride?: import('./policy-miner-types').PolicyAxes;
 }
 
 interface ClusterClientConfig {
@@ -557,7 +564,7 @@ export function createClusterClient(config: ClusterClientConfig): ClusterClient 
     ) {
       throw new Error('cluster client not connected');
     }
-    const axes = buildDefaultPolicyAxes(opts.baseline);
+    const axes = opts.axesOverride ?? buildDefaultPolicyAxes(opts.baseline);
     const config: PolicyMiningSessionConfig = {
       baselineFingerprint: opts.baselineFingerprint,
       engineVersion: POLICY_MINER_ENGINE_VERSION,

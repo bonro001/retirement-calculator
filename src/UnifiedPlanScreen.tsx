@@ -2569,6 +2569,15 @@ export function UnifiedPlanScreen({
                 }
               : undefined
           }
+          sensitivityControls={
+            policyMiningFingerprint
+              ? {
+                  baseline: data,
+                  assumptions: getPolicyMiningAssumptions(assumptions),
+                  legacyTargetTodayDollars,
+                }
+              : undefined
+          }
         />
       </div>
 
