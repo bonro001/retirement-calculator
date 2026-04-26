@@ -54,6 +54,18 @@ export function buildDefaultPolicyAxes(seedData: SeedData): PolicyAxes {
 }
 
 /**
+ * The lowest annual spend the default axes will consider for a given
+ * baseline. Used by the status card (to show what the floor is) and by
+ * the sensitivity sweep (to refuse sweeps around an adopted policy that
+ * sits below the floor — that means the corpus didn't actually include
+ * it as a candidate).
+ */
+export function computeMinimumSpendFloor(seedData: SeedData): number {
+  const axes = buildDefaultPolicyAxes(seedData);
+  return Math.min(...axes.annualSpendTodayDollars);
+}
+
+/**
  * Compute the total candidate count for an axes spec without materializing
  * the full list. Useful for the status panel ETA before mining starts.
  */
