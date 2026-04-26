@@ -51,7 +51,7 @@ export interface PolicyMiningControls {
   legacyTargetTodayDollars: number;
   /** Soft cap to keep first runs interactive — defaults to whole corpus. */
   maxPoliciesPerSession?: number;
-  /** Min bequest attainment rate to count a policy as feasible (default 0.85). */
+  /** Min bequest attainment rate to count a policy as feasible (default 0.70). */
   feasibilityThreshold?: number;
   /** Trials per policy this session. Default 2000 (production). */
   trialCount?: number;
@@ -134,7 +134,7 @@ export function PolicyMiningStatusCard({
         if (cancelled) return;
         setEvalCount(evals.length);
         const feasible = evals.filter(
-          (e) => e.outcome.bequestAttainmentRate >= 0.85,
+          (e) => e.outcome.bequestAttainmentRate >= 0.7,
         );
         let best: typeof feasible[number] | null = null;
         for (const e of feasible) {
@@ -180,7 +180,7 @@ export function PolicyMiningStatusCard({
         assumptions: controls.assumptions,
         baselineFingerprint,
         legacyTargetTodayDollars: controls.legacyTargetTodayDollars,
-        feasibilityThreshold: controls.feasibilityThreshold ?? 0.85,
+        feasibilityThreshold: controls.feasibilityThreshold ?? 0.7,
         maxPoliciesPerSession: controls.maxPoliciesPerSession,
         trialCount: controls.trialCount,
       });

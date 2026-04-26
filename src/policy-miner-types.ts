@@ -161,7 +161,7 @@ export interface MiningStats {
   totalPolicies: number;
   /** Candidates evaluated so far. */
   policiesEvaluated: number;
-  /** Candidates that met the feasibility filter (e.g. attainment >= 0.85). */
+  /** Candidates that met the feasibility filter (e.g. attainment >= 0.70). */
   feasiblePolicies: number;
   /** Rolling mean ms per policy over the last N completions. */
   meanMsPerPolicy: number;
@@ -170,9 +170,14 @@ export interface MiningStats {
   /** Estimated time-to-completion in milliseconds. */
   estimatedRemainingMs: number;
   /**
-   * Best policy found so far, judged by the lexicographic ranking
-   * (feasibility first, then median lifetime spend, then lower tax,
-   * then smoother spend). Null until the first feasible record arrives.
+   * Best policy found so far. V1 ranking: feasibility-passing, then
+   * highest annual spend, then highest p50 today-dollar bequest as
+   * tiebreaker. The tablestakes spend floor is enforced upstream by
+   * the axis enumerator so every feasible candidate is already livable.
+   * Null until the first feasible record arrives.
+   *
+   * (V2 will extend this with tax minimization and spend smoothness
+   * inside the same `isBetterFeasibleCandidate` comparator.)
    */
   bestPolicyId: string | null;
   /** Whether the miner is currently running, paused, or stopped. */
@@ -268,7 +273,14 @@ export interface PolicyMiningSessionConfig {
   /**
    * Feasibility threshold — policies with bequestAttainmentRate below this
    * are still stored (so we know they were evaluated) but flagged
-   * non-feasible. Default 0.85.
+   * non-feasible. Default 0.70.
+   *
+   * Lowered from 0.85 because at 0.85 the corpus surfaced very few
+   * "feasible" candidates on realistic baselines — the household ends
+   * up looking at empty Best-So-Far panels for hours. 0.70 still
+   * means "≥70% of trials hit the legacy target" which is comfortably
+   * above the median outcome but loose enough to actually find policies
+   * worth comparing.
    */
   feasibilityThreshold: number;
   /** Hard cap on records to evaluate this session. Stops the miner after N. */

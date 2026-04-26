@@ -19,7 +19,7 @@
  *   DISPATCHER_URL          ws URL to dial. Default ws://localhost:8765
  *   SESSION_TRIAL_COUNT     trials per policy. Default 2000 (production setting).
  *   SESSION_LEGACY_TARGET   bequest target in today's dollars. Default 1_000_000.
- *   SESSION_FEASIBILITY     attainment threshold (0..1). Default 0.85.
+ *   SESSION_FEASIBILITY     attainment threshold (0..1). Default 0.70.
  *   SESSION_MAX_POLICIES    cap on enumerated policies. Default = full corpus.
  *   SESSION_BASELINE_FILE   path to a SeedData JSON. Default = built-in initialSeedData.
  *   SESSION_ASSUMPTIONS_FILE  path to MarketAssumptions JSON. Default = built-in.
@@ -138,7 +138,7 @@ function resolveConfig(): ResolvedConfig {
     10,
   );
   const feasibilityThreshold = Number.parseFloat(
-    process.env.SESSION_FEASIBILITY ?? '0.85',
+    process.env.SESSION_FEASIBILITY ?? '0.70',
   );
   const maxPoliciesEnv = process.env.SESSION_MAX_POLICIES;
   const maxPolicies = maxPoliciesEnv ? Number.parseInt(maxPoliciesEnv, 10) : null;

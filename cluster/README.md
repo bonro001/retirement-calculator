@@ -73,7 +73,7 @@ Environment variables:
 | `CLUSTER_DATA_DIR` | `cluster/data` | Where the dispatcher writes session artifacts. Override to a NAS mount if you want corpora to outlive the local disk. |
 | `SESSION_TRIAL_COUNT` | `2000` | Trials per policy this session (controller CLI). |
 | `SESSION_LEGACY_TARGET` | `1000000` | Bequest target in today's dollars (controller CLI). |
-| `SESSION_FEASIBILITY` | `0.85` | Bequest-attainment threshold for "feasible" classification (controller CLI). |
+| `SESSION_FEASIBILITY` | `0.70` | Bequest-attainment threshold for "feasible" classification (controller CLI). |
 | `SESSION_MAX_POLICIES` | full corpus | Cap on enumerated policies — useful for first-time dry runs. |
 | `SESSION_BASELINE_FILE` | built-in `initialSeedData` | Path to a `SeedData` JSON to mine against. |
 | `SESSION_ASSUMPTIONS_FILE` | built-in defaults | Path to a `MarketAssumptions` JSON. |
