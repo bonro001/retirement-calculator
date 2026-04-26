@@ -16,6 +16,13 @@ import type {
 import type { MarketAssumptions, SeedData } from './types';
 import { useClusterSession } from './useClusterSession';
 import { browserPoolHint } from './cluster-client';
+import {
+  buildPeerViewList,
+  formatAgo,
+  formatPerfClass,
+  formatThroughput,
+  type PeerView,
+} from './cluster-peer-view';
 
 /**
  * Read+control card for the Policy Miner running across the cluster.
@@ -120,6 +127,15 @@ export function PolicyMiningStatusCard({
   // the chrome quiet for the common case).
   const [showUrlEditor, setShowUrlEditor] = useState(false);
   const [urlDraft, setUrlDraft] = useState(cluster.snapshot.dispatcherUrl);
+  // 2-second wall-clock tick so the per-host "X ago" labels and
+  // live/stale/offline status pills update even when no snapshot is
+  // arriving (e.g. a host has dropped and is silently aging). Cheap;
+  // the panel is only mounted while the user is on this screen.
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNowMs(Date.now()), 2_000);
+    return () => clearInterval(id);
+  }, []);
   // Session size picker — Quick (200 policies) for fast re-validation
   // after a baseline tweak, Full (whole corpus) for initial exploration
   // or final certification. Default flips to Quick once a corpus exists,
@@ -494,57 +510,108 @@ export function PolicyMiningStatusCard({
     );
 
   const renderHostPanel = () => {
-    if (cluster.peers.length === 0) return null;
-    // Sort: hosts before controllers, then by displayName.
-    const ordered = [...cluster.peers].sort((a, b) => {
-      const aHost = a.roles.includes('host') ? 0 : 1;
-      const bHost = b.roles.includes('host') ? 0 : 1;
-      if (aHost !== bHost) return aHost - bHost;
-      return a.displayName.localeCompare(b.displayName);
-    });
+    const views = buildPeerViewList(cluster.peers, cluster.ghosts, nowMs);
+    if (views.length === 0) return null;
+
+    const statusPill = (view: PeerView) => {
+      // Status drives both color and an explicit label so red/green
+      // colorblindness doesn't strand the operator at a glance.
+      const cls =
+        view.status === 'live'
+          ? 'bg-emerald-500'
+          : view.status === 'stale'
+            ? 'bg-amber-500'
+            : 'bg-stone-400';
+      const label =
+        view.status === 'live'
+          ? 'live'
+          : view.status === 'stale'
+            ? 'stale'
+            : 'offline';
+      return (
+        <span className="inline-flex items-center gap-1">
+          <span className={`inline-block h-1.5 w-1.5 rounded-full ${cls}`} />
+          <span className="text-[10px] uppercase tracking-wider text-stone-500">
+            {label}
+          </span>
+        </span>
+      );
+    };
+
     return (
       <div className="mt-4 border-t border-stone-100 pt-3">
-        <p className="mb-2 text-[11px] font-medium uppercase tracking-wider text-stone-500">
-          Cluster peers
-        </p>
-        <div className="space-y-1">
-          {ordered.map((peer) => {
-            const isHost = peer.roles.includes('host');
-            const ms = peer.meanMsPerPolicy;
-            const throughputCol =
-              isHost && ms !== null && ms > 0
-                ? `${(60_000 / ms).toFixed(0)} pol/min/worker`
-                : isHost
-                  ? 'awaiting first batch'
-                  : peer.roles.join('+');
+        <div className="mb-2 flex items-baseline justify-between">
+          <p className="text-[11px] font-medium uppercase tracking-wider text-stone-500">
+            Cluster peers
+          </p>
+          <span className="text-[10px] text-stone-400">
+            {views.filter((v) => v.status === 'live').length} live ·{' '}
+            {views.filter((v) => v.status === 'stale').length} stale ·{' '}
+            {views.filter((v) => v.status === 'offline').length} offline
+          </span>
+        </div>
+        <div className="space-y-1.5">
+          {views.map((v) => {
+            const isHost = v.roles.includes('host');
+            const isGhost = v.status === 'offline';
+            // Load bar: in-flight / worker count, capped at 1.0. Visual
+            // cue for "this host is busy" without the operator having to
+            // mentally divide.
+            const loadFrac =
+              v.workerCount && v.workerCount > 0
+                ? Math.min(1, v.inFlightBatchCount / v.workerCount)
+                : 0;
+            const throughputLabel = isHost
+              ? v.totalPolPerMin !== null
+                ? formatThroughput(v.totalPolPerMin)
+                : 'awaiting first batch'
+              : v.roles.join('+');
             return (
               <div
-                key={peer.peerId}
-                className="grid grid-cols-12 items-center gap-2 text-[11px]"
+                key={v.peerId}
+                className={`grid grid-cols-12 items-center gap-2 text-[11px] ${
+                  isGhost ? 'opacity-60' : ''
+                }`}
               >
                 <span className="col-span-4 truncate text-stone-700">
-                  <span
-                    className={`mr-1 inline-block h-1.5 w-1.5 rounded-full ${
-                      isHost ? 'bg-emerald-500' : 'bg-sky-500'
-                    }`}
-                  />
-                  {peer.displayName}
+                  <span className="mr-1.5 inline-flex items-center align-middle">
+                    {statusPill(v)}
+                  </span>
+                  <span className={isGhost ? 'line-through' : ''}>
+                    {v.displayName}
+                  </span>
                 </span>
                 <span className="col-span-2 text-stone-500">
-                  {peer.capabilities
-                    ? `${peer.capabilities.workerCount}w`
-                    : '—'}
+                  {v.workerCount !== null
+                    ? `${v.workerCount}w · ${formatPerfClass(v.capabilities?.perfClass)}`
+                    : v.roles.includes('controller')
+                      ? 'controller'
+                      : '—'}
                 </span>
                 <span className="col-span-3 text-stone-500">
-                  {throughputCol}
+                  {throughputLabel}
                 </span>
-                <span className="col-span-2 text-stone-500">
-                  {peer.inFlightBatchCount > 0
-                    ? `${peer.inFlightBatchCount} in flight`
-                    : ''}
+                <span className="col-span-2">
+                  {isHost && v.workerCount !== null && !isGhost ? (
+                    <span className="flex items-center gap-1.5">
+                      <span className="relative h-1.5 w-12 overflow-hidden rounded-full bg-stone-200">
+                        <span
+                          className={`absolute inset-y-0 left-0 ${
+                            loadFrac > 0.85
+                              ? 'bg-amber-500'
+                              : 'bg-emerald-500'
+                          }`}
+                          style={{ width: `${Math.round(loadFrac * 100)}%` }}
+                        />
+                      </span>
+                      <span className="text-[10px] text-stone-500">
+                        {v.inFlightBatchCount}/{v.workerCount}
+                      </span>
+                    </span>
+                  ) : null}
                 </span>
                 <span className="col-span-1 text-right text-stone-400">
-                  {formatRelative(peer.lastHeartbeatTs)}
+                  {formatAgo(v.lastSeenAt, nowMs)}
                 </span>
               </div>
             );

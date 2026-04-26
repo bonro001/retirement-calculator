@@ -19,7 +19,7 @@
  * the dispatcher's default port.
  */
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   createClusterClient,
   DEFAULT_BROWSER_DISPATCHER_URL,
@@ -27,6 +27,11 @@ import {
   type ClusterClientSnapshot,
   type StartSessionOptions,
 } from './cluster-client';
+import {
+  updateGhosts,
+  type PeerGhost,
+  type SnapshotPeer,
+} from './cluster-peer-view';
 
 const LOCAL_STORAGE_URL_KEY = 'cluster-dispatcher-url';
 
@@ -99,6 +104,13 @@ export interface UseClusterSession {
   peers: NonNullable<ClusterClientSnapshot['cluster']>['peers'] | [];
   /** Convenience: the active session if any. */
   session: NonNullable<ClusterClientSnapshot['cluster']>['session'] | null;
+  /**
+   * Map of recently-disconnected peers, keyed by peerId. The status card
+   * shows these greyed-out for a grace period so the operator can tell a
+   * Wi-Fi flap apart from a clean shutdown. Pruned automatically as
+   * snapshots arrive.
+   */
+  ghosts: Map<string, PeerGhost>;
   setDispatcherUrl(url: string): void;
   reconnect(): void;
   startSession(opts: StartSessionOptions): void;
@@ -121,6 +133,29 @@ export function useClusterSession(): UseClusterSession {
     client.connect();
     return unsubscribe;
   }, [client]);
+
+  // ---- Ghost tracking ---------------------------------------------------
+  // The dispatcher snapshot only carries currently-connected peers, so a
+  // host that drops simply vanishes from the list. That's the wrong UX:
+  // the operator wants to see "host-shop went offline" for a beat instead
+  // of having the row silently disappear. We diff successive snapshots
+  // and stash recently-departed peers in a ghost map; the status card
+  // renders them in a greyed-out state until the retention window expires.
+  const prevPeersRef = useRef<SnapshotPeer[] | null>(null);
+  const [ghosts, setGhosts] = useState<Map<string, PeerGhost>>(() => new Map());
+
+  useEffect(() => {
+    // The cluster snapshot is null while the client is still connecting.
+    // We don't want to ghost everything on the first null→peers transition,
+    // and we don't want to forget the prior peers when the client briefly
+    // disconnects (state goes to `disconnected` but the snapshot stays).
+    const nextPeers = snapshot.cluster?.peers ?? null;
+    if (!nextPeers) return;
+    setGhosts((prev) =>
+      updateGhosts(prev, prevPeersRef.current, nextPeers, Date.now()),
+    );
+    prevPeersRef.current = nextPeers;
+  }, [snapshot]);
 
   const setDispatcherUrl = useCallback(
     (url: string) => {
@@ -147,6 +182,7 @@ export function useClusterSession(): UseClusterSession {
     state: snapshot.state,
     peers,
     session,
+    ghosts,
     setDispatcherUrl,
     reconnect,
     startSession,
