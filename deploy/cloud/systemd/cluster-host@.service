@@ -1,0 +1,29 @@
+[Unit]
+Description=Policy Mining Cluster — Host #%i
+After=cluster-dispatcher.service
+Requires=cluster-dispatcher.service
+
+[Service]
+Type=simple
+User=cluster
+Group=cluster
+WorkingDirectory=/opt/retirement-calculator
+EnvironmentFile=/etc/default/cluster
+# Each host process advertises a unique display name so the per-host UI
+# panel can tell them apart even though they share the box.
+Environment=HOST_DISPLAY_NAME=cloud-host-%i
+ExecStart=/usr/bin/npm run cluster:host
+Restart=on-failure
+RestartSec=2s
+
+# Hardening — hosts don't need to write the corpus, dispatcher does that.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

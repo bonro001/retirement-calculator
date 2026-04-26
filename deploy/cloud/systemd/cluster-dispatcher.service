@@ -1,0 +1,32 @@
+[Unit]
+Description=Policy Mining Cluster — Dispatcher
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=cluster
+Group=cluster
+WorkingDirectory=/opt/retirement-calculator
+EnvironmentFile=/etc/default/cluster
+# tsx is invoked via npm script so we pick up the same module-resolution
+# behavior the dev workflow uses. No build step required.
+ExecStart=/usr/bin/npm run cluster:dispatcher
+Restart=on-failure
+RestartSec=2s
+# Give the dispatcher 30s to flush in-flight session writes on shutdown.
+TimeoutStopSec=30s
+
+# Hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/cluster
+
+# stdout/stderr go to journal — view with: journalctl -u cluster-dispatcher -f
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

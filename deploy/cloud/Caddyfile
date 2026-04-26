@@ -1,0 +1,26 @@
+# Caddy reverse proxy with auto Let's Encrypt TLS.
+#
+# `bootstrap.sh` substitutes ${HOSTNAME} with the actual sslip.io (or real)
+# hostname before installing this file at /etc/caddy/Caddyfile.
+
+${HOSTNAME} {
+    # WebSocket upgrades are handled transparently by reverse_proxy in
+    # Caddy v2; no explicit handle_path / @websocket matcher needed.
+    reverse_proxy localhost:8765 {
+        # The dispatcher's own logs already include peer ids — Caddy's
+        # access log is mostly useful for the rare 401 (bad token) case.
+        header_up Host {host}
+        header_up X-Real-IP {remote_host}
+    }
+
+    # Cap upload size at something well above any realistic batch result
+    # so a runaway client can't OOM the dispatcher with a single request.
+    request_body {
+        max_size 64MB
+    }
+
+    # Default Caddy logging to stdout → captured by systemd journal.
+    log {
+        output stdout
+    }
+}
