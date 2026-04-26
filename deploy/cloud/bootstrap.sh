@@ -113,10 +113,14 @@ HOSTS=$(( (VCPU - 2) / 4 ))
 if (( HOSTS < 1 )); then HOSTS=1; fi
 echo "  vCPUs=$VCPU → enabling $HOSTS host process(es)"
 
-systemctl enable --now caddy cluster-dispatcher
+systemctl enable caddy cluster-dispatcher
+# `restart` (not `start`) so re-running bootstrap.sh picks up Caddyfile /
+# unit-file changes even when the services are already running.
+systemctl restart caddy cluster-dispatcher
 HOST_UNITS=()
 for i in $(seq 1 "$HOSTS"); do HOST_UNITS+=("cluster-host@${i}"); done
-systemctl enable --now "${HOST_UNITS[@]}"
+systemctl enable "${HOST_UNITS[@]}"
+systemctl restart "${HOST_UNITS[@]}"
 
 echo
 echo "Done. Verify:"
