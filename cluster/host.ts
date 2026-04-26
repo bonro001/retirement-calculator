@@ -354,6 +354,12 @@ interface ActiveSession {
 let activeSession: ActiveSession | null = null;
 const inFlightBatchIds = new Set<string>();
 
+// Per-session counters used solely for the host-terminal `batch done`
+// log line. Reset whenever the active session changes so the numbers
+// shown line up with the session the operator is currently watching.
+let sessionBatchesCompleted = 0;
+let sessionPoliciesCompleted = 0;
+
 // ---------------------------------------------------------------------------
 // WebSocket lifecycle
 // ---------------------------------------------------------------------------
@@ -507,6 +513,8 @@ function handleStartSession(message: StartSessionMessage): void {
     assumptions: message.marketAssumptionsPayload as MarketAssumptions,
     legacyTargetTodayDollars: message.legacyTargetTodayDollars,
   };
+  sessionBatchesCompleted = 0;
+  sessionPoliciesCompleted = 0;
   log('info', 'session started', {
     baseline: message.config.baselineFingerprint,
     engine: message.config.engineVersion,
@@ -590,6 +598,26 @@ async function handleBatchAssign(message: BatchAssignMessage): Promise<void> {
     partialFailure,
   };
   sendBatchResult(sessionId, result);
+
+  // Per-batch heartbeat on the host terminal. The dispatcher and the
+  // browser status card already have the cluster-wide view; this is for
+  // the operator who's SSH'd into a worker box and wants to see "yes,
+  // it's chewing through batches" without cracking open the UI. Skip
+  // on partialFailure — that path already emitted a warn above with
+  // the relevant diagnostics, and re-logging at info would just clutter.
+  if (!partialFailure && evaluations.length > 0) {
+    sessionBatchesCompleted += 1;
+    sessionPoliciesCompleted += evaluations.length;
+    const msPerPolicy = result.batchDurationMs / evaluations.length;
+    log('info', 'batch done', {
+      batchId: batch.batchId,
+      policies: evaluations.length,
+      durationMs: result.batchDurationMs,
+      msPerPolicy: Math.round(msPerPolicy),
+      sessionBatches: sessionBatchesCompleted,
+      sessionPolicies: sessionPoliciesCompleted,
+    });
+  }
 }
 
 function sendBatchResult(
