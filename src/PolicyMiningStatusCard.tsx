@@ -65,6 +65,19 @@ interface Props {
 
 const POLL_INTERVAL_MS = 5_000;
 
+/**
+ * Quick-mine cap. Sized so a re-validation pass after a baseline tweak
+ * fits inside a 5-minute window on a single 8-core box and ~1-2 minutes
+ * on a 24-worker cluster — the "I changed something, does my winner
+ * still hold?" use case. Not a Pareto-smart subset (yet — see E.5
+ * sensitivity sweep); just the first N policies in axis-enumeration
+ * order, which is consistent across runs so the household isn't
+ * comparing apples-to-oranges across Quick mines.
+ */
+const QUICK_MINE_POLICY_COUNT = 200;
+
+type SessionSize = 'quick' | 'full';
+
 function formatDuration(ms: number): string {
   if (!Number.isFinite(ms) || ms <= 0) return '—';
   const totalMinutes = Math.round(ms / 60_000);
@@ -107,12 +120,37 @@ export function PolicyMiningStatusCard({
   // the chrome quiet for the common case).
   const [showUrlEditor, setShowUrlEditor] = useState(false);
   const [urlDraft, setUrlDraft] = useState(cluster.snapshot.dispatcherUrl);
+  // Session size picker — Quick (200 policies) for fast re-validation
+  // after a baseline tweak, Full (whole corpus) for initial exploration
+  // or final certification. Default flips to Quick once a corpus exists,
+  // since at that point the household is iterating, not exploring.
+  const [sessionSize, setSessionSize] = useState<SessionSize>('full');
 
   // Keep the draft in sync if the URL changes externally (e.g. another
   // tab updates localStorage — rare but cheap to handle).
   useEffect(() => {
     if (!showUrlEditor) setUrlDraft(cluster.snapshot.dispatcherUrl);
   }, [cluster.snapshot.dispatcherUrl, showUrlEditor]);
+
+  // Once a corpus exists for THIS baseline, default to Quick — the
+  // household is now iterating (tweak baseline, re-validate winner),
+  // not exploring from scratch. Resets when the baseline fingerprint
+  // changes so a fresh plan can also auto-flip the first time its
+  // corpus appears. Only flips on transitions, so an explicit user
+  // choice mid-session sticks until the baseline changes.
+  const [flippedForFingerprint, setFlippedForFingerprint] = useState<
+    string | null
+  >(null);
+  useEffect(() => {
+    if (
+      baselineFingerprint &&
+      evalCount > 0 &&
+      flippedForFingerprint !== baselineFingerprint
+    ) {
+      setSessionSize('quick');
+      setFlippedForFingerprint(baselineFingerprint);
+    }
+  }, [baselineFingerprint, evalCount, flippedForFingerprint]);
 
   // Poll IDB for legacy "best so far" — pre-D.3 sessions wrote here.
   // Cluster sessions write to the dispatcher's on-disk corpus; that path
@@ -174,6 +212,13 @@ export function PolicyMiningStatusCard({
   const startMining = () => {
     if (!controls || !baselineFingerprint) return;
     setStartError(null);
+    // The picker (Quick / Full) wins over any cap the caller passed,
+    // since the picker is the household's just-now choice. Caller's
+    // cap is the floor for legacy code paths that don't show a picker.
+    const cap =
+      sessionSize === 'quick'
+        ? QUICK_MINE_POLICY_COUNT
+        : controls.maxPoliciesPerSession;
     try {
       cluster.startSession({
         baseline: controls.baseline,
@@ -181,7 +226,7 @@ export function PolicyMiningStatusCard({
         baselineFingerprint,
         legacyTargetTodayDollars: controls.legacyTargetTodayDollars,
         feasibilityThreshold: controls.feasibilityThreshold ?? 0.7,
-        maxPoliciesPerSession: controls.maxPoliciesPerSession,
+        maxPoliciesPerSession: cap,
         trialCount: controls.trialCount,
       });
     } catch (e) {
@@ -323,41 +368,128 @@ export function PolicyMiningStatusCard({
     </div>
   );
 
+  // Per-policy cost across the cluster. Prefer the live session's mean
+  // (most accurate); fall back to the last completed session's mean if
+  // the dispatcher exposes it; null if we have no data yet.
+  const meanMsPerPolicy =
+    stats && stats.meanMsPerPolicy > 0 ? stats.meanMsPerPolicy : null;
+
+  // Estimate wall-clock for a session of `policyCount` policies given
+  // the observed cluster throughput. Returns null when we have nothing
+  // to extrapolate from — UI shows '~?' rather than a fake number.
+  const estimateSessionMs = (policyCount: number): number | null => {
+    if (meanMsPerPolicy === null) return null;
+    // Sum of in-flight worker counts across all peers (host role only).
+    const totalWorkers = cluster.peers
+      .filter((p) => p.roles.includes('host'))
+      .reduce((s, p) => s + (p.capabilities?.workerCount ?? 0), 0);
+    if (totalWorkers === 0) return null;
+    return (policyCount * meanMsPerPolicy) / totalWorkers;
+  };
+
+  const quickEtaMs = estimateSessionMs(QUICK_MINE_POLICY_COUNT);
+  const fullEtaMs =
+    totalCandidates !== null ? estimateSessionMs(totalCandidates) : null;
+
   const renderControls = () =>
     !controls ? null : (
-      <div className="mt-3 flex flex-wrap items-center gap-2">
-        <button
-          type="button"
-          disabled={!canStart}
-          onClick={startMining}
-          className="rounded-full bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-stone-200 disabled:text-stone-400"
-        >
-          Start mining
-        </button>
-        <button
-          type="button"
-          disabled={!canCancel}
-          onClick={cancelMining}
-          className="rounded-full bg-rose-50 px-3 py-1.5 text-xs font-semibold text-rose-700 transition hover:bg-rose-100 disabled:cursor-not-allowed disabled:text-stone-400"
-        >
-          Cancel
-        </button>
-        {startError && (
-          <span className="text-xs text-rose-600">{startError}</span>
+      <div className="mt-3 space-y-2">
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Session size picker — the iteration-vs-exploration choice.
+              Disabled while a session runs so the picker can't drift
+              away from what's actually being mined. */}
+          <div
+            role="radiogroup"
+            aria-label="Session size"
+            className="inline-flex overflow-hidden rounded-full border border-stone-200 text-[11px]"
+          >
+            <button
+              type="button"
+              role="radio"
+              aria-checked={sessionSize === 'quick'}
+              disabled={sessionRunning}
+              onClick={() => setSessionSize('quick')}
+              className={`px-3 py-1 font-semibold transition ${
+                sessionSize === 'quick'
+                  ? 'bg-emerald-600 text-white'
+                  : 'bg-white text-stone-600 hover:bg-stone-50'
+              } disabled:cursor-not-allowed disabled:opacity-60`}
+            >
+              Quick · {QUICK_MINE_POLICY_COUNT}
+              {quickEtaMs !== null && (
+                <span className="ml-1 font-normal opacity-90">
+                  (~{formatDuration(quickEtaMs)})
+                </span>
+              )}
+            </button>
+            <button
+              type="button"
+              role="radio"
+              aria-checked={sessionSize === 'full'}
+              disabled={sessionRunning}
+              onClick={() => setSessionSize('full')}
+              className={`border-l border-stone-200 px-3 py-1 font-semibold transition ${
+                sessionSize === 'full'
+                  ? 'bg-emerald-600 text-white'
+                  : 'bg-white text-stone-600 hover:bg-stone-50'
+              } disabled:cursor-not-allowed disabled:opacity-60`}
+            >
+              Full
+              {totalCandidates !== null && (
+                <span className="ml-1 font-normal opacity-90">
+                  · {totalCandidates.toLocaleString()}
+                </span>
+              )}
+              {fullEtaMs !== null && (
+                <span className="ml-1 font-normal opacity-90">
+                  (~{formatDuration(fullEtaMs)})
+                </span>
+              )}
+            </button>
+          </div>
+          <button
+            type="button"
+            disabled={!canStart}
+            onClick={startMining}
+            className="rounded-full bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-stone-200 disabled:text-stone-400"
+          >
+            {sessionSize === 'quick' ? 'Start quick mine' : 'Start full mine'}
+          </button>
+          <button
+            type="button"
+            disabled={!canCancel}
+            onClick={cancelMining}
+            className="rounded-full bg-rose-50 px-3 py-1.5 text-xs font-semibold text-rose-700 transition hover:bg-rose-100 disabled:cursor-not-allowed disabled:text-stone-400"
+          >
+            Cancel
+          </button>
+          {startError && (
+            <span className="text-xs text-rose-600">{startError}</span>
+          )}
+          <span className="ml-auto text-[11px] text-stone-500">
+            floor: {formatCurrency(spendFloor)}/yr
+            {' · '}
+            pool:{' '}
+            {poolHint.actualPoolSize !== null &&
+            poolHint.actualPoolSize !== poolHint.poolSize
+              ? `${poolHint.actualPoolSize} actual / ${poolHint.poolSize} target`
+              : `${poolHint.poolSize}`}{' '}
+            workers
+            {' · '}
+            {poolHint.hardwareConcurrency} cores
+          </span>
+        </div>
+        {/* One-line caption tying the picker to the iteration loop so
+            the household understands WHY the picker exists. Hidden once
+            a session is running — the throughput row above tells the
+            same story live. */}
+        {!sessionRunning && (
+          <p className="text-[11px] text-stone-500">
+            {sessionSize === 'quick'
+              ? `Validates the top of the frontier against your current baseline. Use after editing the plan.`
+              : `Searches every spend × SS × Roth combination. Use for initial exploration or final certification.`}
+          </p>
         )}
-        <span className="ml-auto text-[11px] text-stone-500">
-          floor: {formatCurrency(spendFloor)}/yr
-          {' · '}
-          pool:{' '}
-          {poolHint.actualPoolSize !== null &&
-          poolHint.actualPoolSize !== poolHint.poolSize
-            ? `${poolHint.actualPoolSize} actual / ${poolHint.poolSize} target`
-            : `${poolHint.poolSize}`}{' '}
-          workers
-          {' · '}
-          {poolHint.hardwareConcurrency} cores
-          {totalCandidates !== null && ` · ${totalCandidates.toLocaleString()} candidates`}
-        </span>
       </div>
     );
 

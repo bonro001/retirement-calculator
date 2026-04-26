@@ -1,4 +1,5 @@
 import { useEffect, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import {
   diffAdoption,
   formatBreakdownEntry,
@@ -83,7 +84,14 @@ export function PolicyAdoptionModal({
 
   const changedRows = diff.rows.filter((r) => r.changed);
 
-  return (
+  // Portal into document.body so the modal escapes any ancestor that
+  // happens to set `transform`, `filter`, `backdrop-blur`, etc. — those
+  // create a containing block for `position: fixed` children, causing
+  // the overlay to anchor to the ancestor's box instead of the viewport.
+  // The PolicyMiningResultsTable lives inside several wrapped sections
+  // and at least one ancestor uses backdrop-blur, which is what was
+  // pushing the modal far below the fold.
+  return createPortal(
     <div
       role="dialog"
       aria-modal="true"
@@ -208,6 +216,7 @@ export function PolicyAdoptionModal({
           </button>
         </footer>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
