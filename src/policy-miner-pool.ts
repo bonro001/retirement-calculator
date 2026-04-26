@@ -28,8 +28,6 @@ import type {
  * both without a session-isolation refactor we don't need yet.
  */
 
-const WORKER_MODULE_URL = './policy-miner.worker.ts';
-
 interface PendingRun {
   resolve: (evals: PolicyEvaluation[]) => void;
   reject: (err: Error) => void;
@@ -88,6 +86,20 @@ export function getMinerPoolSize(): number {
 }
 
 /**
+ * How many worker slots are currently idle. Used by the cluster client's
+ * heartbeat as a `freeWorkerSlots` capacity hint to the dispatcher so the
+ * dispatcher doesn't overpack this host. Returns 0 (not the pool size!)
+ * until the pool has been initialized — we don't want to advertise free
+ * capacity we haven't actually created yet.
+ */
+export function getFreeMinerSlotCount(): number {
+  if (!slots) return 0;
+  let n = 0;
+  for (const slot of slots) if (!slot.busy) n += 1;
+  return n;
+}
+
+/**
  * Prime every worker with the session's static context (SeedData,
  * assumptions, baseline fingerprint, engine version, node id, legacy
  * target). Subsequent `runPoliciesInParallel` calls reference this
@@ -129,8 +141,13 @@ function ensurePool(): WorkerSlot[] {
   const created: WorkerSlot[] = [];
   for (let i = 0; i < size; i += 1) {
     try {
+      // URL must be a string literal for Vite's worker static analysis to
+      // emit the worker chunk in production builds. Storing the path in a
+      // const variable silently breaks the build (the chunk is omitted and
+      // the runtime `new Worker()` 404s). All other pools in this codebase
+      // inline the URL the same way — keep this one consistent.
       const worker = new Worker(
-        new URL(WORKER_MODULE_URL, import.meta.url),
+        new URL('./policy-miner.worker.ts', import.meta.url),
         { type: 'module' },
       );
       const slot: WorkerSlot = {
