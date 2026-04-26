@@ -56,9 +56,30 @@ function defaultPoolSize(): number {
     typeof navigator.hardwareConcurrency === 'number'
       ? navigator.hardwareConcurrency
       : 4;
-  // Leave one core for the orchestrator and one for the main UI thread.
-  // Cap at 8 — past that, prime/clone overhead dominates the speedup.
-  return Math.max(2, Math.min(8, hc - 1));
+  // Apple Silicon (M-series) reports total cores via hardwareConcurrency
+  // but macOS pins Web Workers to the performance cluster by default —
+  // M4 mini exposes 8 cores (4 perf + 4 efficiency) and Activity Monitor
+  // tops out around 50% CPU during mining because the 4 perf cores are
+  // pegged but efficiency cores stay idle. Oversubscribing the perf
+  // cluster pushes some workers onto the efficiency cores. Each
+  // additional worker past hc costs the prime payload's RAM (a SeedData
+  // clone) but no measurable per-worker overhead, so we go 1.5× hc up
+  // to a hard cap of 12.
+  const target = Math.ceil(hc * 1.5);
+  return Math.max(2, Math.min(12, target));
+}
+
+/** Read-only diagnostic — what `defaultPoolSize` decided and why. */
+export function describeMinerPoolSizing(): {
+  hardwareConcurrency: number;
+  poolSize: number;
+} {
+  const hc =
+    typeof navigator !== 'undefined' &&
+    typeof navigator.hardwareConcurrency === 'number'
+      ? navigator.hardwareConcurrency
+      : 4;
+  return { hardwareConcurrency: hc, poolSize: defaultPoolSize() };
 }
 
 /** Returns the actual worker count after `ensurePool()`. */

@@ -7,6 +7,7 @@ import type {
   MiningSessionHandle,
 } from './policy-miner';
 import { runMiningSessionWithPool } from './policy-miner';
+import { describeMinerPoolSizing } from './policy-miner-pool';
 import {
   buildDefaultPolicyAxes,
   enumeratePolicies,
@@ -198,6 +199,11 @@ export function PolicyMiningStatusCard({
   const canResume = !!controls && liveState === 'paused';
   const canCancel = !!controls && (liveState === 'running' || liveState === 'paused');
 
+  // Surface pool size to the user so the half-idle CPU on Apple Silicon
+  // makes sense at a glance — workers are pinned to the performance
+  // cluster and the efficiency cores stay parked. Cheap pure read.
+  const poolSizing = describeMinerPoolSizing();
+
   const renderControls = () =>
     !controls ? null : (
       <div className="mt-3 flex flex-wrap items-center gap-2">
@@ -236,6 +242,12 @@ export function PolicyMiningStatusCard({
         {startError && (
           <span className="text-xs text-rose-600">{startError}</span>
         )}
+        <span className="ml-auto text-[11px] text-stone-500">
+          pool: {poolSizing.poolSize} workers
+          {poolSizing.poolSize > poolSizing.hardwareConcurrency
+            ? ` (oversubscribed ${poolSizing.hardwareConcurrency} cores to push onto efficiency cluster)`
+            : ` of ${poolSizing.hardwareConcurrency} cores`}
+        </span>
       </div>
     );
 
