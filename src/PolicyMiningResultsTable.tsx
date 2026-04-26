@@ -7,6 +7,7 @@ import {
   type ClusterSessionListing,
 } from './policy-mining-cluster';
 import { PolicyAdoptionModal } from './PolicyAdoptionModal';
+import { PolicyFrontierChart } from './PolicyFrontierChart';
 import { SensitivityPanel } from './SensitivityPanel';
 import { useAppStore } from './store';
 
@@ -613,7 +614,28 @@ export function PolicyMiningResultsTable({
           floor. Lower the threshold or wait for more policies to be mined.
         </p>
       ) : (
-        <div className="overflow-x-auto">
+        <>
+          {/* E.4 — frontier scatter sits ABOVE the ranked table so the
+              household reads the chart's gestalt first, then drills into
+              specific rows. Click-to-adopt routes through the same
+              modal as the row buttons. */}
+          <PolicyFrontierChart
+            evaluations={evaluations}
+            currentPlan={
+              currentPlan?.annualSpendTodayDollars != null &&
+              currentPlan?.p50EndingWealthTodayDollars != null
+                ? {
+                    annualSpendTodayDollars: currentPlan.annualSpendTodayDollars,
+                    p50EndingWealthTodayDollars:
+                      currentPlan.p50EndingWealthTodayDollars,
+                  }
+                : undefined
+            }
+            adoptedPolicy={lastPolicyAdoption?.policy ?? null}
+            defaultFeasibilityThreshold={feasibilityThreshold}
+            onAdoptPolicy={(policy) => setAdoptingPolicy(policy)}
+          />
+        <div className="mt-4 overflow-x-auto">
           <table className="w-full min-w-[800px] text-left text-[12px] tabular-nums">
             <thead>
               <tr className="border-b border-stone-200 text-[11px] font-medium uppercase tracking-wider text-stone-500">
@@ -754,6 +776,7 @@ export function PolicyMiningResultsTable({
             </tbody>
           </table>
         </div>
+        </>
       )}
 
       {totalFeasible > rowLimit && (
