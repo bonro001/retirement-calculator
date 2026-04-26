@@ -33,9 +33,28 @@ import { loadAnalysisResultFromCache, saveAnalysisResultToCache } from './analys
 import { useAppStore } from './store';
 import { formatCurrency, formatPercent } from './utils';
 import { PolicyMiningStatusCard } from './PolicyMiningStatusCard';
+import { PolicyMiningResultsTable } from './PolicyMiningResultsTable';
 import { POLICY_MINER_ENGINE_VERSION } from './policy-miner-types';
+import { useClusterSession } from './useClusterSession';
 
 const INTERACTIVE_UNIFIED_PLAN_MAX_RUNS = 250;
+/**
+ * Trial count the policy miner uses, regardless of the user's interactive
+ * UI dial. Pinning it here means:
+ *   - the corpus is built at a single, known fidelity (so percentile
+ *     comparisons across mined records are apples-to-apples)
+ *   - bumping this number deliberately busts the corpus (see
+ *     `policyMiningFingerprint` below) instead of silently mixing
+ *     2000-trial and 5000-trial results in the same dedupe bucket.
+ *
+ * 2000 trials is the Phase A "good enough" point: per the throughput probe,
+ * ~31 min for the full ~8,748-candidate corpus on the M4 mini's 8-worker
+ * pool, with bequest p10/p90 stable enough to rank-order policies. 5000
+ * trials is more accurate but pushes a single mining run past 75 min,
+ * which kills the iterative loop. Re-evaluate when Phase D (multi-host)
+ * lands.
+ */
+const POLICY_MINING_TRIAL_COUNT = 2000;
 const PLAN_ANALYSIS_TIMEOUT_MS = 45_000;
 const PLAN_ANALYSIS_REQUEST_PREFIX = 'plan-analysis-request';
 const INTERACTIVE_RUNTIME_BUDGETS = {
@@ -137,6 +156,24 @@ function getInteractiveUnifiedPlanAssumptions(
     assumptionsVersion: assumptions.assumptionsVersion
       ? `${assumptions.assumptionsVersion}-plan`
       : 'plan',
+  };
+}
+
+/**
+ * Override the user's interactive trial count with the pinned mining
+ * value (`POLICY_MINING_TRIAL_COUNT`). Used for both the controls passed
+ * to the miner and the fingerprint suffix — keep them in sync or the
+ * dedupe layer will drift from what the engine actually ran.
+ */
+function getPolicyMiningAssumptions(
+  assumptions: MarketAssumptions,
+): MarketAssumptions {
+  return {
+    ...assumptions,
+    simulationRuns: POLICY_MINING_TRIAL_COUNT,
+    assumptionsVersion: assumptions.assumptionsVersion
+      ? `${assumptions.assumptionsVersion}-mining-${POLICY_MINING_TRIAL_COUNT}`
+      : `mining-${POLICY_MINING_TRIAL_COUNT}`,
   };
 }
 
@@ -1058,6 +1095,11 @@ export function UnifiedPlanScreen({
 }) {
   const toggleStressor = useAppStore((state) => state.toggleStressor);
   const toggleResponse = useAppStore((state) => state.toggleResponse);
+  // Subscribe to the cluster client snapshot so the results table below
+  // can flip to a remote dispatcher's session corpus. Reads only — the
+  // status card owns connect/disconnect via the same singleton hook.
+  const cluster = useClusterSession();
+  const dispatcherUrl = cluster.snapshot.dispatcherUrl ?? null;
   const updateIncome = useAppStore((state) => state.updateIncome);
   const updatePreRetirementContribution = useAppStore(
     (state) => state.updatePreRetirementContribution,
@@ -1801,6 +1843,26 @@ export function UnifiedPlanScreen({
     [currentEvaluation],
   );
 
+  // Mining-specific fingerprint: same baseline output digest as the UI uses,
+  // plus the trial count the miner is pinned to. Two reasons it's separate:
+  //   1) The interactive UI dial (`assumptions.simulationRuns`) does NOT
+  //      affect what the miner runs — `getPolicyMiningAssumptions` always
+  //      pins to `POLICY_MINING_TRIAL_COUNT` — so the corpus key must
+  //      reflect that pinned value, not whatever the user has dialed in.
+  //   2) Bumping `POLICY_MINING_TRIAL_COUNT` to e.g. 5000 must invalidate
+  //      every existing record so the dedupe layer doesn't quietly mix
+  //      2000-trial and 5000-trial percentiles in the same ranking.
+  // The "v1" tag is reserved for a future change to the fingerprint scheme
+  // itself — bump it (without changing trial count) and the corpus resets
+  // cleanly without confusing anyone.
+  const policyMiningFingerprint = useMemo(
+    () =>
+      currentEvaluationFingerprint
+        ? `${currentEvaluationFingerprint}|trials=${POLICY_MINING_TRIAL_COUNT}|fpv1`
+        : '',
+    [currentEvaluationFingerprint],
+  );
+
   useEffect(() => {
     if (!pendingPlaybookAutoRunNonce) {
       return;
@@ -2464,15 +2526,46 @@ export function UnifiedPlanScreen({
           Pause / Resume / Cancel) appear once an evaluation has run. */}
       <div className="mb-4">
         <PolicyMiningStatusCard
-          baselineFingerprint={currentEvaluationFingerprint || null}
+          baselineFingerprint={policyMiningFingerprint || null}
           engineVersion={POLICY_MINER_ENGINE_VERSION}
           controls={
-            currentEvaluationFingerprint
+            policyMiningFingerprint
               ? {
                   baseline: data,
-                  assumptions,
+                  // Pin the miner's trial count via the helper, not the
+                  // UI-dialed `assumptions`. Keeping these in sync with
+                  // `policyMiningFingerprint` is the dedupe contract.
+                  assumptions: getPolicyMiningAssumptions(assumptions),
                   evaluatedByNodeId: 'local-browser',
                   legacyTargetTodayDollars,
+                }
+              : undefined
+          }
+        />
+        {/* Mined Plan Candidates: ranked, filterable view of the corpus.
+            currentPlan reference enables Δ-vs-current columns so the
+            household sees recommendations as deltas from where they
+            stand today, not as raw absolute numbers. */}
+        <PolicyMiningResultsTable
+          baselineFingerprint={policyMiningFingerprint || null}
+          engineVersion={POLICY_MINER_ENGINE_VERSION}
+          dispatcherUrl={dispatcherUrl}
+          currentPlan={
+            policyMiningFingerprint
+              ? {
+                  annualSpendTodayDollars: annualTotalSpend,
+                  primarySocialSecurityClaimAge:
+                    data.income.socialSecurity[0]?.claimAge ?? null,
+                  spouseSocialSecurityClaimAge:
+                    data.income.socialSecurity[1]?.claimAge ?? null,
+                  // Roth conversion in the engine is policy-driven (strategy +
+                  // MAGI buffer), not a simple annual ceiling, so there's no
+                  // clean apples-to-apples diff against the miner's ceiling axis.
+                  // Leaving this null surfaces the miner's absolute ceiling
+                  // without a misleading delta.
+                  rothConversionAnnualCeiling: null,
+                  p50EndingWealthTodayDollars:
+                    primaryPath?.medianEndingWealth ?? null,
                 }
               : undefined
           }

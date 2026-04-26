@@ -1,0 +1,693 @@
+import { useEffect, useMemo, useState } from 'react';
+import { loadEvaluationsForBaseline } from './policy-mining-corpus';
+import type { Policy, PolicyEvaluation } from './policy-miner-types';
+import {
+  loadClusterEvaluations,
+  loadClusterSessions,
+  type ClusterSessionListing,
+} from './policy-mining-cluster';
+
+/**
+ * Policy Mining — Results Table.
+ *
+ * The corpus's job is to produce a ranked list of policies; this card's
+ * job is to make that list a usable household decision tool. The user
+ * doesn't want to read JSON — they want to see "if I delay primary SS
+ * to 68 and cap Roth at $80k, I can spend $X more per year with Y%
+ * confidence I leave the bequest goal."
+ *
+ * Two data sources:
+ *
+ *   - Local: the in-browser IndexedDB corpus written by the 12-worker
+ *     pool when mining runs in this tab. Filtered to the current
+ *     baseline + engine version.
+ *
+ *   - Cluster: read directly from the dispatcher's HTTP API (no local
+ *     mirroring). Lets the user inspect sessions that ran on the Mac
+ *     mini / Ryzen / Mac Studio fleet — including ones that finished
+ *     hours ago — without re-running them. Every session the
+ *     dispatcher knows about appears in the picker; sessions that
+ *     match the current baseline fingerprint are labelled so the user
+ *     can tell at a glance whether the rows are comparable to their
+ *     current plan.
+ *
+ * Design choices:
+ *   - Only feasible records (configurable threshold) — non-feasible
+ *     candidates are search-space exhaust, not recommendations.
+ *   - Sort by SPEND DESC by default to match the V1 ranking objective
+ *     (feasibility floor + max spend). Bequest is the tiebreaker.
+ *   - Diff columns vs the household's current plan when provided. A
+ *     plan-relative view ("$15k/yr more spend than today, $200k more
+ *     bequest") is more actionable than the absolute numbers alone.
+ *   - Top 25 rows by default. The corpus may have hundreds of feasible
+ *     entries; rendering them all is expensive and unhelpful for a
+ *     decision card. A future "show all" toggle can lift that cap.
+ */
+
+const POLL_INTERVAL_MS = 5_000;
+const SESSION_LIST_POLL_MS = 10_000;
+const DEFAULT_FEASIBILITY_THRESHOLD = 0.85;
+const DEFAULT_ROW_LIMIT = 25;
+
+interface CurrentPlanReference {
+  /** What the household spends today, today's $. Used for spend-diff column. */
+  annualSpendTodayDollars: number;
+  /** Current plan's primary SS claim age, for diff column. Null = unknown. */
+  primarySocialSecurityClaimAge?: number | null;
+  /** Current plan's spouse SS claim age, for diff column. Null = no spouse. */
+  spouseSocialSecurityClaimAge?: number | null;
+  /** Current Roth conversion ceiling, for diff column. */
+  rothConversionAnnualCeiling?: number | null;
+  /** Current plan's median bequest in today's $, for bequest-diff column. */
+  p50EndingWealthTodayDollars?: number | null;
+}
+
+interface Props {
+  baselineFingerprint: string | null;
+  engineVersion: string;
+  /**
+   * Dispatcher WebSocket URL — same value the cluster status card uses.
+   * When provided, the table exposes a "Cluster" source toggle that
+   * pulls sessions from `<dispatcher>/sessions`. Omit to hide the toggle
+   * (table behaves as local-only).
+   */
+  dispatcherUrl?: string | null;
+  /**
+   * If provided, the table renders Δ-vs-current columns. Without it, the
+   * table still works but only shows absolute numbers.
+   */
+  currentPlan?: CurrentPlanReference;
+  /** Default feasibility threshold (0..1). Defaults to 0.85. */
+  defaultFeasibilityThreshold?: number;
+  /** Max rows to render. Defaults to 25. */
+  rowLimit?: number;
+}
+
+type Source = 'local' | 'cluster';
+
+type SortKey =
+  | 'spend'
+  | 'feasibility'
+  | 'bequestP50'
+  | 'bequestP10'
+  | 'primarySs'
+  | 'spouseSs'
+  | 'roth';
+
+interface SortSpec {
+  key: SortKey;
+  direction: 'asc' | 'desc';
+}
+
+function formatCurrency(amount: number): string {
+  if (!Number.isFinite(amount)) return '—';
+  if (amount >= 1_000_000) return `$${(amount / 1_000_000).toFixed(1)}M`;
+  if (amount >= 1_000) return `$${(amount / 1_000).toFixed(0)}k`;
+  return `$${Math.round(amount)}`;
+}
+
+function formatPct(rate: number | null): string {
+  if (rate === null || !Number.isFinite(rate)) return '—';
+  return `${Math.round(rate * 100)}%`;
+}
+
+function formatDelta(
+  delta: number,
+  formatter: (n: number) => string,
+): { text: string; tone: 'positive' | 'negative' | 'neutral' } {
+  if (!Number.isFinite(delta) || delta === 0) {
+    return { text: '—', tone: 'neutral' };
+  }
+  const sign = delta > 0 ? '+' : '−';
+  const abs = Math.abs(delta);
+  return {
+    text: `${sign}${formatter(abs)}`,
+    tone: delta > 0 ? 'positive' : 'negative',
+  };
+}
+
+function deltaClass(tone: 'positive' | 'negative' | 'neutral'): string {
+  switch (tone) {
+    case 'positive':
+      return 'text-emerald-700';
+    case 'negative':
+      return 'text-rose-600';
+    default:
+      return 'text-stone-400';
+  }
+}
+
+function ageOrDash(age: number | null | undefined): string {
+  if (age == null) return '—';
+  return String(age);
+}
+
+function compareEvals(a: PolicyEvaluation, b: PolicyEvaluation, sort: SortSpec): number {
+  const dir = sort.direction === 'asc' ? 1 : -1;
+  const pick = (e: PolicyEvaluation): number => {
+    switch (sort.key) {
+      case 'spend':
+        return e.policy.annualSpendTodayDollars;
+      case 'feasibility':
+        return e.outcome.bequestAttainmentRate;
+      case 'bequestP50':
+        return e.outcome.p50EndingWealthTodayDollars;
+      case 'bequestP10':
+        return e.outcome.p10EndingWealthTodayDollars;
+      case 'primarySs':
+        return e.policy.primarySocialSecurityClaimAge;
+      case 'spouseSs':
+        return e.policy.spouseSocialSecurityClaimAge ?? 0;
+      case 'roth':
+        return e.policy.rothConversionAnnualCeiling;
+    }
+  };
+  const av = pick(a);
+  const bv = pick(b);
+  if (av === bv) {
+    // Stable tiebreak so toggling a column doesn't shuffle equal rows.
+    return a.id.localeCompare(b.id);
+  }
+  return (av - bv) * dir;
+}
+
+function policyDiffSummary(
+  policy: Policy,
+  current?: CurrentPlanReference,
+): string | null {
+  if (!current) return null;
+  const parts: string[] = [];
+  if (
+    current.primarySocialSecurityClaimAge != null &&
+    policy.primarySocialSecurityClaimAge !== current.primarySocialSecurityClaimAge
+  ) {
+    const delta =
+      policy.primarySocialSecurityClaimAge - current.primarySocialSecurityClaimAge;
+    parts.push(`Pri SS ${delta > 0 ? '+' : ''}${delta}yr`);
+  }
+  if (
+    current.spouseSocialSecurityClaimAge != null &&
+    policy.spouseSocialSecurityClaimAge != null &&
+    policy.spouseSocialSecurityClaimAge !== current.spouseSocialSecurityClaimAge
+  ) {
+    const delta =
+      policy.spouseSocialSecurityClaimAge - current.spouseSocialSecurityClaimAge;
+    parts.push(`Sp SS ${delta > 0 ? '+' : ''}${delta}yr`);
+  }
+  if (
+    current.rothConversionAnnualCeiling != null &&
+    policy.rothConversionAnnualCeiling !== current.rothConversionAnnualCeiling
+  ) {
+    const delta =
+      policy.rothConversionAnnualCeiling - current.rothConversionAnnualCeiling;
+    const sign = delta > 0 ? '+' : '−';
+    parts.push(`Roth ${sign}${formatCurrency(Math.abs(delta))}/yr`);
+  }
+  return parts.length > 0 ? parts.join(' · ') : 'same axes as current';
+}
+
+/** Format the picker label so the user can tell sessions apart at a glance. */
+function describeSession(
+  s: ClusterSessionListing,
+  currentBaselineFingerprint: string | null,
+): string {
+  const when = new Date(s.lastActivityMs).toLocaleString();
+  const stateBadge = s.summary
+    ? s.summary.state
+    : 'in progress';
+  const matchTag =
+    currentBaselineFingerprint &&
+    s.manifest?.config?.baselineFingerprint === currentBaselineFingerprint
+      ? ' · matches current'
+      : '';
+  return `${when} · ${s.evaluationCount.toLocaleString()} evals · ${stateBadge}${matchTag} · ${s.sessionId}`;
+}
+
+export function PolicyMiningResultsTable({
+  baselineFingerprint,
+  engineVersion,
+  dispatcherUrl,
+  currentPlan,
+  defaultFeasibilityThreshold = DEFAULT_FEASIBILITY_THRESHOLD,
+  rowLimit = DEFAULT_ROW_LIMIT,
+}: Props): JSX.Element | null {
+  const [source, setSource] = useState<Source>('local');
+  const [evaluations, setEvaluations] = useState<PolicyEvaluation[]>([]);
+  const [feasibilityThreshold, setFeasibilityThreshold] = useState<number>(
+    defaultFeasibilityThreshold,
+  );
+  const [sort, setSort] = useState<SortSpec>({
+    key: 'spend',
+    direction: 'desc',
+  });
+  const [showAll, setShowAll] = useState<boolean>(false);
+
+  // Cluster-mode state.
+  const [clusterSessions, setClusterSessions] = useState<ClusterSessionListing[]>(
+    [],
+  );
+  const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
+  const [clusterError, setClusterError] = useState<string | null>(null);
+  const [clusterLoading, setClusterLoading] = useState<boolean>(false);
+
+  const clusterEnabled = !!dispatcherUrl;
+
+  // If the dispatcher URL goes away (user cleared it), drop back to local
+  // so the empty state isn't confusing.
+  useEffect(() => {
+    if (!clusterEnabled && source === 'cluster') {
+      setSource('local');
+      setEvaluations([]);
+    }
+  }, [clusterEnabled, source]);
+
+  // Local-mode polling: same cadence as the status card so the two
+  // panels stay in lockstep without sharing state.
+  useEffect(() => {
+    if (source !== 'local') return undefined;
+    if (!baselineFingerprint) {
+      setEvaluations([]);
+      return undefined;
+    }
+    let cancelled = false;
+    const tick = async () => {
+      try {
+        const evals = await loadEvaluationsForBaseline(
+          baselineFingerprint,
+          engineVersion,
+        );
+        if (!cancelled) setEvaluations(evals);
+      } catch (e) {
+        // eslint-disable-next-line no-console
+        console.warn('[mining-results-table] local poll failed:', e);
+      }
+    };
+    void tick();
+    const handle = setInterval(tick, POLL_INTERVAL_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(handle);
+    };
+  }, [source, baselineFingerprint, engineVersion]);
+
+  // Cluster-mode session listing: poll on a slower cadence than the
+  // evaluations themselves; the list rarely changes mid-session.
+  useEffect(() => {
+    if (source !== 'cluster' || !dispatcherUrl) return undefined;
+    let cancelled = false;
+    const tick = async () => {
+      try {
+        const sessions = await loadClusterSessions(dispatcherUrl);
+        if (cancelled) return;
+        setClusterSessions(sessions);
+        setClusterError(null);
+        // Auto-pick: prefer first session matching the current baseline,
+        // otherwise the freshest one. The server already sorted them
+        // most-recent-first.
+        if (selectedSessionId == null && sessions.length > 0) {
+          const match = baselineFingerprint
+            ? sessions.find(
+                (s) =>
+                  s.manifest?.config?.baselineFingerprint === baselineFingerprint,
+              )
+            : null;
+          setSelectedSessionId((match ?? sessions[0]).sessionId);
+        }
+      } catch (e) {
+        if (cancelled) return;
+        const message = e instanceof Error ? e.message : String(e);
+        setClusterError(message);
+      }
+    };
+    void tick();
+    const handle = setInterval(tick, SESSION_LIST_POLL_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(handle);
+    };
+  }, [source, dispatcherUrl, baselineFingerprint, selectedSessionId]);
+
+  // Cluster-mode evaluations: poll the selected session.
+  useEffect(() => {
+    if (source !== 'cluster' || !dispatcherUrl || !selectedSessionId) {
+      if (source === 'cluster') setEvaluations([]);
+      return undefined;
+    }
+    let cancelled = false;
+    const tick = async () => {
+      setClusterLoading(true);
+      try {
+        const payload = await loadClusterEvaluations(
+          dispatcherUrl,
+          selectedSessionId,
+        );
+        if (cancelled) return;
+        setEvaluations(payload.evaluations);
+        setClusterError(null);
+      } catch (e) {
+        if (cancelled) return;
+        const message = e instanceof Error ? e.message : String(e);
+        setClusterError(message);
+      } finally {
+        if (!cancelled) setClusterLoading(false);
+      }
+    };
+    void tick();
+    const handle = setInterval(tick, POLL_INTERVAL_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(handle);
+    };
+  }, [source, dispatcherUrl, selectedSessionId]);
+
+  const filtered = useMemo(() => {
+    return evaluations
+      .filter((e) => e.outcome.bequestAttainmentRate >= feasibilityThreshold)
+      .sort((a, b) => compareEvals(a, b, sort));
+  }, [evaluations, feasibilityThreshold, sort]);
+
+  const visible = useMemo(
+    () => (showAll ? filtered : filtered.slice(0, rowLimit)),
+    [filtered, rowLimit, showAll],
+  );
+
+  // Whether to render at all. Local mode hides if there's no baseline /
+  // no records. Cluster mode renders even when empty so the picker /
+  // error state stay visible.
+  if (source === 'local' && (!baselineFingerprint || evaluations.length === 0)) {
+    if (!clusterEnabled) return null;
+    // Fall through to render the source toggle so the user can switch to
+    // cluster even when local is empty.
+  }
+
+  const totalEvaluated = evaluations.length;
+  const totalFeasible = filtered.length;
+
+  const toggleSort = (key: SortKey) => {
+    setSort((prev) => {
+      if (prev.key !== key) {
+        // First click on a new column picks the direction that puts the
+        // "most interesting" rows on top: numeric metrics default to desc,
+        // ages default to asc (younger = sooner).
+        const direction =
+          key === 'primarySs' || key === 'spouseSs' ? 'asc' : 'desc';
+        return { key, direction };
+      }
+      return {
+        key,
+        direction: prev.direction === 'desc' ? 'asc' : 'desc',
+      };
+    });
+  };
+
+  const sortIndicator = (key: SortKey): string => {
+    if (sort.key !== key) return '';
+    return sort.direction === 'desc' ? ' ↓' : ' ↑';
+  };
+
+  const selectedSession = clusterSessions.find(
+    (s) => s.sessionId === selectedSessionId,
+  );
+  const baselineMismatch =
+    source === 'cluster' &&
+    selectedSession &&
+    baselineFingerprint &&
+    selectedSession.manifest?.config?.baselineFingerprint !== baselineFingerprint;
+
+  return (
+    <div className="mt-4 rounded-2xl border border-stone-200 bg-white/80 p-4 text-sm text-stone-700 shadow-sm">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-stone-500">
+            Mined Plan Candidates
+          </p>
+          <p className="mt-0.5 text-[12px] text-stone-500">
+            {totalFeasible.toLocaleString()} feasible of{' '}
+            {totalEvaluated.toLocaleString()} evaluated · sorted by{' '}
+            {sort.key === 'spend'
+              ? 'highest annual spend'
+              : sort.key === 'bequestP50'
+                ? 'highest median bequest'
+                : sort.key === 'bequestP10'
+                  ? 'highest worst-case bequest'
+                  : sort.key === 'feasibility'
+                    ? 'highest feasibility'
+                    : sort.key === 'primarySs'
+                      ? 'primary SS claim age'
+                      : sort.key === 'spouseSs'
+                        ? 'spouse SS claim age'
+                        : 'Roth conversion ceiling'}
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-3">
+          {clusterEnabled && (
+            <div className="inline-flex items-center rounded-full bg-stone-100 p-0.5 text-[11px] font-semibold uppercase tracking-wider">
+              <button
+                type="button"
+                onClick={() => setSource('local')}
+                className={`rounded-full px-3 py-1 transition ${
+                  source === 'local'
+                    ? 'bg-white text-stone-900 shadow-sm'
+                    : 'text-stone-500 hover:text-stone-700'
+                }`}
+              >
+                Local
+              </button>
+              <button
+                type="button"
+                onClick={() => setSource('cluster')}
+                className={`rounded-full px-3 py-1 transition ${
+                  source === 'cluster'
+                    ? 'bg-white text-stone-900 shadow-sm'
+                    : 'text-stone-500 hover:text-stone-700'
+                }`}
+              >
+                Cluster
+              </button>
+            </div>
+          )}
+          <div className="flex items-center gap-2">
+            <label className="text-[11px] font-medium uppercase tracking-wider text-stone-500">
+              Min feasibility
+            </label>
+            <input
+              type="range"
+              min={0.5}
+              max={0.99}
+              step={0.01}
+              value={feasibilityThreshold}
+              onChange={(e) =>
+                setFeasibilityThreshold(Number.parseFloat(e.target.value))
+              }
+              className="h-1 w-32 cursor-pointer accent-emerald-600"
+            />
+            <span className="w-10 text-right text-[12px] font-semibold tabular-nums text-stone-700">
+              {formatPct(feasibilityThreshold)}
+            </span>
+          </div>
+        </div>
+      </div>
+
+      {source === 'cluster' && (
+        <div className="mb-3 flex flex-wrap items-center gap-2">
+          <label className="text-[11px] font-medium uppercase tracking-wider text-stone-500">
+            Session
+          </label>
+          {clusterSessions.length === 0 ? (
+            <span className="text-[12px] text-stone-500">
+              {clusterError
+                ? 'unavailable'
+                : clusterLoading
+                  ? 'loading…'
+                  : 'no sessions on dispatcher yet'}
+            </span>
+          ) : (
+            <select
+              value={selectedSessionId ?? ''}
+              onChange={(e) => setSelectedSessionId(e.target.value || null)}
+              className="max-w-full truncate rounded-md border border-stone-200 bg-white px-2 py-1 text-[12px]"
+            >
+              {clusterSessions.map((s) => (
+                <option key={s.sessionId} value={s.sessionId}>
+                  {describeSession(s, baselineFingerprint)}
+                </option>
+              ))}
+            </select>
+          )}
+          {clusterError && (
+            <span className="text-[11px] text-rose-600">{clusterError}</span>
+          )}
+          {baselineMismatch && (
+            <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-800">
+              Baseline differs from current plan — diff columns may not be
+              meaningful
+            </span>
+          )}
+        </div>
+      )}
+
+      {totalEvaluated === 0 ? (
+        <p className="rounded-md bg-stone-50 px-3 py-2 text-[12px] text-stone-600">
+          {source === 'cluster'
+            ? clusterError
+              ? `Couldn't reach the dispatcher — ${clusterError}`
+              : 'No evaluations to show. Pick a different session above, or run a mining session via the controller CLI.'
+            : 'No local evaluations yet. Start mining from the status card or switch to Cluster.'}
+        </p>
+      ) : totalFeasible === 0 ? (
+        <p className="rounded-md bg-amber-50 px-3 py-2 text-[12px] text-amber-800">
+          No candidates clear the {formatPct(feasibilityThreshold)} feasibility
+          floor. Lower the threshold or wait for more policies to be mined.
+        </p>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[800px] text-left text-[12px] tabular-nums">
+            <thead>
+              <tr className="border-b border-stone-200 text-[11px] font-medium uppercase tracking-wider text-stone-500">
+                <th
+                  className="cursor-pointer py-2 pr-3 hover:text-stone-700"
+                  onClick={() => toggleSort('spend')}
+                >
+                  Spend / yr{sortIndicator('spend')}
+                </th>
+                <th
+                  className="cursor-pointer py-2 pr-3 hover:text-stone-700"
+                  onClick={() => toggleSort('primarySs')}
+                >
+                  Pri SS{sortIndicator('primarySs')}
+                </th>
+                <th
+                  className="cursor-pointer py-2 pr-3 hover:text-stone-700"
+                  onClick={() => toggleSort('spouseSs')}
+                >
+                  Sp SS{sortIndicator('spouseSs')}
+                </th>
+                <th
+                  className="cursor-pointer py-2 pr-3 hover:text-stone-700"
+                  onClick={() => toggleSort('roth')}
+                >
+                  Roth cap{sortIndicator('roth')}
+                </th>
+                <th
+                  className="cursor-pointer py-2 pr-3 hover:text-stone-700"
+                  onClick={() => toggleSort('feasibility')}
+                >
+                  Feasible{sortIndicator('feasibility')}
+                </th>
+                <th
+                  className="cursor-pointer py-2 pr-3 hover:text-stone-700"
+                  onClick={() => toggleSort('bequestP50')}
+                >
+                  Bequest P50{sortIndicator('bequestP50')}
+                </th>
+                <th
+                  className="cursor-pointer py-2 pr-3 hover:text-stone-700"
+                  onClick={() => toggleSort('bequestP10')}
+                >
+                  Bequest P10{sortIndicator('bequestP10')}
+                </th>
+                {currentPlan ? (
+                  <>
+                    <th className="py-2 pr-3">Δ Spend</th>
+                    <th className="py-2 pr-3">Δ Bequest P50</th>
+                    <th className="py-2">vs Current</th>
+                  </>
+                ) : null}
+              </tr>
+            </thead>
+            <tbody>
+              {visible.map((ev) => {
+                const spendDelta = currentPlan
+                  ? ev.policy.annualSpendTodayDollars -
+                    currentPlan.annualSpendTodayDollars
+                  : null;
+                const bequestDelta =
+                  currentPlan && currentPlan.p50EndingWealthTodayDollars != null
+                    ? ev.outcome.p50EndingWealthTodayDollars -
+                      currentPlan.p50EndingWealthTodayDollars
+                    : null;
+                const spendDeltaFmt =
+                  spendDelta != null
+                    ? formatDelta(spendDelta, formatCurrency)
+                    : null;
+                const bequestDeltaFmt =
+                  bequestDelta != null
+                    ? formatDelta(bequestDelta, formatCurrency)
+                    : null;
+                return (
+                  <tr
+                    key={ev.id}
+                    className="border-b border-stone-100 last:border-b-0 hover:bg-stone-50"
+                  >
+                    <td className="py-2 pr-3 font-semibold text-stone-900">
+                      {formatCurrency(ev.policy.annualSpendTodayDollars)}
+                    </td>
+                    <td className="py-2 pr-3">
+                      {ageOrDash(ev.policy.primarySocialSecurityClaimAge)}
+                    </td>
+                    <td className="py-2 pr-3">
+                      {ageOrDash(ev.policy.spouseSocialSecurityClaimAge)}
+                    </td>
+                    <td className="py-2 pr-3">
+                      {formatCurrency(ev.policy.rothConversionAnnualCeiling)}
+                    </td>
+                    <td className="py-2 pr-3 font-semibold text-emerald-700">
+                      {formatPct(ev.outcome.bequestAttainmentRate)}
+                    </td>
+                    <td className="py-2 pr-3">
+                      {formatCurrency(ev.outcome.p50EndingWealthTodayDollars)}
+                    </td>
+                    <td className="py-2 pr-3 text-stone-500">
+                      {formatCurrency(ev.outcome.p10EndingWealthTodayDollars)}
+                    </td>
+                    {currentPlan ? (
+                      <>
+                        <td
+                          className={`py-2 pr-3 ${
+                            spendDeltaFmt
+                              ? deltaClass(spendDeltaFmt.tone)
+                              : 'text-stone-400'
+                          }`}
+                        >
+                          {spendDeltaFmt ? spendDeltaFmt.text : '—'}
+                        </td>
+                        <td
+                          className={`py-2 pr-3 ${
+                            bequestDeltaFmt
+                              ? deltaClass(bequestDeltaFmt.tone)
+                              : 'text-stone-400'
+                          }`}
+                        >
+                          {bequestDeltaFmt ? bequestDeltaFmt.text : '—'}
+                        </td>
+                        <td className="py-2 text-[11px] text-stone-500">
+                          {policyDiffSummary(ev.policy, currentPlan)}
+                        </td>
+                      </>
+                    ) : null}
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {totalFeasible > rowLimit && (
+        <div className="mt-3 flex items-center justify-between text-[12px] text-stone-500">
+          <span>
+            Showing {visible.length.toLocaleString()} of{' '}
+            {totalFeasible.toLocaleString()} feasible candidates
+          </span>
+          <button
+            type="button"
+            onClick={() => setShowAll((prev) => !prev)}
+            className="rounded-full bg-stone-100 px-3 py-1 text-[11px] font-semibold text-stone-700 transition hover:bg-stone-200"
+          >
+            {showAll ? `Show top ${rowLimit}` : 'Show all'}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}

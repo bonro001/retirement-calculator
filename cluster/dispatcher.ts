@@ -82,6 +82,11 @@ import {
   type ResumableSession,
   type SessionManifest,
 } from './corpus-writer';
+import {
+  listSessions,
+  readEvaluations,
+  readSessionMetadata,
+} from './corpus-reader';
 
 // ---------------------------------------------------------------------------
 // Peer registry
@@ -1010,23 +1015,148 @@ function sweepStalePeers(): void {
 // Server boot
 // ---------------------------------------------------------------------------
 
+/**
+ * CORS headers applied to every HTTP response. The browser fetches the
+ * corpus endpoints (E.1) from a Vite dev server on a different origin
+ * (typically http://localhost:5173 → this dispatcher on :8765), so the
+ * browser blocks the response unless we whitelist it. A LAN-only
+ * dispatcher with no auth has no privileged data to protect — `*` is
+ * the right call here. If we ever add auth, this becomes a per-origin
+ * allowlist sourced from env.
+ */
+function applyCorsHeaders(res: import('node:http').ServerResponse): void {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Access-Control-Max-Age', '600');
+}
+
+function sendJson(
+  res: import('node:http').ServerResponse,
+  status: number,
+  body: unknown,
+): void {
+  res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' });
+  res.end(JSON.stringify(body));
+}
+
+function sendNotFound(
+  res: import('node:http').ServerResponse,
+  message = 'not found',
+): void {
+  res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
+  res.end(message);
+}
+
+/**
+ * Where the corpus reader endpoints look for session data. Matches the
+ * writer's default (CLUSTER_DATA_DIR env override → cluster/data) so
+ * `GET /sessions` lists exactly what `evaluations.jsonl` files exist on
+ * disk. Resolved at server boot and captured in the closure.
+ */
+function getCorpusRoot(): string | undefined {
+  // undefined → corpus-reader uses its DEFAULT_DATA_DIR (cluster/data
+  // resolved relative to the dispatcher source). An explicit env var
+  // overrides for NAS-mount setups.
+  const env = process.env.CLUSTER_DATA_DIR;
+  return env && env.length > 0 ? env : undefined;
+}
+
 function startDispatcher(port: number): void {
   const httpServer = createServer((req, res) => {
-    if (req.url === '/health') {
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(
-        JSON.stringify({
-          status: 'ok',
-          protocolVersion: MINING_PROTOCOL_VERSION,
-          peerCount: peers.size,
-          activeSessionId: activeSession?.sessionId ?? null,
-          uptimeSec: Math.round(process.uptime()),
-        }),
-      );
+    applyCorsHeaders(res);
+
+    // Preflight — browsers send OPTIONS before any cross-origin GET that
+    // has non-simple headers. Respond with 204 and the headers above.
+    if (req.method === 'OPTIONS') {
+      res.writeHead(204);
+      res.end();
       return;
     }
-    res.writeHead(404, { 'Content-Type': 'text/plain' });
-    res.end('not found — try ws:// upgrade or /health');
+
+    if (req.method !== 'GET') {
+      res.writeHead(405, { 'Content-Type': 'text/plain' });
+      res.end('method not allowed');
+      return;
+    }
+
+    const url = req.url ?? '/';
+
+    if (url === '/health') {
+      sendJson(res, 200, {
+        status: 'ok',
+        protocolVersion: MINING_PROTOCOL_VERSION,
+        peerCount: peers.size,
+        activeSessionId: activeSession?.sessionId ?? null,
+        uptimeSec: Math.round(process.uptime()),
+      });
+      return;
+    }
+
+    // GET /sessions — list every session on disk with manifest + summary
+    // + evaluation line count. Sorted most-recent-first by file mtime so
+    // a UI picker can default to the freshest entry.
+    if (url === '/sessions') {
+      try {
+        const sessions = listSessions(getCorpusRoot());
+        sendJson(res, 200, { sessions });
+      } catch (err) {
+        log('warn', 'GET /sessions failed', { err: String(err) });
+        sendJson(res, 500, { error: 'list failed', detail: String(err) });
+      }
+      return;
+    }
+
+    // GET /sessions/:id — manifest + summary + evaluation count, no
+    // payload. Cheap; useful for "is this session done?" probes.
+    const metaMatch = url.match(/^\/sessions\/([^/]+)$/);
+    if (metaMatch) {
+      const sessionId = decodeURIComponent(metaMatch[1]);
+      try {
+        const meta = readSessionMetadata(sessionId, getCorpusRoot());
+        if (!meta) {
+          sendNotFound(res, `session not found: ${sessionId}`);
+          return;
+        }
+        sendJson(res, 200, meta);
+      } catch (err) {
+        log('warn', 'GET /sessions/:id failed', { sessionId, err: String(err) });
+        sendJson(res, 500, { error: 'read failed', detail: String(err) });
+      }
+      return;
+    }
+
+    // GET /sessions/:id/evaluations — the actual evaluation records.
+    // Returned as `{ evaluations: [...] }` rather than a bare array so a
+    // future server can attach pagination cursors without breaking shape.
+    const evalMatch = url.match(/^\/sessions\/([^/]+)\/evaluations$/);
+    if (evalMatch) {
+      const sessionId = decodeURIComponent(evalMatch[1]);
+      try {
+        const meta = readSessionMetadata(sessionId, getCorpusRoot());
+        if (!meta) {
+          sendNotFound(res, `session not found: ${sessionId}`);
+          return;
+        }
+        const evaluations = readEvaluations(sessionId, getCorpusRoot());
+        sendJson(res, 200, {
+          sessionId,
+          baselineFingerprint: meta.manifest.config.baselineFingerprint,
+          engineVersion: meta.manifest.config.engineVersion,
+          evaluationCount: evaluations.length,
+          evaluations,
+        });
+      } catch (err) {
+        log('warn', 'GET /sessions/:id/evaluations failed', {
+          sessionId,
+          err: String(err),
+        });
+        sendJson(res, 500, { error: 'read failed', detail: String(err) });
+      }
+      return;
+    }
+
+    sendNotFound(res, 'not found — try ws:// upgrade, /health, or /sessions');
   });
 
   const wss = new WebSocketServer({ server: httpServer });
