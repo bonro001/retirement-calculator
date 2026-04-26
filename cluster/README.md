@@ -4,11 +4,13 @@ Node-side tooling for running policy-mining work across multiple machines (Mac m
 
 ## Status
 
-**D.4 — Work distribution.** The dispatcher now owns the full session lifecycle: a controller (the `cluster:start-session` CLI today; the browser via D.3 later) sends `start_session` with a baseline + axes spec, the dispatcher enumerates policies, opens a session directory on disk, and pumps `MiningJobBatch`es out to every connected host based on their advertised worker count and measured throughput. Results stream back as `BatchResult` and append to `evaluations.jsonl` one line per `PolicyEvaluation`. When the queue drains the dispatcher writes `summary.json` and broadcasts session-complete.
+**D.5 — Failure handling.** The dispatcher now survives both poisoned policies and its own restarts. A policy that gets nacked or disconnected away `MAX_POLICY_ATTEMPTS` (5) times in a row is dropped to a dead-letter list rather than thrashing the cluster forever. And on boot the dispatcher scans for sessions on disk that have a `manifest.json` but no `summary.json` (the only way that combo arises is a crash); when a controller re-issues `start_session` for the same baseline, the matching session is resumed in place — already-evaluated policies are filtered out via the canonical `policyId` hash, and progress reporting picks up where it left off.
 
 Earlier phases:
 - **D.1** Dispatcher skeleton: connections, registration, heartbeats, cluster-state broadcasts.
 - **D.2** Node host: `worker_threads` pool, session priming, batch dispatch path. Engine verified portable to Node.
+- **D.3** Browser-as-host: the existing 12-worker Web Worker pool registers as a dispatcher host (and as the controller, in the same socket).
+- **D.4** Dispatcher work distribution: enumerator → session dir → adaptive batch sizing → JSONL ingest.
 - **D.6** Windows bring-up on Ryzen 7800X3D — registered and serving batches.
 
 ## Components
@@ -87,4 +89,4 @@ Health endpoint: `GET http://<dispatcher>:8765/health` returns `{status, protoco
 - **D.6 — done.** Windows bring-up on the Ryzen 7800X3D.
 - **D.4 — done.** Dispatcher work distribution: `cluster:start-session` controller CLI sends `start_session`; dispatcher enumerates policies, opens session dir, pumps `MiningJobBatch`es to every host based on perf-class hint then measured EWMA, ingests `BatchResult` into `evaluations.jsonl`. In-flight batches are requeued automatically on host disconnect or `batch_nack`. Session-complete writes `summary.json` and broadcasts `session: null`.
 - **D.3 — done.** Browser-as-host: the existing 12-worker pool registers as a dispatcher host (and as the controller in the same connection) and pulls batches from the dispatcher instead of enumerating locally. `PolicyMiningStatusCard` shows live per-host stats from the cluster snapshot.
-- **D.5 — partial.** Per-policy retry cap with dead-letter list: a poisoned policy that nacks or disconnects every time it's assigned is dropped after `MAX_POLICY_ATTEMPTS` (5) instead of looping forever. Snapshot now exposes `droppedPolicies` so the UI can flag the loss. Still TODO: dispatcher restart resume (replay `evaluations.jsonl` to skip already-evaluated policies on a fresh start).
+- **D.5 — done.** Failure handling: (a) per-policy retry cap with dead-letter list — a poisoned policy that nacks or disconnects every time it's assigned is dropped after `MAX_POLICY_ATTEMPTS` (5) instead of looping forever, with `droppedPolicies` surfaced in the snapshot; (b) dispatcher restart resume — at boot the dispatcher scans `cluster/data/sessions/*/` for sessions with a `manifest.json` but no `summary.json` (i.e. crashed), reads their `evaluations.jsonl` to seed evaluated-policy ids and best-so-far, and the next `start_session` matching the same baseline fingerprint reuses that session id and skips already-evaluated policies. The controller doesn't have to know — it just re-issues its original `start_session`.

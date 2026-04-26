@@ -176,13 +176,34 @@ export class WorkQueue {
    *  record is "this many attempts exhausted." */
   private readonly deadLetters: DeadLetterRecord[] = [];
 
-  constructor(sessionId: string, allPolicies: Policy[]) {
+  /**
+   * @param sessionId           Stamped session identity; mirrored into batch ids.
+   * @param remainingPolicies   Policies the queue should hand out. On a fresh
+   *                            session this is every enumerated policy; on a
+   *                            D.5 resumed session it's the enumerated set
+   *                            minus those already on disk.
+   * @param opts.priorEvaluatedCount
+   *                            Count of policies already evaluated before
+   *                            this WorkQueue was constructed (resume only).
+   *                            Defaults to 0. `totalPolicies` is computed as
+   *                            `remainingPolicies.length + priorEvaluatedCount`
+   *                            so progress reporting and the
+   *                            `pending + inFlight + evaluated + dropped`
+   *                            invariant both work across the resume boundary.
+   */
+  constructor(
+    sessionId: string,
+    remainingPolicies: Policy[],
+    opts: { priorEvaluatedCount?: number } = {},
+  ) {
     this.sessionId = sessionId;
     // Slice-copy so the caller can't mutate the queue from under us.
     // Reverse so we can pop() from the END (cheap) while still serving
     // policies in input order.
-    this.pending = [...allPolicies].reverse();
-    this.totalPolicies = allPolicies.length;
+    this.pending = [...remainingPolicies].reverse();
+    const priorEvaluated = opts.priorEvaluatedCount ?? 0;
+    this.totalPolicies = remainingPolicies.length + priorEvaluated;
+    this.evaluatedCount = priorEvaluated;
   }
 
   pendingCount(): number {

@@ -63,6 +63,7 @@ import {
 } from '../src/mining-protocol';
 import {
   enumeratePolicies,
+  policyId,
 } from '../src/policy-axis-enumerator';
 import type {
   MiningJobBatch,
@@ -76,7 +77,9 @@ import {
 import {
   appendEvaluations,
   closeSessionWithStats,
+  findResumableSessions,
   openSessionForWrite,
+  type ResumableSession,
   type SessionManifest,
 } from './corpus-writer';
 
@@ -161,6 +164,21 @@ interface ActiveSession {
 }
 
 let activeSession: ActiveSession | null = null;
+
+/**
+ * Sessions found on disk at boot that have a manifest but no summary
+ * (i.e. the dispatcher crashed mid-session). Keyed by
+ * `config.baselineFingerprint` so a controller's `start_session` for
+ * the same baseline can be resumed without anyone needing to know the
+ * old session id. At most one entry per fingerprint — if two unfinished
+ * sessions share a baseline, the most recent one wins (later
+ * `startedAtIso` overwrites earlier).
+ *
+ * Entries are removed once consumed by `handleStartSession`. Entries
+ * not consumed by the time the operator restarts the controller stay
+ * here; they're available for resume on subsequent `start_session`s.
+ */
+const resumableSessions = new Map<string, ResumableSession>();
 
 /**
  * Counter to generate unique peer ids when a peer doesn't request one.
@@ -432,13 +450,53 @@ function handleStartSession(peer: Peer, message: StartSessionMessage): void {
   const sliced =
     cap && cap > 0 && cap < policies.length ? policies.slice(0, cap) : policies;
 
-  // Stamp the session id with controller name + time so logs read well
-  // and re-running doesn't risk colliding with a stale on-disk session dir.
-  const startedAtMs = Date.now();
-  const sessionId = `s-${cfg.baselineFingerprint.slice(0, 12)}-${startedAtMs}`;
-  const startedAtIso = new Date(startedAtMs).toISOString();
-
-  const queue = new WorkQueue(sessionId, sliced);
+  // D.5 resume: did the dispatcher crash mid-session against this same
+  // baseline? If so, reuse the on-disk sessionId, skip already-evaluated
+  // policies, and continue from where the crash left off. The controller
+  // doesn't need to know — it just re-issues the same start_session it
+  // used originally, and the dispatcher does the right thing.
+  const resumable = resumableSessions.get(cfg.baselineFingerprint);
+  let sessionId: string;
+  let startedAtIso: string;
+  let queue: WorkQueue;
+  let isResume = false;
+  let bestPolicyIdSeed: string | null = null;
+  if (resumable) {
+    isResume = true;
+    sessionId = resumable.manifest.sessionId;
+    startedAtIso = resumable.manifest.startedAtIso;
+    // Filter the freshly-enumerated policy list to drop anything the
+    // crashed run already evaluated. Uses the same canonical hash the
+    // miner workers stamp into evaluation records, so set membership is
+    // exact: if a policy id is in evaluatedIds, that policy is done.
+    const remainingPolicies = sliced.filter((policy) => {
+      const id = policyId(policy, cfg.baselineFingerprint, cfg.engineVersion);
+      return !resumable.evaluatedIds.has(id);
+    });
+    queue = new WorkQueue(sessionId, remainingPolicies, {
+      priorEvaluatedCount: resumable.evaluationCount,
+    });
+    bestPolicyIdSeed = resumable.bestSoFar?.id ?? null;
+    log('info', 'session resume: matched on-disk session', {
+      sessionId,
+      baselineFingerprint: cfg.baselineFingerprint.slice(0, 12),
+      enumeratedPolicies: sliced.length,
+      alreadyEvaluated: resumable.evaluationCount,
+      remainingPolicies: remainingPolicies.length,
+      bestPolicyId: bestPolicyIdSeed,
+      from: peer.peerId,
+    });
+    // Consume the entry so a second start_session in the same boot
+    // doesn't double-resume the same on-disk session.
+    resumableSessions.delete(cfg.baselineFingerprint);
+  } else {
+    // Fresh session: stamp id with baseline prefix + time so logs read
+    // well and re-running doesn't collide with a stale on-disk session dir.
+    const startedAtMs = Date.now();
+    sessionId = `s-${cfg.baselineFingerprint.slice(0, 12)}-${startedAtMs}`;
+    startedAtIso = new Date(startedAtMs).toISOString();
+    queue = new WorkQueue(sessionId, sliced);
+  }
 
   const manifest: SessionManifest = {
     sessionId,
@@ -450,7 +508,7 @@ function handleStartSession(peer: Peer, message: StartSessionMessage): void {
     startedBy: peer.displayName,
   };
   try {
-    openSessionForWrite(manifest);
+    openSessionForWrite(manifest, undefined, { resume: isResume });
   } catch (err) {
     log('error', 'session: corpus open failed', { err: String(err), sessionId });
     return;
@@ -465,15 +523,16 @@ function handleStartSession(peer: Peer, message: StartSessionMessage): void {
     seedDataPayload: message.seedDataPayload,
     marketAssumptionsPayload: message.marketAssumptionsPayload,
     queue,
-    bestPolicyId: null,
+    bestPolicyId: bestPolicyIdSeed,
     clusterMeanMsPerPolicy: 0,
     ingestedSamples: 0,
     controllerPeerId: peer.peerId,
   };
 
-  log('info', 'session started', {
+  log('info', isResume ? 'session resumed' : 'session started', {
     sessionId,
-    totalPolicies: sliced.length,
+    totalPolicies: queue.snapshot().totalPolicies,
+    pendingPolicies: queue.pendingCount(),
     trialCount: message.trialCount,
     feasibilityThreshold: cfg.feasibilityThreshold,
     controller: peer.displayName,
@@ -1010,6 +1069,37 @@ function startDispatcher(port: number): void {
       stateBroadcastIntervalMs: STATE_BROADCAST_INTERVAL_MS,
       pid: process.pid,
     });
+    // D.5 resume: scan the corpus root for sessions that have a manifest
+    // but no summary — these are crashes that left work on the table.
+    // Do this AFTER the listen log so the operator sees the order of
+    // events clearly. Errors during scan are logged and otherwise
+    // swallowed: a corrupt session dir shouldn't prevent the dispatcher
+    // from accepting new connections.
+    try {
+      const candidates = findResumableSessions();
+      for (const r of candidates) {
+        const fp = r.manifest.config.baselineFingerprint;
+        // If two crashed sessions share a baseline (rare — we'd have to
+        // crash twice in a row before any controller reissued), prefer
+        // the most recent. The manifest's startedAtIso is the tiebreaker.
+        const incumbent = resumableSessions.get(fp);
+        if (incumbent && incumbent.manifest.startedAtIso > r.manifest.startedAtIso) {
+          continue;
+        }
+        resumableSessions.set(fp, r);
+      }
+      if (candidates.length > 0) {
+        log('info', 'resumable sessions found on disk', {
+          count: candidates.length,
+          held: resumableSessions.size,
+          sessionIds: [...resumableSessions.values()].map((s) => s.manifest.sessionId),
+        });
+      }
+    } catch (err) {
+      log('warn', 'resume scan failed; continuing without resume support', {
+        err: String(err),
+      });
+    }
   });
 
   // Periodic cluster-state broadcast.

@@ -169,6 +169,49 @@ describe('WorkQueue (D.5 retry / dead-letter)', () => {
     ).toBe(snap.totalPolicies);
   });
 
+  it('priorEvaluatedCount keeps the math honest across a resume', () => {
+    // Simulates a D.5 resume: 100 policies originally; the previous run
+    // crashed after evaluating 60. The new WorkQueue is constructed
+    // with the 40 remaining + priorEvaluatedCount=60. Snapshot must
+    // report totalPolicies=100 and evaluatedCount=60 from the start.
+    const remaining: Policy[] = [];
+    for (let i = 0; i < 40; i += 1) remaining.push(makePolicy(50_000 + i));
+    const q = new WorkQueue('s-resume', remaining, { priorEvaluatedCount: 60 });
+
+    const snap0 = q.snapshot();
+    expect(snap0.totalPolicies).toBe(100);
+    expect(snap0.pendingCount).toBe(40);
+    expect(snap0.evaluatedCount).toBe(60);
+    expect(snap0.inFlightCount).toBe(0);
+    expect(snap0.droppedCount).toBe(0);
+
+    // Drain a batch and confirm the count moves only by the size of
+    // the batch — prior count is sticky.
+    const a = q.assignBatch('peer-resume', 5);
+    expect(a!.policies).toHaveLength(5);
+    expect(q.completeBatch(a!.batchId, 2)).not.toBeNull();
+    expect(q.evaluatedCountValue()).toBe(65);
+    expect(q.feasibleCountValue()).toBe(2);
+    // Invariant preserved.
+    const snap1 = q.snapshot();
+    expect(
+      snap1.pendingCount + snap1.inFlightCount + snap1.evaluatedCount + snap1.droppedCount,
+    ).toBe(snap1.totalPolicies);
+  });
+
+  it('a fully-evaluated resume completes immediately', () => {
+    // Edge case: dispatcher crashed AFTER the last batch landed but
+    // BEFORE summary.json was written. On resume, every enumerated
+    // policy is in evaluatedIds so remainingPolicies is empty. The
+    // queue must report isComplete=true so the dispatcher's first
+    // pumpDispatch closes the session out cleanly.
+    const q = new WorkQueue('s-fully-evaluated', [], { priorEvaluatedCount: 100 });
+    expect(q.isComplete()).toBe(true);
+    expect(q.snapshot().totalPolicies).toBe(100);
+    expect(q.snapshot().evaluatedCount).toBe(100);
+    expect(q.snapshot().pendingCount).toBe(0);
+  });
+
   it('a policy that succeeds on retry does not carry stale attempts', () => {
     // Regression guard: completeBatch must clear the attempt counter so
     // a second-attempt success doesn't accidentally count toward a

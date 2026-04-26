@@ -31,6 +31,9 @@ import {
   fdatasyncSync,
   mkdirSync,
   openSync,
+  readFileSync,
+  readdirSync,
+  statSync,
   writeFileSync,
 } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -105,13 +108,21 @@ interface OpenSession {
 const openSessions = new Map<string, OpenSession>();
 
 /**
- * Open a new session for writing. Creates the session dir, writes the
+ * Open a session for writing. Creates the session dir, writes the
  * manifest, and opens evaluations.jsonl for appending. Throws if the
  * session id is already open or if the dir can't be created.
+ *
+ * When `opts.resume` is true (D.5 dispatcher restart), the manifest on
+ * disk is left untouched, the existing evaluations.jsonl is scanned to
+ * seed `evaluationCount` and `bestSoFar`, and the new fd opens the same
+ * file in append mode so post-resume writes continue cleanly. The
+ * caller is responsible for verifying that the manifest config matches
+ * what they wanted to resume — this function trusts what's on disk.
  */
 export function openSessionForWrite(
   manifest: SessionManifest,
   rootDir: string = DEFAULT_DATA_DIR,
+  opts: { resume?: boolean } = {},
 ): void {
   if (openSessions.has(manifest.sessionId)) {
     throw new Error(`session already open: ${manifest.sessionId}`);
@@ -120,24 +131,152 @@ export function openSessionForWrite(
   if (!existsSync(sessionDir)) {
     mkdirSync(sessionDir, { recursive: true });
   }
-  // Manifest is written once and never updated. If a session reuses an
-  // id (it shouldn't — we stamp time into the id) the existing manifest
-  // is overwritten and we treat that as caller error elsewhere.
-  writeFileSync(join(sessionDir, 'manifest.json'), JSON.stringify(manifest, null, 2));
+  if (!opts.resume) {
+    // Manifest is written once and never updated on a fresh open. If a
+    // session reuses an id (it shouldn't — we stamp time into the id)
+    // the existing manifest is overwritten and we treat that as caller
+    // error elsewhere.
+    writeFileSync(join(sessionDir, 'manifest.json'), JSON.stringify(manifest, null, 2));
+  }
   const evaluationsPath = join(sessionDir, 'evaluations.jsonl');
-  // 'a' = append; create if missing. If a previous run crashed mid-session
-  // and is being re-run, we'd append to the old file — that's a D.5
-  // concern (resume vs. fresh start); for D.4 we assume fresh sessionIds.
+  // 'a' = append; create if missing. On resume the file already exists
+  // and may have N lines from before the crash; we append after them.
   const fd = openSync(evaluationsPath, 'a');
+
+  let evaluationCount = 0;
+  let bestSoFar: PolicyEvaluation | null = null;
+  if (opts.resume && existsSync(evaluationsPath)) {
+    const seeded = scanExistingEvaluations(
+      evaluationsPath,
+      manifest.config.feasibilityThreshold,
+    );
+    evaluationCount = seeded.count;
+    bestSoFar = seeded.bestSoFar;
+  }
+
   openSessions.set(manifest.sessionId, {
     sessionId: manifest.sessionId,
     sessionDir,
     evaluationsPath,
     fd,
-    evaluationCount: 0,
-    bestSoFar: null,
+    evaluationCount,
+    bestSoFar,
     feasibilityThreshold: manifest.config.feasibilityThreshold,
   });
+}
+
+/**
+ * D.5 resume: scan a session directory for unfinished work. An
+ * "unfinished" session has a `manifest.json` but NO `summary.json`.
+ * (The summary is the very last thing written at clean shutdown, so its
+ * absence is a reliable crash signal.)
+ *
+ * Returns one entry per resumable session, each carrying the parsed
+ * manifest plus the count of evaluations already on disk and the canonical
+ * id set so the dispatcher can pre-filter the policy queue. Skips dirs
+ * with malformed manifests rather than throwing — one bad session
+ * shouldn't block the rest of the boot.
+ */
+export interface ResumableSession {
+  manifest: SessionManifest;
+  sessionDir: string;
+  evaluatedIds: Set<string>;
+  evaluationCount: number;
+  /** Best evaluation found so far. Used to seed the snapshot's
+   *  bestPolicyId immediately on resume (rather than waiting for a
+   *  fresh batch). Null if no feasible evaluations have landed. */
+  bestSoFar: PolicyEvaluation | null;
+}
+
+export function findResumableSessions(
+  rootDir: string = DEFAULT_DATA_DIR,
+): ResumableSession[] {
+  const sessionsRoot = join(rootDir, 'sessions');
+  if (!existsSync(sessionsRoot)) return [];
+  const out: ResumableSession[] = [];
+  for (const entry of readdirSync(sessionsRoot)) {
+    const sessionDir = join(sessionsRoot, entry);
+    let st;
+    try {
+      st = statSync(sessionDir);
+    } catch {
+      continue;
+    }
+    if (!st.isDirectory()) continue;
+    const manifestPath = join(sessionDir, 'manifest.json');
+    const summaryPath = join(sessionDir, 'summary.json');
+    if (!existsSync(manifestPath)) continue;
+    if (existsSync(summaryPath)) continue; // cleanly closed; nothing to resume
+    let manifest: SessionManifest;
+    try {
+      manifest = JSON.parse(readFileSync(manifestPath, 'utf-8')) as SessionManifest;
+    } catch {
+      // Malformed manifest — skip this session entirely. We don't try
+      // to repair; the operator can clean up the dir if they care.
+      continue;
+    }
+    const evaluationsPath = join(sessionDir, 'evaluations.jsonl');
+    let evaluatedIds = new Set<string>();
+    let evaluationCount = 0;
+    let bestSoFar: PolicyEvaluation | null = null;
+    if (existsSync(evaluationsPath)) {
+      const scanned = scanExistingEvaluations(
+        evaluationsPath,
+        manifest.config.feasibilityThreshold,
+      );
+      evaluatedIds = scanned.ids;
+      evaluationCount = scanned.count;
+      bestSoFar = scanned.bestSoFar;
+    }
+    out.push({ manifest, sessionDir, evaluatedIds, evaluationCount, bestSoFar });
+  }
+  return out;
+}
+
+/**
+ * Stream the JSONL file and return:
+ *   - count of well-formed evaluation lines
+ *   - set of all evaluation ids (so the dispatcher can skip these)
+ *   - best evaluation under the V1 ranking
+ *
+ * Malformed lines are tolerated: we count and skip them. The most likely
+ * malformed line is the final one (a partial write killed by SIGKILL
+ * before the trailing newline made it to disk); silently dropping it
+ * means we'll re-evaluate at most one policy on resume, which is
+ * cheaper than refusing to resume.
+ */
+function scanExistingEvaluations(
+  path: string,
+  feasibilityThreshold: number,
+): { ids: Set<string>; count: number; bestSoFar: PolicyEvaluation | null } {
+  const ids = new Set<string>();
+  let count = 0;
+  let bestSoFar: PolicyEvaluation | null = null;
+  // Sync read is fine at our scale (up to ~tens of thousands of
+  // evaluations × ~500B = single-digit MB). If sessions ever grow to
+  // millions of records, swap this for a line-stream — it's a 10-line
+  // change and doesn't ripple to callers.
+  const text = readFileSync(path, 'utf-8');
+  if (text.length === 0) return { ids, count, bestSoFar };
+  const lines = text.split('\n');
+  for (const line of lines) {
+    if (line.length === 0) continue;
+    let ev: PolicyEvaluation;
+    try {
+      ev = JSON.parse(line) as PolicyEvaluation;
+    } catch {
+      // Partial trailing line from a crash mid-write. Skip.
+      continue;
+    }
+    ids.add(ev.id);
+    count += 1;
+    if (ev.outcome.bequestAttainmentRate >= feasibilityThreshold) {
+      if (!bestSoFar || isBetterFeasible(ev, bestSoFar, feasibilityThreshold)) {
+        bestSoFar = ev;
+      }
+    }
+  }
+  return { ids, count, bestSoFar };
 }
 
 /**
