@@ -9,6 +9,7 @@ import {
 import { PolicyAdoptionModal } from './PolicyAdoptionModal';
 import { PolicyFrontierChart } from './PolicyFrontierChart';
 import { SensitivityPanel } from './SensitivityPanel';
+import { StressTestPanel } from './StressTestPanel';
 import { useAppStore } from './store';
 
 /**
@@ -488,6 +489,19 @@ export function PolicyMiningResultsTable({
           assumptions={sensitivityControls.assumptions}
           legacyTargetTodayDollars={sensitivityControls.legacyTargetTodayDollars}
           dispatcherUrl={dispatcherUrl ?? null}
+        />
+      )}
+      {/* E.6 — stress test sits directly below sensitivity. Same gate
+          (post-adoption + sensitivityControls present) but runs INLINE
+          on the main thread; no cluster needed. The two panels answer
+          adjacent questions: sensitivity = "what if I bump one knob?",
+          stress = "what if the world goes badly?". */}
+      {lastPolicyAdoption && sensitivityControls && baselineFingerprint && (
+        <StressTestPanel
+          adoptedPolicy={lastPolicyAdoption.policy}
+          baseline={sensitivityControls.baseline}
+          assumptions={sensitivityControls.assumptions}
+          legacyTargetTodayDollars={sensitivityControls.legacyTargetTodayDollars}
         />
       )}
       <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
