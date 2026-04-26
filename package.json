@@ -10,7 +10,9 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "cluster:dispatcher": "tsx cluster/dispatcher.ts",
-    "cluster:smoke": "tsx cluster/smoke-client.ts"
+    "cluster:smoke": "tsx cluster/smoke-client.ts",
+    "cluster:host": "tsx cluster/host.ts",
+    "cluster:host-smoke": "tsx cluster/host-smoke.ts"
   },
   "dependencies": {
     "dotenv": "^17.4.2",

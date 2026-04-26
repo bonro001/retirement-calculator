@@ -1,6 +1,5 @@
 {
   "compilerOptions": {
-    "composite": true,
     "target": "ES2022",
     "lib": ["ES2022"],
     "types": ["node"],
@@ -15,5 +14,6 @@
     "isolatedModules": true,
     "noEmit": true
   },
-  "include": ["**/*.ts", "../src/mining-protocol.ts", "../src/policy-miner-types.ts"]
+  "include": ["**/*.ts"],
+  "exclude": ["**/*.test.ts"]
 }
