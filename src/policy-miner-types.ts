@@ -163,6 +163,13 @@ export interface MiningStats {
   policiesEvaluated: number;
   /** Candidates that met the feasibility filter (e.g. attainment >= 0.70). */
   feasiblePolicies: number;
+  /**
+   * Candidates the cluster gave up on after exhausting per-policy retry
+   * attempts (D.5 dead-letter). Always 0 for the legacy in-process miner
+   * since it has no retry concept. Surfaced in the UI so a poisoned
+   * baseline is visible rather than silently underreporting evaluations.
+   */
+  droppedPolicies: number;
   /** Rolling mean ms per policy over the last N completions. */
   meanMsPerPolicy: number;
   /** Rolling p95 ms per policy. */

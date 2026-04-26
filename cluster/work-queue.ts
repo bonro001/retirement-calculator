@@ -65,6 +65,19 @@ const TARGET_BATCH_WALL_CLOCK_MS = 5_000;
 const MAX_BATCH_SIZE = 25;
 
 /**
+ * How many times one policy may be assigned (and then nacked or
+ * disconnected away) before the queue gives up on it and drops it to
+ * the dead-letter list. Keeps a poisoned policy — one that crashes
+ * every host that touches it — from thrashing the cluster forever.
+ *
+ * 5 is generous: a flapping host can cost a policy 1–2 attempts, and
+ * a genuinely-broken evaluator should fail the same way every time, so
+ * 5 distinct attempts (likely across multiple hosts) is plenty of
+ * evidence to declare it bad. Tunable per-session if needed later.
+ */
+export const MAX_POLICY_ATTEMPTS = 5;
+
+/**
  * Compute the right batch size for a host based on its perf class +
  * measured throughput. Pure; safe to call from anywhere.
  *
@@ -104,10 +117,24 @@ interface InFlightBatch {
   assignedAtMs: number;
 }
 
+/** A policy that exceeded MAX_POLICY_ATTEMPTS. Kept in memory so the
+ *  dispatcher can include the count in the cluster snapshot and (later)
+ *  write a `dead-letter.jsonl` next to `evaluations.jsonl`. The queue
+ *  doesn't compute the canonical policy id (that needs the baseline
+ *  fingerprint, which lives on the dispatcher); it just hands back the
+ *  raw Policy and lets the caller hash if it wants to. */
+export interface DeadLetterRecord {
+  policy: Policy;
+  attempts: number;
+  /** Last peer that held the batch before the final requeue triggered drop. */
+  lastPeerId: string;
+  droppedAtMs: number;
+}
+
 /**
  * Snapshot of queue state. Cheap to compute; called every cluster_state
  * broadcast (~1Hz). Numbers should add up: pending + inFlight + evaluated
- * = totalPolicies, always.
+ * + dropped = totalPolicies, always.
  */
 export interface WorkQueueSnapshot {
   totalPolicies: number;
@@ -115,6 +142,8 @@ export interface WorkQueueSnapshot {
   inFlightCount: number;
   evaluatedCount: number;
   feasibleCount: number;
+  /** Policies that exceeded MAX_POLICY_ATTEMPTS and were given up on. */
+  droppedCount: number;
   /** Per-host in-flight batch counts. Empty entries are pruned. */
   inFlightByPeer: Array<{ peerId: string; batchCount: number; policyCount: number }>;
 }
@@ -135,6 +164,17 @@ export class WorkQueue {
   private feasibleCount = 0;
   /** Monotonic counter for unique batch ids within this session. */
   private nextBatchSeq = 0;
+  /** Per-policy attempt counter. Incremented when a policy is moved into
+   *  in-flight by `assignBatch`. Used by `requeueBatch` to decide whether
+   *  to send a policy back to pending or drop it. Keyed by Policy
+   *  reference identity — the queue owns these refs from constructor
+   *  through completion / drop, so identity is stable. */
+  private readonly attemptsByPolicy: WeakMap<Policy, number> = new WeakMap();
+  /** Policies the queue has given up on. Drop reasons are coarse: the
+   *  queue only sees "this batch was requeued" — it doesn't know whether
+   *  the host nacked it for a real bug or just disconnected. So all we
+   *  record is "this many attempts exhausted." */
+  private readonly deadLetters: DeadLetterRecord[] = [];
 
   constructor(sessionId: string, allPolicies: Policy[]) {
     this.sessionId = sessionId;
@@ -161,10 +201,21 @@ export class WorkQueue {
     return this.feasibleCount;
   }
 
+  droppedCountValue(): number {
+    return this.deadLetters.length;
+  }
+
+  /** Read-only view of the dead-letter list for snapshotting / disk
+   *  serialization. Do not mutate. */
+  deadLetterList(): readonly DeadLetterRecord[] {
+    return this.deadLetters;
+  }
+
   /**
    * True when there's no more work to hand out and nothing outstanding.
    * Once true, the dispatcher closes the corpus and broadcasts session
-   * complete.
+   * complete. Dropped policies are NOT in pending or in-flight — they
+   * can't block completion.
    */
   isComplete(): boolean {
     return this.pending.length === 0 && this.inFlight.size === 0;
@@ -189,6 +240,12 @@ export class WorkQueue {
       const next = this.pending.pop();
       if (!next) break;
       policies.push(next);
+      // Bump attempt count BEFORE the wire send. If the host happens to
+      // crash between assign and the first byte going out, we still want
+      // the count to reflect "this peer was given the work" so the
+      // disconnect-driven requeue increments don't miscount.
+      const prev = this.attemptsByPolicy.get(next) ?? 0;
+      this.attemptsByPolicy.set(next, prev + 1);
     }
     this.nextBatchSeq += 1;
     const batchId = `${this.sessionId}-b${this.nextBatchSeq}`;
@@ -218,6 +275,13 @@ export class WorkQueue {
     this.inFlight.delete(batchId);
     this.evaluatedCount += batch.policies.length;
     this.feasibleCount += feasibleInBatch;
+    // Clear attempt counters for completed policies. (WeakMap doesn't
+    // strictly need this — the refs are dropped from inFlight here and
+    // GC'd whenever the wire payload also lets them go — but explicit
+    // delete makes the lifecycle obvious to a reader.)
+    for (const policy of batch.policies) {
+      this.attemptsByPolicy.delete(policy);
+    }
     return batch;
   }
 
@@ -227,36 +291,67 @@ export class WorkQueue {
    * Returning to the head — not the tail — keeps a flapping host from
    * permanently starving its abandoned batches.
    *
-   * Returns true if the batch was known and requeued; false if it was
-   * already completed or never existed (idempotent).
+   * Per-policy attempt counts are checked here: any policy that has
+   * already hit MAX_POLICY_ATTEMPTS is dropped to the dead-letter list
+   * instead of being requeued, so a poisoned policy can't thrash the
+   * cluster forever.
+   *
+   * Returns:
+   *   - `null` if the batch is unknown (already completed, or duplicate
+   *     requeue from a racing nack + disconnect) — idempotent.
+   *   - `{requeued, dropped}` counts otherwise. `requeued + dropped` ==
+   *     batch.policies.length.
    */
-  requeueBatch(batchId: string): boolean {
+  requeueBatch(batchId: string): { requeued: number; dropped: number } | null {
     const batch = this.inFlight.get(batchId);
-    if (!batch) return false;
+    if (!batch) return null;
     this.inFlight.delete(batchId);
-    // Push to the END of the reversed-pending array == FRONT of the
-    // logical queue. Order within the requeued batch is preserved by
-    // pushing in reverse so pop() serves them back in the original order.
+    let requeued = 0;
+    let dropped = 0;
+    // Walk in reverse so the requeued tail ends up at the END of the
+    // reversed-pending array == HEAD of the logical FIFO, in original
+    // order. Dropped policies fall out of the queue entirely; they don't
+    // need ordering.
     for (let i = batch.policies.length - 1; i >= 0; i -= 1) {
-      this.pending.push(batch.policies[i]);
+      const policy = batch.policies[i];
+      const attempts = this.attemptsByPolicy.get(policy) ?? 0;
+      if (attempts >= MAX_POLICY_ATTEMPTS) {
+        // Give up on this policy. Don't reset attempts — the dead-letter
+        // record carries the final count for diagnostics.
+        this.deadLetters.push({
+          policy,
+          attempts,
+          lastPeerId: batch.peerId,
+          droppedAtMs: Date.now(),
+        });
+        this.attemptsByPolicy.delete(policy);
+        dropped += 1;
+      } else {
+        this.pending.push(policy);
+        requeued += 1;
+      }
     }
-    return true;
+    return { requeued, dropped };
   }
 
   /**
    * Requeue ALL in-flight batches for a peer. Called when the dispatcher
    * notices a peer disconnect — the work has to land somewhere. Returns
-   * the count of batches requeued for logging.
+   * aggregate `{requeued, dropped}` across the peer's batches.
    */
-  requeueAllForPeer(peerId: string): number {
-    let count = 0;
+  requeueAllForPeer(peerId: string): { requeued: number; dropped: number } {
+    let requeued = 0;
+    let dropped = 0;
     for (const batch of [...this.inFlight.values()]) {
       if (batch.peerId === peerId) {
-        this.requeueBatch(batch.batchId);
-        count += 1;
+        const r = this.requeueBatch(batch.batchId);
+        if (r) {
+          requeued += r.requeued;
+          dropped += r.dropped;
+        }
       }
     }
-    return count;
+    return { requeued, dropped };
   }
 
   /** O(1) check used by the disconnect handler to decide whether to bother. */
@@ -282,6 +377,7 @@ export class WorkQueue {
       inFlightCount: this.inFlight.size,
       evaluatedCount: this.evaluatedCount,
       feasibleCount: this.feasibleCount,
+      droppedCount: this.deadLetters.length,
       inFlightByPeer: [...byPeer.entries()].map(([peerId, v]) => ({
         peerId,
         batchCount: v.batchCount,

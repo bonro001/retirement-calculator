@@ -145,11 +145,13 @@ export function runMiningSession(args: {
     totalPolicies,
     policiesEvaluated: 0,
     feasiblePolicies: 0,
+    droppedPolicies: 0,
     meanMsPerPolicy: 0,
     p95MsPerPolicy: 0,
     estimatedRemainingMs: 0,
     bestPolicyId: null,
     state: 'idle',
+    lastError: null,
   };
 
   // Sanity: catch enumerator-vs-policies-arg mismatches in tests early.
@@ -355,11 +357,13 @@ export function runMiningSessionWithPool(args: {
     totalPolicies,
     policiesEvaluated: 0,
     feasiblePolicies: 0,
+    droppedPolicies: 0,
     meanMsPerPolicy: 0,
     p95MsPerPolicy: 0,
     estimatedRemainingMs: 0,
     bestPolicyId: null,
     state: 'idle',
+    lastError: null,
   };
 
   let pauseRequested = false;

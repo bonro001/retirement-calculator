@@ -204,6 +204,7 @@ function buildClusterSnapshot(): ClusterSnapshot {
       totalPolicies: queueSnap.totalPolicies,
       policiesEvaluated: queueSnap.evaluatedCount,
       feasiblePolicies: queueSnap.feasibleCount,
+      droppedPolicies: queueSnap.droppedCount,
       meanMsPerPolicy: activeSession.clusterMeanMsPerPolicy,
       // p95 isn't tracked precisely on the dispatcher; expose mean × 1.5
       // as a rough placeholder. The browser UI labels this "approx" anyway.
@@ -364,19 +365,33 @@ function handleDisconnect(peer: Peer | null, reason: string): void {
   if (!peers.has(peer.peerId)) return;
   peers.delete(peer.peerId);
   let requeued = 0;
+  let dropped = 0;
   if (activeSession && activeSession.queue.hasInFlightForPeer(peer.peerId)) {
-    requeued = activeSession.queue.requeueAllForPeer(peer.peerId);
+    const r = activeSession.queue.requeueAllForPeer(peer.peerId);
+    requeued = r.requeued;
+    dropped = r.dropped;
   }
   log('info', 'peer disconnected', {
     peerId: peer.peerId,
     displayName: peer.displayName,
     reason,
     uptimeMs: Date.now() - peer.connectedAtMs,
-    requeuedBatches: requeued,
+    requeuedPolicies: requeued,
+    droppedPolicies: dropped,
   });
+  if (dropped > 0) {
+    log('warn', 'dropped policies after exhausting attempts', {
+      peerId: peer.peerId,
+      droppedPolicies: dropped,
+      totalDropped: activeSession?.queue.droppedCountValue() ?? 0,
+    });
+  }
   broadcastClusterState();
-  // Requeued work needs to land somewhere; pump immediately.
-  if (requeued > 0 && activeSession) {
+  // Requeued work needs to land somewhere; pump immediately. Dropped
+  // work doesn't need a pump but still affects completion — if
+  // dropping these batches just emptied the queue, pumpDispatch will
+  // notice (pending=0 + inFlight=0) and end the session.
+  if ((requeued > 0 || dropped > 0) && activeSession) {
     pumpDispatch();
   }
 }
@@ -792,7 +807,7 @@ function handleBatchNack(peer: Peer, message: Extract<ClusterMessage, { kind: 'b
     });
     return;
   }
-  const requeued = activeSession.queue.requeueBatch(message.batchId);
+  const r = activeSession.queue.requeueBatch(message.batchId);
   peer.inFlightBatchIds.delete(message.batchId);
   peer.freeWorkerSlots += 1;
   // Cool-down: don't reassign to this peer for a moment. Without this, a
@@ -801,13 +816,22 @@ function handleBatchNack(peer: Peer, message: Extract<ClusterMessage, { kind: 'b
   // racing through batch ids. The 1Hz failsafe pump will retry within a
   // second — plenty fast.
   peer.pumpCooldownUntilMs = Date.now() + NACK_COOLDOWN_MS;
-  log('info', 'batch nacked, requeued (peer in cooldown)', {
+  log('info', 'batch nacked', {
     from: peer.peerId,
     batchId: message.batchId,
     reason: message.reason,
-    requeued,
+    requeuedPolicies: r?.requeued ?? 0,
+    droppedPolicies: r?.dropped ?? 0,
     cooldownMs: NACK_COOLDOWN_MS,
   });
+  if (r && r.dropped > 0) {
+    log('warn', 'dropped policies after exhausting attempts', {
+      peerId: peer.peerId,
+      batchId: message.batchId,
+      droppedPolicies: r.dropped,
+      totalDropped: activeSession.queue.droppedCountValue(),
+    });
+  }
   // Pump OTHER hosts immediately — they may have idle slots and the
   // requeued batch is now at the head of the queue.
   pumpDispatch();
