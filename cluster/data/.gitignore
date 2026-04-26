@@ -1,0 +1,7 @@
+# Session artifacts produced by the dispatcher (D.4+):
+#   sessions/<sessionId>/manifest.json
+#   sessions/<sessionId>/evaluations.jsonl
+#   sessions/<sessionId>/summary.json
+# These are output, not source — never committed.
+*
+!.gitignore

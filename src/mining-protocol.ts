@@ -225,6 +225,16 @@ export interface StartSessionMessage extends BaseMessage {
   trialCount: number;
   /** Legacy bequest target (today $) for attainment rate calc. */
   legacyTargetTodayDollars: number;
+  /**
+   * Canonical session id, set by the dispatcher when it forwards a
+   * start_session to hosts. Omitted on the controller → dispatcher path
+   * because the dispatcher generates the id. Hosts MUST use this value
+   * (when present) to key their primedSessionIds map so the sessionId
+   * on subsequent `batch_assign` messages matches; if omitted, falls back
+   * to `config.baselineFingerprint` for backwards compat with the D.2
+   * direct-test path.
+   */
+  sessionId?: string;
 }
 
 export interface CancelSessionMessage extends BaseMessage {

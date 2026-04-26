@@ -495,13 +495,12 @@ function handleStartSession(message: StartSessionMessage): void {
     });
     unprimeAllSlots(activeSession.sessionId);
   }
+  // Prefer the dispatcher-supplied sessionId so subsequent batch_assigns
+  // match. The fallback to baselineFingerprint preserves the D.2 direct-
+  // test path (host-smoke / unit tests) where there's no dispatcher.
+  const sessionId = message.sessionId ?? message.config.baselineFingerprint;
   activeSession = {
-    // Session id convention: dispatcher uses `<baselineFingerprint>-<startTs>`.
-    // We don't have access to that here, so synthesize from baseline +
-    // timestamp matching the dispatcher's pattern. The dispatcher will
-    // include the canonical sessionId on every `batch_assign`, which is
-    // what we actually key by.
-    sessionId: message.config.baselineFingerprint,
+    sessionId,
     baselineFingerprint: message.config.baselineFingerprint,
     engineVersion: message.config.engineVersion,
     data: message.seedDataPayload as SeedData,
