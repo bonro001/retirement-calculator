@@ -20,6 +20,18 @@
  */
 
 /**
+ * Engine version stamp written into every PolicyEvaluation. Bump this
+ * whenever a Monte Carlo or post-processing change would alter the
+ * outcome of an existing record. The corpus reader filters by
+ * `[baselineFingerprint, engineVersion]` so old records become invisible
+ * (but stay on disk for archaeology) when this changes.
+ *
+ * Format: `policy-miner-vN-engineYYYY-MM` so a glance tells you when a
+ * given record's lineage was minted.
+ */
+export const POLICY_MINER_ENGINE_VERSION = 'policy-miner-v1-engine2026-04';
+
+/**
  * The four axes the V1 miner sweeps. Adding a new axis means: (1) extend
  * this type, (2) extend `PolicyAxes` below with the corresponding option
  * list, (3) extend the enumerator's cartesian product, (4) extend

@@ -1,9 +1,21 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   loadEvaluationsForBaseline,
   loadMiningStats,
 } from './policy-mining-corpus';
-import type { MiningStats, PolicyEvaluation } from './policy-miner-types';
+import type {
+  MiningSessionHandle,
+} from './policy-miner';
+import { runMiningSessionWithPool } from './policy-miner';
+import {
+  buildDefaultPolicyAxes,
+  enumeratePolicies,
+} from './policy-axis-enumerator';
+import type {
+  MiningStats,
+  PolicyEvaluation,
+} from './policy-miner-types';
+import type { MarketAssumptions, SeedData } from './types';
 
 /**
  * Read-only status card for the Policy Miner. Polls IndexedDB every 5s
@@ -22,9 +34,30 @@ import type { MiningStats, PolicyEvaluation } from './policy-miner-types';
  * absorb the load without freezing the page.
  */
 
+/**
+ * Optional control surface. When provided, the card renders Start /
+ * Pause / Resume / Cancel buttons that drive a `runMiningSessionWithPool`
+ * session held in this component's local state.
+ *
+ * The card stays read-only when `controls` is omitted — useful in a
+ * preview-only context where mining is driven from elsewhere (e.g. a
+ * remote dispatcher in Phase D).
+ */
+export interface PolicyMiningControls {
+  baseline: SeedData;
+  assumptions: MarketAssumptions;
+  evaluatedByNodeId: string;
+  legacyTargetTodayDollars: number;
+  /** Soft cap to keep first runs interactive — defaults to whole corpus. */
+  maxPoliciesPerSession?: number;
+  /** Min bequest attainment rate to count a policy as feasible (default 0.85). */
+  feasibilityThreshold?: number;
+}
+
 interface Props {
   baselineFingerprint: string | null;
   engineVersion: string;
+  controls?: PolicyMiningControls;
 }
 
 const POLL_INTERVAL_MS = 5_000;
@@ -53,10 +86,60 @@ function formatCurrency(amount: number): string {
 export function PolicyMiningStatusCard({
   baselineFingerprint,
   engineVersion,
+  controls,
 }: Props): JSX.Element | null {
   const [stats, setStats] = useState<MiningStats | null>(null);
   const [bestEval, setBestEval] = useState<PolicyEvaluation | null>(null);
   const [evalCount, setEvalCount] = useState<number>(0);
+  // Local session handle — null when no session is in flight. Stored in
+  // a ref because we need to call methods on it from button handlers
+  // without re-rendering on every status tick.
+  const sessionRef = useRef<MiningSessionHandle | null>(null);
+  // React state mirror so buttons enable/disable without us having to
+  // poll the handle. Updated by `tick` below from the handle's stats.
+  const [sessionState, setSessionState] = useState<MiningStats['state'] | null>(
+    null,
+  );
+  const [startError, setStartError] = useState<string | null>(null);
+
+  const startMining = () => {
+    if (!controls || !baselineFingerprint) return;
+    if (sessionRef.current?.isRunning()) return;
+    setStartError(null);
+    try {
+      const axes = buildDefaultPolicyAxes(controls.baseline);
+      const allPolicies = enumeratePolicies(axes);
+      // Default to full corpus; controls.maxPoliciesPerSession lets a
+      // host throttle for first-time runs (e.g. 200 to validate before
+      // committing to ~30min of compute).
+      const cap = controls.maxPoliciesPerSession ?? allPolicies.length;
+      const policies = allPolicies.slice(0, cap);
+      const handle = runMiningSessionWithPool({
+        config: {
+          baselineFingerprint,
+          engineVersion,
+          maxPoliciesPerSession: cap,
+          feasibilityThreshold: controls.feasibilityThreshold ?? 0.85,
+        },
+        baseline: controls.baseline,
+        assumptions: controls.assumptions,
+        policies,
+        evaluatedByNodeId: controls.evaluatedByNodeId,
+        legacyTargetTodayDollars: controls.legacyTargetTodayDollars,
+        onStats: (next) => setSessionState(next.state),
+      });
+      sessionRef.current = handle;
+      setSessionState('running');
+      // Suppress unhandled-rejection — we report via `lastError` in stats.
+      handle.donePromise.catch(() => {});
+    } catch (e) {
+      setStartError(e instanceof Error ? e.message : String(e));
+    }
+  };
+
+  const pauseMining = () => sessionRef.current?.pause();
+  const resumeMining = () => sessionRef.current?.resume();
+  const cancelMining = () => sessionRef.current?.cancel();
 
   useEffect(() => {
     if (!baselineFingerprint) {
@@ -105,8 +188,60 @@ export function PolicyMiningStatusCard({
   // user has a stable plan to mine against.
   if (!baselineFingerprint) return null;
 
+  // Single source of truth for whether buttons should render. The active
+  // state we trust is the in-memory session (sessionState) — IDB stats
+  // can lag a few seconds behind a fresh start.
+  const liveState = sessionState ?? stats?.state ?? null;
+  const canStart =
+    !!controls && (liveState === null || liveState === 'completed' || liveState === 'cancelled' || liveState === 'error' || liveState === 'idle');
+  const canPause = !!controls && liveState === 'running';
+  const canResume = !!controls && liveState === 'paused';
+  const canCancel = !!controls && (liveState === 'running' || liveState === 'paused');
+
+  const renderControls = () =>
+    !controls ? null : (
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          disabled={!canStart}
+          onClick={startMining}
+          className="rounded-full bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-stone-200 disabled:text-stone-400"
+        >
+          Start mining
+        </button>
+        <button
+          type="button"
+          disabled={!canPause}
+          onClick={pauseMining}
+          className="rounded-full bg-stone-100 px-3 py-1.5 text-xs font-semibold text-stone-700 transition hover:bg-stone-200 disabled:cursor-not-allowed disabled:text-stone-400"
+        >
+          Pause
+        </button>
+        <button
+          type="button"
+          disabled={!canResume}
+          onClick={resumeMining}
+          className="rounded-full bg-stone-100 px-3 py-1.5 text-xs font-semibold text-stone-700 transition hover:bg-stone-200 disabled:cursor-not-allowed disabled:text-stone-400"
+        >
+          Resume
+        </button>
+        <button
+          type="button"
+          disabled={!canCancel}
+          onClick={cancelMining}
+          className="rounded-full bg-rose-50 px-3 py-1.5 text-xs font-semibold text-rose-700 transition hover:bg-rose-100 disabled:cursor-not-allowed disabled:text-stone-400"
+        >
+          Cancel
+        </button>
+        {startError && (
+          <span className="text-xs text-rose-600">{startError}</span>
+        )}
+      </div>
+    );
+
   // Empty corpus, no active session — show a hint rather than nothing,
-  // so the household knows the feature exists.
+  // so the household knows the feature exists. Controls render here too
+  // so the user can kick off the very first session.
   if (!stats && evalCount === 0) {
     return (
       <div className="mt-4 rounded-2xl border border-stone-200 bg-stone-50/60 p-4 text-sm text-stone-600">
@@ -118,6 +253,7 @@ export function PolicyMiningStatusCard({
           search thousands of variations and surface the strategies that
           most reliably leave at least your North Star.
         </p>
+        {renderControls()}
       </div>
     );
   }
@@ -224,6 +360,7 @@ export function PolicyMiningStatusCard({
           )}
         </div>
       </div>
+      {renderControls()}
     </div>
   );
 }

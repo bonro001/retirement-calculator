@@ -32,6 +32,8 @@ import type { IrmaaPosture } from './retirement-plan';
 import { loadAnalysisResultFromCache, saveAnalysisResultToCache } from './analysis-result-cache';
 import { useAppStore } from './store';
 import { formatCurrency, formatPercent } from './utils';
+import { PolicyMiningStatusCard } from './PolicyMiningStatusCard';
+import { POLICY_MINER_ENGINE_VERSION } from './policy-miner-types';
 
 const INTERACTIVE_UNIFIED_PLAN_MAX_RUNS = 250;
 const PLAN_ANALYSIS_TIMEOUT_MS = 45_000;
@@ -4091,6 +4093,26 @@ export function UnifiedPlanScreen({
           Building the live plan interpretation from the current plan state and latest simulation snapshot.
         </div>
       )}
+
+      {/* Policy Mining: forward-search corpus over spend × SS × Roth axes.
+          Read-only by default; controls render only once we have a stable
+          plan fingerprint (post-evaluation). The fingerprint binds mined
+          records to the exact baseline they came from — change the plan
+          and you start a fresh corpus rather than mixing apples/oranges. */}
+      <PolicyMiningStatusCard
+        baselineFingerprint={currentEvaluationFingerprint || null}
+        engineVersion={POLICY_MINER_ENGINE_VERSION}
+        controls={
+          currentEvaluationFingerprint
+            ? {
+                baseline: data,
+                assumptions,
+                evaluatedByNodeId: 'local-browser',
+                legacyTargetTodayDollars,
+              }
+            : undefined
+        }
+      />
 
       {showPlanControls ? (
         <SectionCard title="Plan Controls">
