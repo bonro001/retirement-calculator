@@ -20,9 +20,27 @@
  *     local store. All state goes back to the dispatcher.
  *   - Policy enumeration. The dispatcher decides what to mine; the host
  *     just evaluates whatever batches it receives.
- *   - Reconnection. If the WebSocket drops, the process exits with code 2
- *     and `npm run cluster:host` (or systemd / launchd) restarts it.
- *     Clean restart > flaky reconnect logic on day one.
+ *
+ * Reconnect behavior (E.7): the host survives transient loss of contact
+ * with the dispatcher — Wi-Fi flaps, dispatcher restarts, brief network
+ * partitions — without the operator needing to SSH into each worker
+ * machine and restart anything. On socket close we:
+ *   - Cancel any in-flight worker runs (their results would be stale on
+ *     the new connection anyway; the dispatcher has already requeued
+ *     the policies on its end via handleDisconnect).
+ *   - Clear session + peer state so the next welcome can re-establish
+ *     cleanly. The dispatcher assigns a new peerId and (if a session
+ *     is active) immediately re-sends start_session to us.
+ *   - Schedule a reconnect with exponential backoff (1s → 60s cap) so
+ *     a flapping link doesn't busy-loop the dispatcher with register
+ *     attempts.
+ *   - Initial-connect failures are handled the same way, so the host
+ *     can boot before the dispatcher does and keep retrying.
+ *
+ * Process exit is now reserved for SIGINT/SIGTERM (operator-initiated
+ * graceful shutdown) and pool-spawn failure. A process supervisor is
+ * still useful for surviving full Node crashes, but day-to-day
+ * connectivity issues no longer require one.
  */
 
 import { Worker } from 'node:worker_threads';
@@ -370,15 +388,105 @@ let sessionPoliciesCompleted = 0;
 // WebSocket lifecycle
 // ---------------------------------------------------------------------------
 
+/**
+ * Reconnect backoff schedule. Each entry is the delay in ms before the
+ * next attempt. Saturates at the last value — once we hit 60s we keep
+ * trying every 60s indefinitely until the dispatcher comes back. The
+ * early entries are short so a brief Wi-Fi flap reconnects in seconds;
+ * the cap protects the dispatcher from a busy-loop if it's wedged.
+ */
+const RECONNECT_BACKOFF_MS = [1_000, 2_000, 5_000, 10_000, 30_000, 60_000];
+
 let socket: WebSocket | null = null;
 let myPeerId: string | null = null;
 let heartbeatTimer: NodeJS.Timeout | null = null;
+let reconnectTimer: NodeJS.Timeout | null = null;
+let reconnectAttempt = 0;
+let stopReconnecting = false;
+
+/**
+ * Reset peer-scoped state on disconnect. The dispatcher has already
+ * requeued any in-flight batches we held (its handleDisconnect path),
+ * so the right thing on our end is to:
+ *   - cancel in-flight worker runs and reject their pending promises
+ *     so the slots free up immediately for the next session
+ *   - drop activeSession and primed-session caches; the dispatcher
+ *     will re-issue start_session on re-register if a session is live
+ *   - clear inFlightBatchIds so heartbeats after reconnect are accurate
+ *   - clear myPeerId so we don't accidentally tag outbound messages
+ *     with a stale id between disconnect and the next welcome
+ */
+function resetPeerScopedState(): void {
+  if (heartbeatTimer) {
+    clearInterval(heartbeatTimer);
+    heartbeatTimer = null;
+  }
+  // Cancel anything the workers are still chewing on — its result would
+  // never make it back to the dispatcher anyway.
+  cancelAllInFlight();
+  // Reject pending promises so handleBatchAssign's await resolves and
+  // the slots get marked free again. We use a tagged error so a future
+  // error-handling path can distinguish "host disconnected" from
+  // "engine threw".
+  for (const [requestId, pending] of pendingRuns) {
+    pending.reject(
+      Object.assign(new Error('host: dispatcher disconnected'), {
+        kind: 'host_disconnected' as const,
+      }),
+    );
+    pendingRuns.delete(requestId);
+  }
+  // Belt and suspenders: any slot that didn't get its rejection above
+  // (race) gets reset here so the next session starts clean.
+  for (const slot of slots) {
+    slot.busy = false;
+    slot.primedSessionIds.clear();
+  }
+  if (activeSession) {
+    activeSession = null;
+  }
+  inFlightBatchIds.clear();
+  sessionBatchesCompleted = 0;
+  sessionPoliciesCompleted = 0;
+  myPeerId = null;
+}
+
+function scheduleReconnect(): void {
+  if (stopReconnecting) return;
+  if (reconnectTimer) return; // already scheduled
+  const delay =
+    RECONNECT_BACKOFF_MS[Math.min(reconnectAttempt, RECONNECT_BACKOFF_MS.length - 1)];
+  reconnectAttempt += 1;
+  log('info', 'reconnecting', {
+    inMs: delay,
+    attempt: reconnectAttempt,
+  });
+  reconnectTimer = setTimeout(() => {
+    reconnectTimer = null;
+    connect();
+  }, delay);
+  // Don't keep the event loop alive solely for the reconnect timer —
+  // SIGINT/SIGTERM should still be able to exit promptly.
+  reconnectTimer.unref?.();
+}
 
 function connect(): void {
+  if (stopReconnecting) return;
   log('info', 'connecting', { url: DISPATCHER_URL });
-  socket = new WebSocket(DISPATCHER_URL);
+  let socketClosed = false;
+  let ws: WebSocket;
+  try {
+    ws = new WebSocket(DISPATCHER_URL);
+  } catch (err) {
+    // Synchronous construction failure (malformed URL etc.). Treat as a
+    // failed connect and back off.
+    log('error', 'socket construction failed', { err: String(err) });
+    scheduleReconnect();
+    return;
+  }
+  socket = ws;
 
-  socket.on('open', () => {
+  ws.on('open', () => {
     const register: RegisterMessage = {
       kind: 'register',
       protocolVersion: MINING_PROTOCOL_VERSION,
@@ -390,15 +498,20 @@ function connect(): void {
         platformDescriptor: PLATFORM_DESCRIPTOR,
       },
     };
-    socket?.send(encodeMessage(register));
+    ws.send(encodeMessage(register));
     log('info', 'sent register', {
       workers: HOST_WORKER_COUNT,
       perf: HOST_PERF_CLASS,
       platform: PLATFORM_DESCRIPTOR,
     });
+    // Don't reset reconnectAttempt here — wait for the dispatcher's
+    // 'welcome' to confirm we were actually accepted. A socket can open
+    // and immediately receive register_rejected (protocol mismatch),
+    // and we don't want that to look like a successful connect for
+    // backoff purposes.
   });
 
-  socket.on('message', (raw: Buffer) => {
+  ws.on('message', (raw: Buffer) => {
     const text = raw.toString('utf-8');
     let message: ClusterMessage;
     try {
@@ -410,20 +523,25 @@ function connect(): void {
     void handleDispatcherMessage(message);
   });
 
-  socket.on('close', (code, reason) => {
+  ws.on('close', (code, reason) => {
+    if (socketClosed) return; // dedupe close fired after error
+    socketClosed = true;
     log('warn', 'socket closed', {
       code,
       reason: reason.toString('utf-8'),
+      attempt: reconnectAttempt,
     });
-    if (heartbeatTimer) clearInterval(heartbeatTimer);
-    // Exit non-zero so a process supervisor (systemd / launchd / npm
-    // run script in a loop) restarts. Reconnect logic in-process is a
-    // D.5 problem; for now, "die and respawn" is the reliable answer.
-    void shutdownPool().finally(() => process.exit(2));
+    socket = null;
+    resetPeerScopedState();
+    scheduleReconnect();
   });
 
-  socket.on('error', (err) => {
-    log('error', 'socket error', { err: String(err) });
+  ws.on('error', (err) => {
+    // 'error' commonly fires on initial-connect refusal (ECONNREFUSED)
+    // immediately followed by 'close'. Log here, let the close handler
+    // schedule the retry — it dedupes against this path so we don't
+    // double-bump the backoff.
+    log('warn', 'socket error', { err: String(err) });
   });
 }
 
@@ -431,9 +549,16 @@ async function handleDispatcherMessage(message: ClusterMessage): Promise<void> {
   switch (message.kind) {
     case 'welcome': {
       myPeerId = message.peerId;
+      // We were accepted by the dispatcher — the connection is healthy.
+      // Reset the reconnect backoff so the NEXT disconnect (whenever
+      // it happens) starts from the 1s rung again instead of inheriting
+      // a stale long delay from an earlier outage.
+      const wasReconnect = reconnectAttempt > 0;
+      reconnectAttempt = 0;
       log('info', 'welcomed', {
         peerId: message.peerId,
         clusterPeers: message.clusterSnapshot.peers.length,
+        ...(wasReconnect ? { afterReconnect: true } : {}),
       });
       startHeartbeat();
       return;
@@ -443,6 +568,12 @@ async function handleDispatcherMessage(message: ClusterMessage): Promise<void> {
         reason: message.reason,
         detail: message.detail,
       });
+      // Protocol mismatch is a structural failure — reconnecting won't
+      // fix it. Stop the loop so the operator sees a single clear error
+      // instead of the same rejection log every minute.
+      if (message.reason === 'protocol_version_mismatch') {
+        stopReconnecting = true;
+      }
       socket?.close();
       return;
     }
@@ -697,6 +828,13 @@ function sendNack(
 
 function gracefulShutdown(signal: string): void {
   log('info', 'shutting down', { signal });
+  // Operator-initiated stop — disarm the reconnect loop so the host
+  // doesn't immediately come back up after we close the socket.
+  stopReconnecting = true;
+  if (reconnectTimer) {
+    clearTimeout(reconnectTimer);
+    reconnectTimer = null;
+  }
   if (heartbeatTimer) clearInterval(heartbeatTimer);
   if (socket && socket.readyState === WebSocket.OPEN) {
     socket.close(1000, `${signal} received`);
