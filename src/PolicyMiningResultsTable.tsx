@@ -10,6 +10,7 @@ import { PolicyAdoptionModal } from './PolicyAdoptionModal';
 import { PolicyFrontierChart } from './PolicyFrontierChart';
 import { SensitivityPanel } from './SensitivityPanel';
 import { StressTestPanel } from './StressTestPanel';
+import { explainAdoption } from './policy-adoption';
 import { useAppStore } from './store';
 
 /**
@@ -447,34 +448,80 @@ export function PolicyMiningResultsTable({
     baselineFingerprint &&
     selectedSession.manifest?.config?.baselineFingerprint !== baselineFingerprint;
 
+  // E.7 — plain-English explanation of the most recent adoption. Looks
+  // up the adopted policy in the visible evaluations to enrich the
+  // narrative with the bequest-attainment number; falls back to a
+  // lever-only narrative if no matching evaluation is on hand (e.g. the
+  // user switched corpus source after adopting). Memoized on the
+  // adoption + the evaluations array so it doesn't recompute every render.
+  const adoptionExplanation = useMemo(() => {
+    if (!lastPolicyAdoption) return null;
+    const adopted = lastPolicyAdoption.policy;
+    const matched = evaluations.find(
+      (e) =>
+        e.policy.annualSpendTodayDollars === adopted.annualSpendTodayDollars &&
+        e.policy.primarySocialSecurityClaimAge ===
+          adopted.primarySocialSecurityClaimAge &&
+        e.policy.spouseSocialSecurityClaimAge ===
+          adopted.spouseSocialSecurityClaimAge &&
+        e.policy.rothConversionAnnualCeiling ===
+          adopted.rothConversionAnnualCeiling,
+    );
+    return explainAdoption(
+      lastPolicyAdoption.previousData,
+      adopted,
+      matched
+        ? { bequestAttainmentRate: matched.outcome.bequestAttainmentRate }
+        : null,
+    );
+  }, [lastPolicyAdoption, evaluations]);
+
   return (
     <div className="mt-4 rounded-2xl border border-stone-200 bg-white/80 p-4 text-sm text-stone-700 shadow-sm">
       {lastPolicyAdoption && (
-        <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-[12px] text-emerald-900">
-          <div>
-            <span className="font-semibold">Adopted:</span>{' '}
-            {lastPolicyAdoption.summary} ·{' '}
-            <span className="text-emerald-800">
-              Run Plan Analysis to see updated projections
-            </span>
+        <div className="mb-3 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-[12px] text-emerald-900">
+          {/* Top row: dense one-line summary + actions. The household
+              that just clicked Adopt can scan this and move on. */}
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <span className="font-semibold">Adopted:</span>{' '}
+              {lastPolicyAdoption.summary}
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={undoLastPolicyAdoption}
+                className="rounded-full bg-white px-3 py-0.5 text-[11px] font-semibold text-emerald-800 ring-1 ring-emerald-300 transition hover:bg-emerald-100"
+              >
+                Undo
+              </button>
+              <button
+                type="button"
+                onClick={clearLastPolicyAdoption}
+                aria-label="Dismiss adoption banner"
+                className="rounded-full px-2 py-0.5 text-[14px] leading-none text-emerald-700 transition hover:bg-emerald-100"
+              >
+                ×
+              </button>
+            </div>
           </div>
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={undoLastPolicyAdoption}
-              className="rounded-full bg-white px-3 py-0.5 text-[11px] font-semibold text-emerald-800 ring-1 ring-emerald-300 transition hover:bg-emerald-100"
-            >
-              Undo
-            </button>
-            <button
-              type="button"
-              onClick={clearLastPolicyAdoption}
-              aria-label="Dismiss adoption banner"
-              className="rounded-full px-2 py-0.5 text-[14px] leading-none text-emerald-700 transition hover:bg-emerald-100"
-            >
-              ×
-            </button>
-          </div>
+          {/* E.7 — plain-English narrative under the headline. Three
+              short sentences max so it stays scannable; falls back to
+              just the headline + detail when no evaluation is on hand
+              for the feasibility note. */}
+          {adoptionExplanation && (
+            <div className="mt-1.5 space-y-0.5 text-[12px] text-emerald-900">
+              <p>{adoptionExplanation.headline}</p>
+              {adoptionExplanation.detail && (
+                <p className="text-emerald-800">{adoptionExplanation.detail}</p>
+              )}
+              {adoptionExplanation.feasibilityNote && (
+                <p className="text-[11px] text-emerald-700">
+                  {adoptionExplanation.feasibilityNote}
+                </p>
+              )}
+            </div>
+          )}
         </div>
       )}
       {/* E.5 — sensitivity check sits directly below the adoption banner.

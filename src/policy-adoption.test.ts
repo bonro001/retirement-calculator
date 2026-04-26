@@ -1,9 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import { initialSeedData } from './data';
 import type { Policy } from './policy-miner-types';
+import type { SeedData } from './types';
 import {
   buildAdoptedSeedData,
   diffAdoption,
+  explainAdoption,
   totalAnnualSpendFromCategories,
 } from './policy-adoption';
 
@@ -132,5 +134,195 @@ describe('diffAdoption', () => {
       .filter((b) => b.unit === '$/yr')
       .reduce((s, b) => s + b.proposed, 0);
     expect(Math.abs(monthly + annual - 130_000)).toBeLessThanOrEqual(4);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// explainAdoption — plain-English narrative for the post-adoption banner
+// ---------------------------------------------------------------------------
+
+/**
+ * Build a seed with explicit current SS ages and Roth ceiling so the
+ * lever-comparison logic is testable without depending on whatever
+ * `initialSeedData` happens to ship with.
+ */
+function seedWith(opts: {
+  primarySsAge?: number;
+  spouseSsAge?: number | null;
+  rothCeiling?: number;
+}): SeedData {
+  const seed = JSON.parse(JSON.stringify(initialSeedData)) as SeedData;
+  if (opts.primarySsAge !== undefined && seed.income.socialSecurity[0]) {
+    seed.income.socialSecurity[0].claimAge = opts.primarySsAge;
+  }
+  if (opts.spouseSsAge !== undefined && seed.income.socialSecurity[1]) {
+    seed.income.socialSecurity[1].claimAge = opts.spouseSsAge ?? 0;
+  }
+  if (opts.rothCeiling !== undefined) {
+    seed.rules = seed.rules ?? {};
+    seed.rules.rothConversionPolicy = {
+      ...(seed.rules.rothConversionPolicy ?? {}),
+      enabled: opts.rothCeiling > 0,
+      minAnnualDollars: 0,
+      magiBufferDollars: opts.rothCeiling,
+    };
+  }
+  return seed;
+}
+
+describe('explainAdoption', () => {
+  it('headline reports the spend lift in absolute and delta terms', () => {
+    const seed = seedWith({ primarySsAge: 67, spouseSsAge: 67, rothCeiling: 0 });
+    const before = totalAnnualSpendFromCategories(seed.spending);
+    const result = explainAdoption(
+      seed,
+      makePolicy({
+        annualSpendTodayDollars: before + 12_000,
+        primarySocialSecurityClaimAge: 67,
+        spouseSocialSecurityClaimAge: 67,
+        rothConversionAnnualCeiling: 0,
+      }),
+    );
+    expect(result.headline.toLowerCase()).toMatch(/lift|raise/);
+    expect(result.headline).toContain('+');
+  });
+
+  it('headline trims spend down when the policy lowers it', () => {
+    const seed = seedWith({ primarySsAge: 67, spouseSsAge: 67, rothCeiling: 0 });
+    const before = totalAnnualSpendFromCategories(seed.spending);
+    const result = explainAdoption(
+      seed,
+      makePolicy({
+        annualSpendTodayDollars: before - 8_000,
+        primarySocialSecurityClaimAge: 67,
+        spouseSocialSecurityClaimAge: 67,
+        rothConversionAnnualCeiling: 0,
+      }),
+    );
+    expect(result.headline.toLowerCase()).toMatch(/trim|restore/);
+  });
+
+  it('headline holds spend constant when the delta is within rounding', () => {
+    const seed = seedWith({ primarySsAge: 67, spouseSsAge: 67, rothCeiling: 0 });
+    const before = totalAnnualSpendFromCategories(seed.spending);
+    const result = explainAdoption(
+      seed,
+      makePolicy({
+        annualSpendTodayDollars: before, // identical
+        primarySocialSecurityClaimAge: 70, // structural change
+        spouseSocialSecurityClaimAge: 67,
+        rothConversionAnnualCeiling: 0,
+      }),
+    );
+    expect(result.headline.toLowerCase()).toMatch(/hold/);
+  });
+
+  it('picks SS delay over Roth when both change', () => {
+    const seed = seedWith({
+      primarySsAge: 67,
+      spouseSsAge: 67,
+      rothCeiling: 0,
+    });
+    const result = explainAdoption(
+      seed,
+      makePolicy({
+        primarySocialSecurityClaimAge: 70, // 3-year delay × 8 = 24
+        spouseSocialSecurityClaimAge: 67,
+        rothConversionAnnualCeiling: 20_000, // 20000/1250 = 16
+      }),
+    );
+    expect(result.detail).toContain('Social Security');
+    expect(result.detail).toContain('70');
+  });
+
+  it('frames an SS-pulled-forward change as filing earlier, not delaying', () => {
+    const seed = seedWith({ primarySsAge: 70, spouseSsAge: 67, rothCeiling: 0 });
+    const result = explainAdoption(
+      seed,
+      makePolicy({
+        primarySocialSecurityClaimAge: 65,
+        spouseSocialSecurityClaimAge: 67,
+        rothConversionAnnualCeiling: 0,
+      }),
+    );
+    expect(result.detail?.toLowerCase()).toContain('earlier');
+  });
+
+  it('points to the Roth lever when SS is unchanged but the ceiling shifts', () => {
+    const seed = seedWith({ primarySsAge: 67, spouseSsAge: 67, rothCeiling: 10_000 });
+    const result = explainAdoption(
+      seed,
+      makePolicy({
+        primarySocialSecurityClaimAge: 67, // unchanged
+        spouseSocialSecurityClaimAge: 67,
+        rothConversionAnnualCeiling: 80_000,
+      }),
+    );
+    expect(result.detail?.toLowerCase()).toContain('roth');
+    expect(result.detail).toContain('80');
+  });
+
+  it('frames a lowered Roth ceiling as MAGI/IRMAA protection', () => {
+    const seed = seedWith({ primarySsAge: 67, spouseSsAge: 67, rothCeiling: 80_000 });
+    const result = explainAdoption(
+      seed,
+      makePolicy({
+        primarySocialSecurityClaimAge: 67,
+        spouseSocialSecurityClaimAge: 67,
+        rothConversionAnnualCeiling: 20_000,
+      }),
+    );
+    expect(result.detail?.toLowerCase()).toContain('irmaa');
+  });
+
+  it('returns a null detail when no structural lever changed', () => {
+    const seed = seedWith({ primarySsAge: 67, spouseSsAge: 67, rothCeiling: 30_000 });
+    const before = totalAnnualSpendFromCategories(seed.spending);
+    const result = explainAdoption(
+      seed,
+      makePolicy({
+        annualSpendTodayDollars: before + 5_000,
+        primarySocialSecurityClaimAge: 67,
+        spouseSocialSecurityClaimAge: 67,
+        rothConversionAnnualCeiling: 30_000,
+      }),
+    );
+    expect(result.detail).toBeNull();
+  });
+
+  it('ignores trivial Roth ceiling jitter (< $5k) so it does not steal the headline', () => {
+    const seed = seedWith({ primarySsAge: 67, spouseSsAge: 67, rothCeiling: 30_000 });
+    const result = explainAdoption(
+      seed,
+      makePolicy({
+        primarySocialSecurityClaimAge: 67,
+        spouseSocialSecurityClaimAge: 67,
+        rothConversionAnnualCeiling: 32_000, // $2k change
+      }),
+    );
+    expect(result.detail).toBeNull();
+  });
+
+  it('attaches a comfortable-headroom feasibility note above 95%', () => {
+    const seed = seedWith({});
+    const result = explainAdoption(seed, makePolicy(), {
+      bequestAttainmentRate: 0.97,
+    });
+    expect(result.feasibilityNote).toContain('97%');
+    expect(result.feasibilityNote?.toLowerCase()).toContain('headroom');
+  });
+
+  it('attaches an edge-of-feasibility note below 85%', () => {
+    const seed = seedWith({});
+    const result = explainAdoption(seed, makePolicy(), {
+      bequestAttainmentRate: 0.78,
+    });
+    expect(result.feasibilityNote?.toLowerCase()).toContain('edge');
+  });
+
+  it('omits the feasibility note when no evaluation is supplied', () => {
+    const seed = seedWith({});
+    const result = explainAdoption(seed, makePolicy());
+    expect(result.feasibilityNote).toBeNull();
   });
 });

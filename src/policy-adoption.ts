@@ -327,3 +327,177 @@ export function diffAdoption(seed: SeedData, policy: Policy): AdoptionDiff {
 export function formatBreakdownEntry(entry: SpendingBreakdownEntry): string {
   return `${entry.label} ${formatDollars(entry.current)}${entry.unit} → ${formatDollars(entry.proposed)}${entry.unit}`;
 }
+
+// ---------------------------------------------------------------------------
+// Plain-English explanation
+// ---------------------------------------------------------------------------
+
+/**
+ * Narrative produced by `explainAdoption` for the post-adoption banner.
+ *
+ * Three slots so the UI can format them with hierarchy (headline bold,
+ * detail regular, feasibility quieter) without having to parse a single
+ * string. All three are pre-composed sentences ending in periods —
+ * concatenate with a space to render flat.
+ */
+export interface AdoptionExplanation {
+  /** What this adoption does at the top line — spend delta, mostly. */
+  headline: string;
+  /**
+   * One sentence on the most consequential lever and *why* it pays off.
+   * Null when the only change is the spend target itself (rare — would
+   * mean an identity adoption with a different total).
+   */
+  detail: string | null;
+  /**
+   * Optional feasibility footnote when an evaluation is supplied. Null
+   * when no evaluation is passed (corpus lookup miss, or caller didn't
+   * have one to hand).
+   */
+  feasibilityNote: string | null;
+}
+
+interface LeverChange {
+  kind: 'primarySs' | 'spouseSs' | 'roth';
+  /** Sortable importance score; higher = bigger story to tell. */
+  weight: number;
+  sentence: string;
+}
+
+/**
+ * Build a 1-3 sentence household-readable explanation of WHY the
+ * adopted policy is the pick. Pure derivation from previous SeedData +
+ * adopted Policy + (optionally) the policy's evaluation outcome.
+ *
+ * Why not just stop at the diff rows: the modal already shows what
+ * changed in numbers. The narrative tells the user what the change is
+ * *for* — "delaying SS to 70 trades smaller checks early for ~24%
+ * larger checks for life, which is what funds the higher spend." A
+ * household reading the table sees four numbers; reading this they see
+ * a thesis they can agree or disagree with.
+ *
+ * Honesty constraints:
+ *   - Headline numbers come straight from the diff. No invented values.
+ *   - The "biggest lever" is picked by a transparent weight (years of
+ *     SS delay × per-year benefit growth, or |Roth delta|), not by a
+ *     hidden marginal-impact model. We don't claim to have run a
+ *     counterfactual we didn't run.
+ *   - Causal phrasing is reserved for textbook mechanisms (SS delay
+ *     credit, Roth-vs-RMD/IRMAA tradeoff). No editorializing.
+ */
+export function explainAdoption(
+  previousData: SeedData,
+  policy: Policy,
+  evaluation?: { bequestAttainmentRate: number } | null,
+): AdoptionExplanation {
+  const diff = diffAdoption(previousData, policy);
+  const spendDelta = diff.proposedAnnualSpend - diff.currentAnnualSpend;
+
+  // ---- Headline ---------------------------------------------------------
+  let headline: string;
+  if (Math.abs(spendDelta) < 500) {
+    // Within rounding of the current spend — the adoption preserved
+    // spend and only moved structural levers. Frame it accordingly so
+    // the user doesn't expect a different chart in dollar terms.
+    headline = `Holds annual spend at ${formatCurrency(diff.proposedAnnualSpend)} while restructuring claim ages and conversions.`;
+  } else if (spendDelta > 0) {
+    headline = `Lifts annual spend from ${formatCurrency(diff.currentAnnualSpend)} to ${formatCurrency(diff.proposedAnnualSpend)} (+${formatCurrency(spendDelta)}/yr in today's dollars).`;
+  } else {
+    headline = `Trims annual spend from ${formatCurrency(diff.currentAnnualSpend)} to ${formatCurrency(diff.proposedAnnualSpend)} (${formatCurrency(spendDelta)}/yr) to restore feasibility.`;
+  }
+
+  // ---- Detail: pick the heaviest changed lever --------------------------
+  const currentPrimarySs = previousData.income?.socialSecurity?.[0]?.claimAge ?? null;
+  const currentSpouseSs = previousData.income?.socialSecurity?.[1]?.claimAge ?? null;
+  const hasSpouse = (previousData.income?.socialSecurity?.length ?? 0) >= 2;
+  const currentRothCeiling =
+    previousData.rules?.rothConversionPolicy?.magiBufferDollars ?? 0;
+
+  const candidates: LeverChange[] = [];
+
+  if (
+    currentPrimarySs !== null &&
+    currentPrimarySs !== policy.primarySocialSecurityClaimAge
+  ) {
+    const yearsDelta = policy.primarySocialSecurityClaimAge - currentPrimarySs;
+    candidates.push({
+      kind: 'primarySs',
+      // Per-year SS growth past FRA is ~8%; before FRA the actuarial
+      // adjustment is ~6-7%. Use 8 as the lever weight — it's the
+      // upper bound and the lever's dominance over Roth still holds.
+      weight: Math.abs(yearsDelta) * 8,
+      sentence: ssDelaySentence('primary', currentPrimarySs, policy.primarySocialSecurityClaimAge),
+    });
+  }
+
+  if (
+    hasSpouse &&
+    policy.spouseSocialSecurityClaimAge !== null &&
+    currentSpouseSs !== null &&
+    currentSpouseSs !== policy.spouseSocialSecurityClaimAge
+  ) {
+    const yearsDelta = policy.spouseSocialSecurityClaimAge - currentSpouseSs;
+    candidates.push({
+      kind: 'spouseSs',
+      // Spouse benefits are typically smaller in absolute terms — about
+      // half the household weight of the primary delay, on average.
+      weight: Math.abs(yearsDelta) * 4,
+      sentence: ssDelaySentence(
+        'spouse',
+        currentSpouseSs,
+        policy.spouseSocialSecurityClaimAge,
+      ),
+    });
+  }
+
+  const rothDelta = policy.rothConversionAnnualCeiling - currentRothCeiling;
+  if (Math.abs(rothDelta) >= 5_000) {
+    candidates.push({
+      kind: 'roth',
+      // $10k of Roth-ceiling change ≈ one year of SS delay in long-run
+      // tax savings — this is a rough heuristic, but keeps the ranking
+      // honest without overclaiming a precise comparison.
+      weight: Math.abs(rothDelta) / 1_250,
+      sentence: rothSentence(currentRothCeiling, policy.rothConversionAnnualCeiling),
+    });
+  }
+
+  candidates.sort((a, b) => b.weight - a.weight);
+  const detail = candidates.length > 0 ? candidates[0].sentence : null;
+
+  // ---- Feasibility note (optional) --------------------------------------
+  let feasibilityNote: string | null = null;
+  if (evaluation && Number.isFinite(evaluation.bequestAttainmentRate)) {
+    const pct = Math.round(evaluation.bequestAttainmentRate * 100);
+    if (pct >= 95) {
+      feasibilityNote = `Bequest target met in ${pct}% of trials — comfortable headroom.`;
+    } else if (pct >= 85) {
+      feasibilityNote = `Bequest target met in ${pct}% of trials — solidly above the 85% feasibility threshold.`;
+    } else {
+      feasibilityNote = `Bequest target met in ${pct}% of trials — at the edge of feasibility; consider running a stress test.`;
+    }
+  }
+
+  return { headline, detail, feasibilityNote };
+}
+
+function ssDelaySentence(
+  who: 'primary' | 'spouse',
+  fromAge: number,
+  toAge: number,
+): string {
+  const label = who === 'primary' ? 'primary' : 'spouse';
+  if (toAge > fromAge) {
+    const years = toAge - fromAge;
+    const yearLabel = years === 1 ? 'year' : 'years';
+    return `The biggest lever is delaying ${label} Social Security from ${fromAge} to ${toAge} — each ${yearLabel.replace('s', '')} past full retirement age grows the lifetime benefit by roughly 8%, so the larger checks help carry the higher spend.`;
+  }
+  return `The biggest lever is filing ${label} Social Security earlier — from ${fromAge} to ${toAge} — which puts cash in hand sooner and lets the portfolio stay invested longer.`;
+}
+
+function rothSentence(fromCeiling: number, toCeiling: number): string {
+  if (toCeiling > fromCeiling) {
+    return `The biggest lever is raising the Roth conversion ceiling from ${formatCurrency(fromCeiling)} to ${formatCurrency(toCeiling)} — more dollars move into tax-free growth before RMDs and IRMAA brackets bite.`;
+  }
+  return `The biggest lever is lowering the Roth conversion ceiling from ${formatCurrency(fromCeiling)} to ${formatCurrency(toCeiling)} — smaller conversions keep MAGI down and avoid triggering IRMAA brackets in the years ahead.`;
+}
