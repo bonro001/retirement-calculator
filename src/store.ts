@@ -13,6 +13,8 @@ import {
   saveSnapshots,
   type PlanSnapshot,
 } from './plan-snapshots';
+import { buildAdoptedSeedData, diffAdoption } from './policy-adoption';
+import type { Policy } from './policy-miner-types';
 import type {
   AccountsData,
   EmployerMatchFormula,
@@ -345,6 +347,39 @@ interface AppState {
   planSnapshots: PlanSnapshot[];
   appendPlanSnapshot: (options?: { label?: string; capturedAt?: string }) => PlanSnapshot;
   applyAccountImport: (nextAccounts: AccountsData, options?: { label?: string }) => PlanSnapshot;
+  /**
+   * One-shot undo slot for the most recent mined-policy adoption (E.2).
+   * Null until the user adopts a policy; cleared on undo or when the
+   * user adopts a different policy. We keep only the most recent
+   * adoption — the user's mental model is "I just adopted that, undo it"
+   * rather than a deep history. For deeper history, snapshots already
+   * exist via `appendPlanSnapshot`.
+   */
+  lastPolicyAdoption: PolicyAdoptionUndo | null;
+  /**
+   * Stage a mined policy into the draft plan. Scales spending categories
+   * proportionally to hit the policy's annual-spend target, writes SS
+   * claim ages, and writes the Roth conversion ceiling. Does NOT touch
+   * accounts. Sets `hasPendingSimulationChanges` so the user gets the
+   * usual "Run Plan Analysis" CTA. Stores the previous draft in
+   * `lastPolicyAdoption` so the change is undoable.
+   */
+  adoptMinedPolicy: (policy: Policy) => void;
+  /** Restore the draft plan to what it was before the last adoption. */
+  undoLastPolicyAdoption: () => void;
+  /** Forget the last-adoption undo slot without changing the plan. */
+  clearLastPolicyAdoption: () => void;
+}
+
+export interface PolicyAdoptionUndo {
+  /** Snapshot of `data` before the adoption write — restored on undo. */
+  previousData: SeedData;
+  /** Which policy was adopted. Used to render the undo banner copy. */
+  policy: Policy;
+  /** Pre-formatted summary line ("$130k/yr · SS 70/68 · Roth $40k"). */
+  summary: string;
+  /** ISO timestamp the adoption happened, for display. */
+  adoptedAtIso: string;
 }
 
 const defaultAssumptions: MarketAssumptions = {
@@ -815,4 +850,41 @@ export const useAppStore = create<AppState>((set) => ({
     });
     return created as unknown as PlanSnapshot;
   },
+  lastPolicyAdoption: null,
+  adoptMinedPolicy: (policy) =>
+    set((state) => {
+      const previousData = cloneSeedData(state.data);
+      const nextData = buildAdoptedSeedData(state.data, policy);
+      const summary = diffAdoption(state.data, policy).summary;
+      const undo: PolicyAdoptionUndo = {
+        previousData,
+        policy,
+        summary,
+        adoptedAtIso: new Date().toISOString(),
+      };
+      const hasPendingSimulationChanges = hasPendingChanges({
+        ...state,
+        data: nextData,
+      });
+      return {
+        data: nextData,
+        hasPendingSimulationChanges,
+        lastPolicyAdoption: undo,
+      };
+    }),
+  undoLastPolicyAdoption: () =>
+    set((state) => {
+      if (!state.lastPolicyAdoption) return {};
+      const data = cloneSeedData(state.lastPolicyAdoption.previousData);
+      const hasPendingSimulationChanges = hasPendingChanges({
+        ...state,
+        data,
+      });
+      return {
+        data,
+        hasPendingSimulationChanges,
+        lastPolicyAdoption: null,
+      };
+    }),
+  clearLastPolicyAdoption: () => set({ lastPolicyAdoption: null }),
 }));

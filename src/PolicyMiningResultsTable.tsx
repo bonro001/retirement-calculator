@@ -6,6 +6,8 @@ import {
   loadClusterSessions,
   type ClusterSessionListing,
 } from './policy-mining-cluster';
+import { PolicyAdoptionModal } from './PolicyAdoptionModal';
+import { useAppStore } from './store';
 
 /**
  * Policy Mining — Results Table.
@@ -250,6 +252,20 @@ export function PolicyMiningResultsTable({
   const [clusterError, setClusterError] = useState<string | null>(null);
   const [clusterLoading, setClusterLoading] = useState<boolean>(false);
 
+  // E.2 — adoption state. The modal is open when `adoptingPolicy` is set.
+  // The undo banner lives at the top of the table when the store has a
+  // recent adoption to revert. Pulling the seed via the store rather
+  // than threading it through props because the modal needs CURRENT
+  // values (not a snapshot from when the table mounted) to show the
+  // diff accurately — the user might edit Spending while the modal is
+  // open, though that's a corner case.
+  const [adoptingPolicy, setAdoptingPolicy] = useState<Policy | null>(null);
+  const currentSeed = useAppStore((s) => s.data);
+  const adoptMinedPolicy = useAppStore((s) => s.adoptMinedPolicy);
+  const lastPolicyAdoption = useAppStore((s) => s.lastPolicyAdoption);
+  const undoLastPolicyAdoption = useAppStore((s) => s.undoLastPolicyAdoption);
+  const clearLastPolicyAdoption = useAppStore((s) => s.clearLastPolicyAdoption);
+
   const clusterEnabled = !!dispatcherUrl;
 
   // If the dispatcher URL goes away (user cleared it), drop back to local
@@ -373,11 +389,12 @@ export function PolicyMiningResultsTable({
 
   // Whether to render at all. Local mode hides if there's no baseline /
   // no records. Cluster mode renders even when empty so the picker /
-  // error state stay visible.
+  // error state stay visible. The undo banner is its own reason to
+  // render — even with no rows on screen, the user must be able to
+  // revert a recent adoption.
   if (source === 'local' && (!baselineFingerprint || evaluations.length === 0)) {
-    if (!clusterEnabled) return null;
-    // Fall through to render the source toggle so the user can switch to
-    // cluster even when local is empty.
+    if (!clusterEnabled && !lastPolicyAdoption) return null;
+    // Fall through to render the source toggle / undo banner.
   }
 
   const totalEvaluated = evaluations.length;
@@ -416,6 +433,34 @@ export function PolicyMiningResultsTable({
 
   return (
     <div className="mt-4 rounded-2xl border border-stone-200 bg-white/80 p-4 text-sm text-stone-700 shadow-sm">
+      {lastPolicyAdoption && (
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-[12px] text-emerald-900">
+          <div>
+            <span className="font-semibold">Adopted:</span>{' '}
+            {lastPolicyAdoption.summary} ·{' '}
+            <span className="text-emerald-800">
+              Run Plan Analysis to see updated projections
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={undoLastPolicyAdoption}
+              className="rounded-full bg-white px-3 py-0.5 text-[11px] font-semibold text-emerald-800 ring-1 ring-emerald-300 transition hover:bg-emerald-100"
+            >
+              Undo
+            </button>
+            <button
+              type="button"
+              onClick={clearLastPolicyAdoption}
+              aria-label="Dismiss adoption banner"
+              className="rounded-full px-2 py-0.5 text-[14px] leading-none text-emerald-700 transition hover:bg-emerald-100"
+            >
+              ×
+            </button>
+          </div>
+        </div>
+      )}
       <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
         <div>
           <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-stone-500">
@@ -590,9 +635,10 @@ export function PolicyMiningResultsTable({
                   <>
                     <th className="py-2 pr-3">Δ Spend</th>
                     <th className="py-2 pr-3">Δ Bequest P50</th>
-                    <th className="py-2">vs Current</th>
+                    <th className="py-2 pr-3">vs Current</th>
                   </>
                 ) : null}
+                <th className="py-2"></th>
               </tr>
             </thead>
             <tbody>
@@ -660,11 +706,20 @@ export function PolicyMiningResultsTable({
                         >
                           {bequestDeltaFmt ? bequestDeltaFmt.text : '—'}
                         </td>
-                        <td className="py-2 text-[11px] text-stone-500">
+                        <td className="py-2 pr-3 text-[11px] text-stone-500">
                           {policyDiffSummary(ev.policy, currentPlan)}
                         </td>
                       </>
                     ) : null}
+                    <td className="py-2 text-right">
+                      <button
+                        type="button"
+                        onClick={() => setAdoptingPolicy(ev.policy)}
+                        className="rounded-full bg-emerald-600 px-3 py-1 text-[11px] font-semibold text-white shadow-sm transition hover:bg-emerald-700"
+                      >
+                        Adopt
+                      </button>
+                    </td>
                   </tr>
                 );
               })}
@@ -687,6 +742,18 @@ export function PolicyMiningResultsTable({
             {showAll ? `Show top ${rowLimit}` : 'Show all'}
           </button>
         </div>
+      )}
+      {adoptingPolicy && (
+        <PolicyAdoptionModal
+          policy={adoptingPolicy}
+          currentData={currentSeed}
+          baselineMismatch={!!baselineMismatch}
+          onCancel={() => setAdoptingPolicy(null)}
+          onConfirm={() => {
+            adoptMinedPolicy(adoptingPolicy);
+            setAdoptingPolicy(null);
+          }}
+        />
       )}
     </div>
   );
