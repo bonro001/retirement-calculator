@@ -4,3 +4,10 @@ dist
 *.tsbuildinfo
 native-macos/**/.build/
 native-macos/**/DerivedData/
+
+# secrets — never commit
+.env
+.env.local
+.env.*.local
+!.env.example
+
