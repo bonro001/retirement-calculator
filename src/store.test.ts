@@ -145,3 +145,38 @@ describe('store applyAccountTradeInstructions', () => {
     expect(useAppStore.getState().hasPendingSimulationChanges).toBe(true);
   });
 });
+
+describe('store adoptMinedPolicy', () => {
+  beforeEach(() => {
+    resetStore();
+    useAppStore.setState({ unifiedPlanRerunNonce: 0, lastPolicyAdoption: null });
+  });
+
+  it('bumps the rerun nonce so UnifiedPlanScreen kicks off a fresh analysis', () => {
+    const before = useAppStore.getState().unifiedPlanRerunNonce;
+    useAppStore.getState().adoptMinedPolicy({
+      annualSpendTodayDollars: 120_000,
+      primarySocialSecurityClaimAge: 67,
+      spouseSocialSecurityClaimAge: 67,
+      rothConversionAnnualCeiling: 50_000,
+    });
+    const after = useAppStore.getState();
+    expect(after.unifiedPlanRerunNonce).toBe(before + 1);
+    expect(after.lastPolicyAdoption).not.toBeNull();
+    expect(after.hasPendingSimulationChanges).toBe(true);
+  });
+
+  it('bumps the rerun nonce again on undo so the chart catches up', () => {
+    useAppStore.getState().adoptMinedPolicy({
+      annualSpendTodayDollars: 120_000,
+      primarySocialSecurityClaimAge: 67,
+      spouseSocialSecurityClaimAge: 67,
+      rothConversionAnnualCeiling: 50_000,
+    });
+    const afterAdopt = useAppStore.getState().unifiedPlanRerunNonce;
+    useAppStore.getState().undoLastPolicyAdoption();
+    const afterUndo = useAppStore.getState();
+    expect(afterUndo.unifiedPlanRerunNonce).toBe(afterAdopt + 1);
+    expect(afterUndo.lastPolicyAdoption).toBeNull();
+  });
+});

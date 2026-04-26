@@ -866,10 +866,18 @@ export const useAppStore = create<AppState>((set) => ({
         ...state,
         data: nextData,
       });
+      // Bump the rerun nonce so UnifiedPlanScreen's existing rerun
+      // effect kicks off a fresh Plan Analysis with the adopted policy
+      // applied. Otherwise the household has to spot the "stale" banner
+      // and click "Run Plan Analysis" themselves before they can see
+      // what their adopted policy actually looks like in the projection
+      // chart — and the most common feedback was "I clicked adopt, why
+      // is the chart not changing?"
       return {
         data: nextData,
         hasPendingSimulationChanges,
         lastPolicyAdoption: undo,
+        unifiedPlanRerunNonce: state.unifiedPlanRerunNonce + 1,
       };
     }),
   undoLastPolicyAdoption: () =>
@@ -880,10 +888,13 @@ export const useAppStore = create<AppState>((set) => ({
         ...state,
         data,
       });
+      // Symmetric with adoptMinedPolicy: undo also changes the seed
+      // data and the household will want the projection to follow.
       return {
         data,
         hasPendingSimulationChanges,
         lastPolicyAdoption: null,
+        unifiedPlanRerunNonce: state.unifiedPlanRerunNonce + 1,
       };
     }),
   clearLastPolicyAdoption: () => set({ lastPolicyAdoption: null }),
