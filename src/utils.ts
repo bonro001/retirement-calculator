@@ -1321,6 +1321,11 @@ function getStressAdjustedReturns(
   yearOffset: number,
   random: RandomSource,
   presampledBootstrapIndex?: number,
+  // Phase 2.B: optional QMC source for the asset-return shock. When
+  // present and `useCorrelatedReturns` is true, the four std-normals
+  // come from Sobol+inverse-CDF instead of Box-Muller. Other random
+  // consumers (inflation, bootstrap, LTC) continue using `random`.
+  gaussian4?: import('./monte-carlo-engine').Gaussian4Source,
 ) {
   // Historical bootstrap path: one random year's tuple overrides all four
   // asset returns AND inflation. Stress overlays still apply on top.
@@ -1397,6 +1402,7 @@ function getStressAdjustedReturns(
             },
           ],
           random,
+          gaussian4,
         );
         return {
           US_EQUITY: usEquity,
@@ -1466,6 +1472,7 @@ function buildYearlyMarketPath(
   assumptions: MarketAssumptions,
   horizonYears: number,
   random: RandomSource,
+  gaussian4?: import('./monte-carlo-engine').Gaussian4Source,
 ) {
   // Block-bootstrap mode: pre-sample the index sequence once so multi-
   // year autocorrelation is preserved (bad years cluster). Block length
@@ -1485,6 +1492,7 @@ function buildYearlyMarketPath(
         yearOffset,
         random,
         preSampledIndices?.[yearOffset],
+        gaussian4,
       ),
     );
   }
@@ -3051,12 +3059,18 @@ function simulatePath(
     assumptionsVersion,
     onProgress: options?.onProgress,
     isCancelled: options?.isCancelled,
+    // Phase 2.B: when assumptions request QMC sampling, the engine
+    // provides each trial with a Sobol-backed `gaussian4` source for
+    // the asset-return shock. Default 'mc' preserves all existing
+    // golden tests and pre-Phase-2 behavior.
+    samplingStrategy: assumptions.samplingStrategy ?? 'mc',
+    maxYearsPerTrial: assumptions.maxYearsPerTrial ?? Math.max(60, planningHorizonYears),
     summarizeTrial: (result) => ({
       success: result.success,
       endingWealth: result.endingWealth,
       failureYear: result.failureYear,
     }),
-    runTrial: ({ random }) => {
+    runTrial: ({ random, gaussian4 }) => {
       let hsaBalance = data.accounts.hsa?.balance ?? 0;
       const balances = {
         pretax: effectivePlan.accounts.pretax.balance,
@@ -3098,6 +3112,7 @@ function simulatePath(
         assumptions,
         planningHorizonYears,
         random,
+        gaussian4,
       );
       const ltcEventOccurs =
         effectivePlan.ltcAssumptions.enabled &&
@@ -3118,7 +3133,7 @@ function simulatePath(
         const isRetired = year >= effectivePlan.retirementYear;
         const marketPoint =
           marketPath[yearOffset] ??
-          getStressAdjustedReturns(effectivePlan, assumptions, yearOffset, random);
+          getStressAdjustedReturns(effectivePlan, assumptions, yearOffset, random, undefined, gaussian4);
         const { inflation, assetReturns, marketState } = marketPoint;
         const pretaxBalanceForRmd = balances.pretax;
 

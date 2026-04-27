@@ -254,13 +254,53 @@ the structural-fix era is over.
 | # | Track                                         | Estimated win  | Effort  | Risk |
 |---|-----------------------------------------------|----------------|---------|------|
 | ~~A~~ | ~~Hunt `GeneratorPrototypeNext` source~~  | ~~up to 15%~~ | DONE: 0 | —    |
-| B | Quasi-Monte Carlo (Sobol/Halton draws)        | 2-4× per trial | 1-2 day | med  |
+| ~~B~~ | ~~Quasi-Monte Carlo (Sobol/Halton draws)~~| ~~2-4×~~       | DONE: parked | high |
 | C | Two-stage screening (coarse → fine cascade)   | 3-5× per Full  | 1-2 day | med  |
 | D | Racing / successive halving                   | ~2×            | 1 day   | med  |
 | E | Hunt residual Date / NumberConstructor sites  | 2-4%           | 2 hrs   | low  |
 
-**Recommended order:** B (QMC) first — it's the biggest single win, the
-math is well-trodden territory, and it composes multiplicatively with C.
+**Recommended order:** C (two-stage screening) first — comparable expected
+win to QMC's optimistic ceiling, but well-understood and low-risk.
+
+### Phase 2.B: parked (structural QMC bias on path-dependent integrand)
+
+Investigation 2026-04-27, ~2 hours. Conclusion: **hybrid QMC (Sobol asset
+returns + Mulberry32 everything else) produces a structurally biased
+estimate, not just lower variance.** Bias is ~13% absolute on success
+rate and persists at any N — no amount of trials will close it.
+
+Evidence:
+- MC@4000 success rate: 82.2%. QMC@4000 success rate: 95.6%. Gap = 13.4%.
+- MC@1000 success rate: 83.0%. QMC@1000 success rate: 96.0%. Same gap,
+  same direction. QMC is converging to the wrong answer.
+- p10 ending wealth: MC = $0 (substantial failure mass), QMC = $597K
+  (no failure mass). QMC is systematically optimistic.
+
+Root cause: low-discrepancy sequences are TOO uniform — they
+systematically undersample distribution tails relative to true random
+sampling. Our integrand depends on extreme drawdown sequences (failure
+is triggered by tail events), so Sobol shocks clustered near the mean
+produce optimistically-biased outcomes. This is a known QMC pathology
+for path-dependent integrands.
+
+Fix would require: (a) Cranley-Patterson randomization (per-trial
+random shifts of the Sobol point modulo 1) to inject true randomness
+while preserving stratification, AND (b) Brownian-bridge construction
+(reorder dimensions by impact so high-impact shocks come from low Sobol
+indices), AND (c) ≥120-dim Sobol (Joe-Kuo direction tables go to ~21K
+dims, but per-call cost scales) to actually do path-dependent QMC right.
+Estimated 4-6 more hours, with literature-published payoff of 1.5-3×
+speedup (comparable to Phase 2.C at much lower implementation risk).
+
+Also discovered: per-trial Sobol+inverse-CDF is 20-86% SLOWER than
+Box-Muller in our hot path. The microbench (Float64Array.from vs
+indexed copy) didn't catch this because it tested allocator throughput,
+not the closure overhead of feeding the engine 4 normals at a time.
+
+**Status:** primitives + engine wiring kept (default `samplingStrategy:
+'mc'` is bit-identical to pre-Phase-2 behavior). QMC parity test marked
+`describe.skip` with the parked status. Future work can revisit if the
+underlying math requirements get worked out.
 
 ### Phase 2.A: closed (no actionable finding)
 
