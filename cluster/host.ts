@@ -290,39 +290,100 @@ function unprimeAllSlots(sessionId: string): void {
 }
 
 /**
- * Run a batch of policies on the next free slot. Resolves with the
- * `PolicyEvaluation[]` from the worker, rejects with a partial-bearing
- * error on cancel or worker failure. The caller is responsible for
- * mapping that into a `batch_result` (or a partial-failure form).
+ * Partition a policy list into N contiguous slices as evenly as possible.
+ * The first `policies.length % n` partitions get one extra policy so the
+ * total adds up exactly. Returns the partitions in input order — concat
+ * `partitions.flat()` reproduces the original `policies` array, which
+ * makes the result-merge step at the end of fan-out trivially correct.
+ *
+ * Pure; exported for the host-pool unit test that asserts the partition
+ * shape never drops or duplicates a policy.
+ */
+export function partitionPolicies(
+  policies: Policy[],
+  slotCount: number,
+): Policy[][] {
+  const n = Math.min(policies.length, Math.max(1, slotCount));
+  if (n <= 1) return [policies.slice()];
+  const base = Math.floor(policies.length / n);
+  const extra = policies.length % n;
+  const partitions: Policy[][] = [];
+  let cursor = 0;
+  for (let i = 0; i < n; i += 1) {
+    const size = base + (i < extra ? 1 : 0);
+    partitions.push(policies.slice(cursor, cursor + size));
+    cursor += size;
+  }
+  return partitions;
+}
+
+/**
+ * Run a batch of policies across the host's free worker_threads in
+ * parallel. When a single slot is free or the batch is too small to
+ * benefit, falls through to the legacy single-slot path (one worker
+ * chews through the batch serially). When ≥2 slots are free and the
+ * batch has ≥2 policies, partitions the work across N slots and
+ * resolves with the merged results in original input order.
+ *
+ * Why fan out: before this, a 25-policy batch at coarse N=200 trials
+ * tied up ONE worker for ~25 × 100ms = 2.5 sec while the other
+ * workers on the same host idled. With 8 workers and a 25-policy
+ * batch, each gets ~3-4 policies → wall drops 8× to ~300ms.
+ *
+ * Resolves with the merged `PolicyEvaluation[]`. Rejects with a
+ * partial-bearing error if any sub-batch fails or is cancelled —
+ * the partial includes evaluations from BOTH already-finished
+ * sub-batches and any partial each failing sub-batch managed to
+ * complete before cancel/error.
  */
 function runBatchOnPool(
   sessionId: string,
   batchId: string,
   policies: Policy[],
 ): Promise<PolicyEvaluation[]> {
+  // Collect the free, primed slots we can use. We only consider slots
+  // already primed for this session — the prime handler primes every
+  // slot at session start, so this should always equal freeSlotCount(),
+  // but the defensive check keeps us correct under any future flow
+  // where slots get rotated.
+  const freeSlots: WorkerSlot[] = [];
+  for (const slot of slots) {
+    if (slot.busy) continue;
+    if (!slot.primedSessionIds.has(sessionId)) continue;
+    freeSlots.push(slot);
+    if (freeSlots.length >= policies.length) break;
+  }
+  if (freeSlots.length === 0) {
+    return Promise.reject(
+      Object.assign(
+        new Error('host: no free worker slots — dispatcher overpacked'),
+        { kind: 'host_no_free_slots' as const },
+      ),
+    );
+  }
+  // Single-slot path: trivial pass-through to legacy behavior. Avoids
+  // the fan-out bookkeeping when there's nothing to gain.
+  if (freeSlots.length === 1 || policies.length === 1) {
+    return runSingleSubBatch(sessionId, batchId, policies, freeSlots[0]);
+  }
+  // Fan-out path: partition + dispatch in parallel.
+  const partitions = partitionPolicies(policies, freeSlots.length);
+  return runFanOutBatch(sessionId, batchId, partitions, freeSlots.slice(0, partitions.length));
+}
+
+/**
+ * Single-worker path used both directly (small batch / single free slot)
+ * AND as the building block for fan-out (each sub-batch is a single-
+ * worker run). Encapsulating it keeps the worker-message bookkeeping
+ * (`pendingRuns.set`, `slot.busy = true`) in exactly one place.
+ */
+function runSingleSubBatch(
+  sessionId: string,
+  batchId: string,
+  policies: Policy[],
+  slot: WorkerSlot,
+): Promise<PolicyEvaluation[]> {
   return new Promise((resolve, reject) => {
-    const slot = pickFreeSlot();
-    if (!slot) {
-      // handleBatchAssign pre-checks freeSlotCount() and nacks before
-      // ever calling us — so this branch is reachable only if a slot was
-      // free at pre-check and got grabbed in between (no concurrent path
-      // exists today, but defensively we tag the rejection so the catch
-      // in handleBatchAssign can distinguish "host overpacked → must
-      // nack, NOT batch_result with 0 evals" from a real worker error.)
-      const err = Object.assign(new Error('host: no free worker slots — dispatcher overpacked'), {
-        kind: 'host_no_free_slots' as const,
-      });
-      reject(err);
-      return;
-    }
-    if (!slot.primedSessionIds.has(sessionId)) {
-      reject(
-        new Error(
-          `host: slot ${slot.index} not primed for session ${sessionId}`,
-        ),
-      );
-      return;
-    }
     const requestId = `${sessionId}-${batchId}`;
     pendingRuns.set(requestId, {
       resolve,
@@ -334,6 +395,88 @@ function runBatchOnPool(
       payload: { requestId, sessionId, policies },
     };
     slot.worker.postMessage(run);
+  });
+}
+
+/**
+ * Fan-out path: dispatch each partition to its own slot in parallel,
+ * resolve the parent Promise once all sub-batches complete (in either
+ * direction). Sub-batches use request IDs of the form
+ * `${sessionId}-${batchId}-s${i}` so the per-slot resolver in
+ * `handleWorkerMessage` routes each result/error to the right callback
+ * via `pendingRuns`. Cancel-broadcast already iterates `pendingRuns`,
+ * so cancelling sub-batches works without any extra wiring.
+ */
+function runFanOutBatch(
+  sessionId: string,
+  batchId: string,
+  partitions: Policy[][],
+  freeSlots: WorkerSlot[],
+): Promise<PolicyEvaluation[]> {
+  return new Promise((resolve, reject) => {
+    const successful: (PolicyEvaluation[] | null)[] = partitions.map(() => null);
+    const partials: (PolicyEvaluation[] | null)[] = partitions.map(() => null);
+    let completed = 0;
+    let failed = false;
+    let failureMessage: string | null = null;
+
+    const finalize = (): void => {
+      if (completed < partitions.length) return;
+      if (failed) {
+        // Aggregate any evaluations that DID land — both from
+        // successful sub-batches and from the partial buffer of any
+        // sub-batch that failed mid-stream.
+        const allPartials: PolicyEvaluation[] = [];
+        for (let i = 0; i < partitions.length; i += 1) {
+          if (successful[i]) allPartials.push(...(successful[i] as PolicyEvaluation[]));
+          else if (partials[i]) allPartials.push(...(partials[i] as PolicyEvaluation[]));
+        }
+        const err = Object.assign(
+          new Error(failureMessage ?? 'host: fan-out sub-batch failed'),
+          { partial: allPartials },
+        );
+        reject(err);
+        return;
+      }
+      // All sub-batches succeeded — concat in input order. partitions
+      // were carved contiguously so successful[0] is the first slice,
+      // successful[1] the next, etc. Result equals the original input
+      // policy order.
+      const merged: PolicyEvaluation[] = [];
+      for (const part of successful) {
+        if (part) merged.push(...part);
+      }
+      resolve(merged);
+    };
+
+    for (let i = 0; i < partitions.length; i += 1) {
+      const slot = freeSlots[i];
+      const partition = partitions[i];
+      const subRequestId = `${sessionId}-${batchId}-s${i}`;
+      pendingRuns.set(subRequestId, {
+        resolve: (evals) => {
+          successful[i] = evals;
+          completed += 1;
+          finalize();
+        },
+        reject: (err) => {
+          partials[i] = err.partial ?? [];
+          // Capture the FIRST failure message; later failures are
+          // typically follow-on cancellations from the same session
+          // tear-down.
+          if (!failureMessage) failureMessage = err.message;
+          failed = true;
+          completed += 1;
+          finalize();
+        },
+      });
+      slot.busy = true;
+      const run: PolicyMinerWorkerRequest = {
+        type: 'run',
+        payload: { requestId: subRequestId, sessionId, policies: partition },
+      };
+      slot.worker.postMessage(run);
+    }
   });
 }
 
