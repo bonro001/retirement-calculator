@@ -175,6 +175,52 @@ collapsed to in-place loops:
 
 All three are local computations that never escape — mutation is safe.
 
+## Multi-machine measurement (post-Phase-1, 2026-04-27)
+
+Same `scripts/perf-baseline.ts --policies 50 --trials 500` run on each
+host, deterministic seed → identical workload. Single-thread numbers:
+
+| Machine                  | Node     | ms/policy mean | pol/min/thread | 8w Full mine |
+|--------------------------|----------|----------------|----------------|--------------|
+| M4 mini (Mac-Mini-Upstairs) | 23.11.0 | 266            | **226**        | 4.3 min      |
+| M2 mini (Robs-Mac-mini)     | **23.11.1** | **281**     | **213**        | 4.6 min      |
+| M2 mini (same machine)      | 20.20.2  | 380            | 158            | 6.1 min      |
+
+**Two findings that change the hardware story:**
+
+1. **Node version dominates the gap.** The M2 went from 158 → 213
+   pol/min/thread by upgrading Node 20.20.2 → 23.11.1 with zero code
+   changes (+35% throughput, −26% per-policy time). V8's TurboFan codegen
+   in Node 23 is meaningfully better at the kind of tight allocation-light
+   hot loops Phase 1 produced.
+2. **M2 ≈ M4 per thread on equal Node.** 213 vs 226 pol/min/thread is a
+   5.6% difference — within run-to-run noise. Apple Silicon M2→M4 silicon
+   generation is essentially invisible to this workload. M4's only
+   advantage is core count (10 vs 8 → 8 vs 6 worker threads).
+
+### 2-mac cluster math (Node 23 on both)
+
+| Config              | Workers | pol/min  | Full mine wall (no overhead) |
+|---------------------|---------|----------|------------------------------|
+| M4 alone            | 8       | 1,808    | 4.3 min                      |
+| M2 alone            | 6       | 1,278    | 6.1 min                      |
+| **M4 + M2 cluster** | **14**  | **3,086**| **2.5 min**                  |
+
+The M2 contributes ~41% of cluster throughput on Node 23 (was 34% on
+Node 20). It's a fully-paying member, not a laggard.
+
+### Hardware decision (recorded for later reference)
+
+- No new hardware needed. M4 + M2 deliver Full mine in ~2.5 min — that's
+  interactive territory for the policy-mining workflow.
+- Pin Node 23 across all hosts (`engines` field added to `package.json`,
+  setup note added to `cluster/README.md`).
+- Ryzen 7800X3D status: untested post-Phase-1. Historic data showed Ryzen
+  ≈ M2 per-thread @ 2000 trials pre-Phase-1 (both ~16 pol/min/thread). If
+  the same Phase-1 + Node-23 multipliers apply, Ryzen should land near
+  the M-series per-thread numbers; worth a confirming run before deciding
+  whether to keep it as a third cluster node.
+
 ## Phase 2 priorities (re-ranked after Phase 1 wins)
 
 The remaining V8 profile hotspots from Phase 0 should be re-measured —

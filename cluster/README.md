@@ -29,6 +29,26 @@ Earlier phases:
 
 The shared protocol types live one level up at `src/mining-protocol.ts` so the browser can `import` them.
 
+## Prerequisites
+
+**Node 23+ on every cluster host.** Empirically (see `perf/PHASE_0_FINDINGS.md`,
+multi-machine section) Node 23's V8/TurboFan codegen is ~26% faster per
+policy than Node 20 on the post-Phase-1 hot path — a measured 158 → 213
+pol/min/thread on the same M2 mini just from the version bump, no code
+changes. Mixed-version clusters work but waste throughput on the older
+hosts. The repo's `package.json` declares `"engines": { "node": ">=23.0.0" }`
+to make accidental drift visible.
+
+If a host doesn't have Node 23, the easiest install is via `nvm`:
+
+```bash
+curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | bash
+source ~/.zshrc       # or ~/.bashrc
+nvm install 23
+nvm use 23
+node -v               # should print v23.x.x
+```
+
 ## Running locally
 
 ```bash
