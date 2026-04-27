@@ -155,6 +155,24 @@ export interface StartSessionOptions {
    * still does cartesian enumeration — caller controls the shape.
    */
   axesOverride?: import('./policy-miner-types').PolicyAxes;
+  /**
+   * Phase 2.C — two-stage screening (opt-in). When set, the dispatcher
+   * runs a cheap coarse pass at `coarseStage.trialCount` first, drops
+   * policies whose coarse `bequestAttainmentRate` is below
+   * `feasibilityThreshold - coarseStage.feasibilityBuffer`, and
+   * re-evaluates only the survivors at the full `trialCount`. Same top
+   * winner as single-pass on every test run; correctness preserved.
+   *
+   * Per-batch fan-out is enabled on every cluster host (commit b2a7de9).
+   * End-to-end cluster wall-time impact is currently neutral-to-mildly-
+   * negative at 500-policy scale; see perf/PHASE_0_FINDINGS.md
+   * "In-host fan-out attempt" subsection. Pure win on the in-process
+   * pool path (browser-only sessions): ~1.79× at tight feasibility.
+   */
+  coarseStage?: {
+    trialCount: number;
+    feasibilityBuffer: number;
+  };
 }
 
 interface ClusterClientConfig {
@@ -572,6 +590,11 @@ export function createClusterClient(config: ClusterClientConfig): ClusterClient 
       feasibilityThreshold: opts.feasibilityThreshold,
       maxPoliciesPerSession:
         opts.maxPoliciesPerSession ?? Number.MAX_SAFE_INTEGER,
+      // Phase 2.C: optional two-stage screening config. When undefined
+      // (the default), the dispatcher runs single-pass behavior. When
+      // set, the dispatcher pre-screens every policy at coarse trial
+      // count and re-evaluates only survivors at full trialCount.
+      coarseStage: opts.coarseStage,
     };
     // Pin trialCount onto the assumptions payload so a host that uses
     // assumptions.simulationRuns ends up with the same number the

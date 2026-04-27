@@ -141,6 +141,16 @@ export function PolicyMiningStatusCard({
   // or final certification. Default flips to Quick once a corpus exists,
   // since at that point the household is iterating, not exploring.
   const [sessionSize, setSessionSize] = useState<SessionSize>('full');
+  // Phase 2.C two-stage screening toggle — opt-in. When on, the dispatcher
+  // runs every policy through a cheap coarse pass (default N=200) first,
+  // then re-evaluates only the survivors at the configured trial count.
+  // Same top winner; ~1.79× faster on the in-process pool path at tight
+  // feasibility. On the cluster path the wall-time impact is currently
+  // neutral (correctness preserved; perf depends on event-driven
+  // dispatch landing — see perf/PHASE_0_FINDINGS.md).
+  const [twoStageEnabled, setTwoStageEnabled] = useState<boolean>(false);
+  const [coarseTrials, setCoarseTrials] = useState<number>(200);
+  const [coarseBuffer, setCoarseBuffer] = useState<number>(0.10);
 
   // Keep the draft in sync if the URL changes externally (e.g. another
   // tab updates localStorage — rare but cheap to handle).
@@ -244,6 +254,14 @@ export function PolicyMiningStatusCard({
         feasibilityThreshold: controls.feasibilityThreshold ?? 0.7,
         maxPoliciesPerSession: cap,
         trialCount: controls.trialCount,
+        // Phase 2.C: two-stage screening when toggled on. When undefined
+        // (default), the dispatcher runs single-pass behavior unchanged.
+        coarseStage: twoStageEnabled
+          ? {
+              trialCount: Math.max(1, Math.floor(coarseTrials)),
+              feasibilityBuffer: Math.max(0, coarseBuffer),
+            }
+          : undefined,
       });
     } catch (e) {
       setStartError(e instanceof Error ? e.message : String(e));
@@ -495,6 +513,62 @@ export function PolicyMiningStatusCard({
             {poolHint.hardwareConcurrency} cores
           </span>
         </div>
+        {/* Phase 2.C — two-stage screening toggle. Off by default since
+            the cluster path's wall-time impact is currently neutral; on
+            for quick experimentation when the household is iterating and
+            wants the in-process pool's ~1.79× win at tight feasibility.
+            Hidden mid-session to keep chrome quiet. */}
+        {!sessionRunning && (
+          <div className="flex flex-wrap items-center gap-3 text-[11px] text-stone-600">
+            <label className="inline-flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={twoStageEnabled}
+                onChange={(e) => setTwoStageEnabled(e.target.checked)}
+                className="h-3.5 w-3.5 cursor-pointer accent-emerald-600"
+              />
+              <span className="font-semibold">Two-stage screening</span>
+            </label>
+            {twoStageEnabled && (
+              <>
+                <label className="inline-flex items-center gap-1">
+                  <span className="text-stone-500">coarse trials:</span>
+                  <input
+                    type="number"
+                    min={50}
+                    max={1000}
+                    step={50}
+                    value={coarseTrials}
+                    onChange={(e) =>
+                      setCoarseTrials(Number.parseInt(e.target.value, 10) || 200)
+                    }
+                    className="w-16 rounded border border-stone-200 px-1.5 py-0.5 text-right text-[11px]"
+                  />
+                </label>
+                <label className="inline-flex items-center gap-1">
+                  <span className="text-stone-500">survival buffer:</span>
+                  <input
+                    type="number"
+                    min={0}
+                    max={0.5}
+                    step={0.05}
+                    value={coarseBuffer}
+                    onChange={(e) =>
+                      setCoarseBuffer(Number.parseFloat(e.target.value) || 0.10)
+                    }
+                    className="w-14 rounded border border-stone-200 px-1.5 py-0.5 text-right text-[11px]"
+                  />
+                </label>
+                <span className="text-stone-400">
+                  · screens at attainment ≥{' '}
+                  {(
+                    (controls?.feasibilityThreshold ?? 0.7) - coarseBuffer
+                  ).toFixed(2)}
+                </span>
+              </>
+            )}
+          </div>
+        )}
         {/* One-line caption tying the picker to the iteration loop so
             the household understands WHY the picker exists. Hidden once
             a session is running — the throughput row above tells the
@@ -674,6 +748,15 @@ export function PolicyMiningStatusCard({
           {progressPct !== null && (
             <p className="mt-1 text-[11px] text-stone-500">
               {progressPct}% complete
+            </p>
+          )}
+          {/* Phase 2.C — surface coarse-screening progress when active.
+              Only shown if any coarse work has happened this session. */}
+          {stats && stats.coarseEvaluated > 0 && (
+            <p className="mt-1 text-[11px] text-emerald-700">
+              screened {stats.coarseEvaluated.toLocaleString()} ·{' '}
+              kept {(stats.coarseEvaluated - stats.coarseScreenedOut).toLocaleString()}{' '}
+              ({stats.coarseScreenedOut.toLocaleString()} dropped)
             </p>
           )}
         </div>
