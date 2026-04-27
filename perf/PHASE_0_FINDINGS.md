@@ -386,6 +386,40 @@ in-process pool path's two-stage (commit 23b2ef9, ~1.79× win at
 tight feasibility). For multi-host cluster Full mines, currently use
 single-pass; revisit two-stage when in-host parallelism is added.
 
+#### In-host fan-out attempt (2026-04-27 follow-up)
+
+We added in-host batch fan-out (commit b2a7de9) — when the cluster
+host receives a batch, it now partitions the policies across all its
+free worker_threads in parallel, instead of feeding them serially to
+one worker. Per-batch wall time dropped 8× as expected (407 ms/policy
+at coarse vs 1500 ms/policy serial), proving the partition + parallel
+mechanic works.
+
+But cluster-wide wall time DIDN'T improve. Six end-to-end runs
+(A2/A3/A5/A6 single-pass, B/B2/B3/B5/B6 two-stage) at 500 policies ×
+2000 trials always landed in the same band — single-pass at 68-94s,
+two-stage at 89-198s. Two-stage was never faster than single-pass on
+the cluster, regardless of fan-out, dispatcher cap-per-host (tested
+MAX_INFLIGHT_PER_HOST=2 in commit ?, reverted), or worker count
+tweaks.
+
+Root cause: dispatcher-host coordination friction. When fan-out
+consumes all of a host's workers for one batch, the dispatcher's
+"effectiveFreeSlots = workerCount - inFlightBatches" formula
+overestimates capacity and ships more batches that the host nacks.
+Capping in-flight batches per host underflows the queue (host idles
+waiting between fan-out completions at the 1Hz pump cadence). Neither
+extreme is right; the architecturally correct fix is event-driven
+dispatch — the host sends a "ready for next batch" signal piggybacked
+on `batch_result` so the dispatcher can ship the next batch the
+moment the LAST sub-batch frees its slot. Out of scope for this round.
+
+Final cluster tally (500 policies, 2000 trials, feasibility 0.85, 3
+hosts = 26 worker threads): single-pass ~68s; two-stage ~85-200s
+depending on the experimental tuning. Same top winner across all
+runs (correctness preserved). Cluster two-stage is correct but not
+yet a perf win.
+
 The retained tuning fixes (per-host EWMA reset on session start,
 trial-count-aware cold-start hint scaling) are still useful
 defensive improvements regardless of two-stage — they prevent a

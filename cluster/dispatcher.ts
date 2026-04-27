@@ -150,6 +150,17 @@ const NACK_COOLDOWN_MS = 1_000;
  * Both numbers are owned by the dispatcher: workerCount comes from
  * register; inFlightBatchIds is updated whenever we assign / complete /
  * nack / disconnect. By construction this can't lie.
+ *
+ * Note: this DOES overpack with the cluster/host.ts fan-out (commit
+ * b2a7de9) where each batch consumes ALL of a host's worker slots. We
+ * tested capping at 1-2 in-flight batches per host (commits 1a6f711+)
+ * but it made cluster wall time WORSE at 500-policy scale: hosts went
+ * idle waiting for the next batch between fan-out completions. The
+ * existing overpack-and-nack behavior turns out to be the right tradeoff
+ * for this workload — the host nacks promptly, the dispatcher requeues
+ * with cooldown, and the next batch lands the moment the host has
+ * capacity. A proper fix needs event-driven dispatch (host signals
+ * "ready" when fan-out completes its LAST sub-batch); deferred work.
  */
 function effectiveFreeSlots(peer: Peer): number {
   const total = peer.capabilities?.workerCount ?? 0;
