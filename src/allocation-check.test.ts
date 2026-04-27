@@ -158,9 +158,25 @@ describe('allocation check vs Fidelity-reported asset mix', () => {
     // (target-date 2030 glide-path), NOT the pretax bucket's other
     // holdings (which are heavily US-equity and would skew TRP_2030
     // wrong if we derived from the bucket).
+    //
+    // The test compared with .toEqual (exact equality) but produces
+    // 1-ULP (~1e-16) drift in the last decimal place — confirmed
+    // pre-existing on main, predating the Phase 1 perf work. Two
+    // summation paths in the codebase disagree by a single representable
+    // double: derivation produces 0.4437927663734115, the literal
+    // DEFAULT_AMBIGUOUS_HOLDING_ASSUMPTIONS constant carries
+    // 0.4437927663734116. The math is mathematically identical; only the
+    // floating-point summation order differs. Compare per-class with
+    // 12-decimal precision — that's 4 orders of magnitude tighter than
+    // any real allocation difference would be, so we'd still catch any
+    // actual bug in glide-path derivation.
     const derived = deriveAssetClassMappingAssumptionsFromAccounts(
       initialSeedData.accounts,
     );
-    expect(derived.TRP_2030).toEqual(DEFAULT_AMBIGUOUS_HOLDING_ASSUMPTIONS.TRP_2030);
+    const expected = DEFAULT_AMBIGUOUS_HOLDING_ASSUMPTIONS.TRP_2030;
+    expect(derived.TRP_2030.US_EQUITY).toBeCloseTo(expected.US_EQUITY, 12);
+    expect(derived.TRP_2030.INTL_EQUITY).toBeCloseTo(expected.INTL_EQUITY, 12);
+    expect(derived.TRP_2030.BONDS).toBeCloseTo(expected.BONDS, 12);
+    expect(derived.TRP_2030.CASH).toBeCloseTo(expected.CASH, 12);
   });
 });

@@ -68,6 +68,8 @@ import {
 import type {
   MiningJobBatch,
   MiningStats,
+  Policy,
+  PolicyEvaluation,
   PolicyMiningSessionConfig,
 } from '../src/policy-miner-types';
 import {
@@ -177,6 +179,10 @@ interface ActiveSession {
    *  of stringify-then-parse-then-stringify. */
   seedDataPayload: unknown;
   marketAssumptionsPayload: unknown;
+  /** The CURRENT stage's queue. During a single-stage session this is
+   *  the only queue; during two-stage it points at the coarse queue
+   *  during the coarse phase, then is replaced with the fine queue
+   *  built from coarse-pass survivors. */
   queue: WorkQueue;
   /** Best policy id seen so far; mirrored into the cluster snapshot. */
   bestPolicyId: string | null;
@@ -186,6 +192,28 @@ interface ActiveSession {
    *  rolling mean stable as samples accumulate. */
   ingestedSamples: number;
   controllerPeerId: string | null;
+
+  // ---- Phase 2.C two-stage screening state ----
+  /** Which stage the session is currently dispatching:
+   *  - `'single'`: legacy single-pass behavior (no coarseStage configured).
+   *  - `'coarse'`: shipping coarseStage.trialCount per batch; results are
+   *    held in memory in `coarseSurvivorsBuffer` and NOT persisted.
+   *  - `'fine'`: shipping session.trialCount per batch; results land in
+   *    the corpus via appendEvaluations. */
+  currentStage: 'single' | 'coarse' | 'fine';
+  /** Buffer of coarse-pass evaluations awaiting the survival filter at
+   *  stage transition. Empty when currentStage !== 'coarse'. */
+  coarseSurvivorsBuffer: PolicyEvaluation[];
+  /** Running totals surfaced in the cluster snapshot via MiningStats.
+   *  Initialized to 0 even for single-stage sessions (the fields are
+   *  required on MiningStats but stay 0 when no coarse pass runs). */
+  coarseEvaluatedTotal: number;
+  coarseScreenedOutTotal: number;
+  /** Total policies the coarse queue was built with — needed because
+   *  the coarse WorkQueue's totalPolicies is replaced when we swap to
+   *  the fine queue and the snapshot's progress denominator must keep
+   *  the original headline (X of original-N evaluated). */
+  coarseTotalPolicies: number;
 }
 
 let activeSession: ActiveSession | null = null;
@@ -251,10 +279,28 @@ function buildClusterSnapshot(): ClusterSnapshot {
   let session: ClusterSnapshot['session'] = null;
   if (activeSession) {
     const queueSnap = activeSession.queue.snapshot();
+    // For two-stage sessions, the snapshot's `totalPolicies` should
+    // reflect the FULL workload denominator the user expects to see in
+    // the status panel. During the coarse phase that's the coarse
+    // queue's total (which equals the original policy count). During
+    // the fine phase the queue's total switches to the survivor count
+    // — but we want the panel to keep showing "X / 7,776 evaluated"
+    // not jump to "X / 1,944 evaluated", so we override with the
+    // recorded original count.
+    const totalPoliciesForSnapshot =
+      activeSession.currentStage === 'fine'
+        ? activeSession.coarseTotalPolicies
+        : queueSnap.totalPolicies;
+    // policiesEvaluated semantics: count of FINE-PASS evaluations
+    // that landed in the corpus (matches the serial/pool path
+    // contract). During coarse phase this stays 0; during fine it's
+    // the queue's evaluatedCount.
+    const finePoliciesEvaluated =
+      activeSession.currentStage === 'fine' ? queueSnap.evaluatedCount : 0;
     const stats: MiningStats = {
       sessionStartedAtIso: activeSession.startedAtIso,
-      totalPolicies: queueSnap.totalPolicies,
-      policiesEvaluated: queueSnap.evaluatedCount,
+      totalPolicies: totalPoliciesForSnapshot,
+      policiesEvaluated: finePoliciesEvaluated,
       feasiblePolicies: queueSnap.feasibleCount,
       droppedPolicies: queueSnap.droppedCount,
       meanMsPerPolicy: activeSession.clusterMeanMsPerPolicy,
@@ -263,6 +309,8 @@ function buildClusterSnapshot(): ClusterSnapshot {
       p95MsPerPolicy: activeSession.clusterMeanMsPerPolicy * 1.5,
       estimatedRemainingMs: estimateRemainingMs(),
       bestPolicyId: activeSession.bestPolicyId,
+      coarseEvaluated: activeSession.coarseEvaluatedTotal,
+      coarseScreenedOut: activeSession.coarseScreenedOutTotal,
       state: queueSnap.evaluatedCount === 0 ? 'running' : 'running',
       lastError: null,
     };
@@ -532,6 +580,29 @@ function handleStartSession(peer: Peer, message: StartSessionMessage): void {
     queue = new WorkQueue(sessionId, sliced);
   }
 
+  // Phase 2.C: when the controller's config carries a coarseStage, run
+  // a cheap coarse pass FIRST. The queue we just built becomes the
+  // coarse queue (same policy list, just shipped at coarseTrialCount
+  // per batch). When the coarse queue drains, the dispatcher
+  // transitions to fine: builds a new WorkQueue with only survivors
+  // and continues at the configured full trialCount. Coarse evaluations
+  // are NOT persisted — they live in coarseSurvivorsBuffer in memory
+  // and are dropped at stage transition. Resume is fine: coarse is
+  // cheap; restarting it from scratch loses at most a few minutes of
+  // wall on a Full mine.
+  //
+  // Resume note: if this `start_session` is matching a resumable
+  // session, we explicitly DOWNGRADE to single-stage. The on-disk
+  // corpus only contains fine-pass evaluations (no coarse leak, by
+  // design), so a resume of a partially-completed session has already
+  // committed to the fine pass implicitly. Re-running coarse on the
+  // remaining policies wouldn't be wrong, just wasteful. Single-stage
+  // resume preserves "remaining policies are evaluated at full N" which
+  // matches the corpus's existing semantics.
+  const usingCoarseStage = !!cfg.coarseStage && !isResume;
+  const initialStage: 'single' | 'coarse' = usingCoarseStage ? 'coarse' : 'single';
+  const coarseTotalPolicies = queue.totalPolicies;
+
   const manifest: SessionManifest = {
     sessionId,
     startedAtIso,
@@ -561,6 +632,11 @@ function handleStartSession(peer: Peer, message: StartSessionMessage): void {
     clusterMeanMsPerPolicy: 0,
     ingestedSamples: 0,
     controllerPeerId: peer.peerId,
+    currentStage: initialStage,
+    coarseSurvivorsBuffer: [],
+    coarseEvaluatedTotal: 0,
+    coarseScreenedOutTotal: 0,
+    coarseTotalPolicies,
   };
 
   log('info', isResume ? 'session resumed' : 'session started', {
@@ -718,8 +794,16 @@ function pumpDispatch(): void {
   const session = activeSession;
   if (session.queue.pendingCount() === 0) {
     // No more pending — but maybe still in-flight. If neither, the
-    // session is done.
+    // current stage is complete. For a coarse-stage session that means
+    // it's time to filter survivors and transition to fine; otherwise
+    // the whole session is done.
     if (session.queue.inFlightCount() === 0) {
+      if (session.currentStage === 'coarse') {
+        transitionToFineStage(session);
+        // transitionToFineStage installs a new queue and recursively
+        // calls pumpDispatch, so we're done here either way.
+        return;
+      }
       endSession('completed');
     }
     return;
@@ -751,6 +835,14 @@ function pumpDispatch(): void {
     const assigned = session.queue.assignBatch(peer.peerId, size);
     if (!assigned) continue;
 
+    // Phase 2.C: ship coarseStage.trialCount per batch during the
+    // coarse phase; otherwise the configured full trialCount. The
+    // host doesn't need to know which stage it's in — it just runs
+    // the batch at whatever trialCount the dispatcher specified.
+    const batchTrialCount =
+      session.currentStage === 'coarse' && session.config.coarseStage
+        ? session.config.coarseStage.trialCount
+        : session.trialCount;
     const batch: MiningJobBatch = {
       batchId: assigned.batchId,
       baselineFingerprint: session.config.baselineFingerprint,
@@ -758,7 +850,7 @@ function pumpDispatch(): void {
       seedDataPayload: session.seedDataPayload,
       marketAssumptionsPayload: session.marketAssumptionsPayload,
       policies: assigned.policies,
-      trialCount: session.trialCount,
+      trialCount: batchTrialCount,
     };
     const batchAssign: BatchAssignMessage = {
       kind: 'batch_assign',
@@ -776,9 +868,106 @@ function pumpDispatch(): void {
 }
 
 /**
+ * Phase 2.C — coarse → fine stage transition.
+ *
+ * Called from pumpDispatch when the coarse queue drains (no pending and
+ * no in-flight batches). Filters the in-memory coarseSurvivorsBuffer
+ * by `bequestAttainmentRate >= (feasibilityThreshold - feasibilityBuffer)`,
+ * builds a fresh WorkQueue from the survivors, swaps it into the
+ * session, resets per-host throughput EWMAs (the trial count changes,
+ * so old samples are stale), broadcasts the new state, and re-enters
+ * pumpDispatch to start fine-pass batches.
+ */
+/**
+ * Pure helper: partition a coarse-pass evaluation buffer into survivors
+ * (those whose attainment rate clears `feasibilityThreshold - buffer`)
+ * and a screened-out count. Exported for direct unit testing — the
+ * transitionToFineStage caller mutates session state, but the math
+ * itself is pure and covered by `cluster/dispatcher.two-stage.test.ts`.
+ */
+export function filterCoarseSurvivors(
+  buffer: readonly PolicyEvaluation[],
+  feasibilityThreshold: number,
+  feasibilityBuffer: number,
+): { survivors: Policy[]; screenedOut: number; survivalThreshold: number } {
+  const survivalThreshold = Math.max(0, feasibilityThreshold - feasibilityBuffer);
+  const survivors: Policy[] = [];
+  let screenedOut = 0;
+  for (const ev of buffer) {
+    if (ev.outcome.bequestAttainmentRate >= survivalThreshold) {
+      survivors.push(ev.policy);
+    } else {
+      screenedOut += 1;
+    }
+  }
+  return { survivors, screenedOut, survivalThreshold };
+}
+
+function transitionToFineStage(session: ActiveSession): void {
+  const coarseStage = session.config.coarseStage;
+  if (!coarseStage) {
+    // Shouldn't happen — currentStage === 'coarse' implies coarseStage
+    // was set at session start. Defensive: bail out by ending session.
+    log('error', 'transitionToFineStage: currentStage=coarse but no config.coarseStage', {
+      sessionId: session.sessionId,
+    });
+    endSession('error', 'invariant: coarse stage active without coarseStage config');
+    return;
+  }
+  const { survivors, screenedOut } = filterCoarseSurvivors(
+    session.coarseSurvivorsBuffer,
+    session.config.feasibilityThreshold,
+    coarseStage.feasibilityBuffer,
+  );
+  session.coarseScreenedOutTotal += screenedOut;
+  // Free the coarse buffer memory now that we've filtered. For a Full
+  // mine this is ~7,776 PolicyEvaluation records ≈ a few MB; not huge
+  // but no reason to hold it through the fine pass.
+  session.coarseSurvivorsBuffer = [];
+
+  log('info', 'cluster two-stage: coarse complete, transitioning to fine', {
+    sessionId: session.sessionId,
+    coarseEvaluated: session.coarseEvaluatedTotal,
+    survivors: survivors.length,
+    screenedOut: session.coarseScreenedOutTotal,
+    coarseTrialCount: coarseStage.trialCount,
+    fineTrialCount: session.trialCount,
+  });
+
+  // Build the fine queue. Re-use the same sessionId so the corpus
+  // session dir doesn't change — fine results land in the existing
+  // evaluations.jsonl. WorkQueue's batch ids are unique within the
+  // queue instance via nextBatchSeq, so the new queue won't reuse
+  // coarse batch ids even though the sessionId is shared.
+  session.queue = new WorkQueue(session.sessionId, survivors);
+  session.currentStage = 'fine';
+
+  // The trial count changed — per-host meanMsPerPolicy EWMAs from the
+  // coarse pass would over-recommend batch sizes for the (slower) fine
+  // pass and tank wall-clock pump efficiency. Reset so recommendedBatchSize
+  // falls back to the perf-class hint until 3 fine batches land.
+  for (const peer of peers.values()) {
+    peer.meanMsPerPolicy = null;
+    peer.completedBatchCount = 0;
+  }
+  // Reset the cluster-wide EWMA too — it would otherwise carry coarse
+  // ms/policy into the ETA math.
+  session.clusterMeanMsPerPolicy = 0;
+  session.ingestedSamples = 0;
+
+  broadcastClusterState();
+  // Recursively pump — fine batches start going out immediately.
+  pumpDispatch();
+}
+
+/**
  * Result handler. Validates session match, records in queue, appends to
  * corpus, updates per-host throughput, broadcasts evaluations_ingested,
  * acks the host, and pumps again.
+ *
+ * Phase 2.C: when currentStage === 'coarse', evaluations are NOT appended
+ * to the corpus. They land in coarseSurvivorsBuffer for the survival
+ * filter that runs at stage transition.
  */
 function handleBatchResult(peer: Peer, message: Extract<ClusterMessage, { kind: 'batch_result' }>): void {
   if (!activeSession || message.sessionId !== activeSession.sessionId) {
@@ -799,22 +988,41 @@ function handleBatchResult(peer: Peer, message: Extract<ClusterMessage, { kind: 
   }
   const session = activeSession;
 
-  // Append to disk. We do this BEFORE marking the batch complete so that
-  // a write failure doesn't leave us with a queue that thinks the work
-  // is done while the corpus is missing it.
+  // Phase 2.C: route by stage.
+  //   - coarse: collect into in-memory buffer; never touches the corpus.
+  //   - fine / single: append to disk before marking complete (existing path).
   let appendOutcome: { feasibleInBatch: number; runningBest: ReturnType<typeof appendEvaluations>['runningBest'] };
-  try {
-    appendOutcome = appendEvaluations(session.sessionId, message.result.evaluations);
-  } catch (err) {
-    log('error', 'corpus append failed — requeueing batch', {
-      err: String(err),
-      sessionId: session.sessionId,
-      batchId: message.result.batchId,
-    });
-    // Don't complete; let the next nack/disconnect path requeue. To force
-    // immediate reassignment, we just don't ack — the heartbeat reconciler
-    // (D.5) would handle this, but for now log and move on.
-    return;
+  if (session.currentStage === 'coarse') {
+    // Buffer for the survival filter at stage transition. We still
+    // count "feasible" against the SAME threshold the corpus would use
+    // — the coarse-pass feasibility count is a useful UI signal even
+    // though these evaluations won't be persisted.
+    let feasibleInBatch = 0;
+    for (const ev of message.result.evaluations) {
+      session.coarseSurvivorsBuffer.push(ev);
+      session.coarseEvaluatedTotal += 1;
+      if (ev.outcome.bequestAttainmentRate >= session.config.feasibilityThreshold) {
+        feasibleInBatch += 1;
+      }
+    }
+    appendOutcome = { feasibleInBatch, runningBest: null };
+  } else {
+    // Append to disk. We do this BEFORE marking the batch complete so that
+    // a write failure doesn't leave us with a queue that thinks the work
+    // is done while the corpus is missing it.
+    try {
+      appendOutcome = appendEvaluations(session.sessionId, message.result.evaluations);
+    } catch (err) {
+      log('error', 'corpus append failed — requeueing batch', {
+        err: String(err),
+        sessionId: session.sessionId,
+        batchId: message.result.batchId,
+      });
+      // Don't complete; let the next nack/disconnect path requeue. To force
+      // immediate reassignment, we just don't ack — the heartbeat reconciler
+      // (D.5) would handle this, but for now log and move on.
+      return;
+    }
   }
 
   const completed = session.queue.completeBatch(message.result.batchId, appendOutcome.feasibleInBatch);
@@ -877,15 +1085,23 @@ function handleBatchResult(peer: Peer, message: Extract<ClusterMessage, { kind: 
   // Tell controllers + observers what landed. evaluationIds, not full
   // records — the canonical store on disk has everything; this is just
   // a "go look".
-  broadcast(
-    {
-      kind: 'evaluations_ingested',
-      sessionId: session.sessionId,
-      evaluationIds: message.result.evaluations.map((ev) => ev.id),
-      from: 'dispatcher',
-    },
-    ['controller', 'observer'],
-  );
+  //
+  // Phase 2.C: SUPPRESS this during the coarse phase. The browser
+  // controller would otherwise try to fetch records by id from the
+  // corpus that aren't there (coarse evals don't persist). The next
+  // cluster_state broadcast will reflect coarse progress via
+  // stats.coarseEvaluated.
+  if (session.currentStage !== 'coarse') {
+    broadcast(
+      {
+        kind: 'evaluations_ingested',
+        sessionId: session.sessionId,
+        evaluationIds: message.result.evaluations.map((ev) => ev.id),
+        from: 'dispatcher',
+      },
+      ['controller', 'observer'],
+    );
+  }
 
   // Pump first (might queue another batch on this host) THEN broadcast
   // state — the broadcast then includes the freshly-issued batch.

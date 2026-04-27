@@ -908,31 +908,111 @@ function getAssetExposure(
   return getHoldingExposure(symbol, assumptions);
 }
 
+/**
+ * Phase 1.3 perf: pre-flattened per-allocation exposure cache.
+ *
+ * Hot-path callers (`getBucketReturn`, `getDefenseScore`) used to do
+ * `Object.entries(allocation).reduce(...)` on every (year, trial, bucket),
+ * with a nested `Object.entries(exposure).reduce(...)` per symbol. For Full
+ * mine that was ~466M outer calls and ~1B+ entry-pair allocations — the
+ * V8 baseline profile attributed 8.5% of CPU to `Object.entries` and a
+ * large fraction of the std::pair (24.9%) cost to the entries it returned.
+ *
+ * The allocation Records on `plan.accounts[bucket].targetAllocation` and
+ * the `assetClassMappingAssumptions` reference are constant for the lifetime
+ * of a `simulatePath` call (and across all simulatePath calls within one
+ * `evaluatePolicy`). So we can compute a flat 4-entry asset-class weight
+ * vector once per (allocation, assumptions) pair and reuse it.
+ *
+ * Cache shape: `WeakMap<allocation, { assumptionsRef, flat }>`. WeakMap
+ * lets the entries get GC'd alongside the allocation object. Single-slot
+ * (not nested by assumptions) because in practice the same allocation is
+ * always paired with the same assumptions; if a caller passes a different
+ * assumptions reference for the same allocation we transparently rebuild.
+ *
+ * Float drift note: this changes the order of floating-point summation
+ * vs. the original Object.entries traversal. The math is identical by the
+ * distributive property; the float result drifts by ~1 ULP per call, which
+ * compounds to ~1e-9 relative error in ending balances. That is far below
+ * decision-relevant noise for ranking policies (worst case: $0.001 on a
+ * $1M portfolio over 30 years). Approved by user 2026-04-27.
+ */
+type FlatBucketExposure = {
+  usEquity: number;
+  intlEquity: number;
+  bonds: number;
+  cash: number;
+  defenseScore: number;
+};
+
+const FLAT_EXPOSURE_CACHE = new WeakMap<
+  Record<string, number>,
+  { assumptionsRef: object | undefined; flat: FlatBucketExposure }
+>();
+
+function buildFlatBucketExposure(
+  allocation: Record<string, number>,
+  assumptions?: AssetClassMappingAssumptions,
+): FlatBucketExposure {
+  let usEquity = 0;
+  let intlEquity = 0;
+  let bonds = 0;
+  let cash = 0;
+
+  // Aggregate weight × exposure[class] per asset class. We sum per class
+  // (rather than per symbol then redistributing) so the hot path can do a
+  // bare 4-multiply dot product against assetReturns.
+  for (const symbol in allocation) {
+    const weight = allocation[symbol];
+    if (weight === 0) continue;
+    const exposure = getAssetExposure(symbol, assumptions);
+    usEquity += (exposure.US_EQUITY ?? 0) * weight;
+    intlEquity += (exposure.INTL_EQUITY ?? 0) * weight;
+    bonds += (exposure.BONDS ?? 0) * weight;
+    cash += (exposure.CASH ?? 0) * weight;
+  }
+
+  return {
+    usEquity,
+    intlEquity,
+    bonds,
+    cash,
+    defenseScore: bonds + cash,
+  };
+}
+
+function getOrBuildFlatBucketExposure(
+  allocation: Record<string, number>,
+  assumptions?: AssetClassMappingAssumptions,
+): FlatBucketExposure {
+  const cached = FLAT_EXPOSURE_CACHE.get(allocation);
+  if (cached && cached.assumptionsRef === assumptions) {
+    return cached.flat;
+  }
+  const flat = buildFlatBucketExposure(allocation, assumptions);
+  FLAT_EXPOSURE_CACHE.set(allocation, { assumptionsRef: assumptions, flat });
+  return flat;
+}
+
 function getBucketReturn(
   allocation: Record<string, number>,
   assetReturns: Record<AssetClass, number>,
   assumptions?: AssetClassMappingAssumptions,
 ) {
-  return Object.entries(allocation).reduce((total, [symbol, weight]) => {
-    const exposure = getAssetExposure(symbol, assumptions);
-    const symbolReturn = Object.entries(exposure).reduce(
-      (innerTotal, [assetClass, assetWeight]) =>
-        innerTotal + (assetReturns[assetClass as AssetClass] ?? 0) * assetWeight,
-      0,
-    );
-
-    return total + symbolReturn * weight;
-  }, 0);
+  const flat = getOrBuildFlatBucketExposure(allocation, assumptions);
+  return (
+    (assetReturns.US_EQUITY ?? 0) * flat.usEquity +
+    (assetReturns.INTL_EQUITY ?? 0) * flat.intlEquity +
+    (assetReturns.BONDS ?? 0) * flat.bonds +
+    (assetReturns.CASH ?? 0) * flat.cash
+  );
 }
 
 function getDefenseScore(
   allocation: Record<string, number>,
   assumptions?: AssetClassMappingAssumptions,
 ) {
-  return Object.entries(allocation).reduce((total, [symbol, weight]) => {
-    const exposure = getAssetExposure(symbol, assumptions);
-    return total + ((exposure.BONDS ?? 0) + (exposure.CASH ?? 0)) * weight;
-  }, 0);
+  return getOrBuildFlatBucketExposure(allocation, assumptions).defenseScore;
 }
 
 function getSalaryForYear(plan: SimPlan, year: number) {
@@ -1241,6 +1321,11 @@ function getStressAdjustedReturns(
   yearOffset: number,
   random: RandomSource,
   presampledBootstrapIndex?: number,
+  // Phase 2.B: optional QMC source for the asset-return shock. When
+  // present and `useCorrelatedReturns` is true, the four std-normals
+  // come from Sobol+inverse-CDF instead of Box-Muller. Other random
+  // consumers (inflation, bootstrap, LTC) continue using `random`.
+  gaussian4?: import('./monte-carlo-engine').Gaussian4Source,
 ) {
   // Historical bootstrap path: one random year's tuple overrides all four
   // asset returns AND inflation. Stress overlays still apply on top.
@@ -1317,6 +1402,7 @@ function getStressAdjustedReturns(
             },
           ],
           random,
+          gaussian4,
         );
         return {
           US_EQUITY: usEquity,
@@ -1386,6 +1472,7 @@ function buildYearlyMarketPath(
   assumptions: MarketAssumptions,
   horizonYears: number,
   random: RandomSource,
+  gaussian4?: import('./monte-carlo-engine').Gaussian4Source,
 ) {
   // Block-bootstrap mode: pre-sample the index sequence once so multi-
   // year autocorrelation is preserved (bad years cluster). Block length
@@ -1405,6 +1492,7 @@ function buildYearlyMarketPath(
         yearOffset,
         random,
         preSampledIndices?.[yearOffset],
+        gaussian4,
       ),
     );
   }
@@ -1559,6 +1647,24 @@ function clamp01(value: number) {
   return Math.max(0, Math.min(1, value));
 }
 
+// Phase 1.4 perf: hoist the constant factor table out of
+// `buildWithdrawalDecisionTrace`. The trace is built per withdrawal-action
+// per year per trial; allocating this 7-entry table on every call cost a
+// fresh Array + 7 fresh objects per call. Frozen so a misuse can't mutate
+// shared state.
+const WITHDRAWAL_DECISION_FACTOR_LABELS: ReadonlyArray<{
+  key: keyof WithdrawalDecisionTrace['objectiveScores'];
+  label: string;
+}> = Object.freeze([
+  { key: 'spendingNeed', label: 'spending need coverage' },
+  { key: 'marginalTaxCost', label: 'marginal tax cost control' },
+  { key: 'magiTarget', label: 'MAGI target control' },
+  { key: 'acaCliffAvoidance', label: 'ACA cliff avoidance' },
+  { key: 'irmaaCliffAvoidance', label: 'IRMAA cliff avoidance' },
+  { key: 'rothOptionality', label: 'Roth optionality preservation' },
+  { key: 'sequenceDefense', label: 'sequence-risk defense' },
+]);
+
 function buildWithdrawalDecisionTrace(input: {
   needed: number;
   withdrawals: Record<AccountBucketType, number>;
@@ -1607,15 +1713,6 @@ function buildWithdrawalDecisionTrace(input: {
     : 0.6;
   const spendingNeed = input.needed > 0 ? 1 : 0;
 
-  const factorLabels: Array<{ key: keyof WithdrawalDecisionTrace['objectiveScores']; label: string }> = [
-    { key: 'spendingNeed', label: 'spending need coverage' },
-    { key: 'marginalTaxCost', label: 'marginal tax cost control' },
-    { key: 'magiTarget', label: 'MAGI target control' },
-    { key: 'acaCliffAvoidance', label: 'ACA cliff avoidance' },
-    { key: 'irmaaCliffAvoidance', label: 'IRMAA cliff avoidance' },
-    { key: 'rothOptionality', label: 'Roth optionality preservation' },
-    { key: 'sequenceDefense', label: 'sequence-risk defense' },
-  ];
   const objectiveScores = {
     spendingNeed,
     marginalTaxCost: marginalTaxCostScore,
@@ -1625,12 +1722,32 @@ function buildWithdrawalDecisionTrace(input: {
     rothOptionality,
     sequenceDefense,
   };
-  const topFactors = [...factorLabels]
-    .sort(
-      (left, right) => objectiveScores[right.key] - objectiveScores[left.key],
-    )
-    .slice(0, 2)
-    .map((entry) => entry.label);
+
+  // Phase 1.4 perf: replace `[...factorLabels].sort(...).slice(0,2).map(...)`
+  // (4 array allocations + O(n log n) sort) with an O(n) two-pass top-2
+  // selection. n=7 so the absolute savings per call are small, but this
+  // function runs per withdrawal-action per year per trial — ~hundreds of
+  // millions of times for a Full mine.
+  let topIdx = -1;
+  let topScore = Number.NEGATIVE_INFINITY;
+  let secondIdx = -1;
+  let secondScore = Number.NEGATIVE_INFINITY;
+  for (let i = 0; i < WITHDRAWAL_DECISION_FACTOR_LABELS.length; i += 1) {
+    const score = objectiveScores[WITHDRAWAL_DECISION_FACTOR_LABELS[i].key];
+    if (score > topScore) {
+      secondIdx = topIdx;
+      secondScore = topScore;
+      topIdx = i;
+      topScore = score;
+    } else if (score > secondScore) {
+      secondIdx = i;
+      secondScore = score;
+    }
+  }
+  const topFactors = [
+    WITHDRAWAL_DECISION_FACTOR_LABELS[topIdx].label,
+    WITHDRAWAL_DECISION_FACTOR_LABELS[secondIdx].label,
+  ];
 
   return {
     rationale: `Source mix prioritized ${topFactors.join(' + ')}.`,
@@ -1991,19 +2108,57 @@ function applyProactiveRothConversion(input: {
     );
   }
 
-  const calculateTaxForConversion = (conversionAmount: number) =>
-    calculateFederalTax({
-      ...input.withdrawalResult.taxInputs,
-      ira401kWithdrawals: input.withdrawalResult.taxInputs.ira401kWithdrawals + conversionAmount,
-    });
+  // Phase 1.6 perf: avoid the {...input.withdrawalResult.taxInputs} 14-field
+  // spread on every candidate evaluation. We mutate a hoisted scratch object
+  // in place — only ira401kWithdrawals changes per candidate, so we capture
+  // the baseline once and write (baseline + amount) before each call. The
+  // scratch is local to this function and never escapes, so mutation is
+  // safe. ~4 candidates × ~117M function calls per Full mine = ~470M
+  // 14-field copy operations avoided.
+  const baselineIra401kWithdrawals = input.withdrawalResult.taxInputs.ira401kWithdrawals;
+  const taxScratch: YearTaxInputs = { ...input.withdrawalResult.taxInputs };
+  const calculateTaxForConversion = (conversionAmount: number) => {
+    taxScratch.ira401kWithdrawals = baselineIra401kWithdrawals + conversionAmount;
+    return calculateFederalTax(taxScratch);
+  };
 
   const MAGI_TOLERANCE_DOLLARS = 0.01;
-  const evaluatedCandidateAmounts = [...new Set(
-    [0.25, 0.5, 0.75, 1]
-      .map((fraction) =>
-        Number(Math.min(availableHeadroom * fraction, effectiveBalanceCap, input.balances.pretax).toFixed(2)))
-      .filter((amount) => amount > 0),
-  )].sort((left, right) => left - right);
+  // Phase 1.6 perf: build evaluatedCandidateAmounts inline. The old code
+  // allocated a [0.25,0.5,0.75,1] literal, mapped it (4 string allocs from
+  // toFixed), built a Set, spread back to an array, then sorted. For 4
+  // entries that's 5 array allocs + 1 Set + a sort comparator. Replace
+  // with a small fixed-size in-place build using string-free 2dp rounding
+  // (Math.round(x*100)/100) and an O(n²) cent-precision dedupe scan
+  // (worst case 16 comparisons — trivial vs the allocator cost).
+  const balancePretaxFloor = Math.max(0, input.balances.pretax);
+  const evaluatedCandidateAmounts: number[] = [];
+  const FRACTIONS_FOR_CONVERSION = [0.25, 0.5, 0.75, 1] as const;
+  for (let i = 0; i < FRACTIONS_FOR_CONVERSION.length; i += 1) {
+    let amount = availableHeadroom * FRACTIONS_FOR_CONVERSION[i];
+    if (amount > effectiveBalanceCap) amount = effectiveBalanceCap;
+    if (amount > balancePretaxFloor) amount = balancePretaxFloor;
+    // Match the original cent-precision rounding (was Number(x.toFixed(2))).
+    amount = Math.round(amount * 100) / 100;
+    if (amount <= 0) continue;
+    let isDup = false;
+    for (let j = 0; j < evaluatedCandidateAmounts.length; j += 1) {
+      if (evaluatedCandidateAmounts[j] === amount) { isDup = true; break; }
+    }
+    if (!isDup) evaluatedCandidateAmounts.push(amount);
+  }
+  // Fractions ascend, but cap-clipping can reorder: if amount[i+1] hits
+  // the cap before amount[i] does, ordering needs a final sort. Tiny array
+  // (<=4), but we still need to match the original sorted output for the
+  // trace. Insertion sort beats Array#sort closure overhead at this size.
+  for (let i = 1; i < evaluatedCandidateAmounts.length; i += 1) {
+    const v = evaluatedCandidateAmounts[i];
+    let j = i - 1;
+    while (j >= 0 && evaluatedCandidateAmounts[j] > v) {
+      evaluatedCandidateAmounts[j + 1] = evaluatedCandidateAmounts[j];
+      j -= 1;
+    }
+    evaluatedCandidateAmounts[j + 1] = v;
+  }
   const candidateAmountsGenerated = evaluatedCandidateAmounts.length > 0;
   if (input.strategy.plannerLogicActive && availableHeadroom > 0 && !candidateAmountsGenerated) {
     throw new Error(
@@ -2011,39 +2166,38 @@ function applyProactiveRothConversion(input: {
     );
   }
 
-  const candidateResults = evaluatedCandidateAmounts
-    .filter((amount) => amount >= input.plan.rothConversionPolicy.minAnnualDollars)
-    .map((amount) => {
-      const taxAfterConversion = calculateTaxForConversion(amount);
-      if (
-        targetMagiCeiling !== null &&
-        !(thresholdType === 'irmaa' && alreadyAboveIrmaaThreshold) &&
-        taxAfterConversion.MAGI > targetMagiCeiling + MAGI_TOLERANCE_DOLLARS
-      ) {
-        return null;
-      }
-      return {
-        amount,
-        taxAfterConversion,
-        evaluation: evaluateConversionScore(amount, taxAfterConversion),
-      };
-    })
-    .filter((candidate): candidate is {
-      amount: number;
-      taxAfterConversion: ReturnType<typeof calculateFederalTax>;
-      evaluation: ReturnType<typeof evaluateConversionScore>;
-    } => candidate !== null);
-
-  const bestCandidate = candidateResults.reduce<{
+  // Phase 1.6 perf: replace the .filter().map() pipeline (which allocates
+  // two intermediate arrays plus N candidate-record objects) with a single
+  // for-loop that pushes survivors into a pre-allocated array, then a
+  // single linear scan to find the best (no .reduce closure). N <= 4 so
+  // the scan is trivial; the win is in the per-Full-mine allocator volume.
+  type CandidateResult = {
     amount: number;
     taxAfterConversion: ReturnType<typeof calculateFederalTax>;
     evaluation: ReturnType<typeof evaluateConversionScore>;
-  } | null>((best, candidate) => {
-    if (!best || candidate.evaluation.conversionScore > best.evaluation.conversionScore) {
-      return candidate;
+  };
+  const candidateResults: CandidateResult[] = [];
+  let bestCandidate: CandidateResult | null = null;
+  const minAnnualDollars = input.plan.rothConversionPolicy.minAnnualDollars;
+  const skipCeilingCheck = thresholdType === 'irmaa' && alreadyAboveIrmaaThreshold;
+  for (let i = 0; i < evaluatedCandidateAmounts.length; i += 1) {
+    const amount = evaluatedCandidateAmounts[i];
+    if (amount < minAnnualDollars) continue;
+    const taxAfterConversion = calculateTaxForConversion(amount);
+    if (
+      targetMagiCeiling !== null &&
+      !skipCeilingCheck &&
+      taxAfterConversion.MAGI > targetMagiCeiling + MAGI_TOLERANCE_DOLLARS
+    ) {
+      continue;
     }
-    return best;
-  }, null);
+    const evaluation = evaluateConversionScore(amount, taxAfterConversion);
+    const result: CandidateResult = { amount, taxAfterConversion, evaluation };
+    candidateResults.push(result);
+    if (!bestCandidate || evaluation.conversionScore > bestCandidate.evaluation.conversionScore) {
+      bestCandidate = result;
+    }
+  }
 
   const bestCandidateAmount = bestCandidate?.amount ?? 0;
   const bestEvaluation = bestCandidate?.evaluation ?? {
@@ -2883,18 +3037,40 @@ function simulatePath(
   const planningHorizonYears =
     effectivePlan.planningEndYear - effectivePlan.startYear + 1;
   const yearlyBuckets = new Map<number, RunTrace[]>();
+
+  // Hoist out of the trial+year loop: birth-derived constants are the same
+  // for every (trial, year) pair within a simulatePath call. Without this
+  // hoist we hit `new Date(birthDate).getFullYear()` per year per trial —
+  // ~233M allocations per Full mine. The V8 profile (Phase 0) showed
+  // `Date.prototype.getFullYear` at 2.2% of CPU and contributed to the
+  // 24.9% spent in `std::pair<string,string>` from the underlying string
+  // parsing. Constants per simulatePath, computed once here.
+  const rmdPolicyOverride = data.rules.rmdPolicy?.startAgeOverride;
+  const robRmdStartAgeConst =
+    rmdPolicyOverride ??
+    getRmdStartAgeForBirthYear(new Date(data.household.robBirthDate).getFullYear());
+  const debbieRmdStartAgeConst =
+    rmdPolicyOverride ??
+    getRmdStartAgeForBirthYear(new Date(data.household.debbieBirthDate).getFullYear());
+
   const monteCarlo = executeDeterministicMonteCarlo<SimulationRunResult>({
     seed: simulationSeed,
     trialCount: runCount,
     assumptionsVersion,
     onProgress: options?.onProgress,
     isCancelled: options?.isCancelled,
+    // Phase 2.B: when assumptions request QMC sampling, the engine
+    // provides each trial with a Sobol-backed `gaussian4` source for
+    // the asset-return shock. Default 'mc' preserves all existing
+    // golden tests and pre-Phase-2 behavior.
+    samplingStrategy: assumptions.samplingStrategy ?? 'mc',
+    maxYearsPerTrial: assumptions.maxYearsPerTrial ?? Math.max(60, planningHorizonYears),
     summarizeTrial: (result) => ({
       success: result.success,
       endingWealth: result.endingWealth,
       failureYear: result.failureYear,
     }),
-    runTrial: ({ random }) => {
+    runTrial: ({ random, gaussian4 }) => {
       let hsaBalance = data.accounts.hsa?.balance ?? 0;
       const balances = {
         pretax: effectivePlan.accounts.pretax.balance,
@@ -2936,6 +3112,7 @@ function simulatePath(
         assumptions,
         planningHorizonYears,
         random,
+        gaussian4,
       );
       const ltcEventOccurs =
         effectivePlan.ltcAssumptions.enabled &&
@@ -2947,12 +3124,8 @@ function simulatePath(
         const yearOffset = year - effectivePlan.startYear;
         const robAge = ages.rob + yearOffset;
         const debbieAge = ages.debbie + yearOffset;
-        const robRmdStartAge =
-          data.rules.rmdPolicy?.startAgeOverride ??
-          getRmdStartAgeForBirthYear(new Date(data.household.robBirthDate).getFullYear());
-        const debbieRmdStartAge =
-          data.rules.rmdPolicy?.startAgeOverride ??
-          getRmdStartAgeForBirthYear(new Date(data.household.debbieBirthDate).getFullYear());
+        const robRmdStartAge = robRmdStartAgeConst;
+        const debbieRmdStartAge = debbieRmdStartAgeConst;
         const yearsUntilRmdStart = Math.max(
           0,
           Math.min(robRmdStartAge - robAge, debbieRmdStartAge - debbieAge),
@@ -2960,7 +3133,7 @@ function simulatePath(
         const isRetired = year >= effectivePlan.retirementYear;
         const marketPoint =
           marketPath[yearOffset] ??
-          getStressAdjustedReturns(effectivePlan, assumptions, yearOffset, random);
+          getStressAdjustedReturns(effectivePlan, assumptions, yearOffset, random, undefined, gaussian4);
         const { inflation, assetReturns, marketState } = marketPoint;
         const pretaxBalanceForRmd = balances.pretax;
 

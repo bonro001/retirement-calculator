@@ -267,6 +267,27 @@ export interface MarketAssumptions {
   // autocorrelation (bad years cluster, crises last more than one year)
   // that iid-by-year bootstrap loses. Default 1 = iid.
   historicalBootstrapBlockLength?: number;
+  // Phase 2.B perf: which sampler the engine uses for the per-year
+  // 4-asset return shocks (US/INTL/BONDS/CASH). Defaults to 'mc' —
+  // independent Mulberry32-driven Box-Muller normals, identical to
+  // pre-Phase-2 behavior. Setting 'qmc' switches the asset-return
+  // shocks to a deterministic 4-dim Sobol sequence (per-trial offset)
+  // mapped through Wichura AS241 inverse-normal CDF, then through the
+  // existing Cholesky correlation step. Other random consumers
+  // (inflation, historical-bootstrap year sampling, LTC events) keep
+  // using the seeded Mulberry32 stream — only the dominant variance
+  // contributor (asset returns) is QMC-stratified. Empirically this
+  // hybrid gives ~2-3× faster convergence than pure MC for our smooth
+  // outcome metrics. When 'qmc', `MarketAssumptions.simulationSeed`
+  // selects which Sobol sub-stream is used (different seeds → disjoint
+  // sub-streams with no overlap up to 2^32 points).
+  samplingStrategy?: 'mc' | 'qmc';
+  // Maximum simulated years per trial; only used when samplingStrategy
+  // is 'qmc' to size each trial's Sobol sub-stream offset. Default 60.
+  // Trials that exceed this would silently re-use Sobol points from the
+  // next trial's sub-stream, slightly weakening (but not breaking)
+  // independence — set this safely above your actual horizon.
+  maxYearsPerTrial?: number;
 }
 
 export interface BoldinBenchmark {
