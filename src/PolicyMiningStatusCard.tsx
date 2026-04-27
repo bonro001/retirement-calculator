@@ -737,28 +737,86 @@ export function PolicyMiningStatusCard({
       {renderConnectionRow()}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <div>
-          <p className="text-[11px] font-medium uppercase tracking-wider text-stone-500">
-            Evaluated
-          </p>
-          <p className="mt-1 text-2xl font-semibold tabular-nums text-stone-900">
-            {stats
-              ? `${stats.policiesEvaluated.toLocaleString()} / ${stats.totalPolicies.toLocaleString()}`
-              : evalCount.toLocaleString()}
-          </p>
-          {progressPct !== null && (
-            <p className="mt-1 text-[11px] text-stone-500">
-              {progressPct}% complete
-            </p>
-          )}
-          {/* Phase 2.C — surface coarse-screening progress when active.
-              Only shown if any coarse work has happened this session. */}
-          {stats && stats.coarseEvaluated > 0 && (
-            <p className="mt-1 text-[11px] text-emerald-700">
-              screened {stats.coarseEvaluated.toLocaleString()} ·{' '}
-              kept {(stats.coarseEvaluated - stats.coarseScreenedOut).toLocaleString()}{' '}
-              ({stats.coarseScreenedOut.toLocaleString()} dropped)
-            </p>
-          )}
+          {/* Phase 2.C — explicit Pass 1 / Pass 2 indicators when two-stage
+              is active, so the household sees the workflow clearly. Three
+              visual states based on derived stage:
+                - inCoarse:  Pass 1 of 2 — Screening + coarse counter
+                - inFine:    Pass 2 of 2 — Full evaluation + survivor count
+                - else:      Single-pass "Evaluated" tile (legacy behavior)
+              The dispatcher's MiningStats doesn't expose `currentStage`
+              directly; we derive it from coarseEvaluated being populated
+              and policiesEvaluated being 0 (= still in coarse) vs
+              policiesEvaluated > 0 (= fine started or done). */}
+          {(() => {
+            const inTwoStage = stats !== null && stats.coarseEvaluated > 0;
+            const inCoarse = inTwoStage && stats!.policiesEvaluated === 0;
+            const inFine = inTwoStage && stats!.policiesEvaluated > 0;
+            const survivors = inTwoStage
+              ? stats!.coarseEvaluated - stats!.coarseScreenedOut
+              : 0;
+
+            if (inCoarse) {
+              return (
+                <>
+                  <p className="text-[11px] font-medium uppercase tracking-wider text-emerald-700">
+                    Pass 1 of 2 · Screening
+                  </p>
+                  <p className="mt-1 text-2xl font-semibold tabular-nums text-stone-900">
+                    {stats!.coarseEvaluated.toLocaleString()} /{' '}
+                    {stats!.totalPolicies.toLocaleString()}
+                  </p>
+                  <p className="mt-1 text-[11px] text-stone-500">
+                    {Math.round(
+                      (stats!.coarseEvaluated / Math.max(1, stats!.totalPolicies)) * 100,
+                    )}
+                    % screened
+                  </p>
+                  <p className="mt-1 text-[11px] text-emerald-700">
+                    {survivors.toLocaleString()} kept ·{' '}
+                    {stats!.coarseScreenedOut.toLocaleString()} dropped
+                  </p>
+                </>
+              );
+            }
+            if (inFine) {
+              return (
+                <>
+                  <p className="text-[11px] font-medium uppercase tracking-wider text-emerald-700">
+                    Pass 2 of 2 · Full evaluation
+                  </p>
+                  <p className="mt-1 text-2xl font-semibold tabular-nums text-stone-900">
+                    {stats!.policiesEvaluated.toLocaleString()} /{' '}
+                    {survivors.toLocaleString()}
+                  </p>
+                  <p className="mt-1 text-[11px] text-stone-500">
+                    {Math.round((stats!.policiesEvaluated / Math.max(1, survivors)) * 100)}
+                    % of survivors
+                  </p>
+                  <p className="mt-1 text-[11px] text-emerald-700">
+                    Pass 1: screened {stats!.coarseEvaluated.toLocaleString()},{' '}
+                    {stats!.coarseScreenedOut.toLocaleString()} dropped
+                  </p>
+                </>
+              );
+            }
+            return (
+              <>
+                <p className="text-[11px] font-medium uppercase tracking-wider text-stone-500">
+                  Evaluated
+                </p>
+                <p className="mt-1 text-2xl font-semibold tabular-nums text-stone-900">
+                  {stats
+                    ? `${stats.policiesEvaluated.toLocaleString()} / ${stats.totalPolicies.toLocaleString()}`
+                    : evalCount.toLocaleString()}
+                </p>
+                {progressPct !== null && (
+                  <p className="mt-1 text-[11px] text-stone-500">
+                    {progressPct}% complete
+                  </p>
+                )}
+              </>
+            );
+          })()}
         </div>
         <div>
           <p className="text-[11px] font-medium uppercase tracking-wider text-stone-500">
