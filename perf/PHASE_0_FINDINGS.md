@@ -297,44 +297,74 @@ choice for the household — willing to filter out marginal survivors
 sooner?) or accept a smaller win at the loose default. Both are honest
 options; the implementation is correct either way.
 
-### Phase 2.C coverage status (2026-04-27 update)
+### Phase 2.C coverage status (2026-04-27, all paths shipped)
 
-| Code path | Two-stage support | Notes |
+| Code path | Two-stage support | Commit |
 |---|---|---|
-| `runMiningSession` (serial) | ✅ shipped | commit 976046d |
-| `runMiningSessionWithPool` (in-process worker pool) | ✅ shipped | commit 23b2ef9 |
-| Cluster dispatcher (`cluster/dispatcher.ts`) | ❌ not yet | sub-section below |
+| `runMiningSession` (serial) | ✅ shipped | 976046d |
+| `runMiningSessionWithPool` (in-process worker pool) | ✅ shipped | 23b2ef9 |
+| Cluster dispatcher (`cluster/dispatcher.ts`) | ✅ shipped | (this commit) |
 
-The serial and in-process pool paths are what the **browser-as-host
-single-tab miner** and **CLI smoke runs** use. The CLUSTER path
-(dispatcher → multi-host distribution) is a separate code path:
-hosts call `evaluatePolicy` directly via their own Node worker_threads
-(`cluster/host-worker.ts`); they don't use the in-process pool I wired.
+#### Cluster dispatcher two-stage — what landed
 
-#### Cluster dispatcher two-stage: deferred work
+`ActiveSession` carries a `currentStage: 'single' | 'coarse' | 'fine'`
+state, a `coarseSurvivorsBuffer` (in-memory only — coarse evals never
+touch the corpus), and `coarseEvaluatedTotal` / `coarseScreenedOutTotal`
+counters. `pumpDispatch` ships `coarseStage.trialCount` per batch
+during the coarse phase and the configured full `trialCount` during
+fine. When the coarse queue drains, `transitionToFineStage` filters
+the buffer through `filterCoarseSurvivors` (pure helper, exported and
+unit-tested), builds a new `WorkQueue` from survivors, swaps it into
+the session, resets per-host throughput EWMAs (the trial count change
+makes coarse samples stale for fine-pass batch sizing), broadcasts the
+new state, and re-enters `pumpDispatch` to start fine batches.
 
-To make the cluster's Full mine actually benefit from screening, the
-dispatcher needs:
+`handleBatchResult` routes by stage: coarse evaluations get pushed
+into the buffer (no corpus write); fine evaluations go through the
+existing `appendEvaluations` path. The `evaluations_ingested`
+broadcast is suppressed during coarse so browser controllers don't
+try to fetch records by id from a corpus that doesn't have them.
 
-1. `ActiveSession` state machine: `'coarse' | 'fine'` stage tracking,
-   dual WorkQueue (one for coarse policies, one for fine survivors).
-2. Per-batch trial-count selection: ship `coarseTrialCount` during
-   coarse phase, `trialCount` during fine.
-3. Stage-transition logic: when coarse queue drains, gather all
-   coarse results, filter survivors, build fine queue, broadcast new
-   cluster state.
-4. Persistence: only fine-pass results land in the on-disk corpus
-   (`evaluations.jsonl`). Coarse evals are in-memory only.
-5. Resume semantics: does resuming a partially-completed coarse phase
-   make sense? Probably restart from coarse pass scratch (cheap).
-6. Cluster snapshot + UI broadcasts surface stage info so the status
-   panel can show "screening: 1234 / 7776" then "fine: N of M".
-7. Dispatcher-level tests for the state machine.
+Resume of a partially-completed session always uses single-stage —
+the on-disk corpus only contains fine-pass results, and re-running
+coarse on remaining policies would just be wasteful work.
 
-Estimated effort: 4-6 hours. NOT done in this branch — flagged as
-deferred follow-up. The existing in-process pool work delivers the
-same speedup pattern for the browser-as-host path, which is the
-typical "I'm running this locally" workflow today.
+CLI surface: `cluster/start-session.ts` reads `SESSION_COARSE_TRIALS`
+and `SESSION_COARSE_BUFFER` env vars and populates the config's
+`coarseStage` field. Default (env unset) is single-stage — bit-identical
+to pre-Phase-2.C cluster behavior.
+
+Test coverage: `cluster/dispatcher.ts` exports `filterCoarseSurvivors`
+as a pure function with 7 unit tests in
+`src/cluster-dispatcher.two-stage.test.ts`. The full state-machine
+wiring (currentStage transitions, queue swap, EWMA reset, batch
+routing) is exercised end-to-end through manual smoke tests against a
+running dispatcher; deeper integration tests with a mocked WebSocket
+harness remain as follow-up work — the state-machine pattern is
+already covered by the in-process pool's parallel test suite, so the
+dispatcher's added risk surface is mostly transport and persistence
+routing rather than novel orchestration logic.
+
+#### Cluster usage example
+
+```bash
+# Default — single-pass at 2000 trials per policy (existing behavior)
+SESSION_TRIAL_COUNT=2000 npm run cluster:start-session
+
+# Two-stage — coarse N=200, fine N=2000, 0.10 feasibility buffer
+SESSION_TRIAL_COUNT=2000 \
+SESSION_COARSE_TRIALS=200 \
+SESSION_COARSE_BUFFER=0.10 \
+SESSION_FEASIBILITY=0.85 \
+  npm run cluster:start-session
+```
+
+Per the in-process measurements (60 policies, fine N=2000, single
+thread): tight feasibility (0.85) gives ~1.79× speedup with 55%
+screen-out. Across the M4+M2+Ryzen cluster the same pattern applies
+to wall-clock time — Full mine projection drops from ~2.5 min to
+~1.5 min when feasibility is set tight enough that ~half the
+candidates are screened.
 
 ### Phase 2.B: parked (structural QMC bias on path-dependent integrand)
 

@@ -23,6 +23,18 @@
  *   SESSION_MAX_POLICIES    cap on enumerated policies. Default = full corpus.
  *   SESSION_BASELINE_FILE   path to a SeedData JSON. Default = built-in initialSeedData.
  *   SESSION_ASSUMPTIONS_FILE  path to MarketAssumptions JSON. Default = built-in.
+ *   SESSION_COARSE_TRIALS   Phase 2.C: trials for the coarse pre-screening
+ *                           pass. Set to enable two-stage screening across
+ *                           the cluster (1.5-1.8× wall-time win when the
+ *                           feasibility threshold is tight enough that a
+ *                           meaningful fraction of policies get screened
+ *                           out). Typical: 200. Default: unset (single-pass).
+ *   SESSION_COARSE_BUFFER   Phase 2.C: feasibility buffer for the survival
+ *                           cut. A policy with coarse attainment
+ *                           >= (SESSION_FEASIBILITY - buffer) advances to
+ *                           the fine pass. Higher = looser screen (fewer
+ *                           false negatives, smaller speedup). Default 0.10.
+ *                           Only used when SESSION_COARSE_TRIALS is set.
  */
 
 import { createHash } from 'node:crypto';
@@ -272,12 +284,40 @@ async function main(): Promise<void> {
         log('welcomed', { peerId: message.peerId });
         // Now send the session start. The dispatcher generates and assigns
         // the sessionId; we'll learn it from the next cluster_state.
+        // Phase 2.C: optional coarseStage from SESSION_COARSE_TRIALS env.
+        const coarseTrialsEnv = process.env.SESSION_COARSE_TRIALS;
+        const coarseStage = coarseTrialsEnv
+          ? {
+              trialCount: Number.parseInt(coarseTrialsEnv, 10),
+              feasibilityBuffer: Number.parseFloat(
+                process.env.SESSION_COARSE_BUFFER ?? '0.10',
+              ),
+            }
+          : undefined;
+        if (coarseStage && (
+          !Number.isFinite(coarseStage.trialCount) ||
+          coarseStage.trialCount <= 0 ||
+          !Number.isFinite(coarseStage.feasibilityBuffer) ||
+          coarseStage.feasibilityBuffer < 0
+        )) {
+          log('invalid coarse-stage config — ignored', {
+            coarseTrialsEnv, coarseBufferEnv: process.env.SESSION_COARSE_BUFFER,
+          });
+        }
+        const validCoarseStage = coarseStage &&
+          Number.isFinite(coarseStage.trialCount) && coarseStage.trialCount > 0 &&
+          Number.isFinite(coarseStage.feasibilityBuffer) && coarseStage.feasibilityBuffer >= 0
+          ? coarseStage : undefined;
+        if (validCoarseStage) {
+          log('two-stage screening enabled', validCoarseStage);
+        }
         const config: PolicyMiningSessionConfig = {
           baselineFingerprint,
           engineVersion: POLICY_MINER_ENGINE_VERSION,
           axes,
           feasibilityThreshold: cfg.feasibilityThreshold,
           maxPoliciesPerSession: cap,
+          coarseStage: validCoarseStage,
         };
         const start: StartSessionMessage = {
           kind: 'start_session',
