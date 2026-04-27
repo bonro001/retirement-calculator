@@ -639,6 +639,21 @@ function handleStartSession(peer: Peer, message: StartSessionMessage): void {
     coarseTotalPolicies,
   };
 
+  // Phase 2.C bug fix: reset per-host throughput EWMAs at session start.
+  // Without this, the recommendedBatchSize computation uses
+  // peer.meanMsPerPolicy carried over from PREVIOUS sessions — which
+  // reflects whatever trial count that session ran. If the new session
+  // uses a different trial count (e.g. previous was 2000 trials, new
+  // session's coarse phase is 200 trials), batch sizes are 10× too
+  // small and dispatch overhead dominates the coarse phase wall time.
+  // (Discovered by the first cluster two-stage end-to-end test:
+  // coarse pass took 51.9s vs predicted 7.2s on 500 policies × 200
+  // trials.)
+  for (const p of peers.values()) {
+    p.meanMsPerPolicy = null;
+    p.completedBatchCount = 0;
+  }
+
   log('info', isResume ? 'session resumed' : 'session started', {
     sessionId,
     totalPolicies: queue.snapshot().totalPolicies,
