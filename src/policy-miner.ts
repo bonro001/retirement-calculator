@@ -150,9 +150,27 @@ export function runMiningSession(args: {
     p95MsPerPolicy: 0,
     estimatedRemainingMs: 0,
     bestPolicyId: null,
+    coarseEvaluated: 0,
+    coarseScreenedOut: 0,
     state: 'idle',
     lastError: null,
   };
+
+  // Phase 2.C — two-stage screening prep. When config.coarseStage is set,
+  // we run the policy list through a cheap coarse-pass first, then only
+  // fine-evaluate survivors. Coarse evaluations are NOT persisted to the
+  // corpus — only the fine-pass results land there. Coarse-screened-out
+  // policies show up in stats.coarseScreenedOut for the status panel
+  // but never get a PolicyEvaluation record. This is intentional: the
+  // corpus must remain a source of truth where every record is a
+  // full-trial-count evaluation.
+  const coarseStage = config.coarseStage;
+  const coarseAssumptions: MarketAssumptions | null = coarseStage
+    ? { ...assumptions, simulationRuns: Math.max(1, Math.floor(coarseStage.trialCount)) }
+    : null;
+  const coarseSurvivalThreshold = coarseStage
+    ? Math.max(0, config.feasibilityThreshold - coarseStage.feasibilityBuffer)
+    : 0;
 
   // Sanity: catch enumerator-vs-policies-arg mismatches in tests early.
   void countPolicyCandidates;
@@ -195,11 +213,56 @@ export function runMiningSession(args: {
     onBatchPersisted?.(batch);
   };
 
+  // Phase 2.C: when two-stage screening is enabled, build the survivor
+  // list up-front by running the entire policy list through the coarse
+  // pass. Then the main fine-pass loop below proceeds at full
+  // simulationRuns on survivors only. Coarse evals are not persisted
+  // (see config.coarseStage doc).
+  let policiesToEvaluate: Policy[] = policies.slice(0, totalPolicies);
+
   handle.donePromise = (async () => {
     stats.state = 'running';
     onStats?.({ ...stats });
     try {
-      for (let i = 0; i < totalPolicies; i += 1) {
+      // --- Coarse screening pass (Phase 2.C, opt-in) ---
+      if (coarseStage && coarseAssumptions) {
+        const surviving: Policy[] = [];
+        for (let i = 0; i < totalPolicies; i += 1) {
+          if (cancelRequested) break;
+          const policy = policies[i];
+          const coarseEval = await evaluatePolicy(
+            policy,
+            baseline,
+            coarseAssumptions,
+            config.baselineFingerprint,
+            config.engineVersion,
+            evaluatedByNodeId,
+            cloner,
+            legacyTargetTodayDollars,
+          );
+          stats.coarseEvaluated += 1;
+          if (coarseEval.outcome.bequestAttainmentRate >= coarseSurvivalThreshold) {
+            surviving.push(policy);
+          } else {
+            stats.coarseScreenedOut += 1;
+          }
+          // Don't push coarse durations into recentDurations — those are
+          // calibrated against the fine-pass distribution and would
+          // mislead the UI's ETA. Just emit coarse counters periodically
+          // so the panel can show "screening: 1234 / 7776".
+          if ((i + 1) % 16 === 0 || i + 1 === totalPolicies) {
+            onStats?.({ ...stats });
+          }
+        }
+        policiesToEvaluate = surviving;
+        // Re-anchor totalPolicies to survivor count so existing ETA math
+        // (totalPolicies - policiesEvaluated) reports the right number
+        // of REMAINING fine-pass policies.
+        stats.totalPolicies = surviving.length;
+        onStats?.({ ...stats });
+      }
+
+      for (let i = 0; i < policiesToEvaluate.length; i += 1) {
         if (cancelRequested) {
           stats.state = 'cancelled';
           break;
@@ -218,7 +281,7 @@ export function runMiningSession(args: {
           onStats?.({ ...stats });
         }
 
-        const policy = policies[i];
+        const policy = policiesToEvaluate[i];
         const evalStart = Date.now();
         const evaluation = await evaluatePolicy(
           policy,
@@ -259,7 +322,7 @@ export function runMiningSession(args: {
         stats.p95MsPerPolicy =
           sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * 0.95))];
         stats.estimatedRemainingMs =
-          (totalPolicies - stats.policiesEvaluated) * stats.meanMsPerPolicy;
+          (policiesToEvaluate.length - stats.policiesEvaluated) * stats.meanMsPerPolicy;
         await saveMiningStats(config.baselineFingerprint, stats);
         onStats?.({ ...stats });
       }
@@ -362,6 +425,8 @@ export function runMiningSessionWithPool(args: {
     p95MsPerPolicy: 0,
     estimatedRemainingMs: 0,
     bestPolicyId: null,
+    coarseEvaluated: 0,
+    coarseScreenedOut: 0,
     state: 'idle',
     lastError: null,
   };

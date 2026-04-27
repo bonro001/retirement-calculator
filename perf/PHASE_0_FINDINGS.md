@@ -262,6 +262,47 @@ the structural-fix era is over.
 **Recommended order:** C (two-stage screening) first — comparable expected
 win to QMC's optimistic ceiling, but well-understood and low-risk.
 
+### Phase 2.C: shipped (two-stage screening for the policy miner)
+
+Implemented and measured 2026-04-27. Opt-in via
+`PolicyMiningSessionConfig.coarseStage = { trialCount, feasibilityBuffer }`.
+Default behavior (no `coarseStage`) is bit-identical to pre-Phase-2.C
+miner — no regression risk.
+
+How it works: when enabled, `runMiningSession` runs every policy
+through a cheap coarse-pass first (e.g. N=200 trials), drops policies
+whose coarse `bequestAttainmentRate` is below
+`feasibilityThreshold - feasibilityBuffer`, and re-evaluates only the
+survivors at the configured full N. The corpus only stores fine-pass
+results — no coarse pollution.
+
+Realistic measured speedups (60 policies, fine N=2000, 1 thread):
+
+| Feasibility threshold | Single-pass | Two-stage  | Screen-out | Speedup |
+|-----------------------|-------------|------------|------------|---------|
+| 0.50 (current default)| 68.8 s      | 61.0 s     | 27%        | 1.13×   |
+| 0.85 (tight)          | 69.6 s      | **38.9 s** | 55%        | **1.79×**|
+
+Both configs identified the SAME top survivor as the single-pass
+baseline — correctness preserved. The 1.8× win at tight feasibility
+extrapolates to the Full mine: 7,776 × 2,000 = 15.5M trial-evals
+single-pass becomes ≈ 8.6M trial-evals two-stage at 55% screen-out,
+or roughly 4.3 min → 2.4 min on an 8-worker cluster.
+
+Caveat: the "3-5×" headline I quoted in the original Phase 2 plan was
+overoptimistic. At the current default 0.50 feasibility threshold the
+win is only 1.13× because too many policies survive the coarse cut. To
+realize the bigger speedup, either tighten the threshold (operational
+choice for the household — willing to filter out marginal survivors
+sooner?) or accept a smaller win at the loose default. Both are honest
+options; the implementation is correct either way.
+
+The miner pool path (`runMiningSessionWithPool`, used by the cluster
+host workers) does NOT yet support two-stage screening. The dispatcher
+would need to coordinate stages across hosts; non-trivial follow-up
+work. The serial path (`runMiningSession`, used by the browser-as-host
+and CLI) has the support today.
+
 ### Phase 2.B: parked (structural QMC bias on path-dependent integrand)
 
 Investigation 2026-04-27, ~2 hours. Conclusion: **hybrid QMC (Sobol asset

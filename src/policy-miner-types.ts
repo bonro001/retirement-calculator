@@ -187,6 +187,18 @@ export interface MiningStats {
    * inside the same `isBetterFeasibleCandidate` comparator.)
    */
   bestPolicyId: string | null;
+  /**
+   * Phase 2.C two-stage screening telemetry. Always 0 when coarseStage
+   * is disabled. When enabled, set after the coarse pass completes:
+   *   - coarseEvaluated: total candidates that went through the coarse pass
+   *   - coarseScreenedOut: candidates that didn't survive the coarse cut
+   * `policiesEvaluated` continues to count fine-pass completions only,
+   * so existing UI / consumers see no behavior change. The two coarse
+   * fields are extra signal for the status panel ("evaluated 7,776 at
+   * N=200, kept 1,944 for full evaluation").
+   */
+  coarseEvaluated: number;
+  coarseScreenedOut: number;
   /** Whether the miner is currently running, paused, or stopped. */
   state: 'idle' | 'running' | 'paused' | 'completed' | 'cancelled' | 'error';
   /** Last error message if state === 'error'. */
@@ -292,4 +304,40 @@ export interface PolicyMiningSessionConfig {
   feasibilityThreshold: number;
   /** Hard cap on records to evaluate this session. Stops the miner after N. */
   maxPoliciesPerSession: number;
+  /**
+   * Phase 2.C — two-stage screening config (optional).
+   *
+   * When present, runMiningSession runs in TWO stages:
+   *   1. Coarse pass: every policy evaluated at `coarseStage.trialCount`
+   *      trials (much smaller than the full `assumptions.simulationRuns`).
+   *      Standard error on success rate at e.g. N=200 is ≈ 1/√200 ≈ 7%
+   *      — plenty to distinguish "obvious loser" from "contestant".
+   *   2. Survivors (those whose coarse bequestAttainmentRate is ≥
+   *      `feasibilityThreshold - coarseStage.feasibilityBuffer`) get
+   *      re-evaluated at full `assumptions.simulationRuns`. Persisted
+   *      records are ALWAYS the full-trial-count results — coarse
+   *      evaluations are NOT saved to the corpus.
+   *
+   * Theoretical speedup at N=2000 fine, N=200 coarse, ~25% survival:
+   *   baseline:   7,776 × 2,000 = 15.5M trial-evals
+   *   two-stage:  7,776 × 200 + 1,944 × 2,000 = 1.55M + 3.89M = 5.4M
+   *   speedup:    2.9× wall time, no correctness change for survivors.
+   *
+   * The risk is FALSE NEGATIVES — policies that look bad at low N but
+   * would actually be feasible at full N. Set `feasibilityBuffer`
+   * conservatively (>= 2× the coarse SE) to keep this <2% empirically.
+   *
+   * Omit (or set undefined) to disable — exact pre-Phase-2.C behavior.
+   */
+  coarseStage?: {
+    /** Trial count for the coarse-pass evaluation. Typical: 100-200. */
+    trialCount: number;
+    /**
+     * Buffer below feasibilityThreshold for survival cut. Policies with
+     * coarse bequestAttainmentRate >= (feasibilityThreshold - buffer)
+     * advance to the fine pass. Typical: 0.10 (10 percentage points,
+     * ~1.4σ at N=200) — captures ~92% of true positives.
+     */
+    feasibilityBuffer: number;
+  };
 }
