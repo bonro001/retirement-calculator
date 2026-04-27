@@ -128,3 +128,14 @@ node --import tsx --prof scripts/perf-baseline.ts --policies 30 --trials 500
 node --prof-process isolate-*.log > perf/profile-<date>.txt
 rm isolate-*.log
 ```
+
+## Phase 1.2 update (2026-04-27): generator hunt parked
+
+Hunt outcome: **no actionable target found.**
+
+- Comprehensive grep for `function\s*\*` and `\byield\s` across `src/` returned **zero generator definitions and zero yield statements** in production code (only matches were comments and test code).
+- No `Map`/`Set` iteration via `for...of`/spread/`Array.from(...)` inside the per-trial-year hot path (`simulatePath` runTrial body, lines ~2944–3650). The Map iterations that exist (`yearlyBuckets.entries()` at line 3653, `reasons.entries()` at line 2266, `rothDecisionReasonCounts.entries()` at line 2419) are all OUTSIDE the per-trial loop and run once per `simulatePath` call.
+- No `async function` (or `async function*`) in `utils.ts` that could trigger generator polyfills.
+- Notable: `_Builtins_GeneratorPrototypeNext` does NOT appear as a leaf in the bottom-up profile, despite 2045 self-ticks (15.9%) in the C++-entry-points list. This suggests the cost is being attributed to deeper functions in the bottom-up tree (likely the std::pair allocations and ObjectEntries calls already on the Phase 1 list). It may be a V8-internal accounting category that aggregates iterator-protocol overhead from `Object.entries(...).reduce(...)` patterns, not a separate fixable hotspot.
+
+Action: park 1.2. Re-run V8 profile after Phase 1.3 (Object.entries flatten) and 1.4 (sort hoist) land — if GeneratorPrototypeNext stays high after the bigger leaves shrink, revisit with `--trace-deopt` for finer attribution.
