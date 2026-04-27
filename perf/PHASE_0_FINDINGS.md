@@ -129,6 +129,63 @@ node --prof-process isolate-*.log > perf/profile-<date>.txt
 rm isolate-*.log
 ```
 
+## Phase 1 results (cumulative through 2026-04-27)
+
+| Phase                                                     | ms/pol | pol/min | Δ vs prior | 8w Full mine |
+|-----------------------------------------------------------|--------|---------|------------|--------------|
+| Phase 0 baseline                                          | 504    | 119     | —          | 8.2 min      |
+| Phase 1.1 (Date.getFullYear hoist)                        | 480    | 125     | −4.8%      | 7.8 min      |
+| Phase 1.3 (allocation pre-flatten, WeakMap-cached)        | 393    | 153     | −18.1%     | 6.1 min      |
+| Phase 1.4 (factor-label hoist + Float64Array median)      | 393    | 152     | ~0         | 6.1 min      |
+| **Phase 1.5 (drop normalizeMoney from calculateFederalTax)** | **290** | **207** | **−26.4%** | **4.7 min** |
+| **Phase 1.6 (in-place loops in applyProactiveRothConversion)** | **266** | **226** | **−8.3%**  | **4.3 min** |
+
+**Cumulative Phase 1 result: −47.3% per-policy time, +89.7% throughput.**
+Full corpus on 8-worker pool: 8.2 min → 4.3 min (1.9× speedup).
+Full corpus on 24-worker M-series mini: 2.7 min → 1.4 min.
+
+### Phase 1.5 surprise
+
+Phase 0 estimated 3-6% from object pooling for `calculateFederalTax`.
+Actual win was 26.4% from a different attack: dropping the per-field
+`normalizeMoney(value) = Number(value.toFixed(2))` wrapper from the 12 of
+14 returned numeric fields. Each call was doing 12 string allocs +
+12 string→number parses for display-time cent rounding that no internal
+caller needed. ~117M calls per Full mine × 12 fields = ~1.4B short-string
+ops, attributed to `std::pair<string,string>` in the V8 profile because
+SmallString allocation routes through the same allocator. Currency
+rounding now belongs at the display layer; tests that assumed cent-rounded
+internals were updated to assert full-precision math (one assertion
+changed: `additional-medicare-tax.test.ts:43`, which itself documented the
+dependency it was testing).
+
+### Phase 1.6 outcome
+
+Three local-only allocation patterns in `applyProactiveRothConversion`
+collapsed to in-place loops:
+
+1. The `{...input.withdrawalResult.taxInputs, ira401kWithdrawals: ...}`
+   spread on every candidate (4 candidates × ~117M calls = ~470M
+   14-field copies) → hoisted scratch object mutated per call.
+2. `[0.25,0.5,0.75,1].map(...).filter(...) → new Set(...) → [...].sort()`
+   for ≤4 candidate amounts → fixed-size in-place build with insertion
+   sort. String-free 2dp rounding via `Math.round(x*100)/100`.
+3. `.filter().map() → .reduce()` candidate evaluation pipeline → single
+   for-loop with inline best-candidate tracking.
+
+All three are local computations that never escape — mutation is safe.
+
+## Phase 2 priorities (re-ranked after Phase 1 wins)
+
+The remaining V8 profile hotspots from Phase 0 should be re-measured —
+Phase 1.5 likely shifted the std::pair share dramatically. Before
+committing to algorithmic Phase 2 work (QMC, two-stage screening,
+racing), re-profile to confirm where the current hot leaves are.
+
+If the post-Phase-1 profile still shows >10% in any single built-in,
+prefer one more round of structural fixes; if it's flatter, jump to
+Phase 2.
+
 ## Phase 1.2 update (2026-04-27): generator hunt parked
 
 Hunt outcome: **no actionable target found.**
