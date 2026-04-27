@@ -2100,19 +2100,57 @@ function applyProactiveRothConversion(input: {
     );
   }
 
-  const calculateTaxForConversion = (conversionAmount: number) =>
-    calculateFederalTax({
-      ...input.withdrawalResult.taxInputs,
-      ira401kWithdrawals: input.withdrawalResult.taxInputs.ira401kWithdrawals + conversionAmount,
-    });
+  // Phase 1.6 perf: avoid the {...input.withdrawalResult.taxInputs} 14-field
+  // spread on every candidate evaluation. We mutate a hoisted scratch object
+  // in place — only ira401kWithdrawals changes per candidate, so we capture
+  // the baseline once and write (baseline + amount) before each call. The
+  // scratch is local to this function and never escapes, so mutation is
+  // safe. ~4 candidates × ~117M function calls per Full mine = ~470M
+  // 14-field copy operations avoided.
+  const baselineIra401kWithdrawals = input.withdrawalResult.taxInputs.ira401kWithdrawals;
+  const taxScratch: YearTaxInputs = { ...input.withdrawalResult.taxInputs };
+  const calculateTaxForConversion = (conversionAmount: number) => {
+    taxScratch.ira401kWithdrawals = baselineIra401kWithdrawals + conversionAmount;
+    return calculateFederalTax(taxScratch);
+  };
 
   const MAGI_TOLERANCE_DOLLARS = 0.01;
-  const evaluatedCandidateAmounts = [...new Set(
-    [0.25, 0.5, 0.75, 1]
-      .map((fraction) =>
-        Number(Math.min(availableHeadroom * fraction, effectiveBalanceCap, input.balances.pretax).toFixed(2)))
-      .filter((amount) => amount > 0),
-  )].sort((left, right) => left - right);
+  // Phase 1.6 perf: build evaluatedCandidateAmounts inline. The old code
+  // allocated a [0.25,0.5,0.75,1] literal, mapped it (4 string allocs from
+  // toFixed), built a Set, spread back to an array, then sorted. For 4
+  // entries that's 5 array allocs + 1 Set + a sort comparator. Replace
+  // with a small fixed-size in-place build using string-free 2dp rounding
+  // (Math.round(x*100)/100) and an O(n²) cent-precision dedupe scan
+  // (worst case 16 comparisons — trivial vs the allocator cost).
+  const balancePretaxFloor = Math.max(0, input.balances.pretax);
+  const evaluatedCandidateAmounts: number[] = [];
+  const FRACTIONS_FOR_CONVERSION = [0.25, 0.5, 0.75, 1] as const;
+  for (let i = 0; i < FRACTIONS_FOR_CONVERSION.length; i += 1) {
+    let amount = availableHeadroom * FRACTIONS_FOR_CONVERSION[i];
+    if (amount > effectiveBalanceCap) amount = effectiveBalanceCap;
+    if (amount > balancePretaxFloor) amount = balancePretaxFloor;
+    // Match the original cent-precision rounding (was Number(x.toFixed(2))).
+    amount = Math.round(amount * 100) / 100;
+    if (amount <= 0) continue;
+    let isDup = false;
+    for (let j = 0; j < evaluatedCandidateAmounts.length; j += 1) {
+      if (evaluatedCandidateAmounts[j] === amount) { isDup = true; break; }
+    }
+    if (!isDup) evaluatedCandidateAmounts.push(amount);
+  }
+  // Fractions ascend, but cap-clipping can reorder: if amount[i+1] hits
+  // the cap before amount[i] does, ordering needs a final sort. Tiny array
+  // (<=4), but we still need to match the original sorted output for the
+  // trace. Insertion sort beats Array#sort closure overhead at this size.
+  for (let i = 1; i < evaluatedCandidateAmounts.length; i += 1) {
+    const v = evaluatedCandidateAmounts[i];
+    let j = i - 1;
+    while (j >= 0 && evaluatedCandidateAmounts[j] > v) {
+      evaluatedCandidateAmounts[j + 1] = evaluatedCandidateAmounts[j];
+      j -= 1;
+    }
+    evaluatedCandidateAmounts[j + 1] = v;
+  }
   const candidateAmountsGenerated = evaluatedCandidateAmounts.length > 0;
   if (input.strategy.plannerLogicActive && availableHeadroom > 0 && !candidateAmountsGenerated) {
     throw new Error(
@@ -2120,39 +2158,38 @@ function applyProactiveRothConversion(input: {
     );
   }
 
-  const candidateResults = evaluatedCandidateAmounts
-    .filter((amount) => amount >= input.plan.rothConversionPolicy.minAnnualDollars)
-    .map((amount) => {
-      const taxAfterConversion = calculateTaxForConversion(amount);
-      if (
-        targetMagiCeiling !== null &&
-        !(thresholdType === 'irmaa' && alreadyAboveIrmaaThreshold) &&
-        taxAfterConversion.MAGI > targetMagiCeiling + MAGI_TOLERANCE_DOLLARS
-      ) {
-        return null;
-      }
-      return {
-        amount,
-        taxAfterConversion,
-        evaluation: evaluateConversionScore(amount, taxAfterConversion),
-      };
-    })
-    .filter((candidate): candidate is {
-      amount: number;
-      taxAfterConversion: ReturnType<typeof calculateFederalTax>;
-      evaluation: ReturnType<typeof evaluateConversionScore>;
-    } => candidate !== null);
-
-  const bestCandidate = candidateResults.reduce<{
+  // Phase 1.6 perf: replace the .filter().map() pipeline (which allocates
+  // two intermediate arrays plus N candidate-record objects) with a single
+  // for-loop that pushes survivors into a pre-allocated array, then a
+  // single linear scan to find the best (no .reduce closure). N <= 4 so
+  // the scan is trivial; the win is in the per-Full-mine allocator volume.
+  type CandidateResult = {
     amount: number;
     taxAfterConversion: ReturnType<typeof calculateFederalTax>;
     evaluation: ReturnType<typeof evaluateConversionScore>;
-  } | null>((best, candidate) => {
-    if (!best || candidate.evaluation.conversionScore > best.evaluation.conversionScore) {
-      return candidate;
+  };
+  const candidateResults: CandidateResult[] = [];
+  let bestCandidate: CandidateResult | null = null;
+  const minAnnualDollars = input.plan.rothConversionPolicy.minAnnualDollars;
+  const skipCeilingCheck = thresholdType === 'irmaa' && alreadyAboveIrmaaThreshold;
+  for (let i = 0; i < evaluatedCandidateAmounts.length; i += 1) {
+    const amount = evaluatedCandidateAmounts[i];
+    if (amount < minAnnualDollars) continue;
+    const taxAfterConversion = calculateTaxForConversion(amount);
+    if (
+      targetMagiCeiling !== null &&
+      !skipCeilingCheck &&
+      taxAfterConversion.MAGI > targetMagiCeiling + MAGI_TOLERANCE_DOLLARS
+    ) {
+      continue;
     }
-    return best;
-  }, null);
+    const evaluation = evaluateConversionScore(amount, taxAfterConversion);
+    const result: CandidateResult = { amount, taxAfterConversion, evaluation };
+    candidateResults.push(result);
+    if (!bestCandidate || evaluation.conversionScore > bestCandidate.evaluation.conversionScore) {
+      bestCandidate = result;
+    }
+  }
 
   const bestCandidateAmount = bestCandidate?.amount ?? 0;
   const bestEvaluation = bestCandidate?.evaluation ?? {
