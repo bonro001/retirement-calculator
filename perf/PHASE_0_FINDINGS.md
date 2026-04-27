@@ -223,14 +223,53 @@ Node 20). It's a fully-paying member, not a laggard.
 
 ## Phase 2 priorities (re-ranked after Phase 1 wins)
 
-The remaining V8 profile hotspots from Phase 0 should be re-measured —
-Phase 1.5 likely shifted the std::pair share dramatically. Before
-committing to algorithmic Phase 2 work (QMC, two-stage screening,
-racing), re-profile to confirm where the current hot leaves are.
+### Post-Phase-1 V8 profile (2026-04-27)
 
-If the post-Phase-1 profile still shows >10% in any single built-in,
-prefer one more round of structural fixes; if it's flatter, jump to
-Phase 2.
+**Source:** `perf/profile-postphase1-2026-04-27.txt` (30 policies × 500 trials)
+**Summary categories:** JavaScript 14.1% / **C++ 79.8%** / GC 5.4% nonlib
+
+| Built-in                              | Pre-1 % nonlib | Post-1 % nonlib | Verdict           |
+|---------------------------------------|----------------|-----------------|-------------------|
+| `std::pair<string,string>` ctor       | 24.9%          | **27.4%**       | shifted up rel.   |
+| `_Builtins_GeneratorPrototypeNext`    | 15.9%          | **16.9%**       | UNEXPLAINED       |
+| `_Builtins_TypedArrayPrototypeSort`   | —              | **6.0%**        | NEW (1.4 cost)    |
+| `_Builtins_NumberConstructor`         | —              | **3.1%**        | newly visible     |
+| `_Builtins_ArrayMap`                  | —              | **2.3%**        | newly visible     |
+| `_Builtins_DatePrototypeGetFullYear`  | 2.2%           | **2.3%**        | partial 1.1 win   |
+| `_Builtins_ArrayPrototypeSort`        | **9.5%**       | 0.9%            | ✅ 1.4 confirmed  |
+| `Object.entries`                      | **8.5%**       | not in top 25   | ✅ 1.3 confirmed  |
+
+**Absolute time, not just shares:** per-policy time fell 504 → 266 ms,
+so a built-in keeping its ~25% share actually dropped from 125 → 73 ms
+in absolute terms. The proportional bumps (e.g. std::pair 24.9 → 27.4%)
+mean that built-in shrunk less than everything else, not that it grew.
+
+**Diffuse JS hotspots:** `calculateHealthcarePremiums` 1.2%,
+`calculateFederalTax` 1.1%, `applyProactiveRothConversion` 0.5%,
+`buildWithdrawalDecisionTrace` 0.4%. No single function dominates;
+the structural-fix era is over.
+
+### Phase 2 plan
+
+| # | Track                                         | Estimated win  | Effort  | Risk |
+|---|-----------------------------------------------|----------------|---------|------|
+| A | Hunt the `GeneratorPrototypeNext` source      | up to ~15%     | 3-6 hrs | low  |
+| B | Quasi-Monte Carlo (Sobol/Halton draws)        | 2-4× per trial | 1-2 day | med  |
+| C | Two-stage screening (coarse → fine cascade)   | 3-5× per Full  | 1-2 day | med  |
+| D | Racing / successive halving                   | ~2×            | 1 day   | med  |
+| E | Hunt residual Date / NumberConstructor sites  | 2-4%           | 2 hrs   | low  |
+
+**Recommended order:** A first (cheap, the only big remaining structural
+target). If it doesn't yield in one focused session, park and start B.
+B + C compose multiplicatively for the headline 5-10× Phase 2 number.
+
+**Why GeneratorPrototypeNext is suspicious:** Phase 0.2's grep found no
+user-code generators. The cost may be V8's internal iterator-protocol
+machinery for `for...of`, destructuring assignments, or spread over
+Maps/Sets — these dispatch through the iterator protocol and may be
+attributed to GeneratorPrototypeNext in V8's profiler accounting.
+Worth a focused investigation with `--trace-opt` and bottom-up sampling
+before assuming it's intractable.
 
 ## Phase 1.2 update (2026-04-27): generator hunt parked
 
