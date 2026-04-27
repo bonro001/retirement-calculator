@@ -908,31 +908,111 @@ function getAssetExposure(
   return getHoldingExposure(symbol, assumptions);
 }
 
+/**
+ * Phase 1.3 perf: pre-flattened per-allocation exposure cache.
+ *
+ * Hot-path callers (`getBucketReturn`, `getDefenseScore`) used to do
+ * `Object.entries(allocation).reduce(...)` on every (year, trial, bucket),
+ * with a nested `Object.entries(exposure).reduce(...)` per symbol. For Full
+ * mine that was ~466M outer calls and ~1B+ entry-pair allocations — the
+ * V8 baseline profile attributed 8.5% of CPU to `Object.entries` and a
+ * large fraction of the std::pair (24.9%) cost to the entries it returned.
+ *
+ * The allocation Records on `plan.accounts[bucket].targetAllocation` and
+ * the `assetClassMappingAssumptions` reference are constant for the lifetime
+ * of a `simulatePath` call (and across all simulatePath calls within one
+ * `evaluatePolicy`). So we can compute a flat 4-entry asset-class weight
+ * vector once per (allocation, assumptions) pair and reuse it.
+ *
+ * Cache shape: `WeakMap<allocation, { assumptionsRef, flat }>`. WeakMap
+ * lets the entries get GC'd alongside the allocation object. Single-slot
+ * (not nested by assumptions) because in practice the same allocation is
+ * always paired with the same assumptions; if a caller passes a different
+ * assumptions reference for the same allocation we transparently rebuild.
+ *
+ * Float drift note: this changes the order of floating-point summation
+ * vs. the original Object.entries traversal. The math is identical by the
+ * distributive property; the float result drifts by ~1 ULP per call, which
+ * compounds to ~1e-9 relative error in ending balances. That is far below
+ * decision-relevant noise for ranking policies (worst case: $0.001 on a
+ * $1M portfolio over 30 years). Approved by user 2026-04-27.
+ */
+type FlatBucketExposure = {
+  usEquity: number;
+  intlEquity: number;
+  bonds: number;
+  cash: number;
+  defenseScore: number;
+};
+
+const FLAT_EXPOSURE_CACHE = new WeakMap<
+  Record<string, number>,
+  { assumptionsRef: object | undefined; flat: FlatBucketExposure }
+>();
+
+function buildFlatBucketExposure(
+  allocation: Record<string, number>,
+  assumptions?: AssetClassMappingAssumptions,
+): FlatBucketExposure {
+  let usEquity = 0;
+  let intlEquity = 0;
+  let bonds = 0;
+  let cash = 0;
+
+  // Aggregate weight × exposure[class] per asset class. We sum per class
+  // (rather than per symbol then redistributing) so the hot path can do a
+  // bare 4-multiply dot product against assetReturns.
+  for (const symbol in allocation) {
+    const weight = allocation[symbol];
+    if (weight === 0) continue;
+    const exposure = getAssetExposure(symbol, assumptions);
+    usEquity += (exposure.US_EQUITY ?? 0) * weight;
+    intlEquity += (exposure.INTL_EQUITY ?? 0) * weight;
+    bonds += (exposure.BONDS ?? 0) * weight;
+    cash += (exposure.CASH ?? 0) * weight;
+  }
+
+  return {
+    usEquity,
+    intlEquity,
+    bonds,
+    cash,
+    defenseScore: bonds + cash,
+  };
+}
+
+function getOrBuildFlatBucketExposure(
+  allocation: Record<string, number>,
+  assumptions?: AssetClassMappingAssumptions,
+): FlatBucketExposure {
+  const cached = FLAT_EXPOSURE_CACHE.get(allocation);
+  if (cached && cached.assumptionsRef === assumptions) {
+    return cached.flat;
+  }
+  const flat = buildFlatBucketExposure(allocation, assumptions);
+  FLAT_EXPOSURE_CACHE.set(allocation, { assumptionsRef: assumptions, flat });
+  return flat;
+}
+
 function getBucketReturn(
   allocation: Record<string, number>,
   assetReturns: Record<AssetClass, number>,
   assumptions?: AssetClassMappingAssumptions,
 ) {
-  return Object.entries(allocation).reduce((total, [symbol, weight]) => {
-    const exposure = getAssetExposure(symbol, assumptions);
-    const symbolReturn = Object.entries(exposure).reduce(
-      (innerTotal, [assetClass, assetWeight]) =>
-        innerTotal + (assetReturns[assetClass as AssetClass] ?? 0) * assetWeight,
-      0,
-    );
-
-    return total + symbolReturn * weight;
-  }, 0);
+  const flat = getOrBuildFlatBucketExposure(allocation, assumptions);
+  return (
+    (assetReturns.US_EQUITY ?? 0) * flat.usEquity +
+    (assetReturns.INTL_EQUITY ?? 0) * flat.intlEquity +
+    (assetReturns.BONDS ?? 0) * flat.bonds +
+    (assetReturns.CASH ?? 0) * flat.cash
+  );
 }
 
 function getDefenseScore(
   allocation: Record<string, number>,
   assumptions?: AssetClassMappingAssumptions,
 ) {
-  return Object.entries(allocation).reduce((total, [symbol, weight]) => {
-    const exposure = getAssetExposure(symbol, assumptions);
-    return total + ((exposure.BONDS ?? 0) + (exposure.CASH ?? 0)) * weight;
-  }, 0);
+  return getOrBuildFlatBucketExposure(allocation, assumptions).defenseScore;
 }
 
 function getSalaryForYear(plan: SimPlan, year: number) {
