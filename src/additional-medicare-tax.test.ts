@@ -40,10 +40,12 @@ describe('additional Medicare tax (IRC §1401(b))', () => {
     expect(out.additionalMedicareTax).toBe(0);
   });
 
-  it('single filer wages $1 over threshold → rounds to $0.01', () => {
+  it('single filer wages $1 over threshold → 0.009 (full precision; display layer rounds)', () => {
     const out = calculateFederalTax(make({ wages: 200_001 }));
-    // 0.009 * 1 = 0.009, rounded to 2dp by normalizeMoney → 0.01
-    expect(out.additionalMedicareTax).toBe(0.01);
+    // 0.009 * 1 = 0.009. Phase 1.5 perf: calculateFederalTax no longer
+    // rounds outputs to 2 decimal places (normalizeMoney removed from the
+    // hot return path). Currency rounding is now the display layer's job.
+    expect(out.additionalMedicareTax).toBeCloseTo(0.009, 6);
   });
 
   it('single filer wages $250k → 0.9% × $50k = $450', () => {

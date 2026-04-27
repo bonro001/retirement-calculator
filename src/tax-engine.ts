@@ -463,20 +463,30 @@ export function calculateFederalTax(
     profile.capitalGainsThresholds,
   );
 
+  // Phase 1.5 perf: dropped per-field normalizeMoney() wrapping. Each
+  // call was doing Number((value).toFixed(2)) on 12 fields = 12 string
+  // allocs + 12 string->number parses per calculateFederalTax invocation.
+  // At ~117M calls per Full mine that's ~1.4B short-string ops in V8's
+  // small-string allocator (the std::pair<string,string> hotspot in
+  // perf/PHASE_0_FINDINGS.md). Math is unchanged — the return now carries
+  // full IEEE precision; rounding to 2 decimals belongs at the display
+  // layer, not on every internal tax recalculation. Callers that need
+  // currency-rounded display values should call normalizeMoney() (still
+  // exported below) at presentation time.
   return {
-    AGI: normalizeMoney(AGI),
-    provisionalIncome: normalizeMoney(provisionalIncome),
-    taxableSocialSecurity: normalizeMoney(taxableSocialSecurity),
-    ordinaryTaxableIncome: normalizeMoney(ordinaryTaxableIncome),
-    LTCGTaxableIncome: normalizeMoney(LTCGTaxableIncome),
-    totalTaxableIncome: normalizeMoney(totalTaxableIncome),
-    federalTax: normalizeMoney(federalTax),
-    effectiveTaxRate: normalizeMoney(effectiveTaxRate),
+    AGI,
+    provisionalIncome,
+    taxableSocialSecurity,
+    ordinaryTaxableIncome,
+    LTCGTaxableIncome,
+    totalTaxableIncome,
+    federalTax,
+    effectiveTaxRate,
     marginalOrdinaryBracket,
     marginalLTCGBracket,
-    MAGI: normalizeMoney(MAGI),
-    netInvestmentIncomeTax: normalizeMoney(netInvestmentIncomeTax),
-    standardDeductionApplied: normalizeMoney(standardDeductionApplied),
-    additionalMedicareTax: normalizeMoney(additionalMedicareTax),
+    MAGI,
+    netInvestmentIncomeTax,
+    standardDeductionApplied,
+    additionalMedicareTax,
   };
 }
