@@ -94,6 +94,22 @@ function formatDuration(ms: number): string {
   return mins === 0 ? `${hours}h` : `${hours}h ${mins}m`;
 }
 
+/** More precise wall-time formatter for elapsed/last-run displays.
+ *  Distinct from formatDuration (which rounds to whole minutes) because
+ *  Quick mines complete in under a minute and "0 min" reads as broken.
+ *  Sub-minute: "23s". Sub-hour: "2m 14s". Beyond: "1h 23m". */
+function formatWallTime(ms: number): string {
+  if (!Number.isFinite(ms) || ms < 0) return '—';
+  const totalSec = Math.round(ms / 1000);
+  if (totalSec < 60) return `${totalSec}s`;
+  const totalMin = Math.floor(totalSec / 60);
+  const remSec = totalSec % 60;
+  if (totalMin < 60) return `${totalMin}m ${remSec}s`;
+  const hours = Math.floor(totalMin / 60);
+  const remMin = totalMin % 60;
+  return `${hours}h ${remMin}m`;
+}
+
 function formatPct(rate: number | null): string {
   if (rate === null || !Number.isFinite(rate)) return '—';
   return `${Math.round(rate * 100)}%`;
@@ -141,6 +157,39 @@ export function PolicyMiningStatusCard({
   // or final certification. Default flips to Quick once a corpus exists,
   // since at that point the household is iterating, not exploring.
   const [sessionSize, setSessionSize] = useState<SessionSize>('full');
+  // Track wall time for the household: live elapsed during a running
+  // session, and the just-completed wall time between sessions so they
+  // can compare runs. The cluster snapshot drops session info the
+  // moment a session ends (snapshot.session → null), so we capture the
+  // wall time at that transition by stashing the start in a ref while
+  // a session is active. Cleared when a new session starts so the UI
+  // doesn't display stale "last run" info from a different session.
+  const runningStartMsRef = useRef<number | null>(null);
+  const [lastRunWallMs, setLastRunWallMs] = useState<number | null>(null);
+  useEffect(() => {
+    if (cluster.session) {
+      if (runningStartMsRef.current === null) {
+        // Session just appeared — stamp the start, clear any prior
+        // last-run-wall-time so it doesn't bleed into the running tile.
+        runningStartMsRef.current = new Date(
+          cluster.session.startedAtIso,
+        ).getTime();
+        setLastRunWallMs(null);
+      }
+    } else if (runningStartMsRef.current !== null) {
+      // Session just ended — freeze the final wall time for display
+      // until a new session starts.
+      setLastRunWallMs(Date.now() - runningStartMsRef.current);
+      runningStartMsRef.current = null;
+    }
+  }, [cluster.session]);
+  // Live elapsed for a running session — updates with the existing
+  // 2-second wall-clock tick (`nowMs`) so the display refreshes without
+  // adding another timer.
+  const runningElapsedMs =
+    runningStartMsRef.current !== null
+      ? nowMs - runningStartMsRef.current
+      : null;
   // Phase 2.C two-stage screening toggle — opt-in. When on, the dispatcher
   // runs every policy through a cheap coarse pass (default N=200) first,
   // then re-evaluates only the survivors at the configured trial count.
@@ -902,19 +951,55 @@ export function PolicyMiningStatusCard({
           </p>
         </div>
         <div>
-          <p className="text-[11px] font-medium uppercase tracking-wider text-stone-500">
-            Time remaining
-          </p>
-          <p className="mt-1 text-2xl font-semibold tabular-nums text-stone-900">
-            {stats && sessionRunning
-              ? formatDuration(stats.estimatedRemainingMs)
-              : '—'}
-          </p>
-          <p className="mt-1 text-[11px] text-stone-500">
-            {stats?.feasiblePolicies != null
-              ? `${stats.feasiblePolicies.toLocaleString()} feasible found`
-              : ''}
-          </p>
+          {/* Wall-time tile. Three display states:
+              - Running session: big "elapsed" (live), small "remaining" subtitle
+              - Just-completed session: big "last run wall" (frozen), small
+                "feasible found" subtitle so the household can compare
+                runs at a glance
+              - Idle (no session ever, no last-run): "—" placeholder */}
+          {sessionRunning && runningElapsedMs !== null ? (
+            <>
+              <p className="text-[11px] font-medium uppercase tracking-wider text-stone-500">
+                Elapsed
+              </p>
+              <p className="mt-1 text-2xl font-semibold tabular-nums text-stone-900">
+                {formatWallTime(runningElapsedMs)}
+              </p>
+              <p className="mt-1 text-[11px] text-stone-500">
+                {stats
+                  ? `~${formatDuration(stats.estimatedRemainingMs)} remaining`
+                  : ''}
+              </p>
+            </>
+          ) : lastRunWallMs !== null ? (
+            <>
+              <p className="text-[11px] font-medium uppercase tracking-wider text-stone-500">
+                Last run
+              </p>
+              <p className="mt-1 text-2xl font-semibold tabular-nums text-stone-900">
+                {formatWallTime(lastRunWallMs)}
+              </p>
+              <p className="mt-1 text-[11px] text-stone-500">
+                {stats?.feasiblePolicies != null
+                  ? `${stats.feasiblePolicies.toLocaleString()} feasible found`
+                  : ''}
+              </p>
+            </>
+          ) : (
+            <>
+              <p className="text-[11px] font-medium uppercase tracking-wider text-stone-500">
+                Time remaining
+              </p>
+              <p className="mt-1 text-2xl font-semibold tabular-nums text-stone-900">
+                —
+              </p>
+              <p className="mt-1 text-[11px] text-stone-500">
+                {stats?.feasiblePolicies != null
+                  ? `${stats.feasiblePolicies.toLocaleString()} feasible found`
+                  : ''}
+              </p>
+            </>
+          )}
         </div>
         <div>
           <p className="text-[11px] font-medium uppercase tracking-wider text-stone-500">
