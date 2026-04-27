@@ -65,21 +65,25 @@ const PERF_CLASS_HINT_MS_PER_POLICY: Record<string, number> = {
  *  (e.g. 200 trials for a coarse-stage batch). */
 const HINT_BASELINE_TRIAL_COUNT = 2_000;
 
-/** Target wall-clock per batch. Big enough to amortize roundtrip
- *  overhead (postMessage + WS send + ack — typically <50ms total),
- *  small enough that a cancelled session loses at most a few seconds
- *  of work. Phase 2.C tuning bumped this from 5s → 10s — the smaller
- *  per-policy work in coarse stages means dispatch overhead is a
- *  proportionally bigger penalty; doubling the target halves it. */
-const TARGET_BATCH_WALL_CLOCK_MS = 10_000;
+/** Target wall-clock per batch. Big enough to amortize roundtrip overhead
+ *  (postMessage + WS send + ack — typically <50ms total), small enough
+ *  that a cancelled session loses at most a few seconds of work. */
+const TARGET_BATCH_WALL_CLOCK_MS = 5_000;
 
-/** Hard cap on batch size. Phase 2.C tuning bumped this from 25 → 60.
- *  At low trial counts (e.g. coarse N=200 with measured 100ms/policy),
- *  the time-budget formula wants 100 policies per batch; capping at 25
- *  means coarse phases ship 4× more batches than they need to. 60 is
- *  big enough to amortize dispatch overhead at coarse trial counts but
- *  not so big that a slow host disappears for too long. */
-const MAX_BATCH_SIZE = 60;
+/** Hard cap so a slow host with absurdly stale stats doesn't get handed
+ *  100 policies in one batch. Empirically 25 is plenty even on a
+ *  16-thread Ryzen at the cheap end of the trial-count range.
+ *
+ *  Phase 2.C tuning attempted (and reverted) bumping this to 60 with the
+ *  TARGET also at 10s. End-to-end cluster tests at 500 policies showed
+ *  large batches HURT throughput because the host-worker processes a
+ *  batch serially in one worker_thread — so a 60-policy batch at coarse
+ *  N=200 ties up one worker for ~64 seconds while the other workers
+ *  drain the queue and go idle. Better to keep batches small enough that
+ *  a straggler doesn't dominate wall time. The right fix for short-batch
+ *  amortization is to let the host fan a large batch across its OWN
+ *  worker pool — separate work item; not in this branch. */
+const MAX_BATCH_SIZE = 25;
 
 /**
  * How many times one policy may be assigned (and then nacked or
