@@ -15,7 +15,7 @@ import type {
 } from './policy-miner-types';
 import type { MarketAssumptions, SeedData } from './types';
 import { useClusterSession } from './useClusterSession';
-import { browserPoolHint } from './cluster-client';
+import { browserPoolHint, setBrowserHostMode } from './cluster-client';
 import {
   buildPeerViewList,
   formatAgo,
@@ -567,6 +567,74 @@ export function PolicyMiningStatusCard({
                 </span>
               </>
             )}
+          </div>
+        )}
+        {/* Phase 2.C UX — browser host mode picker. Lets the household
+            decide how aggressively the browser tab participates as a
+            host. Default 'reduced' (4 workers) is memory-safe AND
+            contributes meaningfully when other Node hosts are also
+            connected. 'off' is for "I have dedicated hosts and want
+            zero browser-side risk on a Full mine". 'full' is for
+            "browser is my only compute pool". Changes apply on next
+            page load (rebuilding the pool mid-session would need draining
+            in-flight batches; YAGNI for a settings change).
+            Hidden mid-session because it's a config knob, not a runtime
+            switch. */}
+        {!sessionRunning && (
+          <div className="flex flex-wrap items-center gap-2 text-[11px] text-stone-600">
+            <span className="font-semibold text-stone-700">
+              Browser host:
+            </span>
+            <div
+              role="radiogroup"
+              className="inline-flex overflow-hidden rounded-full border border-stone-200"
+            >
+              {(['off', 'reduced', 'full'] as const).map((mode) => {
+                const labels: Record<typeof mode, string> = {
+                  off: 'Off',
+                  reduced: 'Reduced (4w)',
+                  full: 'Full',
+                };
+                const isActive = poolHint.mode === mode;
+                return (
+                  <button
+                    key={mode}
+                    type="button"
+                    role="radio"
+                    aria-checked={isActive}
+                    onClick={() => {
+                      setBrowserHostMode(mode);
+                      // Force a re-render so the active state flips
+                      // immediately even though the live pool won't
+                      // rebuild until reload.
+                      setNowMs(Date.now());
+                    }}
+                    className={`px-2.5 py-0.5 transition ${
+                      isActive
+                        ? 'bg-stone-700 text-white'
+                        : 'bg-white text-stone-600 hover:bg-stone-50'
+                    } ${mode === 'reduced' ? 'border-l border-r border-stone-200' : ''}`}
+                  >
+                    {labels[mode]}
+                  </button>
+                );
+              })}
+            </div>
+            <span className="text-stone-400">
+              {poolHint.mode === 'off'
+                ? 'controller only · no browser-side compute'
+                : poolHint.mode === 'reduced'
+                  ? 'safe with co-located Node host'
+                  : 'browser is the only compute pool'}
+              {poolHint.actualPoolSize !== null &&
+                poolHint.actualPoolSize !==
+                  (poolHint.mode === 'off'
+                    ? 0
+                    : poolHint.mode === 'reduced'
+                      ? Math.min(4, poolHint.hardwareConcurrency)
+                      : Math.min(12, Math.ceil(poolHint.hardwareConcurrency * 1.5))) &&
+                ' · reload to apply'}
+            </span>
           </div>
         )}
         {/* One-line caption tying the picker to the iteration loop so

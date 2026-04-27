@@ -59,6 +59,7 @@ import {
 import {
   cancelMinerSession,
   describeMinerPoolSizing,
+  getBrowserHostMode,
   getFreeMinerSlotCount,
   getMinerPoolSize,
   primeMinerSession,
@@ -318,10 +319,16 @@ export function createClusterClient(config: ClusterClientConfig): ClusterClient 
     s.addEventListener('open', () => {
       // Reset the backoff so the NEXT failure starts at 1s, not 30s.
       reconnectDelayMs = RECONNECT_INITIAL_MS;
+      // Phase 2.C UX: when the user has set browser host mode to 'off',
+      // register as controller-only — don't claim host capacity we won't
+      // serve. This prevents the dispatcher from sending us batches when
+      // a co-located Node host should handle that work instead.
+      const browserMode = getBrowserHostMode();
+      const isHost = browserMode !== 'off';
       const register: RegisterMessage = {
         kind: 'register',
         protocolVersion: MINING_PROTOCOL_VERSION,
-        roles: ['host', 'controller'],
+        roles: isHost ? ['host', 'controller'] : ['controller'],
         displayName,
         capabilities: browserCapabilities(),
       };
@@ -711,6 +718,7 @@ export function browserPoolHint(): {
   poolSize: number;
   hardwareConcurrency: number;
   actualPoolSize: number | null;
+  mode: 'off' | 'reduced' | 'full';
 } {
   const sizing = describeMinerPoolSizing();
   // getMinerPoolSize spawns workers — only call when the pool is already
@@ -719,3 +727,8 @@ export function browserPoolHint(): {
   const actualPoolSize = free > 0 ? getMinerPoolSize() : null;
   return { ...sizing, actualPoolSize };
 }
+
+// Re-export the host-mode setter so the status card can flip the picker
+// without importing from policy-miner-pool directly. Convention in this
+// file: cluster-client is the public-facing surface for the UI.
+export { setBrowserHostMode } from './policy-miner-pool';
