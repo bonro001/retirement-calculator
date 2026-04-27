@@ -85,6 +85,21 @@ const TARGET_BATCH_WALL_CLOCK_MS = 5_000;
  *  worker pool — separate work item; not in this branch. */
 const MAX_BATCH_SIZE = 25;
 
+/** Tail-stealing threshold. When the queue has fewer than this many
+ *  policies left, recommendedBatchSize returns 1 regardless of the
+ *  EWMA-driven sizing. This bounds tail latency: the slowest host's
+ *  last batch is at most one policy, instead of the EWMA's natural
+ *  2-5 policies that could leave faster hosts idle for ~5-10 seconds
+ *  while a slow host (e.g. M2 at fine N=2000, ~2200ms/policy)
+ *  finishes a multi-policy batch.
+ *
+ *  16 was picked empirically to bound tail wait while not disturbing
+ *  mid-session sizing: a typical Quick mine has 200 policies, so tail
+ *  mode only kicks in for the final 8% of work. Per-batch dispatch
+ *  overhead at the tail is real (more roundtrips), but bounded — at
+ *  most 16 single-policy batches per session. */
+const TAIL_STEAL_THRESHOLD = 16;
+
 /**
  * How many times one policy may be assigned (and then nacked or
  * disconnected away) before the queue gives up on it and drops it to
@@ -122,6 +137,16 @@ export function recommendedBatchSize(
   remainingPolicies: number,
   trialCount: number = HINT_BASELINE_TRIAL_COUNT,
 ): number {
+  // Tail-stealing: when the queue is near-empty, force 1-policy batches
+  // for everyone. This bounds the tail latency to a single policy on
+  // the slowest host, instead of the slowest host getting a 2-5 policy
+  // batch that leaves faster hosts idle while it churns through it.
+  // (Without this cap, M2 at fine N=2000 ~2200ms/policy could grab
+  // a 5-policy batch worth 11 seconds of wall while M4 + Ryzen sit
+  // idle — observed during cluster end-to-end testing.)
+  if (remainingPolicies <= TAIL_STEAL_THRESHOLD) {
+    return Math.max(1, Math.min(1, remainingPolicies));
+  }
   let msPerPolicy: number;
   if (measuredMsPerPolicy && Number.isFinite(measuredMsPerPolicy) && measuredMsPerPolicy > 0) {
     msPerPolicy = measuredMsPerPolicy;
