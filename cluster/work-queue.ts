@@ -45,6 +45,12 @@ import type { Policy } from '../src/policy-miner-types';
  *
  * After 3+ completed batches, `recommendedBatchSize` switches to using
  * the host's measured `meanMsPerPolicy` and ignores these defaults.
+ *
+ * Phase 2.C tuning (2026-04-27): hints scale linearly with trial count
+ * via `recommendedBatchSize(..., trialCount)` so a coarse pass at
+ * N=200 doesn't get stuck shipping 2-policy batches because the hint
+ * was calibrated at N=2000. See the dispatcher coarse-phase finding
+ * in perf/PHASE_0_FINDINGS.md.
  */
 const PERF_CLASS_HINT_MS_PER_POLICY: Record<string, number> = {
   'apple-silicon-perf': 500,
@@ -54,15 +60,26 @@ const PERF_CLASS_HINT_MS_PER_POLICY: Record<string, number> = {
   unknown: 800,
 };
 
-/** Target wall-clock per batch. Big enough to amortize roundtrip overhead
- *  (postMessage + WS send + ack — typically <50ms total), small enough
- *  that a cancelled session loses at most a few seconds of work. */
-const TARGET_BATCH_WALL_CLOCK_MS = 5_000;
+/** Trial count the perf-class hints were calibrated against. Used to
+ *  scale hints when the dispatcher is shipping a different trial count
+ *  (e.g. 200 trials for a coarse-stage batch). */
+const HINT_BASELINE_TRIAL_COUNT = 2_000;
 
-/** Hard cap so a slow host with absurdly stale stats doesn't get handed
- *  100 policies in one batch. Empirically 25 is plenty even on a
- *  16-thread Ryzen at the cheap end of the trial-count range. */
-const MAX_BATCH_SIZE = 25;
+/** Target wall-clock per batch. Big enough to amortize roundtrip
+ *  overhead (postMessage + WS send + ack — typically <50ms total),
+ *  small enough that a cancelled session loses at most a few seconds
+ *  of work. Phase 2.C tuning bumped this from 5s → 10s — the smaller
+ *  per-policy work in coarse stages means dispatch overhead is a
+ *  proportionally bigger penalty; doubling the target halves it. */
+const TARGET_BATCH_WALL_CLOCK_MS = 10_000;
+
+/** Hard cap on batch size. Phase 2.C tuning bumped this from 25 → 60.
+ *  At low trial counts (e.g. coarse N=200 with measured 100ms/policy),
+ *  the time-budget formula wants 100 policies per batch; capping at 25
+ *  means coarse phases ship 4× more batches than they need to. 60 is
+ *  big enough to amortize dispatch overhead at coarse trial counts but
+ *  not so big that a slow host disappears for too long. */
+const MAX_BATCH_SIZE = 60;
 
 /**
  * How many times one policy may be assigned (and then nacked or
@@ -79,24 +96,44 @@ export const MAX_POLICY_ATTEMPTS = 5;
 
 /**
  * Compute the right batch size for a host based on its perf class +
- * measured throughput. Pure; safe to call from anywhere.
+ * measured throughput + the trial count this batch will run at. Pure;
+ * safe to call from anywhere.
  *
  *   batchSize = clamp(1, MAX, floor(TARGET / msPerPolicy))
  *
- * `measuredMsPerPolicy` is preferred when present; otherwise the perf-class
- * hint is used. If neither is available (genuinely unknown peer), defaults
- * to size 4 — small enough not to bottleneck a fast host, big enough not to
- * thrash on roundtrip overhead.
+ * `measuredMsPerPolicy` is preferred when present (it's already
+ * trial-count-aware — it's measured at whatever trial count the host
+ * is currently running). When absent, the perf-class hint is used, and
+ * is scaled by `(trialCount / HINT_BASELINE_TRIAL_COUNT)` since the
+ * hints are calibrated at 2000 trials. Without this scaling, a coarse
+ * pass at N=200 trials would size batches 10× too small.
+ *
+ * `trialCount` defaults to HINT_BASELINE_TRIAL_COUNT for back-compat
+ * with callers that don't pass it; pass the actual per-batch trial
+ * count when known.
  */
 export function recommendedBatchSize(
   perfClass: string,
   measuredMsPerPolicy: number | null,
   remainingPolicies: number,
+  trialCount: number = HINT_BASELINE_TRIAL_COUNT,
 ): number {
-  const msPerPolicy =
-    measuredMsPerPolicy && Number.isFinite(measuredMsPerPolicy) && measuredMsPerPolicy > 0
-      ? measuredMsPerPolicy
-      : PERF_CLASS_HINT_MS_PER_POLICY[perfClass] ?? PERF_CLASS_HINT_MS_PER_POLICY.unknown;
+  let msPerPolicy: number;
+  if (measuredMsPerPolicy && Number.isFinite(measuredMsPerPolicy) && measuredMsPerPolicy > 0) {
+    msPerPolicy = measuredMsPerPolicy;
+  } else {
+    const baselineHint =
+      PERF_CLASS_HINT_MS_PER_POLICY[perfClass] ?? PERF_CLASS_HINT_MS_PER_POLICY.unknown;
+    // Scale the hint linearly with trial count. This is approximate
+    // (per-policy fixed overhead doesn't scale linearly), but much
+    // better than no scaling: at trialCount = 200 vs baseline 2000,
+    // hint goes from 500ms → 50ms, sizeFromTime goes from 20 → 200
+    // (then clamped by MAX_BATCH_SIZE). Result: cold-start coarse
+    // batches are large enough to amortize dispatch overhead while
+    // the EWMA is converging.
+    const scale = Math.max(0.05, trialCount / HINT_BASELINE_TRIAL_COUNT);
+    msPerPolicy = baselineHint * scale;
+  }
   const sizeFromTime = Math.max(1, Math.floor(TARGET_BATCH_WALL_CLOCK_MS / msPerPolicy));
   // Don't hand out a batch bigger than what's actually left to do — at the
   // tail of a session, fast hosts should still get useful work even if

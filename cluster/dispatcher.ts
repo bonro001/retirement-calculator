@@ -839,17 +839,6 @@ function pumpDispatch(): void {
     if (peer.socket.readyState !== peer.socket.OPEN) continue;
     if (peer.pumpCooldownUntilMs > now) continue;
 
-    // One batch per pump-call per host. Multi-batch-per-pump is doable
-    // but adds bookkeeping; the 1Hz tick catches any host that needs a
-    // second helping after its first batch completes.
-    const size = recommendedBatchSize(
-      peer.capabilities?.perfClass ?? 'unknown',
-      peer.completedBatchCount >= 3 ? peer.meanMsPerPolicy : null,
-      session.queue.pendingCount(),
-    );
-    const assigned = session.queue.assignBatch(peer.peerId, size);
-    if (!assigned) continue;
-
     // Phase 2.C: ship coarseStage.trialCount per batch during the
     // coarse phase; otherwise the configured full trialCount. The
     // host doesn't need to know which stage it's in — it just runs
@@ -858,6 +847,22 @@ function pumpDispatch(): void {
       session.currentStage === 'coarse' && session.config.coarseStage
         ? session.config.coarseStage.trialCount
         : session.trialCount;
+    // One batch per pump-call per host. Multi-batch-per-pump is doable
+    // but adds bookkeeping; the 1Hz tick catches any host that needs a
+    // second helping after its first batch completes.
+    //
+    // Phase 2.C tuning: pass batchTrialCount to recommendedBatchSize so
+    // the perf-class hint scaling kicks in for coarse phase. Without
+    // this, the cold-start hint is calibrated at 2000 trials and ships
+    // batches 10× too small for a 200-trial coarse pass.
+    const size = recommendedBatchSize(
+      peer.capabilities?.perfClass ?? 'unknown',
+      peer.completedBatchCount >= 3 ? peer.meanMsPerPolicy : null,
+      session.queue.pendingCount(),
+      batchTrialCount,
+    );
+    const assigned = session.queue.assignBatch(peer.peerId, size);
+    if (!assigned) continue;
     const batch: MiningJobBatch = {
       batchId: assigned.batchId,
       baselineFingerprint: session.config.baselineFingerprint,
