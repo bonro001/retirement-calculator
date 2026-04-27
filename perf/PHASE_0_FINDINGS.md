@@ -253,23 +253,53 @@ the structural-fix era is over.
 
 | # | Track                                         | Estimated win  | Effort  | Risk |
 |---|-----------------------------------------------|----------------|---------|------|
-| A | Hunt the `GeneratorPrototypeNext` source      | up to ~15%     | 3-6 hrs | low  |
+| ~~A~~ | ~~Hunt `GeneratorPrototypeNext` source~~  | ~~up to 15%~~ | DONE: 0 | —    |
 | B | Quasi-Monte Carlo (Sobol/Halton draws)        | 2-4× per trial | 1-2 day | med  |
 | C | Two-stage screening (coarse → fine cascade)   | 3-5× per Full  | 1-2 day | med  |
 | D | Racing / successive halving                   | ~2×            | 1 day   | med  |
 | E | Hunt residual Date / NumberConstructor sites  | 2-4%           | 2 hrs   | low  |
 
-**Recommended order:** A first (cheap, the only big remaining structural
-target). If it doesn't yield in one focused session, park and start B.
-B + C compose multiplicatively for the headline 5-10× Phase 2 number.
+**Recommended order:** B (QMC) first — it's the biggest single win, the
+math is well-trodden territory, and it composes multiplicatively with C.
 
-**Why GeneratorPrototypeNext is suspicious:** Phase 0.2's grep found no
-user-code generators. The cost may be V8's internal iterator-protocol
-machinery for `for...of`, destructuring assignments, or spread over
-Maps/Sets — these dispatch through the iterator protocol and may be
-attributed to GeneratorPrototypeNext in V8's profiler accounting.
-Worth a focused investigation with `--trace-opt` and bottom-up sampling
-before assuming it's intractable.
+### Phase 2.A: closed (no actionable finding)
+
+Investigation 2026-04-27, ~75 min. Conclusion: **GeneratorPrototypeNext
+is largely a V8 profiler-attribution artifact, not real fixable
+production cost.** Recorded so future profiling sessions don't re-chase.
+
+Evidence trail:
+1. Bottom-up tree shows only 2 ticks of GeneratorPrototypeNext as a leaf
+   with callers ≥1% (and those 2 ticks come from module loading via
+   `AsyncFunctionAwaitResolveClosure`). The other 1153 ticks have NO
+   caller ≥1% — meaning hundreds of distributed callers, each running
+   too few times to pass the bottom-up threshold.
+2. TypeScript target is ES2022, no downlevel-iteration polyfills emitted.
+   `for...of` over arrays in src/ resolves to V8's fast indexed-iter path.
+3. Only async function in the engine call graph is `evaluatePolicy`
+   itself (zero awaits in its body) — 30-50 calls in a perf run can't
+   account for 1155 sample ticks of generator dispatch.
+4. Microbenchmark of `Float64Array.from(regularArray)` vs indexed copy:
+   only 1.04× difference. Iterator-protocol cost on the hot percentile
+   path is negligible — refutes the "TypedArray.from iter-walk" theory.
+5. **Decisive test:** stripped-down harness running `evaluatePolicy` 50×
+   directly (same engine workload, no perf-baseline instrumentation)
+   shows GeneratorPrototypeNext **NOT in the top-25 C++ builtins**, while
+   wall-clock per-policy matches the perf-baseline within noise (309 vs
+   290 ms). Same real CPU, totally different attribution — proof that
+   the 17% share is a sampling-attribution artifact of V8's
+   ResumeGenerator bytecode handler, which is shared across many
+   internal trampolines.
+
+The Phase 1.2 hypothesis ("Object.entries patterns") was also wrong:
+Phase 1.3 removed those patterns and the absolute GeneratorPrototypeNext
+ticks dropped 43% (2045 → 1155), but the share grew 15.9 → 16.9% only
+because everything else dropped faster. There is no single-leaf fix.
+
+**Practical takeaway:** the actual production-realistic per-policy time
+is essentially what the perf-baseline reports. The "missing 17%" isn't a
+hidden production cost waiting to be reclaimed — it's V8 measurement
+overhead that doesn't manifest in wall-clock. Cluster numbers stand.
 
 ## Phase 1.2 update (2026-04-27): generator hunt parked
 
