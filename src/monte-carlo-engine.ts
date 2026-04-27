@@ -154,12 +154,18 @@ export function correlatedAssetReturns(
   }) as [number, number, number, number];
 }
 
+// Phase 1.4 perf: Float64Array.sort() is implemented as a native typed-array
+// numeric sort and is significantly faster than `Array.prototype.sort` with a
+// `(a, b) => a - b` comparator (which routes through JS-callable TimSort with
+// per-comparison function dispatch). For small N (<32) the constant factor
+// dominates; for medium N (~500, the trial-result aggregations) the speedup
+// is several×. percentile() is invoked ~30+ times per simulatePath via the
+// median() helper; for a Full mine that's ~233K calls.
 export function percentile(values: number[], fraction: number) {
   if (!values.length) {
     return 0;
   }
-
-  const sorted = [...values].sort((left, right) => left - right);
+  const sorted = Float64Array.from(values).sort();
   const index = Math.max(0, Math.min(sorted.length - 1, Math.floor(fraction * (sorted.length - 1))));
   return sorted[index];
 }

@@ -1639,6 +1639,24 @@ function clamp01(value: number) {
   return Math.max(0, Math.min(1, value));
 }
 
+// Phase 1.4 perf: hoist the constant factor table out of
+// `buildWithdrawalDecisionTrace`. The trace is built per withdrawal-action
+// per year per trial; allocating this 7-entry table on every call cost a
+// fresh Array + 7 fresh objects per call. Frozen so a misuse can't mutate
+// shared state.
+const WITHDRAWAL_DECISION_FACTOR_LABELS: ReadonlyArray<{
+  key: keyof WithdrawalDecisionTrace['objectiveScores'];
+  label: string;
+}> = Object.freeze([
+  { key: 'spendingNeed', label: 'spending need coverage' },
+  { key: 'marginalTaxCost', label: 'marginal tax cost control' },
+  { key: 'magiTarget', label: 'MAGI target control' },
+  { key: 'acaCliffAvoidance', label: 'ACA cliff avoidance' },
+  { key: 'irmaaCliffAvoidance', label: 'IRMAA cliff avoidance' },
+  { key: 'rothOptionality', label: 'Roth optionality preservation' },
+  { key: 'sequenceDefense', label: 'sequence-risk defense' },
+]);
+
 function buildWithdrawalDecisionTrace(input: {
   needed: number;
   withdrawals: Record<AccountBucketType, number>;
@@ -1687,15 +1705,6 @@ function buildWithdrawalDecisionTrace(input: {
     : 0.6;
   const spendingNeed = input.needed > 0 ? 1 : 0;
 
-  const factorLabels: Array<{ key: keyof WithdrawalDecisionTrace['objectiveScores']; label: string }> = [
-    { key: 'spendingNeed', label: 'spending need coverage' },
-    { key: 'marginalTaxCost', label: 'marginal tax cost control' },
-    { key: 'magiTarget', label: 'MAGI target control' },
-    { key: 'acaCliffAvoidance', label: 'ACA cliff avoidance' },
-    { key: 'irmaaCliffAvoidance', label: 'IRMAA cliff avoidance' },
-    { key: 'rothOptionality', label: 'Roth optionality preservation' },
-    { key: 'sequenceDefense', label: 'sequence-risk defense' },
-  ];
   const objectiveScores = {
     spendingNeed,
     marginalTaxCost: marginalTaxCostScore,
@@ -1705,12 +1714,32 @@ function buildWithdrawalDecisionTrace(input: {
     rothOptionality,
     sequenceDefense,
   };
-  const topFactors = [...factorLabels]
-    .sort(
-      (left, right) => objectiveScores[right.key] - objectiveScores[left.key],
-    )
-    .slice(0, 2)
-    .map((entry) => entry.label);
+
+  // Phase 1.4 perf: replace `[...factorLabels].sort(...).slice(0,2).map(...)`
+  // (4 array allocations + O(n log n) sort) with an O(n) two-pass top-2
+  // selection. n=7 so the absolute savings per call are small, but this
+  // function runs per withdrawal-action per year per trial — ~hundreds of
+  // millions of times for a Full mine.
+  let topIdx = -1;
+  let topScore = Number.NEGATIVE_INFINITY;
+  let secondIdx = -1;
+  let secondScore = Number.NEGATIVE_INFINITY;
+  for (let i = 0; i < WITHDRAWAL_DECISION_FACTOR_LABELS.length; i += 1) {
+    const score = objectiveScores[WITHDRAWAL_DECISION_FACTOR_LABELS[i].key];
+    if (score > topScore) {
+      secondIdx = topIdx;
+      secondScore = topScore;
+      topIdx = i;
+      topScore = score;
+    } else if (score > secondScore) {
+      secondIdx = i;
+      secondScore = score;
+    }
+  }
+  const topFactors = [
+    WITHDRAWAL_DECISION_FACTOR_LABELS[topIdx].label,
+    WITHDRAWAL_DECISION_FACTOR_LABELS[secondIdx].label,
+  ];
 
   return {
     rationale: `Source mix prioritized ${topFactors.join(' + ')}.`,
