@@ -2883,6 +2883,22 @@ function simulatePath(
   const planningHorizonYears =
     effectivePlan.planningEndYear - effectivePlan.startYear + 1;
   const yearlyBuckets = new Map<number, RunTrace[]>();
+
+  // Hoist out of the trial+year loop: birth-derived constants are the same
+  // for every (trial, year) pair within a simulatePath call. Without this
+  // hoist we hit `new Date(birthDate).getFullYear()` per year per trial —
+  // ~233M allocations per Full mine. The V8 profile (Phase 0) showed
+  // `Date.prototype.getFullYear` at 2.2% of CPU and contributed to the
+  // 24.9% spent in `std::pair<string,string>` from the underlying string
+  // parsing. Constants per simulatePath, computed once here.
+  const rmdPolicyOverride = data.rules.rmdPolicy?.startAgeOverride;
+  const robRmdStartAgeConst =
+    rmdPolicyOverride ??
+    getRmdStartAgeForBirthYear(new Date(data.household.robBirthDate).getFullYear());
+  const debbieRmdStartAgeConst =
+    rmdPolicyOverride ??
+    getRmdStartAgeForBirthYear(new Date(data.household.debbieBirthDate).getFullYear());
+
   const monteCarlo = executeDeterministicMonteCarlo<SimulationRunResult>({
     seed: simulationSeed,
     trialCount: runCount,
@@ -2947,12 +2963,8 @@ function simulatePath(
         const yearOffset = year - effectivePlan.startYear;
         const robAge = ages.rob + yearOffset;
         const debbieAge = ages.debbie + yearOffset;
-        const robRmdStartAge =
-          data.rules.rmdPolicy?.startAgeOverride ??
-          getRmdStartAgeForBirthYear(new Date(data.household.robBirthDate).getFullYear());
-        const debbieRmdStartAge =
-          data.rules.rmdPolicy?.startAgeOverride ??
-          getRmdStartAgeForBirthYear(new Date(data.household.debbieBirthDate).getFullYear());
+        const robRmdStartAge = robRmdStartAgeConst;
+        const debbieRmdStartAge = debbieRmdStartAgeConst;
         const yearsUntilRmdStart = Math.max(
           0,
           Math.min(robRmdStartAge - robAge, debbieRmdStartAge - debbieAge),
