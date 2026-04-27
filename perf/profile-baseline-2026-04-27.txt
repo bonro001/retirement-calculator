@@ -1,0 +1,1512 @@
+(node:5661) ExperimentalWarning: VM Modules is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+Statistical profiling result from isolate-0x7d740c000-5392-v8.log, (12893 ticks, 592 unaccounted, 0 excluded).
+
+ [Shared libraries]:
+   ticks  total  nonlib   name
+   2020   15.7%          /usr/lib/system/libsystem_malloc.dylib
+     89    0.7%          /usr/lib/system/libsystem_platform.dylib
+     69    0.5%          /usr/lib/system/libdyld.dylib
+     19    0.1%          /usr/lib/system/libsystem_c.dylib
+     13    0.1%          /usr/lib/libc++.1.dylib
+      8    0.1%          /usr/lib/libc++abi.dylib
+      1    0.0%          /usr/lib/system/libsystem_kernel.dylib
+
+ [JavaScript]:
+   ticks  total  nonlib   name
+    213    1.7%    2.0%  JS: +<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+    203    1.6%    1.9%  JS: *<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:1990
+    163    1.3%    1.5%  JS: *<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:13296
+    133    1.0%    1.2%  JS: *calculateFederalTax file:///Users/robbonner/Retirenment%20Calculator/src/tax-engine.ts:1:6364
+     79    0.6%    0.7%  JS: *calculateHealthcarePremiums file:///Users/robbonner/Retirenment%20Calculator/src/healthcare-premium-engine.ts:1:2304
+     76    0.6%    0.7%  JS: *applyProactiveRothConversion file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:31769
+     63    0.5%    0.6%  JS: *<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:29249
+     46    0.4%    0.4%  JS: *<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:75339
+     41    0.3%    0.4%  JS: *buildWithdrawalDecisionTrace file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:27339
+     33    0.3%    0.3%  JS: *<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:74097
+     30    0.2%    0.3%  JS: *<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+     27    0.2%    0.3%  JS: *calculateRequiredMinimumDistribution file:///Users/robbonner/Retirenment%20Calculator/src/retirement-rules.ts:1:3251
+     25    0.2%    0.2%  JS: *calculatePreRetirementContributions file:///Users/robbonner/Retirenment%20Calculator/src/contribution-engine.ts:1:2459
+     23    0.2%    0.2%  JS: *<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:30417
+     22    0.2%    0.2%  JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+     15    0.1%    0.1%  JS: *getStressAdjustedReturns file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:20053
+     15    0.1%    0.1%  JS: *calculateIrmaaTier file:///Users/robbonner/Retirenment%20Calculator/src/retirement-rules.ts:1:4147
+     15    0.1%    0.1%  JS: *<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:32760
+     13    0.1%    0.1%  JS: *calculateOrdinaryTax file:///Users/robbonner/Retirenment%20Calculator/src/tax-engine.ts:1:2655
+     10    0.1%    0.1%  JS: *gaussianRandom file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:820
+     10    0.1%    0.1%  JS: *clamp file:///Users/robbonner/Retirenment%20Calculator/src/healthcare-premium-engine.ts:1:542
+     10    0.1%    0.1%  JS: *calculateNetInvestmentIncomeTax file:///Users/robbonner/Retirenment%20Calculator/src/tax-engine.ts:1:5733
+     10    0.1%    0.1%  JS: *calculateHsaOffsetForYear file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:17673
+      9    0.1%    0.1%  JS: *<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:615
+      8    0.1%    0.1%  JS: *calculateLTCGTax file:///Users/robbonner/Retirenment%20Calculator/src/tax-engine.ts:1:3411
+      8    0.1%    0.1%  JS: *<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:14625
+      8    0.1%    0.1%  JS: *<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/asset-class-mapper.ts:1:210
+      7    0.1%    0.1%  JS: +<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:1434
+      7    0.1%    0.1%  JS: *calculateTaxableSocialSecurity file:///Users/robbonner/Retirenment%20Calculator/src/tax-engine.ts:1:4336
+      6    0.0%    0.1%  JS: *roundSeriesValue file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66857
+      6    0.0%    0.1%  JS: *deriveAnnual401kTargets file:///Users/robbonner/Retirenment%20Calculator/src/contribution-engine.ts:1:880
+      6    0.0%    0.1%  JS: *<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:50668
+      6    0.0%    0.1%  JS: *<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:35178
+      5    0.0%    0.0%  JS: +applyProactiveRothConversion file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:31769
+      5    0.0%    0.0%  JS: *sumBalances file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:23526
+      5    0.0%    0.0%  JS: *getBucketReturn file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:13217
+      5    0.0%    0.0%  JS: *clamp file:///Users/robbonner/Retirenment%20Calculator/src/contribution-engine.ts:1:310
+      5    0.0%    0.0%  JS: *<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:57730
+      5    0.0%    0.0%  JS: *<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:57292
+      4    0.0%    0.0%  JS: *normalizeFilingStatus file:///Users/robbonner/Retirenment%20Calculator/src/tax-engine.ts:1:2401
+      4    0.0%    0.0%  JS: *<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:51370
+      4    0.0%    0.0%  JS: *<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:23563
+      3    0.0%    0.0%  JS: +<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:50668
+      3    0.0%    0.0%  JS: *getSocialSecurityIncome file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:14559
+      3    0.0%    0.0%  JS: *calculateLtcCostForYear file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:17106
+      3    0.0%    0.0%  JS: *buildWindfallRealizationForYear file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:15410
+      3    0.0%    0.0%  JS: *<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:93414
+      3    0.0%    0.0%  JS: *<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:93315
+      3    0.0%    0.0%  JS: *<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:84579
+      3    0.0%    0.0%  JS: *<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:75053
+      3    0.0%    0.0%  JS: *<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:53077
+      3    0.0%    0.0%  JS: *<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:38934
+      3    0.0%    0.0%  JS: *<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:26660
+      2    0.0%    0.0%  JS: +createSeededRandom file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:560
+      2    0.0%    0.0%  JS: +calculatePreRetirementContributions file:///Users/robbonner/Retirenment%20Calculator/src/contribution-engine.ts:1:2459
+      2    0.0%    0.0%  JS: +<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:95466
+      2    0.0%    0.0%  JS: +<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:57292
+      2    0.0%    0.0%  JS: +<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:54060
+      2    0.0%    0.0%  JS: +<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:51370
+      2    0.0%    0.0%  JS: *median file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2173
+      2    0.0%    0.0%  JS: *clamp01 file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:27231
+      2    0.0%    0.0%  JS: *buildYearlyMarketPath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:23014
+      2    0.0%    0.0%  JS: *<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:95776
+      2    0.0%    0.0%  JS: *<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:93501
+      2    0.0%    0.0%  JS: *<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:93139
+      2    0.0%    0.0%  JS: *<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:92470
+      2    0.0%    0.0%  JS: *<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:73342
+      2    0.0%    0.0%  JS: *<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:55881
+      2    0.0%    0.0%  JS: *<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:55250
+      2    0.0%    0.0%  JS: *<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:53367
+      2    0.0%    0.0%  JS: *<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:53267
+      1    0.0%    0.0%  JS: ^normalizeSeed file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:193
+      1    0.0%    0.0%  JS: ^getSocialSecurityIncome file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:14559
+      1    0.0%    0.0%  JS: ^executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+      1    0.0%    0.0%  JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:95272
+      1    0.0%    0.0%  JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:74097
+      1    0.0%    0.0%  JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:60568
+      1    0.0%    0.0%  JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:50668
+      1    0.0%    0.0%  JS: +parseSource node:internal/deps/cjs-module-lexer/lexer:85:22
+      1    0.0%    0.0%  JS: +executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+      1    0.0%    0.0%  JS: +calculateNetInvestmentIncomeTax file:///Users/robbonner/Retirenment%20Calculator/src/tax-engine.ts:1:5733
+      1    0.0%    0.0%  JS: +buildWithdrawalDecisionTrace file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:27339
+      1    0.0%    0.0%  JS: +<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:96557
+      1    0.0%    0.0%  JS: +<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:95877
+      1    0.0%    0.0%  JS: +<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:95776
+      1    0.0%    0.0%  JS: +<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:95370
+      1    0.0%    0.0%  JS: +<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:92966
+      1    0.0%    0.0%  JS: +<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:92470
+      1    0.0%    0.0%  JS: +<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:74097
+      1    0.0%    0.0%  JS: +<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:58419
+      1    0.0%    0.0%  JS: +<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:57730
+      1    0.0%    0.0%  JS: +<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:56909
+      1    0.0%    0.0%  JS: +<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:53156
+      1    0.0%    0.0%  JS: +<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:51345
+      1    0.0%    0.0%  JS: +<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:38818
+      1    0.0%    0.0%  JS: +<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:103627
+      1    0.0%    0.0%  JS: +<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:3263
+      1    0.0%    0.0%  JS: *throwIfSimulationCancelled file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:1057
+      1    0.0%    0.0%  JS: *getSalaryForYear file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:13899
+      1    0.0%    0.0%  JS: *getRmdStartAgeForBirthYear file:///Users/robbonner/Retirenment%20Calculator/src/retirement-rules.ts:1:2477
+      1    0.0%    0.0%  JS: *deriveSalaryThisYear file:///Users/robbonner/Retirenment%20Calculator/src/contribution-engine.ts:1:1759
+      1    0.0%    0.0%  JS: *buildWithdrawalOrder file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:26490
+      1    0.0%    0.0%  JS: *__name file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:48
+      1    0.0%    0.0%  JS: *<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:97200
+      1    0.0%    0.0%  JS: *<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:96895
+      1    0.0%    0.0%  JS: *<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:96795
+      1    0.0%    0.0%  JS: *<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:96704
+      1    0.0%    0.0%  JS: *<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:96475
+      1    0.0%    0.0%  JS: *<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:96158
+      1    0.0%    0.0%  JS: *<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:95957
+      1    0.0%    0.0%  JS: *<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:95877
+      1    0.0%    0.0%  JS: *<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:95671
+      1    0.0%    0.0%  JS: *<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:95564
+      1    0.0%    0.0%  JS: *<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:95466
+      1    0.0%    0.0%  JS: *<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:95370
+      1    0.0%    0.0%  JS: *<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:95185
+      1    0.0%    0.0%  JS: *<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:94976
+      1    0.0%    0.0%  JS: *<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:94648
+      1    0.0%    0.0%  JS: *<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:94260
+      1    0.0%    0.0%  JS: *<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:94168
+      1    0.0%    0.0%  JS: *<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:94025
+      1    0.0%    0.0%  JS: *<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:93771
+      1    0.0%    0.0%  JS: *<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:92411
+      1    0.0%    0.0%  JS: *<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:73724
+      1    0.0%    0.0%  JS: *<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:73239
+      1    0.0%    0.0%  JS: *<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:59289
+      1    0.0%    0.0%  JS: *<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:58516
+      1    0.0%    0.0%  JS: *<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:57481
+      1    0.0%    0.0%  JS: *<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:57390
+      1    0.0%    0.0%  JS: *<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:57198
+      1    0.0%    0.0%  JS: *<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:56258
+      1    0.0%    0.0%  JS: *<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:55710
+      1    0.0%    0.0%  JS: *<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:55650
+      1    0.0%    0.0%  JS: *<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:54872
+      1    0.0%    0.0%  JS: *<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:54757
+      1    0.0%    0.0%  JS: *<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:53156
+      1    0.0%    0.0%  JS: *<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:39380
+      1    0.0%    0.0%  JS: *<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:38959
+      1    0.0%    0.0%  JS: *<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:29892
+      1    0.0%    0.0%  JS: *<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:1513
+      1    0.0%    0.0%  JS: *<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/retirement-rules.ts:1:3483
+      1    0.0%    0.0%  JS: *<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:3592
+
+ [C++]:
+   ticks  total  nonlib   name
+   4768   37.0%   44.7%  t std::__1::pair<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>> const, std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>>>::pair[abi:nn180100](std::__1::pair<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>> const, std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>>> const&)
+    605    4.7%    5.7%  t _Builtins_ArrayTimSort
+    389    3.0%    3.6%  t _Builtins_KeyedLoadIC_Megamorphic
+    229    1.8%    2.1%  t __os_nospin_lock_unlock_slow
+    227    1.8%    2.1%  T __kernelrpc_mach_port_get_refs
+    196    1.5%    1.8%  t _Builtins_MergeAt
+    154    1.2%    1.4%  t _Builtins_ArrayMap
+     97    0.8%    0.9%  t _Builtins_CEntry_Return1_ArgvOnStack_BuiltinExit
+     95    0.7%    0.9%  t _Builtins_CEntry_Return1_ArgvOnStack_NoBuiltinExit
+     92    0.7%    0.9%  t _Builtins_LoadIC_Megamorphic
+     83    0.6%    0.8%  t _Builtins_SortCompareUserFn
+     80    0.6%    0.7%  t _Builtins_CallFunction_ReceiverIsNullOrUndefined
+     77    0.6%    0.7%  t _Builtins_CloneObjectIC
+     73    0.6%    0.7%  t _Builtins_ArrayFilter
+     63    0.5%    0.6%  t icu_77::numparse::impl::IgnorablesMatcher::~IgnorablesMatcher()
+     57    0.4%    0.5%  t _Builtins_NumberConstructor
+     52    0.4%    0.5%  t _Builtins_ToNumberConvertBigInt
+     50    0.4%    0.5%  t _Builtins_Call_ReceiverIsNullOrUndefined
+     44    0.3%    0.4%  t _Builtins_CallFunction_ReceiverIsAny
+     41    0.3%    0.4%  T ___platform_sigaction
+     39    0.3%    0.4%  t icu_77::numparse::impl::NanMatcher::accept(icu_77::StringSegment&, icu_77::numparse::impl::ParsedNumber&) const
+     39    0.3%    0.4%  t __os_once_gate_broadcast
+     37    0.3%    0.3%  T icu_77::numparse::impl::IgnorablesMatcher::isFlexible() const
+     37    0.3%    0.3%  T __os_semaphore_create
+     36    0.3%    0.3%  t _Builtins_MathMax
+     36    0.3%    0.3%  t _Builtins_ArrayReduce
+     35    0.3%    0.3%  T icu_77::numparse::impl::PlusSignMatcher::isDisabled(icu_77::numparse::impl::ParsedNumber const&) const
+     34    0.3%    0.3%  t _Builtins_LoadIC
+     32    0.2%    0.3%  t _Builtins_FindOrderedHashMapEntry
+     32    0.2%    0.3%  t _Builtins_CompileLazy
+     27    0.2%    0.3%  t _Builtins_Call_ReceiverIsAny
+     26    0.2%    0.2%  t _Builtins_ArrayPrototypeSort
+     26    0.2%    0.2%  T node::loader::ModuleWrap::New(v8::FunctionCallbackInfo<v8::Value> const&)
+     25    0.2%    0.2%  t _Builtins_MapPrototypeSet
+     22    0.2%    0.2%  t _Builtins_ObjectEntries
+     22    0.2%    0.2%  T _chmod
+     21    0.2%    0.2%  T __os_semaphore_dispose
+     20    0.2%    0.2%  t _Builtins_GrowFastSmiOrObjectElements
+     20    0.2%    0.2%  t _Builtins_DefineNamedOwnIC
+     18    0.1%    0.2%  t _Builtins_ArrayPrototypeJoin
+     17    0.1%    0.2%  T icu_77::numparse::impl::IgnorablesMatcher::isDisabled(icu_77::numparse::impl::ParsedNumber const&) const
+     16    0.1%    0.1%  t icu_77::numparse::impl::PaddingMatcher::PaddingMatcher(icu_77::UnicodeString const&)
+     15    0.1%    0.1%  t _Builtins_KeyedStoreIC_Megamorphic
+     14    0.1%    0.1%  t _Builtins_AdaptorWithBuiltinExitFrame
+     14    0.1%    0.1%  T icu_77::FormattedStringBuilder::prepareForInsertHelper(int, int, UErrorCode&)
+     14    0.1%    0.1%  T _os_unfair_recursive_lock_trylock
+     13    0.1%    0.1%  t _Builtins_JSBuiltinsConstructStub
+     12    0.1%    0.1%  t _Builtins_FastNewClosure
+     12    0.1%    0.1%  t _Builtins_Copy
+     12    0.1%    0.1%  T _mach_vm_region
+     11    0.1%    0.1%  t _Builtins_Store_FastSmiElements_0
+     11    0.1%    0.1%  t _Builtins_ArrayPrototypeSlice
+     10    0.1%    0.1%  t _Builtins_StringEqual
+     10    0.1%    0.1%  t _Builtins_SetConstructor
+     10    0.1%    0.1%  t _Builtins_Load_FastSmiElements_0
+      9    0.1%    0.1%  t _Builtins_MapPrototypeGet
+      8    0.1%    0.1%  T icu_77::numparse::impl::PercentMatcher::isDisabled(icu_77::numparse::impl::ParsedNumber const&) const
+      7    0.1%    0.1%  t _Builtins_NumberPrototypeToFixed
+      7    0.1%    0.1%  t _Builtins_LoadICBaseline
+      7    0.1%    0.1%  t _Builtins_IterableToListWithSymbolLookup
+      7    0.1%    0.1%  t _Builtins_CreateObjectFromSlowBoilerplateHelper
+      7    0.1%    0.1%  t _Builtins_ArrayPrototypePush
+      7    0.1%    0.1%  T ___pthread_init
+      6    0.0%    0.1%  t std::__1::ostreambuf_iterator<char, std::__1::char_traits<char>> std::__1::__pad_and_output[abi:nn180100]<char, std::__1::char_traits<char>>(std::__1::ostreambuf_iterator<char, std::__1::char_traits<char>>, char const*, char const*, char const*, std::__1::ios_base&, char)
+      6    0.0%    0.1%  t _Builtins_SetPrototypeAdd
+      6    0.0%    0.1%  t _Builtins_Load_FastObjectElements_0
+      6    0.0%    0.1%  t _Builtins_GrowFastDoubleElements
+      6    0.0%    0.1%  t _Builtins_Call_ReceiverIsNotNullOrUndefined_Baseline_Compact
+      6    0.0%    0.1%  t _Builtins_ArrayIncludesSmi
+      6    0.0%    0.1%  T _getsockname
+      5    0.0%    0.0%  t _Builtins_StringPrototypeStartsWith
+      5    0.0%    0.0%  t _Builtins_StringAdd_CheckNone
+      5    0.0%    0.0%  t _Builtins_MathMin
+      5    0.0%    0.0%  t _Builtins_BaselineOutOfLinePrologue
+      5    0.0%    0.0%  T __kernelrpc_mach_port_set_attributes
+      4    0.0%    0.0%  t __pthread_bsdthread_init
+      4    0.0%    0.0%  t __os_nospin_lock_lock_slow
+      4    0.0%    0.0%  t _Builtins_Subtract_Baseline
+      4    0.0%    0.0%  t _Builtins_KeyedLoadICTrampoline_Megamorphic
+      4    0.0%    0.0%  t _Builtins_DatePrototypeGetFullYear
+      4    0.0%    0.0%  t _Builtins_CloneFastJSArrayFillingHoles
+      4    0.0%    0.0%  t _Builtins_Call_ReceiverIsNullOrUndefined_Baseline_Compact
+      4    0.0%    0.0%  t _Builtins_CallFunction_ReceiverIsNotNullOrUndefined
+      4    0.0%    0.0%  T icu_77::SimpleDateFormat::checkIntSuffix(icu_77::UnicodeString const&, int, int, signed char) const
+      4    0.0%    0.0%  T _pthread_key_init_np
+      4    0.0%    0.0%  T _mach_voucher_extract_attr_recipe
+      4    0.0%    0.0%  T _mach_vm_map
+      4    0.0%    0.0%  T _mach_port_mod_refs
+      3    0.0%    0.0%  t std::__1::basic_ostream<char, std::__1::char_traits<char>>& std::__1::__put_character_sequence[abi:nn180100]<char, std::__1::char_traits<char>>(std::__1::basic_ostream<char, std::__1::char_traits<char>>&, char const*, unsigned long)
+      3    0.0%    0.0%  t _udec
+      3    0.0%    0.0%  t __pthread_mutex_check_init_slow
+      3    0.0%    0.0%  t __pthread_key_global_init
+      3    0.0%    0.0%  t _Builtins_ToBooleanForBaselineJump
+      3    0.0%    0.0%  t _Builtins_Store_FastObjectElements_0
+      3    0.0%    0.0%  t _Builtins_RecordWriteSaveFP
+      3    0.0%    0.0%  t _Builtins_LoadJoinElement_FastSmiOrObjectElements_0
+      3    0.0%    0.0%  t _Builtins_GallopLeft
+      3    0.0%    0.0%  t _Builtins_ExtractFastJSArray
+      3    0.0%    0.0%  t _Builtins_Construct_WithFeedback
+      3    0.0%    0.0%  t _Builtins_CanUseSameAccessor_FastObjectElements_0
+      3    0.0%    0.0%  t _Builtins_ArrayForEach
+      3    0.0%    0.0%  T _pthread_key_create
+      3    0.0%    0.0%  T _mig_get_reply_port
+      2    0.0%    0.0%  t _Builtins_ToBoolean
+      2    0.0%    0.0%  t _Builtins_StrictEqual_Baseline
+      2    0.0%    0.0%  t _Builtins_StoreInArrayLiteralIC
+      2    0.0%    0.0%  t _Builtins_StoreIC
+      2    0.0%    0.0%  t _Builtins_SetOrSetIteratorToList
+      2    0.0%    0.0%  t _Builtins_RecordWriteIgnoreFP
+      2    0.0%    0.0%  t _Builtins_Load_FastDoubleElements_0
+      2    0.0%    0.0%  t _Builtins_KeyedStoreICTrampoline_Megamorphic
+      2    0.0%    0.0%  t _Builtins_KeyedLoadIC_PolymorphicName
+      2    0.0%    0.0%  t _Builtins_KeyedLoadIC
+      2    0.0%    0.0%  t _Builtins_GetProperty
+      2    0.0%    0.0%  t _Builtins_GetNamedPropertyHandler
+      2    0.0%    0.0%  t _Builtins_GallopRight
+      2    0.0%    0.0%  t _Builtins_Construct
+      2    0.0%    0.0%  t _Builtins_Add_Baseline
+      2    0.0%    0.0%  t _Builtins_AddSmi_Baseline
+      2    0.0%    0.0%  T icu_77::numparse::impl::PercentMatcher::PercentMatcher(icu_77::DecimalFormatSymbols const&)
+      2    0.0%    0.0%  T icu_77::RuleBasedCollator::internalCompareUTF8(char const*, int, char const*, int, UErrorCode&) const
+      2    0.0%    0.0%  T _task_get_special_port
+      1    0.0%    0.0%  t ures_openWithType(UResourceBundle*, char const*, char const*, UResOpenType, UErrorCode*)
+      1    0.0%    0.0%  t icu_77::(anonymous namespace)::FCDUTF16NFDIterator::FCDUTF16NFDIterator(icu_77::Normalizer2Impl const&, char16_t const*, char16_t const*)
+      1    0.0%    0.0%  t __pthread_mutex_unlock_init_slow
+      1    0.0%    0.0%  t __pthread_mutex_global_init
+      1    0.0%    0.0%  t __pthread_mutex_firstfit_unlock_slow
+      1    0.0%    0.0%  t _Builtins_ToObject
+      1    0.0%    0.0%  t _Builtins_StoreFastElementIC_InBounds
+      1    0.0%    0.0%  t _Builtins_RunMicrotasks
+      1    0.0%    0.0%  t _Builtins_RegExpReplace
+      1    0.0%    0.0%  t _Builtins_ObjectDefineProperty
+      1    0.0%    0.0%  t _Builtins_NumberToString
+      1    0.0%    0.0%  t _Builtins_LoadGlobalIC
+      1    0.0%    0.0%  t _Builtins_LessThanOrEqual_Baseline
+      1    0.0%    0.0%  t _Builtins_Equal_Baseline
+      1    0.0%    0.0%  t _Builtins_DefineNamedOwnICBaseline
+      1    0.0%    0.0%  t _Builtins_DateConstructor
+      1    0.0%    0.0%  t _Builtins_CreateShallowObjectLiteral
+      1    0.0%    0.0%  t _Builtins_CreateShallowArrayLiteral
+      1    0.0%    0.0%  t _Builtins_CreateObjectFromSlowBoilerplate
+      1    0.0%    0.0%  t _Builtins_CreateFunctionContextHandler
+      1    0.0%    0.0%  t _Builtins_CopyDataProperties
+      1    0.0%    0.0%  t _Builtins_ConstructFunction
+      1    0.0%    0.0%  t _Builtins_CloneObjectICBaseline
+      1    0.0%    0.0%  t _Builtins_Call_ReceiverIsNotNullOrUndefined
+      1    0.0%    0.0%  t _Builtins_CallUndefinedReceiver1WideHandler
+      1    0.0%    0.0%  t _Builtins_CallBoundFunction
+      1    0.0%    0.0%  t _Builtins_BooleanConstructor
+      1    0.0%    0.0%  t _Builtins_BitwiseAnd_Baseline
+      1    0.0%    0.0%  t _Builtins_BaselineLeaveFrame
+      1    0.0%    0.0%  t _Builtins_ArrayPrototypeValues
+      1    0.0%    0.0%  t _Builtins_ArrayIteratorPrototypeNext
+      1    0.0%    0.0%  t _Builtins_AllocateInYoungGeneration
+      1    0.0%    0.0%  T node::AsyncWrap::EmitTraceEventDestroy()
+      1    0.0%    0.0%  T icu_77::numparse::impl::SymbolMatcher::toString() const
+      1    0.0%    0.0%  T icu_77::numparse::impl::PercentMatcher::accept(icu_77::StringSegment&, icu_77::numparse::impl::ParsedNumber&) const
+      1    0.0%    0.0%  T icu_77::SimpleDateFormat::matchDayPeriodStrings(icu_77::UnicodeString const&, int, icu_77::UnicodeString const*, int, int&) const
+      1    0.0%    0.0%  T icu_77::RuleBasedCollator::doCompare(unsigned char const*, int, unsigned char const*, int, UErrorCode&) const
+      1    0.0%    0.0%  T icu_77::FormattedStringBuilder::insert(int, icu_77::FormattedStringBuilder const&, UErrorCode&)
+      1    0.0%    0.0%  T _unorm_previous_77
+      1    0.0%    0.0%  T _pwrite
+      1    0.0%    0.0%  T _pthread_attr_setschedpolicy
+      1    0.0%    0.0%  T _mig_strncpy_zerofill
+      1    0.0%    0.0%  T _lseek
+      1    0.0%    0.0%  T __platform_strncmp
+      1    0.0%    0.0%  T __kernelrpc_vm_map
+      1    0.0%    0.0%  T __kernelrpc_mach_vm_map
+
+ [Summary]:
+   ticks  total  nonlib   name
+   1528   11.9%   14.3%  JavaScript
+   8554   66.3%   80.1%  C++
+    433    3.4%    4.1%  GC
+   2219   17.2%          Shared libraries
+    592    4.6%          Unaccounted
+
+ [C++ entry points]:
+   ticks    cpp   total   name
+   3211   31.2%   24.9%  t std::__1::pair<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>> const, std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>>>::pair[abi:nn180100](std::__1::pair<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>> const, std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>>> const&)
+   2045   19.8%   15.9%  t _Builtins_GeneratorPrototypeNext
+   1231   11.9%    9.5%  t _Builtins_ArrayPrototypeSort
+   1102   10.7%    8.5%  t _Builtins_ObjectEntries
+    288    2.8%    2.2%  t _Builtins_DatePrototypeGetFullYear
+    277    2.7%    2.1%  t _Builtins_ArrayReduce
+    241    2.3%    1.9%  t _Builtins_ArrayMap
+    226    2.2%    1.8%  t __os_nospin_lock_unlock_slow
+    223    2.2%    1.7%  t _Builtins_NumberConstructor
+    122    1.2%    0.9%  T __kernelrpc_mach_port_get_refs
+     97    0.9%    0.8%  t _Builtins_CEntry_Return1_ArgvOnStack_BuiltinExit
+     81    0.8%    0.6%  t _Builtins_ArrayFilter
+     78    0.8%    0.6%  t _Builtins_MapPrototypeGet
+     77    0.7%    0.6%  t _Builtins_CloneObjectIC
+     77    0.7%    0.6%  t _Builtins_CEntry_Return1_ArgvOnStack_NoBuiltinExit
+     67    0.7%    0.5%  t _Builtins_KeyedLoadIC_Megamorphic
+     59    0.6%    0.5%  t _Builtins_LoadIC_Megamorphic
+     52    0.5%    0.4%  t _Builtins_ToNumberConvertBigInt
+     44    0.4%    0.3%  t _Builtins_CallFunction_ReceiverIsAny
+     38    0.4%    0.3%  t __os_once_gate_broadcast
+     37    0.4%    0.3%  t _Builtins_MathMax
+     37    0.4%    0.3%  T ___platform_sigaction
+     31    0.3%    0.2%  t _Builtins_MapPrototypeSet
+     31    0.3%    0.2%  t _Builtins_ArrayPrototypeJoin
+     28    0.3%    0.2%  t _Builtins_LoadIC
+     27    0.3%    0.2%  t _Builtins_Call_ReceiverIsAny
+     26    0.3%    0.2%  T node::loader::ModuleWrap::New(v8::FunctionCallbackInfo<v8::Value> const&)
+     24    0.2%    0.2%  t _Builtins_CompileLazy
+     23    0.2%    0.2%  t _Builtins_ArrayForEach
+     22    0.2%    0.2%  t _Builtins_FindOrderedHashMapEntry
+     20    0.2%    0.2%  t _Builtins_DefineNamedOwnIC
+     18    0.2%    0.1%  t _Builtins_GrowFastSmiOrObjectElements
+     17    0.2%    0.1%  t _Builtins_SetConstructor
+     17    0.2%    0.1%  T _chmod
+     16    0.2%    0.1%  t _Builtins_CallFunction_ReceiverIsNullOrUndefined
+     15    0.1%    0.1%  t _Builtins_KeyedStoreIC_Megamorphic
+     14    0.1%    0.1%  t _Builtins_ArrayPrototypeSlice
+     14    0.1%    0.1%  t _Builtins_AdaptorWithBuiltinExitFrame
+     13    0.1%    0.1%  t _Builtins_JSBuiltinsConstructStub
+     12    0.1%    0.1%  t _Builtins_FastNewClosure
+     12    0.1%    0.1%  T _os_unfair_recursive_lock_trylock
+      9    0.1%    0.1%  T __os_semaphore_dispose
+      8    0.1%    0.1%  t _Builtins_StringEqual
+      8    0.1%    0.1%  t _Builtins_ArrayPrototypePush
+      7    0.1%    0.1%  t _Builtins_NumberPrototypeToFixed
+      7    0.1%    0.1%  t _Builtins_LoadICBaseline
+      7    0.1%    0.1%  t _Builtins_IterableToListWithSymbolLookup
+      7    0.1%    0.1%  t _Builtins_CreateObjectFromSlowBoilerplateHelper
+      7    0.1%    0.1%  T ___pthread_init
+      6    0.1%    0.0%  t std::__1::ostreambuf_iterator<char, std::__1::char_traits<char>> std::__1::__pad_and_output[abi:nn180100]<char, std::__1::char_traits<char>>(std::__1::ostreambuf_iterator<char, std::__1::char_traits<char>>, char const*, char const*, char const*, std::__1::ios_base&, char)
+      6    0.1%    0.0%  t _Builtins_GrowFastDoubleElements
+      6    0.1%    0.0%  t _Builtins_ArrayIncludesSmi
+      5    0.0%    0.0%  t _Builtins_MathMin
+      5    0.0%    0.0%  t _Builtins_Call_ReceiverIsNullOrUndefined
+      5    0.0%    0.0%  t _Builtins_Call_ReceiverIsNotNullOrUndefined_Baseline_Compact
+      4    0.0%    0.0%  t __os_nospin_lock_lock_slow
+      4    0.0%    0.0%  t _Builtins_StringPrototypeStartsWith
+      4    0.0%    0.0%  t _Builtins_StringAdd_CheckNone
+      4    0.0%    0.0%  t _Builtins_CloneFastJSArrayFillingHoles
+      4    0.0%    0.0%  t _Builtins_Call_ReceiverIsNullOrUndefined_Baseline_Compact
+      4    0.0%    0.0%  T _pthread_key_init_np
+      3    0.0%    0.0%  t std::__1::basic_ostream<char, std::__1::char_traits<char>>& std::__1::__put_character_sequence[abi:nn180100]<char, std::__1::char_traits<char>>(std::__1::basic_ostream<char, std::__1::char_traits<char>>&, char const*, unsigned long)
+      3    0.0%    0.0%  t __pthread_key_global_init
+      3    0.0%    0.0%  t _Builtins_ToBooleanForBaselineJump
+      3    0.0%    0.0%  t _Builtins_Subtract_Baseline
+      3    0.0%    0.0%  t _Builtins_LoadJoinElement_FastSmiOrObjectElements_0
+      3    0.0%    0.0%  t _Builtins_Construct_WithFeedback
+      3    0.0%    0.0%  T _mig_get_reply_port
+      2    0.0%    0.0%  t __pthread_mutex_check_init_slow
+      2    0.0%    0.0%  t __pthread_bsdthread_init
+      2    0.0%    0.0%  t _Builtins_ToBoolean
+      2    0.0%    0.0%  t _Builtins_StoreInArrayLiteralIC
+      2    0.0%    0.0%  t _Builtins_StoreIC
+      2    0.0%    0.0%  t _Builtins_SetOrSetIteratorToList
+      2    0.0%    0.0%  t _Builtins_RegExpPrototypeExec
+      2    0.0%    0.0%  t _Builtins_RecordWriteSaveFP
+      2    0.0%    0.0%  t _Builtins_RecordWriteIgnoreFP
+      2    0.0%    0.0%  t _Builtins_KeyedStoreICTrampoline_Megamorphic
+      2    0.0%    0.0%  t _Builtins_KeyedLoadIC_PolymorphicName
+      2    0.0%    0.0%  t _Builtins_KeyedLoadICTrampoline_Megamorphic
+      2    0.0%    0.0%  t _Builtins_KeyedLoadIC
+      2    0.0%    0.0%  t _Builtins_GetProperty
+      2    0.0%    0.0%  t _Builtins_ExtractFastJSArray
+      2    0.0%    0.0%  t _Builtins_Construct
+      2    0.0%    0.0%  t _Builtins_CallFunction_ReceiverIsNotNullOrUndefined
+      2    0.0%    0.0%  t _Builtins_Add_Baseline
+      2    0.0%    0.0%  T _task_get_special_port
+      2    0.0%    0.0%  T _pthread_key_create
+      2    0.0%    0.0%  T _mach_vm_region
+      1    0.0%    0.0%  t ures_openWithType(UResourceBundle*, char const*, char const*, UResOpenType, UErrorCode*)
+      1    0.0%    0.0%  t _Builtins_ToObject
+      1    0.0%    0.0%  t _Builtins_StringPrototypeReplaceAll
+      1    0.0%    0.0%  t _Builtins_StringPrototypeRepeat
+      1    0.0%    0.0%  t _Builtins_StrictEqual_Baseline
+      1    0.0%    0.0%  t _Builtins_StoreFastElementIC_InBounds
+      1    0.0%    0.0%  t _Builtins_SetPrototypeAdd
+      1    0.0%    0.0%  t _Builtins_ReflectGet
+      1    0.0%    0.0%  t _Builtins_ObjectDefineProperty
+      1    0.0%    0.0%  t _Builtins_NumberToString
+      1    0.0%    0.0%  t _Builtins_LoadGlobalIC
+      1    0.0%    0.0%  t _Builtins_GetNamedPropertyHandler
+      1    0.0%    0.0%  t _Builtins_Equal_Baseline
+      1    0.0%    0.0%  t _Builtins_DefineNamedOwnICBaseline
+      1    0.0%    0.0%  t _Builtins_DateConstructor
+      1    0.0%    0.0%  t _Builtins_CreateShallowObjectLiteral
+      1    0.0%    0.0%  t _Builtins_CreateShallowArrayLiteral
+      1    0.0%    0.0%  t _Builtins_CreateObjectFromSlowBoilerplate
+      1    0.0%    0.0%  t _Builtins_CreateFunctionContextHandler
+      1    0.0%    0.0%  t _Builtins_CopyDataProperties
+      1    0.0%    0.0%  t _Builtins_ConstructFunction
+      1    0.0%    0.0%  t _Builtins_CloneObjectICBaseline
+      1    0.0%    0.0%  t _Builtins_Call_ReceiverIsNotNullOrUndefined
+      1    0.0%    0.0%  t _Builtins_CallUndefinedReceiver1WideHandler
+      1    0.0%    0.0%  t _Builtins_CallBoundFunction
+      1    0.0%    0.0%  t _Builtins_BitwiseAnd_Baseline
+      1    0.0%    0.0%  t _Builtins_ArrayPrototypeValues
+      1    0.0%    0.0%  t _Builtins_ArrayIteratorPrototypeNext
+      1    0.0%    0.0%  t _Builtins_AllocateInYoungGeneration
+      1    0.0%    0.0%  t _Builtins_AddSmi_Baseline
+      1    0.0%    0.0%  T icu_77::SimpleDateFormat::matchDayPeriodStrings(icu_77::UnicodeString const&, int, icu_77::UnicodeString const*, int, int&) const
+      1    0.0%    0.0%  T _unorm_previous_77
+      1    0.0%    0.0%  T _mig_strncpy_zerofill
+      1    0.0%    0.0%  T __kernelrpc_vm_map
+      1    0.0%    0.0%  T __kernelrpc_mach_vm_map
+      1    0.0%    0.0%  T __kernelrpc_mach_port_set_attributes
+
+ [Bottom up (heavy) profile]:
+  Note: percentage shows a share of a particular caller in the total
+  amount of its parent calls.
+  Callers occupying less than 1.0% are not shown.
+
+   ticks parent  name
+   4768   37.0%  t std::__1::pair<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>> const, std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>>>::pair[abi:nn180100](std::__1::pair<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>> const, std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>>> const&)
+   1071   22.5%    JS: *calculateFederalTax file:///Users/robbonner/Retirenment%20Calculator/src/tax-engine.ts:1:6364
+    622   58.1%      JS: *<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:75339
+    486   78.1%        JS: +<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+    388   79.8%          JS: +executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+    388  100.0%            JS: ^simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+     98   20.2%          JS: ^executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+     81   82.7%            JS: ~simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+     17   17.3%            JS: ^simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+     86   13.8%        JS: *<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+     86  100.0%          JS: ^executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+     86  100.0%            JS: ~simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+     50    8.0%        JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+     33   66.0%          JS: +executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+     33  100.0%            JS: ^simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+     17   34.0%          JS: ^executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+     14   82.4%            JS: ~simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+      3   17.6%            JS: ^simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+    244   22.8%      JS: *applyProactiveRothConversion file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:31769
+    222   91.0%        JS: +<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+    183   82.4%          JS: +executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+    183  100.0%            JS: ^simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+     39   17.6%          JS: ^executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+     25   64.1%            JS: ~simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+     14   35.9%            JS: ^simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+     22    9.0%        JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+     20   90.9%          JS: +executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+     20  100.0%            JS: ^simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+      2    9.1%          JS: ^executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+      2  100.0%            JS: ^simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+    160   14.9%      JS: *<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:29892
+    158   98.8%        JS: *<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:30417
+    158  100.0%          JS: *<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:75339
+    122   77.2%            JS: +<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+     26   16.5%            JS: *<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+     10    6.3%            JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+      2    1.3%        JS: ^withdrawForNeed file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:29530
+      2  100.0%          JS: +<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:75339
+      2  100.0%            JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+     40    3.7%      JS: *<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:39380
+     40  100.0%        t _Builtins_ArrayMap
+     37   92.5%          JS: +applyProactiveRothConversion file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:31769
+     31   83.8%            JS: +<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+      6   16.2%            JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+      3    7.5%          JS: ^applyProactiveRothConversion file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:31769
+      2   66.7%            JS: +<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+      1   33.3%            JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+   1030   21.6%    t _Builtins_ObjectEntries
+    661   64.2%      JS: *<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:13296
+    661  100.0%        t _Builtins_ArrayReduce
+    649   98.2%          JS: +<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+    499   76.9%            JS: +executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+    150   23.1%            JS: ^executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+     11    1.7%          JS: +<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:74097
+      6   54.5%            t _Builtins_ArrayForEach
+      5   45.5%            JS: *<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+    159   15.4%      JS: +<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+    124   78.0%        JS: +executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+    124  100.0%          JS: ^simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+    124  100.0%            JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:103407
+     35   22.0%        JS: ^executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+     30   85.7%          JS: ~simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+     30  100.0%            JS: ~<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:103407
+      5   14.3%          JS: ^simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+      5  100.0%            JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:103407
+    159   15.4%      JS: *<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:74097
+    109   68.6%        JS: *<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+    109  100.0%          JS: ^executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+    109  100.0%            JS: ~simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+     50   31.4%        t _Builtins_ArrayForEach
+     50  100.0%          JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+     33   66.0%            JS: ^executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+     17   34.0%            JS: +executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+     46    4.5%      JS: *getBucketReturn file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:13217
+     45   97.8%        JS: *<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:74097
+     45  100.0%          t _Builtins_ArrayForEach
+     45  100.0%            JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+      1    2.2%        JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:74097
+      1  100.0%          t _Builtins_ArrayForEach
+      1  100.0%            JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+    514   10.8%    JS: +<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+    374   72.8%      JS: +executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+    374  100.0%        JS: ^simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+    374  100.0%          JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:103407
+    302   80.7%            JS: ^buildPathResults file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:102697
+     72   19.3%            JS: ~buildPathResults file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:102697
+    138   26.8%      JS: ^executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+    116   84.1%        JS: ~simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+    116  100.0%          JS: ~<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:103407
+    116  100.0%            JS: ~buildPathResults file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:102697
+     22   15.9%        JS: ^simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+     22  100.0%          JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:103407
+     22  100.0%            JS: ~buildPathResults file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:102697
+    246    5.2%    JS: *calculatePreRetirementContributions file:///Users/robbonner/Retirenment%20Calculator/src/contribution-engine.ts:1:2459
+    201   81.7%      JS: +<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+    160   79.6%        JS: +executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+    160  100.0%          JS: ^simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+    160  100.0%            JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:103407
+     41   20.4%        JS: ^executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+     34   82.9%          JS: ~simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+     34  100.0%            JS: ~<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:103407
+      7   17.1%          JS: ^simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+      7  100.0%            JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:103407
+     29   11.8%      JS: *<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+     29  100.0%        JS: ^executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+     29  100.0%          JS: ~simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+     29  100.0%            JS: ~<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:103407
+     16    6.5%      JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+      9   56.3%        JS: +executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+      9  100.0%          JS: ^simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+      9  100.0%            JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:103407
+      7   43.8%        JS: ^executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+      6   85.7%          JS: ~simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+      6  100.0%            JS: ~<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:103407
+      1   14.3%          JS: ^simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+      1  100.0%            JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:103407
+    231    4.8%    JS: *calculateHealthcarePremiums file:///Users/robbonner/Retirenment%20Calculator/src/healthcare-premium-engine.ts:1:2304
+    183   79.2%      JS: +<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+    140   76.5%        JS: +executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+    140  100.0%          JS: ^simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+    140  100.0%            JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:103407
+     43   23.5%        JS: ^executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+     38   88.4%          JS: ~simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+     38  100.0%            JS: ~<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:103407
+      5   11.6%          JS: ^simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+      5  100.0%            JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:103407
+     27   11.7%      JS: *<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+     27  100.0%        JS: ^executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+     27  100.0%          JS: ~simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+     27  100.0%            JS: ~<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:103407
+     21    9.1%      JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+     12   57.1%        JS: ^executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+     11   91.7%          JS: ~simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+     11  100.0%            JS: ~<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:103407
+      1    8.3%          JS: ^simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+      1  100.0%            JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:103407
+      9   42.9%        JS: +executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+      9  100.0%          JS: ^simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+      9  100.0%            JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:103407
+    202    4.2%    JS: *applyProactiveRothConversion file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:31769
+    177   87.6%      JS: +<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+    151   85.3%        JS: +executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+    151  100.0%          JS: ^simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+    151  100.0%            JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:103407
+     26   14.7%        JS: ^executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+     18   69.2%          JS: ~simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+     18  100.0%            JS: ~<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:103407
+      8   30.8%          JS: ^simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+      8  100.0%            JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:103407
+     23   11.4%      JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+     21   91.3%        JS: +executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+     21  100.0%          JS: ^simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+     21  100.0%            JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:103407
+      2    8.7%        JS: ^executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+      2  100.0%          JS: ^simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+      2  100.0%            JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:103407
+    176    3.7%    JS: *<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:75339
+    146   83.0%      JS: +<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+    118   80.8%        JS: +executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+    118  100.0%          JS: ^simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+    118  100.0%            JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:103407
+     28   19.2%        JS: ^executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+     21   75.0%          JS: ~simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+     21  100.0%            JS: ~<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:103407
+      7   25.0%          JS: ^simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+      7  100.0%            JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:103407
+     16    9.1%      JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+      9   56.3%        JS: +executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+      9  100.0%          JS: ^simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+      9  100.0%            JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:103407
+      7   43.8%        JS: ^executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+      4   57.1%          JS: ~simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+      4  100.0%            JS: ~<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:103407
+      3   42.9%          JS: ^simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+      3  100.0%            JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:103407
+     14    8.0%      JS: *<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+     14  100.0%        JS: ^executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+     14  100.0%          JS: ~simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+     14  100.0%            JS: ~<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:103407
+    152    3.2%    t _Builtins_NumberConstructor
+    145   95.4%      JS: +<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+    111   76.6%        JS: +executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+    111  100.0%          JS: ^simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+    111  100.0%            JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:103407
+     34   23.4%        JS: ^executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+     30   88.2%          JS: ~simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+     30  100.0%            JS: ~<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:103407
+      4   11.8%          JS: ^simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+      4  100.0%            JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:103407
+      4    2.6%      JS: +calculateFederalTax file:///Users/robbonner/Retirenment%20Calculator/src/tax-engine.ts:1:6364
+      2   50.0%        JS: +withdrawForNeed file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:29530
+      2  100.0%          JS: +<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:75339
+      1   50.0%            JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+      1   50.0%            JS: +<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+      1   25.0%        JS: +<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:29892
+      1  100.0%          JS: +withdrawForNeed file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:29530
+      1  100.0%            JS: +<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:75339
+      1   25.0%        JS: *<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:75339
+      1  100.0%          JS: +<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+      1  100.0%            JS: ^executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+      3    2.0%      JS: +calculatePreRetirementContributions file:///Users/robbonner/Retirenment%20Calculator/src/contribution-engine.ts:1:2459
+      2   66.7%        JS: +<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+      2  100.0%          JS: ^executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+      2  100.0%            JS: ~simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+      1   33.3%        JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+      1  100.0%          JS: ~executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+      1  100.0%            JS: ~simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+    114    2.4%    JS: *<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:35178
+    113   99.1%      JS: *applyProactiveRothConversion file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:31769
+    103   91.2%        JS: +<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+    102   99.0%          JS: +executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+    102  100.0%            JS: ^simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+     10    8.8%        JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+     10  100.0%          JS: +executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+     10  100.0%            JS: ^simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+     86    1.8%    JS: *<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:13296
+     86  100.0%      t _Builtins_ArrayReduce
+     83   96.5%        JS: +<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+     63   75.9%          JS: +executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+     63  100.0%            JS: ^simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+     20   24.1%          JS: ^executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+     20  100.0%            JS: ~simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+      2    2.3%        JS: +<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:74097
+      2  100.0%          t _Builtins_ArrayForEach
+      2  100.0%            JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+      1    1.2%        JS: +getBucketReturn file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:13217
+      1  100.0%          JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:74097
+      1  100.0%            t _Builtins_ArrayForEach
+     80    1.7%    JS: *<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+     80  100.0%      JS: ^executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+     80  100.0%        JS: ~simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+     80  100.0%          JS: ~<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:103407
+     80  100.0%            JS: ~buildPathResults file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:102697
+     67    1.4%    JS: *calculateRequiredMinimumDistribution file:///Users/robbonner/Retirenment%20Calculator/src/retirement-rules.ts:1:3251
+     51   76.1%      JS: +<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+     45   88.2%        JS: +executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+     45  100.0%          JS: ^simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+     45  100.0%            JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:103407
+      6   11.8%        JS: ^executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+      4   66.7%          JS: ~simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+      4  100.0%            JS: ~<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:103407
+      2   33.3%          JS: ^simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+      2  100.0%            JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:103407
+     10   14.9%      JS: *<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+     10  100.0%        JS: ^executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+     10  100.0%          JS: ~simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+     10  100.0%            JS: ~<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:103407
+      6    9.0%      JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+      4   66.7%        JS: +executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+      4  100.0%          JS: ^simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+      4  100.0%            JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:103407
+      2   33.3%        JS: ^executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+      2  100.0%          JS: ~simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+      2  100.0%            JS: ~<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:103407
+     63    1.3%    JS: *roundSeriesValue file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66857
+     63  100.0%      JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+     44   69.8%        JS: +executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+     44  100.0%          JS: ^simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+     44  100.0%            JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:103407
+     17   27.0%        JS: ^executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+     15   88.2%          JS: ~simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+     15  100.0%            JS: ~<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:103407
+      2   11.8%          JS: ^simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+      2  100.0%            JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:103407
+      2    3.2%        JS: ~executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+      2  100.0%          JS: ~simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+      2  100.0%            JS: ~<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:103407
+     49    1.0%    JS: +applyProactiveRothConversion file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:31769
+     30   61.2%      JS: +<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+     30  100.0%        JS: ^executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+     30  100.0%          JS: ~simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+     30  100.0%            JS: ~<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:103407
+     16   32.7%      JS: *<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+     16  100.0%        JS: ^executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+     16  100.0%          JS: ~simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+     16  100.0%            JS: ~<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:103407
+      3    6.1%      JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+      3  100.0%        JS: ^executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+      3  100.0%          JS: ~simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+      3  100.0%            JS: ~<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:103407
+     48    1.0%    JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+     33   68.8%      JS: +executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+     33  100.0%        JS: ^simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+     33  100.0%          JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:103407
+     25   75.8%            JS: ^buildPathResults file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:102697
+      8   24.2%            JS: ~buildPathResults file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:102697
+     15   31.3%      JS: ^executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+     15  100.0%        JS: ~simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+     15  100.0%          JS: ~<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:103407
+     15  100.0%            JS: ~buildPathResults file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:102697
+
+   2020   15.7%  /usr/lib/system/libsystem_malloc.dylib
+    807   40.0%    JS: *calculateFederalTax file:///Users/robbonner/Retirenment%20Calculator/src/tax-engine.ts:1:6364
+    465   57.6%      JS: *<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:75339
+    369   79.4%        JS: +<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+    293   79.4%          JS: +executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+    293  100.0%            JS: ^simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+     76   20.6%          JS: ^executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+     66   86.8%            JS: ~simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+     10   13.2%            JS: ^simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+     60   12.9%        JS: *<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+     60  100.0%          JS: ^executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+     60  100.0%            JS: ~simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+     36    7.7%        JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+     31   86.1%          JS: +executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+     31  100.0%            JS: ^simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+      5   13.9%          JS: ^executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+      4   80.0%            JS: ~simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+      1   20.0%            JS: ^simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+    200   24.8%      JS: *applyProactiveRothConversion file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:31769
+    186   93.0%        JS: +<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+    155   83.3%          JS: +executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+    155  100.0%            JS: ^simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+     31   16.7%          JS: ^executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+     24   77.4%            JS: ~simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+      7   22.6%            JS: ^simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+     14    7.0%        JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+     14  100.0%          JS: +executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+     14  100.0%            JS: ^simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+    105   13.0%      JS: *<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:29892
+    103   98.1%        JS: *<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:30417
+    103  100.0%          JS: *<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:75339
+     89   86.4%            JS: +<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+      7    6.8%            JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+      7    6.8%            JS: *<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+     30    3.7%      JS: *<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:39380
+     30  100.0%        t _Builtins_ArrayMap
+     26   86.7%          JS: +applyProactiveRothConversion file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:31769
+     22   84.6%            JS: +<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+      4   15.4%            JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+      4   13.3%          JS: ^applyProactiveRothConversion file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:31769
+      4  100.0%            JS: +<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+    554   27.4%    JS: +<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+    421   76.0%      JS: +executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+    421  100.0%        JS: ^simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+    421  100.0%          JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:103407
+    346   82.2%            JS: ^buildPathResults file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:102697
+     75   17.8%            JS: ~buildPathResults file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:102697
+    133   24.0%      JS: ^executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+    110   82.7%        JS: ~simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+    110  100.0%          JS: ~<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:103407
+    110  100.0%            JS: ~buildPathResults file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:102697
+     23   17.3%        JS: ^simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+     23  100.0%          JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:103407
+     23  100.0%            JS: ~buildPathResults file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:102697
+    212   10.5%    JS: *calculatePreRetirementContributions file:///Users/robbonner/Retirenment%20Calculator/src/contribution-engine.ts:1:2459
+    174   82.1%      JS: +<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+    137   78.7%        JS: +executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+    137  100.0%          JS: ^simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+    137  100.0%            JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:103407
+     37   21.3%        JS: ^executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+     27   73.0%          JS: ~simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+     27  100.0%            JS: ~<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:103407
+     10   27.0%          JS: ^simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+     10  100.0%            JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:103407
+     21    9.9%      JS: *<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+     21  100.0%        JS: ^executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+     21  100.0%          JS: ~simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+     21  100.0%            JS: ~<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:103407
+     17    8.0%      JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+     11   64.7%        JS: +executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+     11  100.0%          JS: ^simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+     11  100.0%            JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:103407
+      6   35.3%        JS: ^executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+      5   83.3%          JS: ~simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+      5  100.0%            JS: ~<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:103407
+      1   16.7%          JS: ^simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+      1  100.0%            JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:103407
+    204   10.1%    JS: *calculateHealthcarePremiums file:///Users/robbonner/Retirenment%20Calculator/src/healthcare-premium-engine.ts:1:2304
+    160   78.4%      JS: +<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+    119   74.4%        JS: +executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+    119  100.0%          JS: ^simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+    119  100.0%            JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:103407
+     41   25.6%        JS: ^executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+     39   95.1%          JS: ~simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+     39  100.0%            JS: ~<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:103407
+      2    4.9%          JS: ^simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+      2  100.0%            JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:103407
+     25   12.3%      JS: *<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+     25  100.0%        JS: ^executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+     25  100.0%          JS: ~simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+     25  100.0%            JS: ~<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:103407
+     19    9.3%      JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+     16   84.2%        JS: +executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+     16  100.0%          JS: ^simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+     16  100.0%            JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:103407
+      3   15.8%        JS: ^executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+      3  100.0%          JS: ~simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+      3  100.0%            JS: ~<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:103407
+     78    3.9%    JS: *<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+     78  100.0%      JS: ^executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+     78  100.0%        JS: ~simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+     78  100.0%          JS: ~<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:103407
+     78  100.0%            JS: ~buildPathResults file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:102697
+     59    2.9%    JS: *roundSeriesValue file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66857
+     59  100.0%      JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+     45   76.3%        JS: +executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+     45  100.0%          JS: ^simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+     45  100.0%            JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:103407
+     14   23.7%        JS: ^executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+     11   78.6%          JS: ~simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+     11  100.0%            JS: ~<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:103407
+      3   21.4%          JS: ^simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+      3  100.0%            JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:103407
+     25    1.2%    JS: *<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:84579
+     25  100.0%      t _Builtins_ArrayMap
+     24   96.0%        JS: +<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+     17   70.8%          JS: +executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+     17  100.0%            JS: ^simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+      7   29.2%          JS: ^executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+      5   71.4%            JS: ~simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+      2   28.6%            JS: ^simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+      1    4.0%        JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+      1  100.0%          JS: +executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+      1  100.0%            JS: ^simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+
+    605    4.7%  t _Builtins_ArrayTimSort
+    605  100.0%    t _Builtins_ArrayPrototypeSort
+    381   63.0%      JS: *median file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2173
+    192   50.4%        JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:92169
+    192  100.0%          t _Builtins_ArrayMap
+    142   74.0%            JS: ^simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+     50   26.0%            JS: ~simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+    188   49.3%        JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:51543
+    188  100.0%          t _Builtins_ArrayMap
+    117   62.2%            JS: ^buildSimulationModeDiagnostics file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:49419
+     71   37.8%            JS: ~buildSimulationModeDiagnostics file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:49419
+     80   13.2%      JS: *buildWithdrawalDecisionTrace file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:27339
+     79   98.8%        JS: *<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:75339
+     60   75.9%          JS: +<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+     50   83.3%            JS: +executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+     10   16.7%            JS: ^executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+     13   16.5%          JS: *<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+     13  100.0%            JS: ^executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+      6    7.6%          JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+      4   66.7%            JS: +executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+      2   33.3%            JS: ^executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+      1    1.3%        JS: ^withdrawForNeed file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:29530
+      1  100.0%          JS: +<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:75339
+      1  100.0%            JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+     63   10.4%      JS: +percentile file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:1914
+     61   96.8%        JS: +median file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2173
+     34   55.7%          JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:92169
+     34  100.0%            t _Builtins_ArrayMap
+     26   42.6%          JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:51543
+     26  100.0%            t _Builtins_ArrayMap
+      1    1.6%          JS: ~<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:51543
+      1  100.0%            t _Builtins_ArrayMap
+      2    3.2%        JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:92169
+      2  100.0%          t _Builtins_ArrayMap
+      2  100.0%            JS: ~simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+     43    7.1%      JS: *percentile file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:1914
+     26   60.5%        JS: +<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:92169
+     26  100.0%          t _Builtins_ArrayMap
+     26  100.0%            JS: ^simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+     16   37.2%        JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:92169
+     16  100.0%          t _Builtins_ArrayMap
+     14   87.5%            JS: ^simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+      2   12.5%            JS: ~simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+      1    2.3%        JS: +executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+      1  100.0%          JS: ^simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+      1  100.0%            JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:103407
+     26    4.3%      JS: *<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:75339
+     23   88.5%        JS: +<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+     17   73.9%          JS: +executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+     17  100.0%            JS: ^simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+      6   26.1%          JS: ^executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+      5   83.3%            JS: ~simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+      1   16.7%            JS: ^simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+      2    7.7%        JS: *<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+      2  100.0%          JS: ^executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+      2  100.0%            JS: ~simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+      1    3.8%        JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+      1  100.0%          JS: +executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+      1  100.0%            JS: ^simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+
+    592    4.6%  UNKNOWN
+    243   41.0%    JS: *calculateFederalTax file:///Users/robbonner/Retirenment%20Calculator/src/tax-engine.ts:1:6364
+    145   59.7%      JS: *<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:75339
+    121   83.4%        JS: +<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+     96   79.3%          JS: +executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+     96  100.0%            JS: ^simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+     25   20.7%          JS: ^executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+     21   84.0%            JS: ~simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+      4   16.0%            JS: ^simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+     16   11.0%        JS: *<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+     16  100.0%          JS: ^executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+     16  100.0%            JS: ~simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+      8    5.5%        JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+      4   50.0%          JS: ^executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+      4  100.0%            JS: ~simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+      4   50.0%          JS: +executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+      4  100.0%            JS: ^simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+     50   20.6%      JS: *applyProactiveRothConversion file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:31769
+     46   92.0%        JS: +<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+     41   89.1%          JS: +executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+     41  100.0%            JS: ^simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+      5   10.9%          JS: ^executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+      4   80.0%            JS: ~simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+      1   20.0%            JS: ^simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+      4    8.0%        JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+      4  100.0%          JS: +executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+      4  100.0%            JS: ^simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+     32   13.2%      JS: *<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:29892
+     32  100.0%        JS: *<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:30417
+     32  100.0%          JS: *<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:75339
+     26   81.3%            JS: +<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+      4   12.5%            JS: *<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+      2    6.3%            JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+     14    5.8%      JS: *<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:39380
+     14  100.0%        t _Builtins_ArrayMap
+     13   92.9%          JS: +applyProactiveRothConversion file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:31769
+     11   84.6%            JS: +<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+      2   15.4%            JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+      1    7.1%          JS: ^applyProactiveRothConversion file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:31769
+      1  100.0%            JS: +<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+    155   26.2%    JS: +<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+    122   78.7%      JS: +executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+    122  100.0%        JS: ^simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+    122  100.0%          JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:103407
+     96   78.7%            JS: ^buildPathResults file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:102697
+     26   21.3%            JS: ~buildPathResults file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:102697
+     32   20.6%      JS: ^executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+     30   93.8%        JS: ~simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+     30  100.0%          JS: ~<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:103407
+     30  100.0%            JS: ~buildPathResults file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:102697
+      2    6.3%        JS: ^simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+      2  100.0%          JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:103407
+      2  100.0%            JS: ~buildPathResults file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:102697
+     64   10.8%    JS: *calculateHealthcarePremiums file:///Users/robbonner/Retirenment%20Calculator/src/healthcare-premium-engine.ts:1:2304
+     50   78.1%      JS: +<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+     36   72.0%        JS: +executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+     36  100.0%          JS: ^simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+     36  100.0%            JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:103407
+     14   28.0%        JS: ^executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+     13   92.9%          JS: ~simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+     13  100.0%            JS: ~<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:103407
+      1    7.1%          JS: ^simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+      1  100.0%            JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:103407
+      9   14.1%      JS: *<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+      9  100.0%        JS: ^executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+      9  100.0%          JS: ~simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+      9  100.0%            JS: ~<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:103407
+      5    7.8%      JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+      3   60.0%        JS: +executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+      3  100.0%          JS: ^simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+      3  100.0%            JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:103407
+      2   40.0%        JS: ^executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+      2  100.0%          JS: ~simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+      2  100.0%            JS: ~<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:103407
+     50    8.4%    JS: *calculatePreRetirementContributions file:///Users/robbonner/Retirenment%20Calculator/src/contribution-engine.ts:1:2459
+     35   70.0%      JS: +<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+     28   80.0%        JS: +executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+     28  100.0%          JS: ^simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+     28  100.0%            JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:103407
+      7   20.0%        JS: ^executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+      4   57.1%          JS: ~simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+      4  100.0%            JS: ~<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:103407
+      3   42.9%          JS: ^simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+      3  100.0%            JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:103407
+      8   16.0%      JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+      6   75.0%        JS: +executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+      6  100.0%          JS: ^simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+      6  100.0%            JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:103407
+      2   25.0%        JS: ^executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+      2  100.0%          JS: ~simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+      2  100.0%            JS: ~<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:103407
+      7   14.0%      JS: *<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+      7  100.0%        JS: ^executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+      7  100.0%          JS: ~simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+      7  100.0%            JS: ~<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:103407
+     25    4.2%    JS: *roundSeriesValue file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66857
+     25  100.0%      JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+     15   60.0%        JS: +executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+     15  100.0%          JS: ^simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+     15  100.0%            JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:103407
+     10   40.0%        JS: ^executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+      9   90.0%          JS: ~simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+      9  100.0%            JS: ~<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:103407
+      1   10.0%          JS: ^simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+      1  100.0%            JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:103407
+     25    4.2%    JS: *<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+     25  100.0%      JS: ^executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+     25  100.0%        JS: ~simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+     25  100.0%          JS: ~<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:103407
+     25  100.0%            JS: ~buildPathResults file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:102697
+
+    389    3.0%  t _Builtins_KeyedLoadIC_Megamorphic
+    199   51.2%    t _Builtins_ArrayReduce
+    195   98.0%      JS: +<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+    150   76.9%        JS: +executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+    150  100.0%          JS: ^simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+    150  100.0%            JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:103407
+     45   23.1%        JS: ^executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+     38   84.4%          JS: ~simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+     38  100.0%            JS: ~<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:103407
+      7   15.6%          JS: ^simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+      7  100.0%            JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:103407
+      4    2.0%      JS: +<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:74097
+      3   75.0%        t _Builtins_ArrayForEach
+      3  100.0%          JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+      2   66.7%            JS: +executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+      1   33.3%            JS: ~executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+      1   25.0%        JS: *<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+      1  100.0%          JS: ^executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+      1  100.0%            JS: ~simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+    114   29.3%    t _Builtins_ArrayPrototypeSort
+    113   99.1%      JS: *buildWithdrawalDecisionTrace file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:27339
+    111   98.2%        JS: *<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:75339
+     90   81.1%          JS: +<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+     67   74.4%            JS: +executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+     23   25.6%            JS: ^executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+     11    9.9%          JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+      8   72.7%            JS: +executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+      3   27.3%            JS: ^executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+     10    9.0%          JS: *<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+     10  100.0%            JS: ^executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+      2    1.8%        JS: ^withdrawForNeed file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:29530
+      2  100.0%          JS: +<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:75339
+      2  100.0%            JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+     34    8.7%    JS: *<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+     34  100.0%      JS: ^executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+     34  100.0%        JS: ~simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+     34  100.0%          JS: ~<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:103407
+     34  100.0%            JS: ~buildPathResults file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:102697
+     15    3.9%    JS: *<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:75339
+     10   66.7%      JS: +<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+      8   80.0%        JS: +executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+      8  100.0%          JS: ^simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+      8  100.0%            JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:103407
+      2   20.0%        JS: ^executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+      2  100.0%          JS: ~simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+      2  100.0%            JS: ~<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:103407
+      4   26.7%      JS: *<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+      4  100.0%        JS: ^executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+      4  100.0%          JS: ~simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+      4  100.0%            JS: ~<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:103407
+      1    6.7%      JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+      1  100.0%        JS: +executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+      1  100.0%          JS: ^simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+      1  100.0%            JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:103407
+     13    3.3%    JS: +executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+     13  100.0%      JS: ^simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+     13  100.0%        JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:103407
+     13  100.0%          JS: ^buildPathResults file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:102697
+     13  100.0%            JS: ^runBaseline file:///Users/robbonner/Retirenment%20Calculator/scripts/perf-baseline.ts:1:1653
+      9    2.3%    t _Builtins_ArrayForEach
+      9  100.0%      JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+      5   55.6%        JS: ^executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+      5  100.0%          JS: ~simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+      5  100.0%            JS: ~<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:103407
+      4   44.4%        JS: +executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+      4  100.0%          JS: ^simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+      4  100.0%            JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:103407
+      5    1.3%    JS: *<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:74097
+      5  100.0%      t _Builtins_ArrayForEach
+      5  100.0%        JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+      5  100.0%          JS: +executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+      5  100.0%            JS: ^simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+
+    229    1.8%  t __os_nospin_lock_unlock_slow
+    103   45.0%    JS: *calculateFederalTax file:///Users/robbonner/Retirenment%20Calculator/src/tax-engine.ts:1:6364
+     63   61.2%      JS: *<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:75339
+     51   81.0%        JS: +<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+     41   80.4%          JS: +executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+     41  100.0%            JS: ^simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+     10   19.6%          JS: ^executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+      9   90.0%            JS: ~simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+      1   10.0%            JS: ^simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+      7   11.1%        JS: *<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+      7  100.0%          JS: ^executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+      7  100.0%            JS: ~simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+      5    7.9%        JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+      4   80.0%          JS: +executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+      4  100.0%            JS: ^simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+      1   20.0%          JS: ^executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+      1  100.0%            JS: ~simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+     28   27.2%      JS: *applyProactiveRothConversion file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:31769
+     25   89.3%        JS: +<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+     20   80.0%          JS: +executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+     20  100.0%            JS: ^simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+      5   20.0%          JS: ^executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+      4   80.0%            JS: ~simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+      1   20.0%            JS: ^simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+      3   10.7%        JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+      3  100.0%          JS: +executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+      3  100.0%            JS: ^simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+     10    9.7%      JS: *<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:29892
+     10  100.0%        JS: *<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:30417
+     10  100.0%          JS: *<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:75339
+      8   80.0%            JS: +<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+      2   20.0%            JS: *<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+     44   19.2%    JS: +<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+     35   79.5%      JS: +executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+     35  100.0%        JS: ^simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+     35  100.0%          JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:103407
+     27   77.1%            JS: ^buildPathResults file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:102697
+      8   22.9%            JS: ~buildPathResults file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:102697
+      9   20.5%      JS: ^executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+      8   88.9%        JS: ~simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+      8  100.0%          JS: ~<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:103407
+      8  100.0%            JS: ~buildPathResults file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:102697
+      1   11.1%        JS: ^simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+      1  100.0%          JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:103407
+      1  100.0%            JS: ~buildPathResults file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:102697
+     29   12.7%    JS: *calculateHealthcarePremiums file:///Users/robbonner/Retirenment%20Calculator/src/healthcare-premium-engine.ts:1:2304
+     24   82.8%      JS: +<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+     20   83.3%        JS: +executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+     20  100.0%          JS: ^simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+     20  100.0%            JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:103407
+      4   16.7%        JS: ^executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+      3   75.0%          JS: ~simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+      3  100.0%            JS: ~<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:103407
+      1   25.0%          JS: ^simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+      1  100.0%            JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:103407
+      3   10.3%      JS: *<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+      3  100.0%        JS: ^executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+      3  100.0%          JS: ~simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+      3  100.0%            JS: ~<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:103407
+      2    6.9%      JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+      2  100.0%        JS: +executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+      2  100.0%          JS: ^simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+      2  100.0%            JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:103407
+     25   10.9%    JS: *calculatePreRetirementContributions file:///Users/robbonner/Retirenment%20Calculator/src/contribution-engine.ts:1:2459
+     17   68.0%      JS: +<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+     14   82.4%        JS: +executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+     14  100.0%          JS: ^simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+     14  100.0%            JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:103407
+      3   17.6%        JS: ^executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+      3  100.0%          JS: ~simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+      3  100.0%            JS: ~<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:103407
+      4   16.0%      JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+      3   75.0%        JS: +executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+      3  100.0%          JS: ^simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+      3  100.0%            JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:103407
+      1   25.0%        JS: ^executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+      1  100.0%          JS: ~simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+      1  100.0%            JS: ~<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:103407
+      4   16.0%      JS: *<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+      4  100.0%        JS: ^executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+      4  100.0%          JS: ~simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+      4  100.0%            JS: ~<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:103407
+      8    3.5%    JS: *roundSeriesValue file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66857
+      8  100.0%      JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+      6   75.0%        JS: +executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+      6  100.0%          JS: ^simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+      6  100.0%            JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:103407
+      2   25.0%        JS: ^executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+      2  100.0%          JS: ~simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+      2  100.0%            JS: ~<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:103407
+      5    2.2%    JS: *applyProactiveRothConversion file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:31769
+      5  100.0%      JS: +<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+      5  100.0%        JS: +executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+      5  100.0%          JS: ^simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+      5  100.0%            JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:103407
+      4    1.7%    JS: *<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+      4  100.0%      JS: ^executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+      4  100.0%        JS: ~simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+      4  100.0%          JS: ~<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:103407
+      4  100.0%            JS: ~buildPathResults file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:102697
+      3    1.3%    JS: *<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:84579
+      3  100.0%      t _Builtins_ArrayMap
+      3  100.0%        JS: +<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+      3  100.0%          JS: +executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+      3  100.0%            JS: ^simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+
+    227    1.8%  T __kernelrpc_mach_port_get_refs
+     71   31.3%    JS: ~waitForWorker node:internal/modules/esm/hooks:519:16
+     71  100.0%      JS: ~makeSyncRequest node:internal/modules/esm/hooks:598:18
+     71  100.0%        JS: ~register node:internal/modules/esm/loader:887:11
+     71  100.0%          JS: ~register node:internal/modules/esm/loader:656:11
+     71  100.0%            JS: ~register node:internal/modules/esm/loader:1032:18
+     45   19.8%    JS: ~makeSyncRequest node:internal/modules/esm/hooks:598:18
+     45  100.0%      JS: ~register node:internal/modules/esm/loader:887:11
+     45  100.0%        JS: ~register node:internal/modules/esm/loader:656:11
+     45  100.0%          JS: ~register node:internal/modules/esm/loader:1032:18
+     45  100.0%            JS: ~<anonymous> file:///Users/robbonner/Retirenment%20Calculator/node_modules/tsx/dist/register-B7jrtLTO.mjs:1:556
+      5    2.2%    JS: *<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:35178
+      5  100.0%      JS: *applyProactiveRothConversion file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:31769
+      3   60.0%        JS: +<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+      3  100.0%          JS: +executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+      3  100.0%            JS: ^simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+      2   40.0%        JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+      2  100.0%          JS: +executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+      2  100.0%            JS: ^simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+
+    213    1.7%  JS: +<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+    170   79.8%    JS: +executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+    170  100.0%      JS: ^simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+    170  100.0%        JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:103407
+    133   78.2%          JS: ^buildPathResults file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:102697
+    133  100.0%            JS: ^runBaseline file:///Users/robbonner/Retirenment%20Calculator/scripts/perf-baseline.ts:1:1653
+     37   21.8%          JS: ~buildPathResults file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:102697
+     31   83.8%            JS: ^runBaseline file:///Users/robbonner/Retirenment%20Calculator/scripts/perf-baseline.ts:1:1653
+      6   16.2%            JS: ~runBaseline file:///Users/robbonner/Retirenment%20Calculator/scripts/perf-baseline.ts:1:1653
+     42   19.7%    JS: ^executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+     31   73.8%      JS: ~simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+     31  100.0%        JS: ~<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:103407
+     31  100.0%          JS: ~buildPathResults file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:102697
+     31  100.0%            JS: ~runBaseline file:///Users/robbonner/Retirenment%20Calculator/scripts/perf-baseline.ts:1:1653
+     11   26.2%      JS: ^simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+     11  100.0%        JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:103407
+     11  100.0%          JS: ~buildPathResults file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:102697
+     11  100.0%            JS: ~runBaseline file:///Users/robbonner/Retirenment%20Calculator/scripts/perf-baseline.ts:1:1653
+
+    203    1.6%  JS: *<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:1990
+    203  100.0%    t _Builtins_ArrayPrototypeSort
+    158   77.8%      JS: *median file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2173
+     87   55.1%        JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:92169
+     87  100.0%          t _Builtins_ArrayMap
+     63   72.4%            JS: ^simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+     24   27.6%            JS: ~simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+     69   43.7%        JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:51543
+     69  100.0%          t _Builtins_ArrayMap
+     51   73.9%            JS: ^buildSimulationModeDiagnostics file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:49419
+     18   26.1%            JS: ~buildSimulationModeDiagnostics file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:49419
+      2    1.3%        JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:54925
+      2  100.0%          JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:51543
+      2  100.0%            t _Builtins_ArrayMap
+     28   13.8%      JS: +percentile file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:1914
+     28  100.0%        JS: +median file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2173
+     16   57.1%          JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:92169
+     16  100.0%            t _Builtins_ArrayMap
+     10   35.7%          JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:51543
+     10  100.0%            t _Builtins_ArrayMap
+      1    3.6%          JS: ~<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:51543
+      1  100.0%            t _Builtins_ArrayMap
+      1    3.6%          JS: ^simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+      1  100.0%            JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:103407
+     17    8.4%      JS: *percentile file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:1914
+      8   47.1%        JS: +<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:92169
+      8  100.0%          t _Builtins_ArrayMap
+      8  100.0%            JS: ^simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+      5   29.4%        JS: +median file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2173
+      5  100.0%          JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:92169
+      5  100.0%            t _Builtins_ArrayMap
+      3   17.6%        JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:92169
+      3  100.0%          t _Builtins_ArrayMap
+      2   66.7%            JS: ~simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+      1   33.3%            JS: ^simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+      1    5.9%        JS: +executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+      1  100.0%          JS: ^simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+      1  100.0%            JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:103407
+
+    196    1.5%  t _Builtins_MergeAt
+    196  100.0%    t _Builtins_ArrayPrototypeSort
+    159   81.1%      JS: *median file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2173
+     85   53.5%        JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:51543
+     85  100.0%          t _Builtins_ArrayMap
+     64   75.3%            JS: ^buildSimulationModeDiagnostics file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:49419
+     21   24.7%            JS: ~buildSimulationModeDiagnostics file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:49419
+     74   46.5%        JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:92169
+     74  100.0%          t _Builtins_ArrayMap
+     48   64.9%            JS: ^simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+     26   35.1%            JS: ~simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+     19    9.7%      JS: +percentile file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:1914
+     17   89.5%        JS: +median file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2173
+     11   64.7%          JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:51543
+     11  100.0%            t _Builtins_ArrayMap
+      6   35.3%          JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:92169
+      6  100.0%            t _Builtins_ArrayMap
+      2   10.5%        JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:92169
+      2  100.0%          t _Builtins_ArrayMap
+      2  100.0%            JS: ^simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+     15    7.7%      JS: *percentile file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:1914
+      6   40.0%        JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:92169
+      6  100.0%          t _Builtins_ArrayMap
+      5   83.3%            JS: ^simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+      1   16.7%            JS: ~simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+      6   40.0%        JS: +<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:92169
+      6  100.0%          t _Builtins_ArrayMap
+      6  100.0%            JS: ^simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+      2   13.3%        JS: +executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+      2  100.0%          JS: ^simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+      2  100.0%            JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:103407
+      1    6.7%        JS: +median file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2173
+      1  100.0%          JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:92169
+      1  100.0%            t _Builtins_ArrayMap
+      3    1.5%      JS: ^percentile file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:1914
+      3  100.0%        JS: +median file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2173
+      2   66.7%          JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:51543
+      2  100.0%            t _Builtins_ArrayMap
+      1   33.3%          JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:92169
+      1  100.0%            t _Builtins_ArrayMap
+
+    163    1.3%  JS: *<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:13296
+    161   98.8%    t _Builtins_ArrayReduce
+    157   97.5%      JS: +<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+    113   72.0%        JS: +executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+    113  100.0%          JS: ^simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+    113  100.0%            JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:103407
+     44   28.0%        JS: ^executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+     37   84.1%          JS: ~simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+     37  100.0%            JS: ~<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:103407
+      7   15.9%          JS: ^simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+      7  100.0%            JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:103407
+      2    1.2%      JS: +getBucketReturn file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:13217
+      2  100.0%        JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:74097
+      2  100.0%          t _Builtins_ArrayForEach
+      2  100.0%            JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+      2    1.2%      JS: +<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:74097
+      2  100.0%        t _Builtins_ArrayForEach
+      2  100.0%          JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+      2  100.0%            JS: +executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+      2    1.2%    JS: +<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+      2  100.0%      JS: ^executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+      2  100.0%        JS: ~simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+      2  100.0%          JS: ~<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:103407
+      2  100.0%            JS: ~buildPathResults file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:102697
+
+    154    1.2%  t _Builtins_ArrayMap
+     84   54.5%    JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:92169
+     84  100.0%      t _Builtins_ArrayMap
+     58   69.0%        JS: ^simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+     58  100.0%          JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:103407
+     39   67.2%            JS: ^buildPathResults file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:102697
+     19   32.8%            JS: ~buildPathResults file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:102697
+     26   31.0%        JS: ~simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+     26  100.0%          JS: ~<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:103407
+     26  100.0%            JS: ~buildPathResults file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:102697
+     45   29.2%    JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:51543
+     45  100.0%      t _Builtins_ArrayMap
+     27   60.0%        JS: ^buildSimulationModeDiagnostics file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:49419
+     27  100.0%          JS: ^simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+     27  100.0%            JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:103407
+     18   40.0%        JS: ~buildSimulationModeDiagnostics file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:49419
+     18  100.0%          JS: ~simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+     18  100.0%            JS: ~<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:103407
+      9    5.8%    JS: +<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+      7   77.8%      JS: +executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+      7  100.0%        JS: ^simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+      7  100.0%          JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:103407
+      6   85.7%            JS: ^buildPathResults file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:102697
+      1   14.3%            JS: ~buildPathResults file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:102697
+      2   22.2%      JS: ^executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+      2  100.0%        JS: ^simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+      2  100.0%          JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:103407
+      2  100.0%            JS: ~buildPathResults file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:102697
+      6    3.9%    JS: +<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:92169
+      6  100.0%      t _Builtins_ArrayMap
+      6  100.0%        JS: ^simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+      6  100.0%          JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:103407
+      6  100.0%            JS: ^buildPathResults file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:102697
+      3    1.9%    JS: +applyProactiveRothConversion file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:31769
+      3  100.0%      JS: +<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+      3  100.0%        JS: ^executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+      3  100.0%          JS: ~simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+      3  100.0%            JS: ~<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:103407
+      2    1.3%    JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:58617
+      2  100.0%      JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:51543
+      2  100.0%        t _Builtins_ArrayMap
+      2  100.0%          JS: ~buildSimulationModeDiagnostics file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:49419
+      2  100.0%            JS: ~simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+      2    1.3%    JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:55609
+      2  100.0%      JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:51543
+      2  100.0%        t _Builtins_ArrayMap
+      1   50.0%          JS: ~buildSimulationModeDiagnostics file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:49419
+      1  100.0%            JS: ~simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+      1   50.0%          JS: ^buildSimulationModeDiagnostics file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:49419
+      1  100.0%            JS: ^simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+      2    1.3%    JS: +buildWithdrawalDecisionTrace file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:27339
+      1   50.0%      JS: +withdrawForNeed file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:29530
+      1  100.0%        JS: +<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:75339
+      1  100.0%          JS: +<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+      1  100.0%            JS: ^executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+      1   50.0%      JS: *<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:75339
+      1  100.0%        JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+      1  100.0%          JS: ^executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+      1  100.0%            JS: ~simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+
+    133    1.0%  JS: *calculateFederalTax file:///Users/robbonner/Retirenment%20Calculator/src/tax-engine.ts:1:6364
+     61   45.9%    JS: *<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:75339
+     44   72.1%      JS: +<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+     35   79.5%        JS: +executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+     35  100.0%          JS: ^simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+     35  100.0%            JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:103407
+      9   20.5%        JS: ^executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+      9  100.0%          JS: ~simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+      9  100.0%            JS: ~<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:103407
+     10   16.4%      JS: *<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+     10  100.0%        JS: ^executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+     10  100.0%          JS: ~simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+     10  100.0%            JS: ~<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:103407
+      7   11.5%      JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+      4   57.1%        JS: +executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+      4  100.0%          JS: ^simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+      4  100.0%            JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:103407
+      3   42.9%        JS: ^executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+      2   66.7%          JS: ~simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+      2  100.0%            JS: ~<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:103407
+      1   33.3%          JS: ^simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+      1  100.0%            JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:103407
+     36   27.1%    JS: *applyProactiveRothConversion file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:31769
+     33   91.7%      JS: +<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+     27   81.8%        JS: +executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+     27  100.0%          JS: ^simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+     27  100.0%            JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:103407
+      6   18.2%        JS: ^executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+      4   66.7%          JS: ~simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+      4  100.0%            JS: ~<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:103407
+      2   33.3%          JS: ^simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+      2  100.0%            JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:103407
+      3    8.3%      JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+      2   66.7%        JS: +executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+      2  100.0%          JS: ^simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+      2  100.0%            JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:103407
+      1   33.3%        JS: ^executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+      1  100.0%          JS: ~simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+      1  100.0%            JS: ~<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:103407
+     22   16.5%    JS: *<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:29892
+     22  100.0%      JS: *<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:30417
+     22  100.0%        JS: *<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:75339
+     14   63.6%          JS: +<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+      9   64.3%            JS: +executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+      5   35.7%            JS: ^executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+      6   27.3%          JS: *<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+      6  100.0%            JS: ^executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+      2    9.1%          JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+      2  100.0%            JS: +executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+      9    6.8%    JS: *<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:39380
+      9  100.0%      t _Builtins_ArrayMap
+      8   88.9%        JS: +applyProactiveRothConversion file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:31769
+      7   87.5%          JS: +<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+      7  100.0%            JS: ^executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+      1   12.5%          JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+      1  100.0%            JS: ^executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+      1   11.1%        JS: ^applyProactiveRothConversion file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:31769
+      1  100.0%          JS: +<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+      1  100.0%            JS: ^executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+      4    3.0%    JS: +<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:68024
+      3   75.0%      JS: +executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+      3  100.0%        JS: ^simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+      3  100.0%          JS: ^<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:103407
+      2   66.7%            JS: ~buildPathResults file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:102697
+      1   33.3%            JS: ^buildPathResults file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:102697
+      1   25.0%      JS: ^executeDeterministicMonteCarlo file:///Users/robbonner/Retirenment%20Calculator/src/monte-carlo-engine.ts:1:2676
+      1  100.0%        JS: ~simulatePath file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:66962
+      1  100.0%          JS: ~<anonymous> file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:103407
+      1  100.0%            JS: ~buildPathResults file:///Users/robbonner/Retirenment%20Calculator/src/utils.ts:1:102697
+
