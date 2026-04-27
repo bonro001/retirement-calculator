@@ -345,6 +345,53 @@ already covered by the in-process pool's parallel test suite, so the
 dispatcher's added risk surface is mostly transport and persistence
 routing rather than novel orchestration logic.
 
+#### Cluster two-stage end-to-end test (2026-04-27): result and learnings
+
+Ran 4 end-to-end cluster sessions on the M4+M2+Ryzen cluster, 500
+policies × 2000 trials, feasibility 0.85:
+
+| Run | Workers | Wall | Stage breakdown | Same winner? |
+|---|---|---|---|---|
+| A (single-pass) | 26 (8+6+12) | **68s** | — | ✓ pol_f3314486 |
+| A3 (single-pass, fewer workers) | 16 (4+4+8) | 89s | — | ✓ |
+| B (two-stage, no tuning) | 26 | 89s | coarse 52s + fine 37s | ✓ |
+| B3 (two-stage + max-batch=60) | 16 | 187s | coarse 135s + fine 52s | ✓ |
+
+**Two-stage on the cluster is currently break-even-to-worse than
+single-pass at this scale.** Findings in detail:
+
+1. **Per-policy fixed overhead is ~0.** `evaluatePolicy` profiled at
+   114ms (N=200) and 1158ms (N=2000) — perfectly linear in trial
+   count, ~0.575 ms/trial. The cluster's ~1500ms/policy at coarse
+   isn't due to the engine; it's the cluster transport.
+2. **Worker QoS hypothesis was directionally right but small.**
+   Reducing M4 workers 8 → 4 dropped per-worker time 2454ms → 1187ms
+   (E-core throttling really happens), but the lost parallelism
+   (10 workers gone across the cluster) outweighed the per-worker
+   gain. Net wall went UP, not down.
+3. **Larger batches hurt, not helped.** The host-worker processes
+   each batch serially in a single worker_thread. A 60-policy
+   coarse batch ties up one worker for ~64s while the rest of that
+   host's workers drain the queue and idle. Smaller batches give
+   better load balancing.
+4. **The architecturally correct cluster two-stage win** requires
+   the host to fan large batches across its OWN worker pool
+   (in-host parallel processing within a batch). That's a separate
+   work item not done in this branch — see
+   `cluster/host-worker.ts` line 101 (`for (const policy of
+   policies)` — currently serial).
+
+**Recommendation:** for "I'm running locally" workflows, use the
+in-process pool path's two-stage (commit 23b2ef9, ~1.79× win at
+tight feasibility). For multi-host cluster Full mines, currently use
+single-pass; revisit two-stage when in-host parallelism is added.
+
+The retained tuning fixes (per-host EWMA reset on session start,
+trial-count-aware cold-start hint scaling) are still useful
+defensive improvements regardless of two-stage — they prevent a
+session running with one trial-count from sizing batches based on
+the previous session's measurements.
+
 #### Cluster usage example
 
 ```bash
