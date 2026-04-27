@@ -297,11 +297,44 @@ choice for the household — willing to filter out marginal survivors
 sooner?) or accept a smaller win at the loose default. Both are honest
 options; the implementation is correct either way.
 
-The miner pool path (`runMiningSessionWithPool`, used by the cluster
-host workers) does NOT yet support two-stage screening. The dispatcher
-would need to coordinate stages across hosts; non-trivial follow-up
-work. The serial path (`runMiningSession`, used by the browser-as-host
-and CLI) has the support today.
+### Phase 2.C coverage status (2026-04-27 update)
+
+| Code path | Two-stage support | Notes |
+|---|---|---|
+| `runMiningSession` (serial) | ✅ shipped | commit 976046d |
+| `runMiningSessionWithPool` (in-process worker pool) | ✅ shipped | commit 23b2ef9 |
+| Cluster dispatcher (`cluster/dispatcher.ts`) | ❌ not yet | sub-section below |
+
+The serial and in-process pool paths are what the **browser-as-host
+single-tab miner** and **CLI smoke runs** use. The CLUSTER path
+(dispatcher → multi-host distribution) is a separate code path:
+hosts call `evaluatePolicy` directly via their own Node worker_threads
+(`cluster/host-worker.ts`); they don't use the in-process pool I wired.
+
+#### Cluster dispatcher two-stage: deferred work
+
+To make the cluster's Full mine actually benefit from screening, the
+dispatcher needs:
+
+1. `ActiveSession` state machine: `'coarse' | 'fine'` stage tracking,
+   dual WorkQueue (one for coarse policies, one for fine survivors).
+2. Per-batch trial-count selection: ship `coarseTrialCount` during
+   coarse phase, `trialCount` during fine.
+3. Stage-transition logic: when coarse queue drains, gather all
+   coarse results, filter survivors, build fine queue, broadcast new
+   cluster state.
+4. Persistence: only fine-pass results land in the on-disk corpus
+   (`evaluations.jsonl`). Coarse evals are in-memory only.
+5. Resume semantics: does resuming a partially-completed coarse phase
+   make sense? Probably restart from coarse pass scratch (cheap).
+6. Cluster snapshot + UI broadcasts surface stage info so the status
+   panel can show "screening: 1234 / 7776" then "fine: N of M".
+7. Dispatcher-level tests for the state machine.
+
+Estimated effort: 4-6 hours. NOT done in this branch — flagged as
+deferred follow-up. The existing in-process pool work delivers the
+same speedup pattern for the browser-as-host path, which is the
+typical "I'm running this locally" workflow today.
 
 ### Phase 2.B: parked (structural QMC bias on path-dependent integrand)
 
