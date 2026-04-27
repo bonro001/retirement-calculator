@@ -574,6 +574,157 @@ export function runMiningSessionWithPool(args: {
     const poolSize = Math.max(1, getMinerPoolSize());
     const concurrency = Math.max(1, poolSize * batchesPerWorker);
 
+    /**
+     * Generic batched-work dispatcher used by both the (optional) coarse
+     * pass and the fine pass. Runs `concurrency` workers that pull
+     * batches off the indexable list, hand them to `runPolicyBatch`,
+     * and feed results to `onBatchResult`. Honors pause / cancel from
+     * the outer scope.
+     */
+    const dispatchBatches = async (
+      activeSessionId: string,
+      activeBatches: Policy[][],
+      onBatchResult: (evaluations: PolicyEvaluation[]) => Promise<void>,
+    ): Promise<{ didError: Error | null }> => {
+      let nextBatchIndex = 0;
+      let didError: Error | null = null;
+      const runWorker = async (): Promise<void> => {
+        while (true) {
+          if (cancelRequested) return;
+          if (pauseRequested) {
+            stats.state = 'paused';
+            onStats?.({ ...stats });
+            await new Promise<void>((resolve) => {
+              // Last writer wins — only one resumer is needed; pause/resume
+              // is single-source from the UI panel.
+              resumeNow = resolve;
+            });
+            if (cancelRequested) return;
+            stats.state = 'running';
+            onStats?.({ ...stats });
+          }
+          const myBatchIdx = nextBatchIndex;
+          if (myBatchIdx >= activeBatches.length) return;
+          nextBatchIndex += 1;
+          const batch = activeBatches[myBatchIdx];
+          try {
+            const evaluations = await runPolicyBatch(activeSessionId, batch);
+            await onBatchResult(evaluations);
+          } catch (err) {
+            // The pool decorates errors with a `partial` field carrying
+            // any evaluations the worker completed before the failure.
+            // Pass those to the result handler so coarse-pass survivor
+            // tracking and fine-pass corpus persistence both stay useful.
+            const partial = (err as Error & { partial?: PolicyEvaluation[] })
+              .partial;
+            if (partial && partial.length > 0) {
+              try {
+                await onBatchResult(partial);
+              } catch {
+                /* result-handler best-effort on error path */
+              }
+            }
+            // POLICY_MINER_CANCELLED is the cancel-all signal. Don't treat
+            // it as an error — the donePromise resolves via the cancelled
+            // state below.
+            const message = err instanceof Error ? err.message : String(err);
+            if (message === 'POLICY_MINER_CANCELLED') return;
+            didError = err instanceof Error ? err : new Error(message);
+            return;
+          }
+        }
+      };
+      const workers: Promise<void>[] = [];
+      for (let i = 0; i < concurrency; i += 1) workers.push(runWorker());
+      await Promise.all(workers);
+      return { didError };
+    };
+
+    // --- Phase 2.C — pool-path coarse pass (opt-in) ---
+    // Run the entire policy list through the worker pool with coarse
+    // (low-N) assumptions, collect survivors based on coarse
+    // bequestAttainmentRate, then re-prime with full assumptions and
+    // re-batch only the survivors for the fine pass below. Coarse
+    // evaluations are NOT persisted — only fine-pass results land in
+    // the corpus, matching the serial-path Phase 2.C contract.
+    const coarseStage = config.coarseStage;
+    if (coarseStage) {
+      const coarseAssumptions: MarketAssumptions = {
+        ...assumptions,
+        simulationRuns: Math.max(1, Math.floor(coarseStage.trialCount)),
+      };
+      const coarseSurvivalThreshold = Math.max(
+        0,
+        config.feasibilityThreshold - coarseStage.feasibilityBuffer,
+      );
+      const coarseSessionId = `${sessionId}-coarse`;
+      primeMinerSession({
+        sessionId: coarseSessionId,
+        data: baseline,
+        assumptions: coarseAssumptions,
+        baselineFingerprint: config.baselineFingerprint,
+        engineVersion: config.engineVersion,
+        evaluatedByNodeId,
+        legacyTargetTodayDollars,
+      });
+      const survivors: Policy[] = [];
+      try {
+        // Use the SAME batches list for the coarse pass — the policies
+        // haven't been filtered yet (resume-skip was applied above to
+        // `batches`, so coarse only runs on policies not already in
+        // the corpus).
+        const coarseResult = await dispatchBatches(
+          coarseSessionId,
+          batches,
+          async (evaluations) => {
+            for (const ev of evaluations) {
+              stats.coarseEvaluated += 1;
+              if (ev.outcome.bequestAttainmentRate >= coarseSurvivalThreshold) {
+                survivors.push(ev.policy);
+              } else {
+                stats.coarseScreenedOut += 1;
+              }
+            }
+            // Don't push coarse durations into recentDurations — those
+            // calibrate the fine-pass ETA and would mislead the UI.
+            await saveMiningStats(config.baselineFingerprint, stats);
+            onStats?.({ ...stats });
+          },
+        );
+        if (coarseResult.didError) {
+          stats.state = 'error';
+          stats.lastError = coarseResult.didError.message;
+          await saveMiningStats(config.baselineFingerprint, stats);
+          onStats?.({ ...stats });
+          throw coarseResult.didError;
+        }
+      } finally {
+        try {
+          unprimeMinerSession(coarseSessionId);
+        } catch {
+          /* best-effort */
+        }
+      }
+      if (cancelRequested) {
+        // User cancelled mid-coarse — fall through to the cancellation
+        // state below without running fine pass.
+        stats.state = 'cancelled';
+        await saveMiningStats(config.baselineFingerprint, stats);
+        onStats?.({ ...stats });
+        return;
+      }
+      // Re-batch survivors for the fine pass.
+      batches.length = 0;
+      for (let i = 0; i < survivors.length; i += policiesPerBatch) {
+        batches.push(survivors.slice(i, i + policiesPerBatch));
+      }
+      // Re-anchor totalPolicies to the survivor count so the existing
+      // ETA math (totalPolicies - policiesEvaluated) reports the right
+      // number of REMAINING fine-pass policies.
+      stats.totalPolicies = survivors.length;
+      onStats?.({ ...stats });
+    }
+
     primeMinerSession({
       sessionId,
       data: baseline,
@@ -584,68 +735,18 @@ export function runMiningSessionWithPool(args: {
       legacyTargetTodayDollars,
     });
 
-    let nextBatchIndex = 0;
-    let didError: Error | null = null;
-
-    const runWorker = async (): Promise<void> => {
-      while (true) {
-        if (cancelRequested) return;
-        if (pauseRequested) {
-          stats.state = 'paused';
-          onStats?.({ ...stats });
-          await new Promise<void>((resolve) => {
-            // Last writer wins — only one resumer is needed; pause/resume
-            // is single-source from the UI panel.
-            resumeNow = resolve;
-          });
-          if (cancelRequested) return;
-          stats.state = 'running';
-          onStats?.({ ...stats });
-        }
-        const myBatchIdx = nextBatchIndex;
-        if (myBatchIdx >= batches.length) return;
-        nextBatchIndex += 1;
-        const batch = batches[myBatchIdx];
-        try {
-          const evaluations = await runPolicyBatch(sessionId, batch);
-          await ingestBatchResult(evaluations);
-        } catch (err) {
-          // The pool decorates errors with a `partial` field carrying
-          // any evaluations the worker completed before the failure.
-          // Persist those before propagating so the corpus stays useful.
-          const partial = (err as Error & { partial?: PolicyEvaluation[] })
-            .partial;
-          if (partial && partial.length > 0) {
-            try {
-              await ingestBatchResult(partial);
-            } catch {
-              /* persistence best-effort on error path */
-            }
-          }
-          // POLICY_MINER_CANCELLED is the cancel-all signal. Don't treat
-          // it as an error — the donePromise resolves via the cancelled
-          // state below.
-          const message = err instanceof Error ? err.message : String(err);
-          if (message === 'POLICY_MINER_CANCELLED') return;
-          didError = err instanceof Error ? err : new Error(message);
-          return;
-        }
-      }
-    };
-
     try {
-      const workers: Promise<void>[] = [];
-      for (let i = 0; i < concurrency; i += 1) {
-        workers.push(runWorker());
-      }
-      await Promise.all(workers);
-
-      if (didError) {
+      const fineResult = await dispatchBatches(
+        sessionId,
+        batches,
+        ingestBatchResult,
+      );
+      if (fineResult.didError) {
         stats.state = 'error';
-        stats.lastError = didError.message;
+        stats.lastError = fineResult.didError.message;
         await saveMiningStats(config.baselineFingerprint, stats);
         onStats?.({ ...stats });
-        throw didError;
+        throw fineResult.didError;
       }
       if (cancelRequested) {
         stats.state = 'cancelled';
