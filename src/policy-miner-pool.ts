@@ -48,36 +48,99 @@ const queuedRequests: Array<{
 }> = [];
 let nextRequestSeq = 0;
 
-function defaultPoolSize(): number {
-  const hc =
-    typeof navigator !== 'undefined' &&
+/**
+ * Browser-host worker pool sizing modes. The browser tab serves as both
+ * a host AND a controller in the cluster. When other dedicated Node hosts
+ * are also connected (M4/M2/Ryzen via cluster:host), giving the browser
+ * a 12-worker pool is wasteful — it competes with the Node host on the
+ * same machine for CPU AND memory. Web Workers are dramatically heavier
+ * than node:worker_threads (~50-100MB each vs ~10MB), and on Full mine
+ * workloads a 12-Web-Worker tab can hit Chrome's per-renderer OOM
+ * ceiling (Error code 5 / Aw Snap) within a few minutes.
+ *
+ * The mode controls how many Web Workers the pool spawns:
+ *   - 'off':     No workers, no host registration. Browser is controller
+ *                only. Other hosts (M4 Node + M2 + Ryzen) do all the
+ *                compute. Memory-safe; loses browser's ~720 pol/min
+ *                contribution.
+ *   - 'reduced': 4 Web Workers (cap regardless of hardwareConcurrency).
+ *                Default. Memory-safe AND contributes ~240 pol/min on
+ *                an M4 mini. Picks the right balance when other hosts
+ *                are present.
+ *   - 'full':    Original 1.5× hardwareConcurrency capped at 12.
+ *                Right when the browser is the ONLY host (no Node
+ *                cluster running) — max throughput, accept the OOM
+ *                risk on big workloads.
+ *
+ * Persisted in localStorage. Changes apply on next page load (rebuilding
+ * the pool mid-session would require draining in-flight batches; YAGNI).
+ */
+const BROWSER_HOST_MODE_KEY = 'cluster.browserHostMode';
+type BrowserHostMode = 'off' | 'reduced' | 'full';
+
+function readBrowserHostMode(): BrowserHostMode {
+  if (typeof localStorage === 'undefined') return 'reduced';
+  const v = localStorage.getItem(BROWSER_HOST_MODE_KEY);
+  if (v === 'off' || v === 'reduced' || v === 'full') return v;
+  return 'reduced';
+}
+
+/** Public read-accessor — also used by cluster-client.ts to decide
+ *  whether to register as a host or controller-only. */
+export function getBrowserHostMode(): BrowserHostMode {
+  return readBrowserHostMode();
+}
+
+/** Persist the mode for the next page load. Returns the value that was
+ *  stored so callers can confirm. */
+export function setBrowserHostMode(mode: BrowserHostMode): BrowserHostMode {
+  if (typeof localStorage !== 'undefined') {
+    localStorage.setItem(BROWSER_HOST_MODE_KEY, mode);
+  }
+  return mode;
+}
+
+function hardwareConcurrency(): number {
+  return typeof navigator !== 'undefined' &&
     typeof navigator.hardwareConcurrency === 'number'
-      ? navigator.hardwareConcurrency
-      : 4;
-  // Apple Silicon (M-series) reports total cores via hardwareConcurrency
-  // but macOS pins Web Workers to the performance cluster by default —
-  // M4 mini exposes 8 cores (4 perf + 4 efficiency) and Activity Monitor
-  // tops out around 50% CPU during mining because the 4 perf cores are
-  // pegged but efficiency cores stay idle. Oversubscribing the perf
-  // cluster pushes some workers onto the efficiency cores. Each
-  // additional worker past hc costs the prime payload's RAM (a SeedData
-  // clone) but no measurable per-worker overhead, so we go 1.5× hc up
-  // to a hard cap of 12.
+    ? navigator.hardwareConcurrency
+    : 4;
+}
+
+function defaultPoolSize(): number {
+  const mode = readBrowserHostMode();
+  if (mode === 'off') {
+    // Caller (ensurePool) treats 0 as "skip pool spawn". Returning 0
+    // here keeps describeMinerPoolSizing() honest too.
+    return 0;
+  }
+  const hc = hardwareConcurrency();
+  if (mode === 'reduced') {
+    // Cap at 4 regardless of hc. Reserves headroom for the OS, the
+    // dispatcher process, and a co-located Node host's worker pool
+    // (which would typically take cpus-2 = 8 workers on an M4 mini,
+    // leaving little CPU for the browser). 4 is enough that the
+    // browser still meaningfully contributes (~240 pol/min on M4).
+    return Math.min(4, hc);
+  }
+  // 'full' — original behavior: 1.5× hc capped at 12. Right for
+  // browser-only sessions where no Node hosts are connected.
   const target = Math.ceil(hc * 1.5);
   return Math.max(2, Math.min(12, target));
 }
 
-/** Read-only diagnostic — what `defaultPoolSize` decided and why. */
+/** Read-only diagnostic — what `defaultPoolSize` decided and why.
+ *  Includes the active mode so the UI can label "current: reduced (4w)". */
 export function describeMinerPoolSizing(): {
   hardwareConcurrency: number;
   poolSize: number;
+  mode: BrowserHostMode;
 } {
-  const hc =
-    typeof navigator !== 'undefined' &&
-    typeof navigator.hardwareConcurrency === 'number'
-      ? navigator.hardwareConcurrency
-      : 4;
-  return { hardwareConcurrency: hc, poolSize: defaultPoolSize() };
+  return {
+    hardwareConcurrency: hardwareConcurrency(),
+    poolSize: defaultPoolSize(),
+    mode: readBrowserHostMode(),
+  };
 }
 
 /** Returns the actual worker count after `ensurePool()`. */

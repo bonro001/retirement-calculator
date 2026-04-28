@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   loadEvaluationsForBaseline,
 } from './policy-mining-corpus';
@@ -15,7 +15,7 @@ import type {
 } from './policy-miner-types';
 import type { MarketAssumptions, SeedData } from './types';
 import { useClusterSession } from './useClusterSession';
-import { browserPoolHint } from './cluster-client';
+import { browserPoolHint, setBrowserHostMode } from './cluster-client';
 import {
   buildPeerViewList,
   formatAgo,
@@ -94,6 +94,22 @@ function formatDuration(ms: number): string {
   return mins === 0 ? `${hours}h` : `${hours}h ${mins}m`;
 }
 
+/** More precise wall-time formatter for elapsed/last-run displays.
+ *  Distinct from formatDuration (which rounds to whole minutes) because
+ *  Quick mines complete in under a minute and "0 min" reads as broken.
+ *  Sub-minute: "23s". Sub-hour: "2m 14s". Beyond: "1h 23m". */
+function formatWallTime(ms: number): string {
+  if (!Number.isFinite(ms) || ms < 0) return '—';
+  const totalSec = Math.round(ms / 1000);
+  if (totalSec < 60) return `${totalSec}s`;
+  const totalMin = Math.floor(totalSec / 60);
+  const remSec = totalSec % 60;
+  if (totalMin < 60) return `${totalMin}m ${remSec}s`;
+  const hours = Math.floor(totalMin / 60);
+  const remMin = totalMin % 60;
+  return `${hours}h ${remMin}m`;
+}
+
 function formatPct(rate: number | null): string {
   if (rate === null || !Number.isFinite(rate)) return '—';
   return `${Math.round(rate * 100)}%`;
@@ -141,6 +157,52 @@ export function PolicyMiningStatusCard({
   // or final certification. Default flips to Quick once a corpus exists,
   // since at that point the household is iterating, not exploring.
   const [sessionSize, setSessionSize] = useState<SessionSize>('full');
+  // Track wall time for the household: live elapsed during a running
+  // session, and the just-completed wall time between sessions so they
+  // can compare runs. The cluster snapshot drops session info the
+  // moment a session ends (snapshot.session → null), so we capture the
+  // wall time at that transition by stashing the start in a ref while
+  // a session is active. Cleared when a new session starts so the UI
+  // doesn't display stale "last run" info from a different session.
+  const runningStartMsRef = useRef<number | null>(null);
+  const [lastRunWallMs, setLastRunWallMs] = useState<number | null>(null);
+  useEffect(() => {
+    if (cluster.session) {
+      if (runningStartMsRef.current === null) {
+        // Session just appeared — stamp the start, clear any prior
+        // last-run-wall-time so it doesn't bleed into the running tile.
+        runningStartMsRef.current = new Date(
+          cluster.session.startedAtIso,
+        ).getTime();
+        setLastRunWallMs(null);
+      }
+    } else if (runningStartMsRef.current !== null) {
+      // Session just ended — freeze the final wall time for display
+      // until a new session starts.
+      setLastRunWallMs(Date.now() - runningStartMsRef.current);
+      runningStartMsRef.current = null;
+    }
+  }, [cluster.session]);
+  // Live elapsed for a running session — updates with the existing
+  // 2-second wall-clock tick (`nowMs`) so the display refreshes without
+  // adding another timer.
+  const runningElapsedMs =
+    runningStartMsRef.current !== null
+      ? nowMs - runningStartMsRef.current
+      : null;
+  // Phase 2.C two-stage screening — UI toggle removed 2026-04-27.
+  // End-to-end cluster testing showed two-stage doesn't deliver a
+  // wall-time win on the cluster path at tested workloads (correctness
+  // preserved across all variants; per-batch cluster overhead doubles
+  // since each policy is processed twice). The underlying capability
+  // stays in cluster-client.startSession's StartSessionOptions, the
+  // dispatcher state machine, and the miner — so two-stage can be
+  // re-enabled via env var, programmatic API, or the future event-
+  // driven dispatcher work without any code change. Pass 1 / Pass 2
+  // stage indicators in the Evaluated tile remain too — gated on
+  // stats.coarseEvaluated > 0 so they cost nothing during single-pass
+  // sessions but light up automatically if two-stage is enabled
+  // upstream of the UI.
 
   // Keep the draft in sync if the URL changes externally (e.g. another
   // tab updates localStorage — rare but cheap to handle).
@@ -244,6 +306,10 @@ export function PolicyMiningStatusCard({
         feasibilityThreshold: controls.feasibilityThreshold ?? 0.7,
         maxPoliciesPerSession: cap,
         trialCount: controls.trialCount,
+        // Phase 2.C: two-stage screening capability remains on
+        // StartSessionOptions but is no longer surfaced in the UI
+        // (testing showed no cluster wall-time win). Future code
+        // paths can populate `coarseStage` here to opt in.
       });
     } catch (e) {
       setStartError(e instanceof Error ? e.message : String(e));
@@ -495,6 +561,74 @@ export function PolicyMiningStatusCard({
             {poolHint.hardwareConcurrency} cores
           </span>
         </div>
+        {/* Phase 2.C UX — browser host mode picker. Lets the household
+            decide how aggressively the browser tab participates as a
+            host. Default 'reduced' (4 workers) is memory-safe AND
+            contributes meaningfully when other Node hosts are also
+            connected. 'off' is for "I have dedicated hosts and want
+            zero browser-side risk on a Full mine". 'full' is for
+            "browser is my only compute pool". Changes apply on next
+            page load (rebuilding the pool mid-session would need draining
+            in-flight batches; YAGNI for a settings change).
+            Hidden mid-session because it's a config knob, not a runtime
+            switch. */}
+        {!sessionRunning && (
+          <div className="flex flex-wrap items-center gap-2 text-[11px] text-stone-600">
+            <span className="font-semibold text-stone-700">
+              Browser host:
+            </span>
+            <div
+              role="radiogroup"
+              className="inline-flex overflow-hidden rounded-full border border-stone-200"
+            >
+              {(['off', 'reduced', 'full'] as const).map((mode) => {
+                const labels: Record<typeof mode, string> = {
+                  off: 'Off',
+                  reduced: 'Reduced (4w)',
+                  full: 'Full',
+                };
+                const isActive = poolHint.mode === mode;
+                return (
+                  <button
+                    key={mode}
+                    type="button"
+                    role="radio"
+                    aria-checked={isActive}
+                    onClick={() => {
+                      setBrowserHostMode(mode);
+                      // Force a re-render so the active state flips
+                      // immediately even though the live pool won't
+                      // rebuild until reload.
+                      setNowMs(Date.now());
+                    }}
+                    className={`px-2.5 py-0.5 transition ${
+                      isActive
+                        ? 'bg-stone-700 text-white'
+                        : 'bg-white text-stone-600 hover:bg-stone-50'
+                    } ${mode === 'reduced' ? 'border-l border-r border-stone-200' : ''}`}
+                  >
+                    {labels[mode]}
+                  </button>
+                );
+              })}
+            </div>
+            <span className="text-stone-400">
+              {poolHint.mode === 'off'
+                ? 'controller only · no browser-side compute'
+                : poolHint.mode === 'reduced'
+                  ? 'safe with co-located Node host'
+                  : 'browser is the only compute pool'}
+              {poolHint.actualPoolSize !== null &&
+                poolHint.actualPoolSize !==
+                  (poolHint.mode === 'off'
+                    ? 0
+                    : poolHint.mode === 'reduced'
+                      ? Math.min(4, poolHint.hardwareConcurrency)
+                      : Math.min(12, Math.ceil(poolHint.hardwareConcurrency * 1.5))) &&
+                ' · reload to apply'}
+            </span>
+          </div>
+        )}
         {/* One-line caption tying the picker to the iteration loop so
             the household understands WHY the picker exists. Hidden once
             a session is running — the throughput row above tells the
@@ -663,19 +797,86 @@ export function PolicyMiningStatusCard({
       {renderConnectionRow()}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <div>
-          <p className="text-[11px] font-medium uppercase tracking-wider text-stone-500">
-            Evaluated
-          </p>
-          <p className="mt-1 text-2xl font-semibold tabular-nums text-stone-900">
-            {stats
-              ? `${stats.policiesEvaluated.toLocaleString()} / ${stats.totalPolicies.toLocaleString()}`
-              : evalCount.toLocaleString()}
-          </p>
-          {progressPct !== null && (
-            <p className="mt-1 text-[11px] text-stone-500">
-              {progressPct}% complete
-            </p>
-          )}
+          {/* Phase 2.C — explicit Pass 1 / Pass 2 indicators when two-stage
+              is active, so the household sees the workflow clearly. Three
+              visual states based on derived stage:
+                - inCoarse:  Pass 1 of 2 — Screening + coarse counter
+                - inFine:    Pass 2 of 2 — Full evaluation + survivor count
+                - else:      Single-pass "Evaluated" tile (legacy behavior)
+              The dispatcher's MiningStats doesn't expose `currentStage`
+              directly; we derive it from coarseEvaluated being populated
+              and policiesEvaluated being 0 (= still in coarse) vs
+              policiesEvaluated > 0 (= fine started or done). */}
+          {(() => {
+            const inTwoStage = stats !== null && stats.coarseEvaluated > 0;
+            const inCoarse = inTwoStage && stats!.policiesEvaluated === 0;
+            const inFine = inTwoStage && stats!.policiesEvaluated > 0;
+            const survivors = inTwoStage
+              ? stats!.coarseEvaluated - stats!.coarseScreenedOut
+              : 0;
+
+            if (inCoarse) {
+              return (
+                <>
+                  <p className="text-[11px] font-medium uppercase tracking-wider text-emerald-700">
+                    Pass 1 of 2 · Screening
+                  </p>
+                  <p className="mt-1 text-2xl font-semibold tabular-nums text-stone-900">
+                    {stats!.coarseEvaluated.toLocaleString()} /{' '}
+                    {stats!.totalPolicies.toLocaleString()}
+                  </p>
+                  <p className="mt-1 text-[11px] text-stone-500">
+                    {Math.round(
+                      (stats!.coarseEvaluated / Math.max(1, stats!.totalPolicies)) * 100,
+                    )}
+                    % screened
+                  </p>
+                  <p className="mt-1 text-[11px] text-emerald-700">
+                    {survivors.toLocaleString()} kept ·{' '}
+                    {stats!.coarseScreenedOut.toLocaleString()} dropped
+                  </p>
+                </>
+              );
+            }
+            if (inFine) {
+              return (
+                <>
+                  <p className="text-[11px] font-medium uppercase tracking-wider text-emerald-700">
+                    Pass 2 of 2 · Full evaluation
+                  </p>
+                  <p className="mt-1 text-2xl font-semibold tabular-nums text-stone-900">
+                    {stats!.policiesEvaluated.toLocaleString()} /{' '}
+                    {survivors.toLocaleString()}
+                  </p>
+                  <p className="mt-1 text-[11px] text-stone-500">
+                    {Math.round((stats!.policiesEvaluated / Math.max(1, survivors)) * 100)}
+                    % of survivors
+                  </p>
+                  <p className="mt-1 text-[11px] text-emerald-700">
+                    Pass 1: screened {stats!.coarseEvaluated.toLocaleString()},{' '}
+                    {stats!.coarseScreenedOut.toLocaleString()} dropped
+                  </p>
+                </>
+              );
+            }
+            return (
+              <>
+                <p className="text-[11px] font-medium uppercase tracking-wider text-stone-500">
+                  Evaluated
+                </p>
+                <p className="mt-1 text-2xl font-semibold tabular-nums text-stone-900">
+                  {stats
+                    ? `${stats.policiesEvaluated.toLocaleString()} / ${stats.totalPolicies.toLocaleString()}`
+                    : evalCount.toLocaleString()}
+                </p>
+                {progressPct !== null && (
+                  <p className="mt-1 text-[11px] text-stone-500">
+                    {progressPct}% complete
+                  </p>
+                )}
+              </>
+            );
+          })()}
         </div>
         <div>
           <p className="text-[11px] font-medium uppercase tracking-wider text-stone-500">
@@ -693,19 +894,55 @@ export function PolicyMiningStatusCard({
           </p>
         </div>
         <div>
-          <p className="text-[11px] font-medium uppercase tracking-wider text-stone-500">
-            Time remaining
-          </p>
-          <p className="mt-1 text-2xl font-semibold tabular-nums text-stone-900">
-            {stats && sessionRunning
-              ? formatDuration(stats.estimatedRemainingMs)
-              : '—'}
-          </p>
-          <p className="mt-1 text-[11px] text-stone-500">
-            {stats?.feasiblePolicies != null
-              ? `${stats.feasiblePolicies.toLocaleString()} feasible found`
-              : ''}
-          </p>
+          {/* Wall-time tile. Three display states:
+              - Running session: big "elapsed" (live), small "remaining" subtitle
+              - Just-completed session: big "last run wall" (frozen), small
+                "feasible found" subtitle so the household can compare
+                runs at a glance
+              - Idle (no session ever, no last-run): "—" placeholder */}
+          {sessionRunning && runningElapsedMs !== null ? (
+            <>
+              <p className="text-[11px] font-medium uppercase tracking-wider text-stone-500">
+                Elapsed
+              </p>
+              <p className="mt-1 text-2xl font-semibold tabular-nums text-stone-900">
+                {formatWallTime(runningElapsedMs)}
+              </p>
+              <p className="mt-1 text-[11px] text-stone-500">
+                {stats
+                  ? `~${formatDuration(stats.estimatedRemainingMs)} remaining`
+                  : ''}
+              </p>
+            </>
+          ) : lastRunWallMs !== null ? (
+            <>
+              <p className="text-[11px] font-medium uppercase tracking-wider text-stone-500">
+                Last run
+              </p>
+              <p className="mt-1 text-2xl font-semibold tabular-nums text-stone-900">
+                {formatWallTime(lastRunWallMs)}
+              </p>
+              <p className="mt-1 text-[11px] text-stone-500">
+                {stats?.feasiblePolicies != null
+                  ? `${stats.feasiblePolicies.toLocaleString()} feasible found`
+                  : ''}
+              </p>
+            </>
+          ) : (
+            <>
+              <p className="text-[11px] font-medium uppercase tracking-wider text-stone-500">
+                Time remaining
+              </p>
+              <p className="mt-1 text-2xl font-semibold tabular-nums text-stone-900">
+                —
+              </p>
+              <p className="mt-1 text-[11px] text-stone-500">
+                {stats?.feasiblePolicies != null
+                  ? `${stats.feasiblePolicies.toLocaleString()} feasible found`
+                  : ''}
+              </p>
+            </>
+          )}
         </div>
         <div>
           <p className="text-[11px] font-medium uppercase tracking-wider text-stone-500">
