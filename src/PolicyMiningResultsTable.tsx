@@ -50,7 +50,15 @@ import { useAppStore } from './store';
  *     decision card. A future "show all" toggle can lift that cap.
  */
 
-const POLL_INTERVAL_MS = 5_000;
+// Browser memory mitigation: at Full mine scale (~7,776 polices), the
+// `loadClusterEvaluations` response grows to ~10MB of JS objects per
+// poll. At a 5-second interval over a 10-min Full mine, that's ~120
+// allocations of growing arrays through React state. If GC can't keep
+// up, Chrome OOMs (Error code 5). 30s gives GC enough breathing room
+// and is responsive enough for "watch results land" UX. The deeper
+// fix is server-side top-N capping so the payload doesn't grow
+// unboundedly — see the deferred follow-up that pairs with this.
+const POLL_INTERVAL_MS = 30_000;
 const SESSION_LIST_POLL_MS = 10_000;
 const DEFAULT_FEASIBILITY_THRESHOLD = 0.85;
 const DEFAULT_ROW_LIMIT = 25;
