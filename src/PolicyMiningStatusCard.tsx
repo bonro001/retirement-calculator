@@ -570,65 +570,66 @@ export function PolicyMiningStatusCard({
             "browser is my only compute pool". Changes apply on next
             page load (rebuilding the pool mid-session would need draining
             in-flight batches; YAGNI for a settings change).
-            Hidden mid-session because it's a config knob, not a runtime
-            switch. */}
-        {!sessionRunning && (
-          <div className="flex flex-wrap items-center gap-2 text-[11px] text-stone-600">
-            <span className="font-semibold text-stone-700">
-              Browser host:
-            </span>
-            <div
-              role="radiogroup"
-              className="inline-flex overflow-hidden rounded-full border border-stone-200"
-            >
-              {(['off', 'reduced', 'full'] as const).map((mode) => {
-                const labels: Record<typeof mode, string> = {
-                  off: 'Off',
-                  reduced: 'Reduced (4w)',
-                  full: 'Full',
-                };
-                const isActive = poolHint.mode === mode;
-                return (
-                  <button
-                    key={mode}
-                    type="button"
-                    role="radio"
-                    aria-checked={isActive}
-                    onClick={() => {
-                      setBrowserHostMode(mode);
-                      // Force a re-render so the active state flips
-                      // immediately even though the live pool won't
-                      // rebuild until reload.
-                      setNowMs(Date.now());
-                    }}
-                    className={`px-2.5 py-0.5 transition ${
-                      isActive
-                        ? 'bg-stone-700 text-white'
-                        : 'bg-white text-stone-600 hover:bg-stone-50'
-                    } ${mode === 'reduced' ? 'border-l border-r border-stone-200' : ''}`}
-                  >
-                    {labels[mode]}
-                  </button>
-                );
-              })}
-            </div>
-            <span className="text-stone-400">
-              {poolHint.mode === 'off'
-                ? 'controller only · no browser-side compute'
-                : poolHint.mode === 'reduced'
-                  ? 'safe with co-located Node host'
-                  : 'browser is the only compute pool'}
-              {poolHint.actualPoolSize !== null &&
-                poolHint.actualPoolSize !==
-                  (poolHint.mode === 'off'
-                    ? 0
-                    : poolHint.mode === 'reduced'
-                      ? Math.min(4, poolHint.hardwareConcurrency)
-                      : Math.min(12, Math.ceil(poolHint.hardwareConcurrency * 1.5))) &&
-                ' · reload to apply'}
-            </span>
+            Stays visible (disabled) during sessions so the operator
+            always knows what mode the running session is using —
+            screenshots of in-flight progress carry the configuration
+            context. */}
+        <div className="flex flex-wrap items-center gap-2 text-[11px] text-stone-600">
+          <span className="font-semibold text-stone-700">
+            Browser host:
+          </span>
+          <div
+            role="radiogroup"
+            className="inline-flex overflow-hidden rounded-full border border-stone-200"
+          >
+            {(['off', 'reduced', 'full'] as const).map((mode) => {
+              const labels: Record<typeof mode, string> = {
+                off: 'Off',
+                reduced: 'Reduced (4w)',
+                full: 'Full',
+              };
+              const isActive = poolHint.mode === mode;
+              return (
+                <button
+                  key={mode}
+                  type="button"
+                  role="radio"
+                  aria-checked={isActive}
+                  disabled={sessionRunning}
+                  onClick={() => {
+                    setBrowserHostMode(mode);
+                    // Force a re-render so the active state flips
+                    // immediately even though the live pool won't
+                    // rebuild until reload.
+                    setNowMs(Date.now());
+                  }}
+                  className={`px-2.5 py-0.5 transition ${
+                    isActive
+                      ? 'bg-stone-700 text-white'
+                      : 'bg-white text-stone-600 hover:bg-stone-50'
+                  } ${mode === 'reduced' ? 'border-l border-r border-stone-200' : ''} disabled:cursor-not-allowed disabled:opacity-60`}
+                >
+                  {labels[mode]}
+                </button>
+              );
+            })}
           </div>
-        )}
+          <span className="text-stone-400">
+            {poolHint.mode === 'off'
+              ? 'controller only · no browser-side compute'
+              : poolHint.mode === 'reduced'
+                ? 'safe with co-located Node host'
+                : 'browser is the only compute pool'}
+            {poolHint.actualPoolSize !== null &&
+              poolHint.actualPoolSize !==
+                (poolHint.mode === 'off'
+                  ? 0
+                  : poolHint.mode === 'reduced'
+                    ? Math.min(4, poolHint.hardwareConcurrency)
+                    : Math.min(12, Math.ceil(poolHint.hardwareConcurrency * 1.5))) &&
+              ' · reload to apply'}
+          </span>
+        </div>
         {/* One-line caption tying the picker to the iteration loop so
             the household understands WHY the picker exists. Hidden once
             a session is running — the throughput row above tells the
@@ -910,8 +911,8 @@ export function PolicyMiningStatusCard({
               </p>
               <p className="mt-1 text-[11px] text-stone-500">
                 {stats
-                  ? `~${formatDuration(stats.estimatedRemainingMs)} remaining`
-                  : ''}
+                  ? `~${formatDuration(stats.estimatedRemainingMs)} remaining · browser host: ${poolHint.mode}`
+                  : `browser host: ${poolHint.mode}`}
               </p>
             </>
           ) : lastRunWallMs !== null ? (
@@ -924,8 +925,8 @@ export function PolicyMiningStatusCard({
               </p>
               <p className="mt-1 text-[11px] text-stone-500">
                 {stats?.feasiblePolicies != null
-                  ? `${stats.feasiblePolicies.toLocaleString()} feasible found`
-                  : ''}
+                  ? `${stats.feasiblePolicies.toLocaleString()} feasible · browser host: ${poolHint.mode}`
+                  : `browser host: ${poolHint.mode}`}
               </p>
             </>
           ) : (
