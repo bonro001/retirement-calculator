@@ -190,16 +190,19 @@ export function PolicyMiningStatusCard({
     runningStartMsRef.current !== null
       ? nowMs - runningStartMsRef.current
       : null;
-  // Phase 2.C two-stage screening toggle — opt-in. When on, the dispatcher
-  // runs every policy through a cheap coarse pass (default N=200) first,
-  // then re-evaluates only the survivors at the configured trial count.
-  // Same top winner; ~1.79× faster on the in-process pool path at tight
-  // feasibility. On the cluster path the wall-time impact is currently
-  // neutral (correctness preserved; perf depends on event-driven
-  // dispatch landing — see perf/PHASE_0_FINDINGS.md).
-  const [twoStageEnabled, setTwoStageEnabled] = useState<boolean>(false);
-  const [coarseTrials, setCoarseTrials] = useState<number>(200);
-  const [coarseBuffer, setCoarseBuffer] = useState<number>(0.10);
+  // Phase 2.C two-stage screening — UI toggle removed 2026-04-27.
+  // End-to-end cluster testing showed two-stage doesn't deliver a
+  // wall-time win on the cluster path at tested workloads (correctness
+  // preserved across all variants; per-batch cluster overhead doubles
+  // since each policy is processed twice). The underlying capability
+  // stays in cluster-client.startSession's StartSessionOptions, the
+  // dispatcher state machine, and the miner — so two-stage can be
+  // re-enabled via env var, programmatic API, or the future event-
+  // driven dispatcher work without any code change. Pass 1 / Pass 2
+  // stage indicators in the Evaluated tile remain too — gated on
+  // stats.coarseEvaluated > 0 so they cost nothing during single-pass
+  // sessions but light up automatically if two-stage is enabled
+  // upstream of the UI.
 
   // Keep the draft in sync if the URL changes externally (e.g. another
   // tab updates localStorage — rare but cheap to handle).
@@ -303,14 +306,10 @@ export function PolicyMiningStatusCard({
         feasibilityThreshold: controls.feasibilityThreshold ?? 0.7,
         maxPoliciesPerSession: cap,
         trialCount: controls.trialCount,
-        // Phase 2.C: two-stage screening when toggled on. When undefined
-        // (default), the dispatcher runs single-pass behavior unchanged.
-        coarseStage: twoStageEnabled
-          ? {
-              trialCount: Math.max(1, Math.floor(coarseTrials)),
-              feasibilityBuffer: Math.max(0, coarseBuffer),
-            }
-          : undefined,
+        // Phase 2.C: two-stage screening capability remains on
+        // StartSessionOptions but is no longer surfaced in the UI
+        // (testing showed no cluster wall-time win). Future code
+        // paths can populate `coarseStage` here to opt in.
       });
     } catch (e) {
       setStartError(e instanceof Error ? e.message : String(e));
@@ -562,62 +561,6 @@ export function PolicyMiningStatusCard({
             {poolHint.hardwareConcurrency} cores
           </span>
         </div>
-        {/* Phase 2.C — two-stage screening toggle. Off by default since
-            the cluster path's wall-time impact is currently neutral; on
-            for quick experimentation when the household is iterating and
-            wants the in-process pool's ~1.79× win at tight feasibility.
-            Hidden mid-session to keep chrome quiet. */}
-        {!sessionRunning && (
-          <div className="flex flex-wrap items-center gap-3 text-[11px] text-stone-600">
-            <label className="inline-flex items-center gap-2 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={twoStageEnabled}
-                onChange={(e) => setTwoStageEnabled(e.target.checked)}
-                className="h-3.5 w-3.5 cursor-pointer accent-emerald-600"
-              />
-              <span className="font-semibold">Two-stage screening</span>
-            </label>
-            {twoStageEnabled && (
-              <>
-                <label className="inline-flex items-center gap-1">
-                  <span className="text-stone-500">coarse trials:</span>
-                  <input
-                    type="number"
-                    min={50}
-                    max={1000}
-                    step={50}
-                    value={coarseTrials}
-                    onChange={(e) =>
-                      setCoarseTrials(Number.parseInt(e.target.value, 10) || 200)
-                    }
-                    className="w-16 rounded border border-stone-200 px-1.5 py-0.5 text-right text-[11px]"
-                  />
-                </label>
-                <label className="inline-flex items-center gap-1">
-                  <span className="text-stone-500">survival buffer:</span>
-                  <input
-                    type="number"
-                    min={0}
-                    max={0.5}
-                    step={0.05}
-                    value={coarseBuffer}
-                    onChange={(e) =>
-                      setCoarseBuffer(Number.parseFloat(e.target.value) || 0.10)
-                    }
-                    className="w-14 rounded border border-stone-200 px-1.5 py-0.5 text-right text-[11px]"
-                  />
-                </label>
-                <span className="text-stone-400">
-                  · screens at attainment ≥{' '}
-                  {(
-                    (controls?.feasibilityThreshold ?? 0.7) - coarseBuffer
-                  ).toFixed(2)}
-                </span>
-              </>
-            )}
-          </div>
-        )}
         {/* Phase 2.C UX — browser host mode picker. Lets the household
             decide how aggressively the browser tab participates as a
             host. Default 'reduced' (4 workers) is memory-safe AND
