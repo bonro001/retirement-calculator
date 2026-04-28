@@ -166,17 +166,29 @@ export async function loadClusterSessions(
 }
 
 /**
- * Fetch the full evaluations payload for one session. The wrapping
- * `{ evaluations, ... }` envelope is unwrapped — callers get the
- * bare array and the metadata as a tuple-shaped result.
+ * Fetch the evaluations payload for one session. The wrapping
+ * `{ evaluations, ..., evaluationCount }` envelope is unwrapped —
+ * callers get the bare array and the metadata as a tuple-shaped result.
+ *
+ * Phase 2.D: optional `topN` caps the returned array at the top-N
+ * most-feasible evaluations server-side. Saves the browser from
+ * parsing 10MB+ JSON every poll during a Full mine. The
+ * `evaluationCount` in the response is the TOTAL records on disk —
+ * the UI can show "showing 200 of 4,346 evaluated" so the household
+ * knows the cap exists.
  */
 export async function loadClusterEvaluations(
   dispatcherUrl: string,
   sessionId: string,
+  options?: { topN?: number },
 ): Promise<ClusterEvaluationsPayload> {
+  const qs =
+    options?.topN && options.topN > 0
+      ? `?topN=${encodeURIComponent(String(options.topN))}`
+      : '';
   return fetchJson<ClusterEvaluationsPayload>(
     dispatcherUrl,
-    `/sessions/${encodeURIComponent(sessionId)}/evaluations`,
+    `/sessions/${encodeURIComponent(sessionId)}/evaluations${qs}`,
   );
 }
 

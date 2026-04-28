@@ -369,18 +369,32 @@ export function PolicyMiningResultsTable({
   }, [source, dispatcherUrl, baselineFingerprint, selectedSessionId]);
 
   // Cluster-mode evaluations: poll the selected session.
+  // Phase 2.D: ask the dispatcher for only the top N results most of
+  // the time (server-side sort by feasibility then spend, then slice).
+  // The fetch payload stays bounded regardless of how many polices the
+  // session has evaluated, which is what kept Chrome from OOM'ing on
+  // Full mines. Users who want the full corpus toggle "Show all" → we
+  // re-poll without the cap (separate effect on `showAll`). The
+  // dispatcher's `evaluationCount` in the response is the TRUE total
+  // so we still display "X of Y feasible" honestly.
   useEffect(() => {
     if (source !== 'cluster' || !dispatcherUrl || !selectedSessionId) {
       if (source === 'cluster') setEvaluations([]);
       return undefined;
     }
     let cancelled = false;
+    // When the user has explicitly opted into "Show all", drop the cap
+    // and pay the bandwidth/memory cost. Otherwise cap at 4× the visible
+    // row limit so sort tweaks (e.g., changing the spend filter) still
+    // have a meaningful pool to work from without re-fetching.
+    const topN = showAll ? 0 : Math.max(50, rowLimit * 4);
     const tick = async () => {
       setClusterLoading(true);
       try {
         const payload = await loadClusterEvaluations(
           dispatcherUrl,
           selectedSessionId,
+          { topN },
         );
         if (cancelled) return;
         setEvaluations(payload.evaluations);
@@ -399,7 +413,7 @@ export function PolicyMiningResultsTable({
       cancelled = true;
       clearInterval(handle);
     };
-  }, [source, dispatcherUrl, selectedSessionId]);
+  }, [source, dispatcherUrl, selectedSessionId, showAll, rowLimit]);
 
   const filtered = useMemo(() => {
     return evaluations

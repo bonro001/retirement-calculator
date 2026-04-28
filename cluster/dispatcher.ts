@@ -1384,7 +1384,26 @@ function startDispatcher(port: number): void {
     // GET /sessions/:id/evaluations — the actual evaluation records.
     // Returned as `{ evaluations: [...] }` rather than a bare array so a
     // future server can attach pagination cursors without breaking shape.
-    const evalMatch = url.match(/^\/sessions\/([^/]+)\/evaluations$/);
+    //
+    // Query params (Phase 2.D):
+    //   ?topN=<N>       Return only the top-N evaluations after sorting.
+    //                   Browser passes this during running sessions to
+    //                   keep the response payload bounded — at Full mine
+    //                   scale (7776 polices) the unbounded payload was
+    //                   ~10MB JSON and crashed Chrome through poll churn.
+    //                   Omit (or topN<=0) for the full corpus.
+    //   ?sort=feasibility  (default) Sort feasible-first (by
+    //                   bequestAttainmentRate desc), then by spend desc
+    //                   among feasibles. This is the same ranking the
+    //                   browser table uses, so top-N matches what the
+    //                   user would see anyway.
+    //   ?sort=order     Preserve evaluation-completion order (legacy
+    //                   behavior — what /evaluations used to return).
+    //
+    // The response always carries `evaluationCount` = TOTAL records on
+    // disk, so the UI can show "showing top 200 of 4,346 feasible".
+    // `evaluations.length <= evaluationCount` after a topN cap.
+    const evalMatch = url.match(/^\/sessions\/([^/]+)\/evaluations(\?.*)?$/);
     if (evalMatch) {
       const sessionId = decodeURIComponent(evalMatch[1]);
       try {
@@ -1393,12 +1412,36 @@ function startDispatcher(port: number): void {
           sendNotFound(res, `session not found: ${sessionId}`);
           return;
         }
-        const evaluations = readEvaluations(sessionId, getCorpusRoot());
+        const allEvaluations = readEvaluations(sessionId, getCorpusRoot());
+        // Parse query params from the URL (req.url includes ?topN=...)
+        const queryStr = url.includes('?') ? url.slice(url.indexOf('?')) : '';
+        const params = new URLSearchParams(queryStr);
+        const topNRaw = params.get('topN');
+        const topN = topNRaw ? Number.parseInt(topNRaw, 10) : 0;
+        const sortMode = params.get('sort') ?? 'feasibility';
+
+        let evaluations = allEvaluations;
+        if (sortMode === 'feasibility') {
+          // Sort feasible-first, then by spend desc — matches the
+          // PolicyMiningResultsTable ranking. O(n log n); 7776 records
+          // is <5ms even on the dispatcher's main thread.
+          evaluations = [...allEvaluations].sort((a, b) => {
+            const ar = a.outcome?.bequestAttainmentRate ?? 0;
+            const br = b.outcome?.bequestAttainmentRate ?? 0;
+            if (ar !== br) return br - ar;
+            const aspend = a.policy?.annualSpendTodayDollars ?? 0;
+            const bspend = b.policy?.annualSpendTodayDollars ?? 0;
+            return bspend - aspend;
+          });
+        }
+        if (Number.isFinite(topN) && topN > 0) {
+          evaluations = evaluations.slice(0, topN);
+        }
         sendJson(res, 200, {
           sessionId,
           baselineFingerprint: meta.manifest.config.baselineFingerprint,
           engineVersion: meta.manifest.config.engineVersion,
-          evaluationCount: evaluations.length,
+          evaluationCount: allEvaluations.length,
           evaluations,
         });
       } catch (err) {
