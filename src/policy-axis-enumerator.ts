@@ -18,34 +18,34 @@ import type { SeedData } from './types';
  */
 
 /**
- * V1 default axes, calibrated for a typical "in transition to retirement"
- * household. Tuned to keep the corpus around 7,776 entries — fits in
- * <500MB IndexedDB and finishes in a few hours single-threaded on the
- * M4 mini.
+ * V1 default axes, calibrated for the household's "in transition to
+ * retirement" baseline. Tuned to keep the corpus around 1,728 entries
+ * (8 × 6 × 6 × 6) — small enough to mine in ~10 minutes single-threaded
+ * on the M4 mini, ~2 minutes on the cluster.
  *
- * Tuning notes:
- *   - Spend levels span $40k–$250k in $10k steps (16 levels). Below $40k
- *     is rarely interesting (Social Security alone covers it for the
- *     households we model); above $250k is rarely feasible at typical
- *     portfolio sizes.
- *   - SS claim ages 62..70 in 1-year increments (9 ages). Including 62
- *     because some households with health-driven plans want to compare;
- *     including 70 because that's the last year delayed credits accrue.
- *   - Roth conversion caps span $0–$200k in $40k steps (6 levels). The
- *     $0 case anchors the "no conversions" baseline; $200k covers fully
- *     filling the 24% bracket for a high-deferred household.
+ * Tuning notes (V1.1, narrowed from V1):
+ *   - Spend levels $80k–$160k in $10k steps (8 levels). The household
+ *     has stated they wouldn't realistically spend below $80k or above
+ *     $160k — so spending search-time on those candidates is wasted
+ *     compute. Re-widen if the household's situation shifts.
+ *   - SS claim ages 65..70 in 1-year increments (6 ages). The household
+ *     has stated neither will claim before 65. Cuts 1/3 of the SS axis
+ *     versus the full 62..70 default.
+ *   - Roth conversion caps span $0–$200k in $40k steps (6 levels) —
+ *     unchanged. The $0 case anchors the "no conversions" baseline;
+ *     $200k covers fully filling the 24% bracket. The engine's
+ *     withdrawal optimizer uses this cap PLUS its IRMAA-cliff awareness
+ *     to pick the actual conversion amount per year.
  */
 export function buildDefaultPolicyAxes(seedData: SeedData): PolicyAxes {
   const ssEntries = seedData.income?.socialSecurity ?? [];
   const hasSpouseSs = ssEntries.length >= 2;
-  // Eight ages × eight ages × … is enough resolution to find the kink in
-  // the ROI curve without combinatorial explosion. 1-year granularity is
-  // the smallest unit SS itself uses for delayed-retirement-credit math.
-  const ssAges = [62, 63, 64, 65, 66, 67, 68, 69, 70];
+  // 65–70 reflects household policy (no early claims). Re-widen to
+  // 62..70 if a different household uses this code.
+  const ssAges = [65, 66, 67, 68, 69, 70];
   return {
     annualSpendTodayDollars: [
-      40_000, 50_000, 60_000, 70_000, 80_000, 90_000, 100_000, 110_000,
-      120_000, 130_000, 140_000, 160_000, 180_000, 200_000, 225_000, 250_000,
+      80_000, 90_000, 100_000, 110_000, 120_000, 130_000, 140_000, 160_000,
     ],
     primarySocialSecurityClaimAge: ssAges,
     spouseSocialSecurityClaimAge: hasSpouseSs ? ssAges : null,

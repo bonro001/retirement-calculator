@@ -327,7 +327,7 @@ export function SensitivityPanel({
               type="button"
               onClick={launchSweep}
               disabled={cluster.state !== 'connected' || !!cluster.session}
-              className="rounded-full bg-stone-900 px-3 py-1.5 text-[12px] font-semibold text-white shadow-sm transition hover:bg-stone-800 disabled:cursor-not-allowed disabled:bg-stone-200 disabled:text-stone-400"
+              className="whitespace-nowrap rounded-lg bg-[#0066CC] px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-[#0071E3] disabled:cursor-not-allowed disabled:bg-stone-200 disabled:text-stone-400 disabled:shadow-none"
             >
               Run sensitivity check
             </button>
@@ -336,7 +336,7 @@ export function SensitivityPanel({
             <button
               type="button"
               onClick={reset}
-              className="rounded-full bg-white px-3 py-1.5 text-[12px] font-semibold text-stone-700 ring-1 ring-stone-200 transition hover:bg-stone-100"
+              className="whitespace-nowrap rounded-lg bg-white px-4 py-2 text-sm font-semibold text-stone-700 ring-1 ring-stone-200 transition hover:bg-stone-50"
             >
               Re-run
             </button>

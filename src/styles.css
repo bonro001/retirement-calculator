@@ -16,15 +16,27 @@ html {
 body {
   margin: 0;
   min-width: 320px;
-  font-family: "ui-sans-serif", "system-ui", sans-serif;
+  /* Apple SF Pro stack: native on macOS / iOS, gracefully falls back
+     to platform sans on Windows / Linux. Matches the Apple.com look. */
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display",
+    "SF Pro Text", "SF Pro", "Helvetica Neue", Helvetica, Arial,
+    "Segoe UI", system-ui, sans-serif;
+  font-feature-settings: "ss01", "cv01", "cv11";
+  letter-spacing: -0.01em;
 }
 
 #root {
   min-height: 100vh;
 }
 
+/* Override Tailwind's default font-serif to ALSO use SF Pro Display —
+   we want one type family throughout, with weight + size doing the
+   work that we previously asked a serif typeface to do. Headlines
+   use font-light or font-thin for the editorial feel. */
 .font-serif {
-  font-family: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", serif;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display",
+    "SF Pro", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  letter-spacing: -0.022em;
 }
 
 .range-input {

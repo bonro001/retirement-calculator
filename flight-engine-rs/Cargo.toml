@@ -1,0 +1,64 @@
+# Flight Engine — Rust port of the per-year Monte Carlo simulation core.
+#
+# Goals (in order of priority):
+#   1. Correctness parity with the existing TypeScript engine in
+#      `src/utils.ts` (the `simulatePath` function and friends).
+#      Tax math, IRMAA tier lookup, withdrawal optimizer, guardrail
+#      logic must produce identical results to within float tolerance.
+#   2. Speed — 5-10× over V8 native, 3-5× via WASM in the browser.
+#   3. Same source compiles to two targets:
+#         wasm-pack build --target web    → for browsers + Vite
+#         (later) napi-rs build           → for Node cluster hosts
+#
+# Why a separate crate (vs adding to an existing workspace): zero-deps,
+# minimal surface area, can be developed in isolation and parity-tested
+# without disturbing the TS engine. Once it ships, the JS bridge layer
+# becomes the only TS code that knows about it.
+[package]
+name = "flight-engine"
+version = "0.1.0"
+edition = "2021"
+description = "Rust port of the Flight Path Monte Carlo simulation core"
+license = "PROPRIETARY"
+authors = ["Rob Bonner"]
+
+[lib]
+# `cdylib` produces the WASM artifact for wasm-pack; `rlib` lets us
+# write integration tests in `tests/` that link against the crate
+# directly without going through the WASM boundary.
+crate-type = ["cdylib", "rlib"]
+
+[profile.release]
+# Aggressive optimization — this is hot-path numeric code; LTO + size
+# optimization both help WASM payload and runtime perf.
+opt-level = 3
+lto = true
+codegen-units = 1
+
+[dependencies]
+# wasm-bindgen: glue layer between Rust and JS. Generates the JS shim
+# that turns Rust functions into callable JS functions and handles
+# memory/string/struct marshaling. Required for any Rust → browser code.
+wasm-bindgen = "0.2"
+
+# js-sys: typed Rust bindings for JavaScript built-in types. Lets us
+# accept/return JS objects (when needed) instead of just primitives.
+js-sys = "0.3"
+
+# serde + serde-wasm-bindgen: serialize Rust structs to/from JS objects.
+# We pass complex inputs (the `Plan` and `Assumptions` shapes) from TS;
+# serde handles the conversion without manual JSON parsing.
+serde = { version = "1", features = ["derive"] }
+serde-wasm-bindgen = "0.6"
+
+# Cheap, deterministic RNG that compiles to small WASM and matches the
+# TS engine's seeded behavior. The TS code uses a Mulberry32-style PRNG
+# under the hood; rand_chacha is a similar choice but with better
+# statistical properties — we'll match to whatever the TS engine uses
+# to maintain trial-level determinism for parity testing.
+rand = { version = "0.8", default-features = false, features = ["small_rng"] }
+
+[dev-dependencies]
+# wasm-bindgen-test: run tests in a real browser or Node WASM runtime
+# so the WASM build path is exercised in CI.
+wasm-bindgen-test = "0.3"

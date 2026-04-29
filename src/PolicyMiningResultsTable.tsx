@@ -261,7 +261,15 @@ export function PolicyMiningResultsTable({
   rowLimit = DEFAULT_ROW_LIMIT,
   sensitivityControls,
 }: Props): JSX.Element | null {
-  const [source, setSource] = useState<Source>('local');
+  // Default to cluster when the dispatcher is connected — the household's
+  // normal state has the cluster doing the mining work, so records live
+  // server-side. Falls through to local-IDB only when cluster is offline,
+  // matching what they'd actually have. The manual Local/Cluster toggle
+  // is intentionally hidden below; corpus storage shouldn't be a
+  // household-facing concern.
+  const [source, setSource] = useState<Source>(
+    dispatcherUrl ? 'cluster' : 'local',
+  );
   const [evaluations, setEvaluations] = useState<PolicyEvaluation[]>([]);
   const [feasibilityThreshold, setFeasibilityThreshold] = useState<number>(
     defaultFeasibilityThreshold,
@@ -639,32 +647,13 @@ export function PolicyMiningResultsTable({
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
-          {clusterEnabled && (
-            <div className="inline-flex items-center rounded-full bg-stone-100 p-0.5 text-[11px] font-semibold uppercase tracking-wider">
-              <button
-                type="button"
-                onClick={() => setSource('local')}
-                className={`rounded-full px-3 py-1 transition ${
-                  source === 'local'
-                    ? 'bg-white text-stone-900 shadow-sm'
-                    : 'text-stone-500 hover:text-stone-700'
-                }`}
-              >
-                Local
-              </button>
-              <button
-                type="button"
-                onClick={() => setSource('cluster')}
-                className={`rounded-full px-3 py-1 transition ${
-                  source === 'cluster'
-                    ? 'bg-white text-stone-900 shadow-sm'
-                    : 'text-stone-500 hover:text-stone-700'
-                }`}
-              >
-                Cluster
-              </button>
-            </div>
-          )}
+          {/* Source toggle intentionally hidden — corpus storage location
+           *  shouldn't be a household-facing concern. The default below
+           *  picks Cluster when connected, Local otherwise. If a power
+           *  user genuinely needs to inspect a different backend, set
+           *  `?source=local` via the URL or expose this conditionally
+           *  on a debug flag. For now the household just sees their
+           *  results. */}
           <div className="flex items-center gap-2">
             <label className="text-[11px] font-medium uppercase tracking-wider text-stone-500">
               Min feasibility
@@ -687,32 +676,15 @@ export function PolicyMiningResultsTable({
         </div>
       </div>
 
-      {source === 'cluster' && (
+      {/* Session picker hidden — auto-picks the most recent matching
+       *  session by baseline fingerprint (see effect above). The
+       *  household never needs to think about which "run" to look at;
+       *  the system picks the right one. The baselineMismatch banner
+       *  below stays — that's the one piece of session metadata that
+       *  matters to the user (when their plan has drifted since the
+       *  last mine ran). */}
+      {source === 'cluster' && (clusterError || baselineMismatch) && (
         <div className="mb-3 flex flex-wrap items-center gap-2">
-          <label className="text-[11px] font-medium uppercase tracking-wider text-stone-500">
-            Session
-          </label>
-          {clusterSessions.length === 0 ? (
-            <span className="text-[12px] text-stone-500">
-              {clusterError
-                ? 'unavailable'
-                : clusterLoading
-                  ? 'loading…'
-                  : 'no sessions on dispatcher yet'}
-            </span>
-          ) : (
-            <select
-              value={selectedSessionId ?? ''}
-              onChange={(e) => setSelectedSessionId(e.target.value || null)}
-              className="max-w-full truncate rounded-md border border-stone-200 bg-white px-2 py-1 text-[12px]"
-            >
-              {clusterSessions.map((s) => (
-                <option key={s.sessionId} value={s.sessionId}>
-                  {describeSession(s, baselineFingerprint)}
-                </option>
-              ))}
-            </select>
-          )}
           {clusterError && (
             <span className="text-[11px] text-rose-600">{clusterError}</span>
           )}

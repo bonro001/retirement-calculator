@@ -1,9 +1,12 @@
 import { useCallback, useMemo, useState } from 'react';
+import { captureSnapshot, saveSnapshot } from './history-store';
+import { POLICY_MINER_ENGINE_VERSION } from './policy-miner-types';
 import {
+  Area,
   CartesianGrid,
+  ComposedChart,
   Legend,
   Line,
-  LineChart,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -39,6 +42,75 @@ import type {
  * monthly view would need an engine refactor — out of scope for this
  * prototype.
  */
+
+/**
+ * Module-level cache for the baseline path. Lives outside the component
+ * so navigating away from Cockpit and back doesn't trigger another
+ * 5-second Monte Carlo recompute — useMemo only survives within a
+ * mounted instance, but the cockpit unmounts when the user clicks
+ * another sidebar item.
+ *
+ * Single-entry cache keyed by an input fingerprint. When inputs change
+ * (adoption, applied edits, assumption tweaks), the key changes and
+ * the next render recomputes once.
+ */
+let baselinePathCache: {
+  key: string;
+  path: PathResult | null;
+} | null = null;
+
+function getCachedBaselinePath(
+  data: SeedData,
+  assumptions: MarketAssumptions,
+  stressors: string[],
+  responses: string[],
+): PathResult | null {
+  // Cheap fingerprint — only the dials that materially change the
+  // baseline projection. Keeps the key short and JSON.stringify fast.
+  const key = JSON.stringify({
+    spending: data.spending,
+    income: {
+      salaryAnnual: data.income?.salaryAnnual,
+      salaryEndDate: data.income?.salaryEndDate,
+      socialSecurity: data.income?.socialSecurity,
+      windfalls: data.income?.windfalls,
+    },
+    accounts: {
+      pretax: data.accounts?.pretax?.balance,
+      roth: data.accounts?.roth?.balance,
+      taxable: data.accounts?.taxable?.balance,
+      cash: data.accounts?.cash?.balance,
+    },
+    rules: {
+      rothPolicy: data.rules?.rothConversionPolicy,
+      ltc: data.rules?.ltcAssumptions,
+    },
+    asm: {
+      simulationRuns: assumptions.simulationRuns,
+      equityMean: assumptions.equityMean,
+      inflation: assumptions.inflation,
+      version: assumptions.assumptionsVersion,
+    },
+    s: stressors,
+    r: responses,
+  });
+  if (baselinePathCache && baselinePathCache.key === key) {
+    return baselinePathCache.path;
+  }
+  try {
+    const paths = buildPathResults(data, assumptions, stressors, responses, {
+      pathMode: 'selected_only',
+    });
+    const path = paths[0] ?? null;
+    baselinePathCache = { key, path };
+    return path;
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.warn('[cockpit] baseline path failed:', err);
+    baselinePathCache = { key, path: null };
+    return null;
+  }
+}
 
 // IRMAA + ACA cliff thresholds for 2026 (MFJ). Hardcoded constants
 // here — the existing engine has these elsewhere; for the prototype
@@ -585,24 +657,49 @@ function CockpitTile({
   title,
   subtitle,
   children,
+  emphasis = false,
 }: {
   eyebrow: string;
   title?: string;
   subtitle?: string;
   children?: React.ReactNode;
+  /** When true, render larger, more prominent — used for the Trust
+   *  card so the household's headline confidence number gets visual
+   *  weight matching its importance. */
+  emphasis?: boolean;
 }) {
   return (
-    <div className="rounded-2xl border border-stone-200 bg-white/80 p-4 shadow-sm">
-      <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-stone-500">
+    <div
+      className={`rounded-3xl bg-white p-5 transition ${
+        emphasis
+          ? 'shadow-[0_2px_24px_rgba(15,40,80,0.05)]'
+          : 'shadow-[0_1px_8px_rgba(15,40,80,0.04)]'
+      }`}
+    >
+      <p className="text-[11px] font-medium uppercase tracking-[0.2em] text-stone-400">
         {eyebrow}
       </p>
       {title && (
-        <p className="mt-1 text-2xl font-semibold tabular-nums text-stone-900">
+        <p
+          className={`mt-2 tabular-nums text-stone-900 ${
+            emphasis ? 'text-4xl font-light' : 'text-2xl font-semibold'
+          }`}
+        >
           {title}
         </p>
       )}
-      {subtitle && <p className="mt-1 text-[11px] text-stone-500">{subtitle}</p>}
-      {children && <div className="mt-3 space-y-2 text-[13px] text-stone-700">{children}</div>}
+      {subtitle && (
+        <p className="mt-1.5 text-[11px] text-stone-400">{subtitle}</p>
+      )}
+      {children && (
+        <div
+          className={`mt-3 space-y-2 text-stone-700 ${
+            emphasis ? 'text-sm' : 'text-[13px]'
+          }`}
+        >
+          {children}
+        </div>
+      )}
     </div>
   );
 }
@@ -1410,35 +1507,48 @@ function BalanceTrajectoryChart({
   };
 
   return (
-    <div className="rounded-2xl border border-stone-200 bg-white/80 p-4 shadow-sm">
+    <div className="rounded-3xl bg-white p-6 shadow-[0_2px_24px_rgba(15,40,80,0.05)]">
       <div className="flex items-baseline justify-between">
-        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-stone-500">
-          Account balances over time · median across trials
+        <p className="text-[11px] font-medium uppercase tracking-[0.2em] text-stone-400">
+          Account balances over time
         </p>
-        <p className="text-[11px] text-stone-500">
+        <p className="text-[11px] text-stone-400">
           {chartData[0].year} → {chartData[chartData.length - 1].year}
         </p>
       </div>
-      <p className="mt-1 text-[11px] text-stone-500">
-        Pretax (IRA/401k) tends to drop with RMDs and withdrawals;
-        Roth grows with conversions; taxable funds the bridge years.
-        Hover for exact amounts.
+      <p className="mt-2 text-sm text-stone-500">
+        Pretax tends to drop with RMDs and withdrawals; Roth grows with
+        conversions; taxable funds the bridge years.
       </p>
-      <div className="mt-3" style={{ width: '100%', height: 320 }}>
+      <div className="mt-4" style={{ width: '100%', height: 340 }}>
         <ResponsiveContainer width="100%" height="100%">
-          <LineChart
+          <ComposedChart
             data={chartData}
             margin={{ top: 8, right: 16, left: 8, bottom: 8 }}
           >
-            <CartesianGrid stroke="#e7e5e4" strokeDasharray="3 3" />
+            <defs>
+              <linearGradient id="totalFill" x1="0" y1="0" x2="0" y2="1">
+                <stop
+                  offset="5%"
+                  stopColor="#0071E3"
+                  stopOpacity={0.18}
+                />
+                <stop
+                  offset="95%"
+                  stopColor="#0071E3"
+                  stopOpacity={0.02}
+                />
+              </linearGradient>
+            </defs>
+            <CartesianGrid stroke="#f0ede7" strokeDasharray="3 3" />
             <XAxis
               dataKey="year"
-              tick={{ fontSize: 11, fill: '#78716c' }}
-              stroke="#a8a29e"
+              tick={{ fontSize: 11, fill: '#a8a29e' }}
+              stroke="#d6d3d1"
             />
             <YAxis
-              tick={{ fontSize: 11, fill: '#78716c' }}
-              stroke="#a8a29e"
+              tick={{ fontSize: 11, fill: '#a8a29e' }}
+              stroke="#d6d3d1"
               tickFormatter={formatY}
               width={56}
             />
@@ -1446,9 +1556,10 @@ function BalanceTrajectoryChart({
               formatter={formatTooltip}
               labelFormatter={(label) => `Year ${label}`}
               contentStyle={{
-                fontSize: 11,
-                borderRadius: 8,
-                border: '1px solid #e7e5e4',
+                fontSize: 12,
+                borderRadius: 12,
+                border: 'none',
+                boxShadow: '0 4px 24px rgba(60,70,40,0.12)',
               }}
             />
             <Legend
@@ -1456,48 +1567,49 @@ function BalanceTrajectoryChart({
               iconType="line"
               iconSize={14}
             />
+            <Area
+              type="monotone"
+              dataKey="total"
+              name="Total"
+              stroke="#0071E3"
+              strokeWidth={2.5}
+              fill="url(#totalFill)"
+              dot={false}
+            />
             <Line
               type="monotone"
               dataKey="pretax"
               name="Pretax (IRA/401k)"
-              stroke="#0891b2"
-              strokeWidth={2}
+              stroke="#78716c"
+              strokeWidth={1.5}
               dot={false}
             />
             <Line
               type="monotone"
               dataKey="taxable"
               name="Taxable"
-              stroke="#2563eb"
-              strokeWidth={2}
+              stroke="#a8a29e"
+              strokeWidth={1.5}
               dot={false}
             />
             <Line
               type="monotone"
               dataKey="roth"
               name="Roth"
-              stroke="#16a34a"
-              strokeWidth={2}
+              stroke="#3B9DEB"
+              strokeWidth={1.5}
               dot={false}
             />
             <Line
               type="monotone"
               dataKey="cash"
               name="Cash"
-              stroke="#a16207"
-              strokeWidth={2}
-              dot={false}
-            />
-            <Line
-              type="monotone"
-              dataKey="total"
-              name="Total"
-              stroke="#1c1917"
+              stroke="#d6d3d1"
               strokeWidth={1.5}
-              strokeDasharray="4 3"
+              strokeDasharray="3 3"
               dot={false}
             />
-          </LineChart>
+          </ComposedChart>
         </ResponsiveContainer>
       </div>
       <p className="mt-2 text-[10px] text-stone-400">
@@ -2031,20 +2143,12 @@ export function CockpitScreen() {
   // it "current plan projection".)
   const baselinePath: PathResult | null = useMemo(() => {
     if (!data || !assumptions) return null;
-    try {
-      const paths = buildPathResults(
-        data,
-        assumptions,
-        selectedStressors ?? [],
-        selectedResponses ?? [],
-        { pathMode: 'selected_only' },
-      );
-      return paths[0] ?? null;
-    } catch (err) {
-      // eslint-disable-next-line no-console
-      console.warn('[cockpit] baseline path failed:', err);
-      return null;
-    }
+    return getCachedBaselinePath(
+      data,
+      assumptions,
+      selectedStressors ?? [],
+      selectedResponses ?? [],
+    );
   }, [data, assumptions, selectedStressors, selectedResponses]);
 
   const yearlySeries = baselinePath?.yearlySeries ?? [];
@@ -2097,14 +2201,19 @@ export function CockpitScreen() {
     : null;
 
   return (
-    <div className="space-y-4 p-4">
-      <div className="flex items-baseline justify-between">
-        <h1 className="text-xl font-semibold text-stone-900">
-          Now · Plan cockpit
-        </h1>
-        <p className="text-[11px] text-stone-500">
+    <div className="space-y-6 py-2">
+      <div className="flex items-end justify-between">
+        <div>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[#0066CC]">
+            Today
+          </p>
+          <h1 className="mt-2 text-4xl font-semibold leading-tight tracking-tight text-stone-900">
+            Plan cockpit
+          </h1>
+        </div>
+        <p className="text-xs text-stone-400">
           {baselinePath
-            ? `Projected from current plan (${yearlySeries.length}-year horizon)`
+            ? `${yearlySeries.length}-year horizon`
             : 'Run a plan to populate'}
         </p>
       </div>
@@ -2141,18 +2250,73 @@ export function CockpitScreen() {
         </div>
       )}
 
-      {/* Top banner: adopted policy + trust signals */}
-      <div className="grid gap-3 lg:grid-cols-3">
+      {/* Top banner: Trust gets the lion's share (2 cols, big number),
+       *  Adopted policy and Actions due are quieter sidekicks. */}
+      <div className="grid gap-4 lg:grid-cols-4">
+        <div className="lg:col-span-2 rounded-3xl bg-white p-7 shadow-[0_2px_24px_rgba(15,40,80,0.05)]">
+          <p className="text-[11px] font-medium uppercase tracking-[0.2em] text-stone-400">
+            Trust
+          </p>
+          {baselinePath ? (
+            <>
+              <div className="mt-3 flex items-baseline gap-3">
+                <p
+                  className={`font-serif text-7xl font-light tabular-nums leading-none ${
+                    baselinePath.successRate >= 0.85
+                      ? 'text-[#0066CC]'
+                      : baselinePath.successRate >= 0.70
+                      ? 'text-amber-700'
+                      : 'text-rose-600'
+                  }`}
+                >
+                  {Math.round(baselinePath.successRate * 100)}%
+                </p>
+                <p className="text-sm text-stone-500">
+                  stays solvent
+                  <span className="ml-1 text-stone-400">
+                    · {assumptions?.simulationRuns ?? '?'} trials
+                  </span>
+                </p>
+              </div>
+              <div className="mt-5 grid grid-cols-2 gap-x-6 gap-y-2 text-sm">
+                <div>
+                  <p className="text-[11px] uppercase tracking-wider text-stone-400">
+                    North Star
+                  </p>
+                  <p className="mt-1 font-medium text-stone-900 tabular-nums">
+                    {formatCurrencyExact(legacyTarget ?? null)}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-[11px] uppercase tracking-wider text-stone-400">
+                    Median ending wealth
+                  </p>
+                  <p className="mt-1 font-medium text-stone-900 tabular-nums">
+                    {formatCurrency(baselinePath.medianEndingWealth)}
+                  </p>
+                </div>
+              </div>
+              <p className="mt-4 text-[11px] text-stone-400">
+                "Solvent" = didn't run out of money. Hitting the legacy
+                target is a separate question — see Re-run Model →
+                "Hits legacy" column.
+              </p>
+            </>
+          ) : (
+            <p className="mt-4 text-sm text-stone-400">No projection yet.</p>
+          )}
+        </div>
+
         <CockpitTile eyebrow="Adopted policy">
           {adopted ? (
-            <div className="space-y-1 text-[12px]">
+            <div className="space-y-1.5 text-[13px]">
               <div>
                 Spend{' '}
                 <span className="font-semibold text-stone-900">
                   {formatCurrencyExact(adopted.annualSpendTodayDollars)}/yr
                 </span>
               </div>
-              <div>
+              <div className="text-stone-600">
                 Rob SS @{' '}
                 <span className="font-semibold text-stone-900">
                   {adopted.primarySocialSecurityClaimAge}
@@ -2162,7 +2326,7 @@ export function CockpitScreen() {
                   {adopted.spouseSocialSecurityClaimAge ?? '—'}
                 </span>
               </div>
-              <div>
+              <div className="text-stone-600">
                 Roth ceiling{' '}
                 <span className="font-semibold text-stone-900">
                   {formatCurrencyExact(adopted.rothConversionAnnualCeiling)}/yr
@@ -2170,52 +2334,9 @@ export function CockpitScreen() {
               </div>
             </div>
           ) : (
-            <p className="text-stone-400 text-[12px]">
-              No adopted policy yet. Mine a policy in Policy Mining and click "Adopt".
+            <p className="text-stone-400 text-sm">
+              No adopted policy yet. Open Re-run Model and pick one.
             </p>
-          )}
-        </CockpitTile>
-
-        <CockpitTile eyebrow="Trust">
-          {baselinePath ? (
-            <div className="space-y-1 text-[12px]">
-              <div>
-                Stays solvent (never runs out):{' '}
-                <span
-                  className={`font-semibold ${
-                    baselinePath.successRate >= 0.95
-                      ? 'text-emerald-700'
-                      : baselinePath.successRate >= 0.85
-                      ? 'text-amber-700'
-                      : 'text-rose-600'
-                  }`}
-                >
-                  {Math.round(baselinePath.successRate * 100)}%
-                </span>{' '}
-                <span className="text-stone-400">
-                  · {assumptions?.simulationRuns ?? '?'} trials
-                </span>
-              </div>
-              <div>
-                North Star (legacy):{' '}
-                <span className="font-semibold text-stone-900">
-                  {formatCurrencyExact(legacyTarget ?? null)}
-                </span>
-              </div>
-              <div>
-                Median ending wealth:{' '}
-                <span className="font-semibold text-stone-900">
-                  {formatCurrency(baselinePath.medianEndingWealth)}
-                </span>
-              </div>
-              <p className="pt-1 text-[10px] text-stone-400">
-                "Solvent" = didn't run out of money. Hitting the legacy
-                target is a separate question — see the policy mining
-                table's "Hits legacy" column.
-              </p>
-            </div>
-          ) : (
-            <p className="text-stone-400 text-[12px]">No projection yet.</p>
           )}
         </CockpitTile>
 
@@ -2351,6 +2472,14 @@ export function CockpitScreen() {
         selectedResponses={selectedResponses ?? []}
       />
 
+      <SaveSnapshotPanel
+        data={data}
+        assumptions={assumptions}
+        yearlySeries={yearlySeries}
+        baselinePath={baselinePath}
+        adoptedPolicy={adopted}
+      />
+
       <YearlyAuditDownload data={data} yearlySeries={yearlySeries} />
 
       <p className="text-[11px] text-stone-400">
@@ -2373,6 +2502,109 @@ export function CockpitScreen() {
  * the cockpit is meant to be the household's daily surface; the
  * Inspector view stays the place to see every column.
  */
+/**
+ * "Save snapshot" panel — captures the current plan state into the
+ * history store. Pulls all the inputs from the cockpit's existing
+ * memos (no duplicate sim runs) and writes via `history-store.ts`.
+ *
+ * UX: a single button + an optional label input. After save, shows
+ * a brief confirmation with a "View history" link. Doesn't block the
+ * page or steal focus — meant to be a one-click monthly habit.
+ */
+function SaveSnapshotPanel({
+  data,
+  assumptions,
+  yearlySeries,
+  baselinePath,
+  adoptedPolicy,
+}: {
+  data: SeedData | null | undefined;
+  assumptions: MarketAssumptions | null | undefined;
+  yearlySeries: PathYearResult[];
+  baselinePath: PathResult | null;
+  adoptedPolicy: { annualSpendTodayDollars: number; primarySocialSecurityClaimAge: number; spouseSocialSecurityClaimAge: number | null; rothConversionAnnualCeiling: number } | null;
+}) {
+  const [label, setLabel] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [savedAt, setSavedAt] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  if (!data || !assumptions || !baselinePath || yearlySeries.length === 0) {
+    return null;
+  }
+
+  const handleSave = async () => {
+    if (saving) return;
+    setSaving(true);
+    setError(null);
+    try {
+      const snapshot = captureSnapshot({
+        label: label.trim(),
+        data,
+        assumptions,
+        yearlySeries,
+        successRate: baselinePath.successRate,
+        medianEndingWealth: baselinePath.medianEndingWealth,
+        adoptedPolicy: adoptedPolicy as any,
+        engineVersion: POLICY_MINER_ENGINE_VERSION,
+      });
+      await saveSnapshot(snapshot);
+      setSavedAt(new Date().toLocaleTimeString());
+      setLabel('');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Save failed');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="rounded-2xl border border-stone-200 bg-stone-50/70 p-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex-1 min-w-[280px]">
+          <p className="text-[12px] font-semibold text-stone-700">
+            📸 Save plan snapshot
+          </p>
+          <p className="text-[11px] text-stone-500">
+            Capture today's state for month-over-month tracking. Solvency,
+            assets, projection trajectory, and adopted policy get archived
+            locally — view trends in the History tab.
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <input
+            type="text"
+            value={label}
+            onChange={(e) => setLabel(e.target.value)}
+            placeholder="Optional label (e.g. April 2026 review)"
+            className="rounded-lg border border-stone-300 bg-white px-3 py-2 text-sm placeholder:text-stone-400 focus:border-[#0066CC] focus:outline-none"
+            disabled={saving}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') void handleSave();
+            }}
+          />
+          <button
+            type="button"
+            onClick={() => void handleSave()}
+            disabled={saving}
+            className="whitespace-nowrap rounded-lg bg-[#0066CC] px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-[#0071E3] disabled:cursor-not-allowed disabled:bg-stone-300"
+          >
+            {saving ? 'Saving…' : 'Save snapshot'}
+          </button>
+        </div>
+      </div>
+      {savedAt && (
+        <p className="mt-2 text-[11px] text-emerald-700">
+          ✓ Saved at {savedAt}. Open the History tab to see it.
+        </p>
+      )}
+      {error && (
+        <p className="mt-2 text-[11px] text-rose-600">⚠ {error}</p>
+      )}
+    </div>
+  );
+}
+
 function YearlyAuditDownload({
   data,
   yearlySeries,

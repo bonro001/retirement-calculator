@@ -3147,9 +3147,15 @@ function simulatePath(
         const totalAssetsAtStart = sumBalances(balances);
         const rothBalanceStartForYear = balances.roth;
         const yearsIntoRetirement = year - effectivePlan.retirementYear;
+        // Travel phase applies from today through the end of the go-go
+        // window (travelPhaseYears past retirement). Pre-retirement
+        // years count too — many households (this one included) travel
+        // actively in the years leading up to retirement, not just
+        // after. The simulation starts at the current year, so there's
+        // no risk of activating travel in years that don't matter to
+        // the projection. The phase ends `travelPhaseYears` post-
+        // retirement (when the household enters slow-go years).
         const inTravelPhase =
-          isRetired &&
-          yearsIntoRetirement >= 0 &&
           yearsIntoRetirement < effectivePlan.travelPhaseYears;
         const fixedSpendAnnual =
           effectivePlan.essentialAnnual + effectivePlan.taxesInsuranceAnnual;

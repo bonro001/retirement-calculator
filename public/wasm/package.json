@@ -1,0 +1,20 @@
+{
+  "name": "flight-engine",
+  "type": "module",
+  "collaborators": [
+    "Rob Bonner"
+  ],
+  "description": "Rust port of the Flight Path Monte Carlo simulation core",
+  "version": "0.1.0",
+  "license": "PROPRIETARY",
+  "files": [
+    "flight_engine_bg.wasm",
+    "flight_engine.js",
+    "flight_engine.d.ts"
+  ],
+  "main": "flight_engine.js",
+  "types": "flight_engine.d.ts",
+  "sideEffects": [
+    "./snippets/*"
+  ]
+}

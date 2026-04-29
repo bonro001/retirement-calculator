@@ -39,6 +39,14 @@ const CockpitScreen = lazy(() =>
   import('./CockpitScreen').then((m) => ({ default: m.CockpitScreen })),
 );
 
+const MiningScreen = lazy(() =>
+  import('./MiningScreen').then((m) => ({ default: m.MiningScreen })),
+);
+
+const HistoryScreen = lazy(() =>
+  import('./HistoryScreen').then((m) => ({ default: m.HistoryScreen })),
+);
+
 const ExploreScreen = lazy(() =>
   import('./ExploreScreen').then((m) => ({ default: m.ExploreScreen })),
 );
@@ -168,13 +176,86 @@ const ROOMS: { id: Room; label: string }[] = [
   { id: 'export', label: 'Export' },
 ];
 
-const navigation: { id: ScreenId; label: string; shortLabel: string }[] = [
-  { id: 'cockpit', label: 'Cockpit', shortLabel: 'Cockpit' },
-  { id: 'accounts', label: 'Accounts', shortLabel: 'Accounts' },
-  { id: 'social_security', label: 'Social Security', shortLabel: 'SS' },
-  { id: 'taxes', label: 'Taxes', shortLabel: 'Taxes' },
-  { id: 'export', label: 'Export', shortLabel: 'Export' },
+type NavSection = 'today' | 'analyze' | 'configure';
+
+const navigation: {
+  id: ScreenId;
+  label: string;
+  shortLabel: string;
+  section: NavSection;
+  /** Inline SVG path for the leading icon. Heroicons "outline" style,
+   *  20×20 grid, stroke-width 1.5 — matches the Apple-y restraint. */
+  iconPath: string;
+}[] = [
+  {
+    id: 'cockpit',
+    label: 'Cockpit',
+    shortLabel: 'Cockpit',
+    section: 'today',
+    // Compass / target — "where am I right now"
+    iconPath:
+      'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18Zm0-3.75a5.25 5.25 0 1 0 0-10.5 5.25 5.25 0 0 0 0 10.5Zm0-3a2.25 2.25 0 1 0 0-4.5 2.25 2.25 0 0 0 0 4.5Z',
+  },
+  {
+    id: 'mining',
+    label: 'Re-run Model',
+    shortLabel: 'Mining',
+    section: 'analyze',
+    // Lightning bolt — "compute / generate"
+    iconPath: 'M13 2 4.09 12.97a.5.5 0 0 0 .39.81H11l-1 8.22 8.91-10.97a.5.5 0 0 0-.39-.81H13l0-7.22Z',
+  },
+  {
+    id: 'history',
+    label: 'History',
+    shortLabel: 'History',
+    section: 'analyze',
+    // Clock — "over time"
+    iconPath:
+      'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18Zm0-13.5V12l3 2.25',
+  },
+  {
+    id: 'accounts',
+    label: 'Accounts',
+    shortLabel: 'Accounts',
+    section: 'configure',
+    // Briefcase / wallet
+    iconPath:
+      'M3 7.5A2.5 2.5 0 0 1 5.5 5h13A2.5 2.5 0 0 1 21 7.5v9a2.5 2.5 0 0 1-2.5 2.5h-13A2.5 2.5 0 0 1 3 16.5v-9Zm5-3A2.5 2.5 0 0 1 10.5 2h3A2.5 2.5 0 0 1 16 4.5V5h-2v-.5a.5.5 0 0 0-.5-.5h-3a.5.5 0 0 0-.5.5V5H8v-.5Z',
+  },
+  {
+    id: 'social_security',
+    label: 'Social Security',
+    shortLabel: 'SS',
+    section: 'configure',
+    // Shield
+    iconPath:
+      'M12 2 4 5v6c0 4.97 3.42 9.59 8 11 4.58-1.41 8-6.03 8-11V5l-8-3Z',
+  },
+  {
+    id: 'taxes',
+    label: 'Taxes',
+    shortLabel: 'Taxes',
+    section: 'configure',
+    // Document with lines
+    iconPath:
+      'M6 2.25A2.25 2.25 0 0 0 3.75 4.5v15A2.25 2.25 0 0 0 6 21.75h12a2.25 2.25 0 0 0 2.25-2.25V8.25L14.25 2.25H6Zm7.5 0V8.25h6.75M7.5 12h9M7.5 16h9',
+  },
+  {
+    id: 'export',
+    label: 'Export',
+    shortLabel: 'Export',
+    section: 'configure',
+    // Arrow up out of tray
+    iconPath:
+      'M3.75 19.5h16.5M12 4.5v11.25m0 0-4.5-4.5m4.5 4.5 4.5-4.5',
+  },
 ];
+
+const NAV_SECTION_LABELS: Record<NavSection, string> = {
+  today: 'Today',
+  analyze: 'Analyze',
+  configure: 'Configure',
+};
 
 const chartPalette = ['#2563eb', '#0891b2', '#1d4ed8', '#0369a1'];
 const SIMULATION_REQUEST_PREFIX = 'simulation-request';
@@ -612,6 +693,8 @@ export function App() {
   // an unreachable screen.
   const REACHABLE_SCREENS: ScreenId[] = [
     'cockpit',
+    'mining',
+    'history',
     'accounts',
     'social_security',
     'taxes',
@@ -1349,7 +1432,7 @@ export function App() {
   const isPlanHomeScreen = currentScreen === 'overview' || currentScreen === 'insights';
 
   return (
-    <div className="min-h-screen bg-[radial-gradient(circle_at_top_left,_rgba(96,165,250,0.22),_transparent_30%),linear-gradient(135deg,#f6fbff_0%,#edf5fb_42%,#dce9f5_100%)] text-slate-900">
+    <div className="min-h-screen bg-[#F7F5F2] text-stone-900">
       {/* Single unified layout: left sidebar with Cockpit + Accounts +
           Social Security + Taxes + Export. The room-pill nav and
           AdvisorRoom / SandboxRoom shells are intentionally not
@@ -1357,39 +1440,64 @@ export function App() {
           is unreachable. Cleanup pass to delete unused components is
           a separate task. */}
       <div className="mx-auto flex min-h-screen max-w-[1700px] flex-col lg:flex-row">
-        <aside className="border-b border-stone-300/60 bg-white/75 px-4 py-5 backdrop-blur lg:min-h-screen lg:w-[260px] lg:border-b-0 lg:border-r lg:shrink-0">
-          <div className="mb-6 flex items-center justify-between lg:block">
+        <aside className="bg-transparent px-4 py-6 lg:min-h-screen lg:w-[210px] lg:shrink-0">
+          <div className="mb-8 flex items-center justify-between lg:block">
             <div>
-              <p className="font-mono text-xs uppercase tracking-[0.24em] text-blue-700">
-                Retirement Path Lab
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#0066CC]">
+                Welcome to Flight Path
               </p>
-              <h1 className="mt-2 max-w-[14ch] font-serif text-3xl leading-tight text-stone-900">
+              <h1 className="mt-3 max-w-[14ch] text-3xl font-semibold leading-tight tracking-tight text-stone-900">
                 Compare futures, not just scenarios.
               </h1>
             </div>
-            <div className="hidden rounded-full bg-blue-100 px-3 py-1 text-xs font-semibold text-blue-900 lg:inline-flex">
-              Local-first shell
-            </div>
           </div>
 
-          <nav className="hidden space-y-2 lg:block">
-            {navigation.map((item) => (
-              <button
-                key={item.id}
-                type="button"
-                onClick={() => setCurrentScreen(item.id)}
-                className={`flex w-full items-center justify-between rounded-2xl px-4 py-3 text-left transition ${
-                  currentScreen === item.id
-                    ? 'bg-stone-900 text-stone-50 shadow-lg shadow-stone-900/10'
-                    : 'bg-stone-100/70 text-stone-700 hover:bg-stone-200/80'
-                }`}
-              >
-                <span className="font-medium">{item.label}</span>
-                <span className="text-xs uppercase tracking-[0.18em] opacity-70">
-                  {item.shortLabel}
-                </span>
-              </button>
-            ))}
+          <nav className="hidden lg:block">
+            {(['today', 'analyze', 'configure'] as NavSection[]).map(
+              (section) => {
+                const items = navigation.filter((n) => n.section === section);
+                if (items.length === 0) return null;
+                return (
+                  <div key={section} className="mb-5">
+                    <p className="mb-1.5 px-4 text-[10px] font-semibold uppercase tracking-[0.18em] text-stone-400">
+                      {NAV_SECTION_LABELS[section]}
+                    </p>
+                    <div className="space-y-0.5">
+                      {items.map((item) => {
+                        const active = currentScreen === item.id;
+                        return (
+                          <button
+                            key={item.id}
+                            type="button"
+                            onClick={() => setCurrentScreen(item.id)}
+                            className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-base transition ${
+                              active
+                                ? 'bg-[#0071E3]/10 font-semibold text-[#0066CC]'
+                                : 'font-medium text-stone-600 hover:bg-stone-100/80 hover:text-stone-900'
+                            }`}
+                          >
+                            <svg
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="1.5"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              className={`h-5 w-5 shrink-0 ${
+                                active ? 'text-[#0066CC]' : 'text-stone-400'
+                              }`}
+                            >
+                              <path d={item.iconPath} />
+                            </svg>
+                            <span>{item.label}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              },
+            )}
           </nav>
 
         </aside>
@@ -1574,6 +1682,16 @@ export function App() {
               {currentScreen === 'cockpit' && (
                 <Suspense fallback={<LazyScreenFallback label="Loading Cockpit…" />}>
                   <CockpitScreen />
+                </Suspense>
+              )}
+              {currentScreen === 'mining' && (
+                <Suspense fallback={<LazyScreenFallback label="Loading Mining…" />}>
+                  <MiningScreen />
+                </Suspense>
+              )}
+              {currentScreen === 'history' && (
+                <Suspense fallback={<LazyScreenFallback label="Loading History…" />}>
+                  <HistoryScreen />
                 </Suspense>
               )}
               {currentScreen === 'export' && (

@@ -1,5 +1,7 @@
 export type ScreenId =
   | 'cockpit'
+  | 'mining'
+  | 'history'
   | 'accounts'
   | 'social_security'
   | 'taxes'

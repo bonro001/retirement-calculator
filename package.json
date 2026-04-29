@@ -16,7 +16,9 @@
     "cluster:smoke": "tsx cluster/smoke-client.ts",
     "cluster:host": "tsx cluster/host.ts",
     "cluster:host-smoke": "tsx cluster/host-smoke.ts",
-    "cluster:start-session": "tsx cluster/start-session.ts"
+    "cluster:start-session": "tsx cluster/start-session.ts",
+    "wasm:build": "cd flight-engine-rs && wasm-pack build --target web --release --out-dir ../public/wasm",
+    "wasm:dev": "cd flight-engine-rs && wasm-pack build --target web --dev --out-dir ../public/wasm"
   },
   "dependencies": {
     "dotenv": "^17.4.2",

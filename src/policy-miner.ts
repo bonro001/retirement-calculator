@@ -249,7 +249,7 @@ export function runMiningSession(args: {
           // Don't push coarse durations into recentDurations — those are
           // calibrated against the fine-pass distribution and would
           // mislead the UI's ETA. Just emit coarse counters periodically
-          // so the panel can show "screening: 1234 / 7776".
+          // so the panel can show "screening: 1234 / 1728" (V1.1 corpus).
           if ((i + 1) % 16 === 0 || i + 1 === totalPolicies) {
             onStats?.({ ...stats });
           }

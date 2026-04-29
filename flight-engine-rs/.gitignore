@@ -1,0 +1,4 @@
+# Rust build artifacts — large, regenerated on every build.
+target/
+
+# wasm-pack output goes to ../public/wasm/ (committed there, not here).
