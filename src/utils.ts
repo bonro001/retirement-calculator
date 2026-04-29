@@ -2182,9 +2182,18 @@ function applyProactiveRothConversion(input: {
   }
   const candidateAmountsGenerated = evaluatedCandidateAmounts.length > 0;
   if (input.strategy.plannerLogicActive && availableHeadroom > 0 && !candidateAmountsGenerated) {
-    throw new Error(
-      'Roth conversion candidate generation failed in planner-enhanced mode despite positive headroom.',
-    );
+    // PHASE 2.5 (2026-04-29): converted from throw to graceful return.
+    // The previous throw assumed "headroom > 0 AND plannerLogicActive
+    // AND no candidates" was a logic bug, but it actually fires when
+    // pretax balance is positive but tiny (< $0.01 → all candidate
+    // fractions round to $0 cents → empty list). The early guard at
+    // line ~2066 catches `pretax <= 0` but not microscopic positive
+    // balances. Surfaced during a Full mine where post-LTC-fix
+    // depletion drove pretax into this dust-balance region in some
+    // tail trials. Right behavior: skip conversion for the year, not
+    // crash the trial. Tracked as the same family as
+    // `compareRecommendationCandidates` non-transitivity in BACKLOG.
+    return noConversion('blocked_by_available_pretax_balance');
   }
 
   // Phase 1.6 perf: replace the .filter().map() pipeline (which allocates
