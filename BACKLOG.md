@@ -65,6 +65,29 @@ Guiding principle (reviewer's, and it's correct): *fix what changes decisions �
   - **Why it matters**: Fidelity's methodology samples returns from "domestic stocks, foreign stocks, bonds, short-term investments" using the user's actual asset mix (65/9/17/7 in the current plan). Boldin uses per-account rate-of-return overrides that bypass allocation. Our engine mixes both approaches — each bucket has a `targetAllocation` keyed to symbols (VTI/BND/SCHD/etc.) which get mapped to asset classes via `asset-class-mapper.ts`. Worth confirming end-to-end: does our reported "asset mix" match what Fidelity sees, does the simulation actually use that mix to sample returns per year, and are the per-symbol → asset-class mappings (TRP_2030, CENTRAL_MANAGED proxies especially) doing what we think?
   - **First cuts**: (a) write a property test that asserts engine-computed aggregate asset mix equals Fidelity-reported mix within a few pp when fed the same seed data; (b) inspect the `assetClassMappingAssumptions` output in a live run to confirm TRP_2030 and CENTRAL_MANAGED proxies behave sensibly; (c) surface aggregate asset mix as a UI field so drift from intent is visible.
 
+- [ ] **Engine validation findings from the Rust-parity exploration (2026-04-29)**. A multi-hour parity push between the TS engine and an experimental Rust+WASM port surfaced several questions about TS modeling choices that are worth examining on their own merits — independent of whether the Rust port ever ships. These are not bugs we know to be wrong; they're conventions worth verifying against external sources.
+
+  1. **HSA fold-into-pretax for investment, separate tracker for medical cap.** `buildPlan` in `src/utils.ts:626` does `pretaxTotal = pretax.balance + hsaBalance`, then keeps `hsaBalance` as a tracker that decreases when HSA-eligible offsets are used. The HSA's $49k effectively earns pretax-style returns AND retains tax-free medical withdrawal up to the tracker cap. Worth confirming this matches IRS HSA semantics; an alternative (HSA as fully-separate bucket with own returns) might be more accurate.
+
+  2. **Inheritance counts as both cash deposit AND income.** `src/utils.ts:3292-3294`: `balances.cash += windfallCashInflow` AND `baseIncome = adjustedWages + ssIncome + windfallCashInflow`. So a $500k inheritance covers $500k of "income need" while also depositing $500k into cash. Conceptually the household can't spend the same dollars twice, but the engine's net result (windfall stays in cash, no withdrawal triggered) appears to match common-sense behavior. Worth verifying with a worked example.
+
+  3. **LTC inflation timing.** TS inflates LTC cost from event start (age 85), not year 0. `src/utils.ts:1190-1193` uses `Math.pow(1+inflationAnnual, yearsIntoLtc)`. If real future LTC costs in 2055 are 4× today's $48k due to medical inflation from now to 2055, the TS engine may understate LTC cost by frozen-at-today's-dollars treatment. Check against industry actuarial LTC projections.
+
+  4. **Trinity Study calibration (parametric mode).** TS engine in default parametric mode (`equityMean: 0.074`, vol 0.16) produces 66% solvency on a Trinity-equivalent 4%/60-40/30y scenario. Pfau-Kitces parametric estimates are 85-92%. Trinity Study published (historical mode) is ~95%. **TS in `useHistoricalBootstrap: true` mode produces 92.7%, validating the engine within 2-3pp of Trinity Study.** The 66% vs 92% gap in parametric mode is driven by the conservative `equityMean: 0.074` (which behaves as nominal in the engine, giving ~4.6% real return after 2.8% inflation — much lower than historical real ~7%). Either:
+     - Document this as a deliberate forward-looking conservatism (defensible per "future returns lower than past" thesis), or
+     - Raise `equityMean` to ~0.10 to match historical nominal, or
+     - Switch the Cockpit default to historical bootstrap mode (would shift the 87% headline to ~94%).
+
+  5. **5% withdrawal calibration miss.** TS engine on Trinity 5%/60-40/30y scenario produces 36% solvency vs published ~80% (historical) / ~60-70% (parametric). Even accounting for the parametric pessimism in (4), this is a ~25pp miss. Investigation needed — could be tax drag amplifying with higher withdrawal rates, vol-bound truncation interacting with stress trials, or a subtle bug in failure detection. **Fix-priority: medium** because real-life households rarely hit 5% sustained, but worth understanding before claiming the engine is calibrated.
+
+  6. **Volatility bounds.** TS uses `boundedNormal(mean, vol, -0.45, 0.45)` for equity. Truncating outliers shifts effective mean slightly downward. Probably fine but document the assumption.
+
+  See `flight-engine-rs/README.md` for context on the Rust port that was tested against TS during this investigation.
+
+- [ ] **Calibration test harness (Phase 1 of dual-view plan)**. Build `src/calibration.test.ts` that runs canonical retirement-MC scenarios (Trinity 3%/4%/5%, varying allocations, varying horizons) through the TS engine in both parametric and historical-bootstrap modes, compares to published expectations. Wires into CI as a regression guard. Document findings in `CALIBRATION_WORKPLAN.md`. See finding (5) above for the 5% gap that needs investigating as part of this.
+
+- [ ] **Dual view: parametric + historical (Phase 2 of dual-view plan)**. Cockpit shows both numbers side-by-side with assumption labels. New collapsible "assumptions panel" exposes the inputs (equityMean, inflation, vol, distribution choice) for each view. Forward-looking stays headline; historical is the validation/grounding number alongside. Snapshots capture both. Decide policy mining behavior (probably stays single-mode for speed).
+
 ## Completed
 
 _Nothing yet._
