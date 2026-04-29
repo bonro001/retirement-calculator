@@ -35,6 +35,10 @@ const Plan20Screen = lazy(() =>
   import('./Plan20Screen').then((m) => ({ default: m.Plan20Screen })),
 );
 
+const CockpitScreen = lazy(() =>
+  import('./CockpitScreen').then((m) => ({ default: m.CockpitScreen })),
+);
+
 const ExploreScreen = lazy(() =>
   import('./ExploreScreen').then((m) => ({ default: m.ExploreScreen })),
 );
@@ -156,26 +160,19 @@ import {
  * sidebar (the `navigation` array below) continues to work inside Inspector;
  * Advisor and Sandbox get filled in by PR-2 / PR-3.
  */
-type Room = 'advisor' | 'sandbox' | 'inspector';
+type Room = 'advisor' | 'sandbox' | 'cockpit' | 'inspector' | 'export';
 const ROOMS: { id: Room; label: string }[] = [
-  { id: 'advisor', label: 'Advisor' },
+  { id: 'cockpit', label: 'Cockpit' },
   { id: 'sandbox', label: 'Sandbox' },
   { id: 'inspector', label: 'Inspector' },
+  { id: 'export', label: 'Export' },
 ];
 
 const navigation: { id: ScreenId; label: string; shortLabel: string }[] = [
-  { id: 'overview', label: 'Plan', shortLabel: 'Plan' },
-  { id: 'plan2', label: 'Plan 2.0', shortLabel: 'Plan 2.0' },
-  { id: 'explore', label: 'Explore', shortLabel: 'Explore' },
-  { id: 'paths', label: 'Path Comparison', shortLabel: 'Paths' },
-  { id: 'compare', label: 'Scenario Compare', shortLabel: 'Compare' },
+  { id: 'cockpit', label: 'Cockpit', shortLabel: 'Cockpit' },
   { id: 'accounts', label: 'Accounts', shortLabel: 'Accounts' },
-  { id: 'spending', label: 'Spending', shortLabel: 'Spending' },
-  { id: 'income', label: 'Income', shortLabel: 'Income' },
   { id: 'social_security', label: 'Social Security', shortLabel: 'SS' },
   { id: 'taxes', label: 'Taxes', shortLabel: 'Taxes' },
-  { id: 'stress', label: 'Stress Tests', shortLabel: 'Stress' },
-  { id: 'simulation', label: 'Simulation', shortLabel: 'Sim' },
   { id: 'export', label: 'Export', shortLabel: 'Export' },
 ];
 
@@ -609,9 +606,20 @@ export function App() {
   );
   const planAnalysisStatus = useAppStore((state) => state.planAnalysisStatus);
 
+  // Redirect any screen that's no longer in the sidebar back to Cockpit.
+  // Keeps stale persisted store state (e.g. someone with currentScreen
+  // === 'overview' from before the navigation cleanup) from landing on
+  // an unreachable screen.
+  const REACHABLE_SCREENS: ScreenId[] = [
+    'cockpit',
+    'accounts',
+    'social_security',
+    'taxes',
+    'export',
+  ];
   useEffect(() => {
-    if (currentScreen === 'solver' || currentScreen === 'autopilot') {
-      setCurrentScreen('overview');
+    if (!REACHABLE_SCREENS.includes(currentScreen)) {
+      setCurrentScreen('cockpit');
     }
   }, [currentScreen, setCurrentScreen]);
 
@@ -633,7 +641,7 @@ export function App() {
   // Top-level room. Local state for PR-1 — promote into the Zustand store later
   // if we want it to persist across reloads. Default to Advisor: the household
   // should land in the "monthly check-in" view, not the engine-internals tab list.
-  const [room, setRoom] = useState<Room>('advisor');
+  const [room, setRoom] = useState<Room>('cockpit');
   /**
    * Deep-link handoff: Advisor's Easy-to-miss cards push a scenario in here
    * before flipping the room to 'sandbox'. SandboxRoom consumes it on mount
@@ -1342,65 +1350,15 @@ export function App() {
 
   return (
     <div className="min-h-screen bg-[radial-gradient(circle_at_top_left,_rgba(96,165,250,0.22),_transparent_30%),linear-gradient(135deg,#f6fbff_0%,#edf5fb_42%,#dce9f5_100%)] text-slate-900">
-      {/* Top-level Room nav — Advisor / Sandbox / Inspector. Sticky so it
-          remains the household's anchor as they scroll inside any room. The
-          existing per-screen sidebar/tab UI (Plan, Accounts, Spending, etc.)
-          continues to work below this, gated to the Inspector room. */}
-      <header className="no-print sticky top-0 z-40 border-b border-stone-300/60 bg-white/85 backdrop-blur">
-        <div className="mx-auto flex max-w-[1700px] items-center gap-4 px-4 py-3 sm:px-6 lg:px-8">
-          <p className="font-mono text-[11px] uppercase tracking-[0.24em] text-blue-700">
-            Retirement Path Lab
-          </p>
-          <nav className="ml-auto flex gap-1 rounded-full bg-stone-100 p-1">
-            {ROOMS.map((r) => (
-              <button
-                key={r.id}
-                type="button"
-                onClick={() => setRoom(r.id)}
-                className={`rounded-full px-4 py-1.5 text-sm font-medium transition ${
-                  room === r.id
-                    ? 'bg-stone-900 text-white shadow'
-                    : 'text-stone-700 hover:text-stone-900'
-                }`}
-              >
-                {r.label}
-              </button>
-            ))}
-          </nav>
-        </div>
-      </header>
-
-      {room === 'advisor' && (
-        <AdvisorRoom
-          data={currentPlan}
-          assumptions={currentPlanAssumptions}
-          solvedSpendProfile={currentPlanResult?.solvedSpendProfile ?? null}
-          planResultStatus={planResultStatus}
-          baselinePathResult={currentPlanResult?.pathResults?.[0] ?? null}
-          onOpenSandbox={(scenario) => {
-            setPendingSandboxScenario(scenario ?? null);
-            setRoom('sandbox');
-          }}
-        />
-      )}
-      {room === 'sandbox' && (
-        <SandboxRoom
-          data={currentPlan}
-          assumptions={currentPlanAssumptions}
-          initialScenario={pendingSandboxScenario}
-          onConsumeInitialScenario={() => setPendingSandboxScenario(null)}
-          baselineMonthlySpendNow={
-            currentPlanResult?.solvedSpendProfile?.monthlySpendNow ?? null
-          }
-          baselineMedianEndingWealth={
-            currentPlanResult?.pathResults?.[0]?.medianEndingWealth ?? null
-          }
-        />
-      )}
-      {room === 'inspector' && (
-      <div className="mx-auto flex min-h-screen max-w-[1700px] flex-col xl:flex-row">
-        <aside className="border-b border-stone-300/60 bg-white/75 px-4 py-5 backdrop-blur xl:min-h-screen xl:w-[280px] xl:border-b-0 xl:border-r">
-          <div className="mb-6 flex items-center justify-between xl:block">
+      {/* Single unified layout: left sidebar with Cockpit + Accounts +
+          Social Security + Taxes + Export. The room-pill nav and
+          AdvisorRoom / SandboxRoom shells are intentionally not
+          rendered here — code remains in this file for reference but
+          is unreachable. Cleanup pass to delete unused components is
+          a separate task. */}
+      <div className="mx-auto flex min-h-screen max-w-[1700px] flex-col lg:flex-row">
+        <aside className="border-b border-stone-300/60 bg-white/75 px-4 py-5 backdrop-blur lg:min-h-screen lg:w-[260px] lg:border-b-0 lg:border-r lg:shrink-0">
+          <div className="mb-6 flex items-center justify-between lg:block">
             <div>
               <p className="font-mono text-xs uppercase tracking-[0.24em] text-blue-700">
                 Retirement Path Lab
@@ -1409,12 +1367,12 @@ export function App() {
                 Compare futures, not just scenarios.
               </h1>
             </div>
-            <div className="hidden rounded-full bg-blue-100 px-3 py-1 text-xs font-semibold text-blue-900 xl:inline-flex">
+            <div className="hidden rounded-full bg-blue-100 px-3 py-1 text-xs font-semibold text-blue-900 lg:inline-flex">
               Local-first shell
             </div>
           </div>
 
-          <nav className="hidden space-y-2 xl:block">
+          <nav className="hidden space-y-2 lg:block">
             {navigation.map((item) => (
               <button
                 key={item.id}
@@ -1436,8 +1394,8 @@ export function App() {
 
         </aside>
 
-        <main className="flex-1 px-4 py-4 sm:px-6 lg:px-8 lg:flex lg:max-h-screen lg:flex-col lg:overflow-hidden">
-          <div className="mb-4 overflow-x-auto xl:hidden">
+        <main className="flex-1 min-w-0 px-4 py-4 sm:px-6 lg:px-8 lg:flex lg:max-h-screen lg:flex-col lg:overflow-hidden">
+          <div className="mb-4 overflow-x-auto lg:hidden">
             <div className="flex min-w-max gap-2 pb-2">
               {navigation.map((item) => (
                 <button
@@ -1613,6 +1571,16 @@ export function App() {
               </div>
             ) : (
             <section className="space-y-6">
+              {currentScreen === 'cockpit' && (
+                <Suspense fallback={<LazyScreenFallback label="Loading Cockpit…" />}>
+                  <CockpitScreen />
+                </Suspense>
+              )}
+              {currentScreen === 'export' && (
+                <Suspense fallback={<LazyScreenFallback label="Loading Export…" />}>
+                  <ExportScreen />
+                </Suspense>
+              )}
               {currentScreen === 'overview' && (
                 <>
                   <PlanReadingCard
@@ -1710,17 +1678,11 @@ export function App() {
                   showPlanControls={false}
                 />
               )}
-              {currentScreen === 'export' && (
-                <Suspense fallback={<LazyScreenFallback label="Loading Export…" />}>
-                  <ExportScreen />
-                </Suspense>
-              )}
             </section>
             )}
           </div>
         </main>
       </div>
-      )}
     </div>
   );
 }

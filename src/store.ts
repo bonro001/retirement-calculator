@@ -456,7 +456,7 @@ const initialSnapshots: PlanSnapshot[] = (() => {
 export const useAppStore = create<AppState>((set) => ({
   data: cloneSeedData(seedDataWithRestoredLegacy),
   appliedData: cloneSeedData(seedDataWithRestoredLegacy),
-  currentScreen: 'overview',
+  currentScreen: 'cockpit',
   draftSelectedStressors: [],
   draftSelectedResponses: [],
   draftAssumptions: defaultAssumptions,

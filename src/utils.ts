@@ -185,6 +185,13 @@ interface RunTrace {
   rothConversionProjectedRothShareAfter: number;
   rothBalanceStart: number;
   rothBalanceEnd: number;
+  /** End-of-year balances per bucket. `rothBalanceEnd` already exists
+   *  (engine uses it for the Roth share / decision math); the other
+   *  three are added so the Cockpit balance-by-bucket chart can show
+   *  the full split without re-deriving from totalAssets. */
+  pretaxBalanceEnd: number;
+  taxableBalanceEnd: number;
+  cashBalanceEnd: number;
   rothContributionFlow: number;
   rothMarketGainLoss: number;
   rothNetChange: number;
@@ -3605,6 +3612,9 @@ function simulatePath(
         yearly.push({
           year,
           totalAssets: roundSeriesValue(endingAssets),
+          pretaxBalanceEnd: roundSeriesValue(balances.pretax),
+          taxableBalanceEnd: roundSeriesValue(balances.taxable),
+          cashBalanceEnd: roundSeriesValue(balances.cash),
           income: roundSeriesValue(income),
           spending: roundSeriesValue(spending),
           federalTax: roundSeriesValue(federalTaxForYear),
@@ -3814,6 +3824,10 @@ function simulatePath(
   const yearlySeries = [...yearlyBuckets.entries()].map(([year, traces]) => ({
     year,
     medianAssets: median(traces.map((trace) => trace.totalAssets)),
+    medianPretaxBalance: median(traces.map((trace) => trace.pretaxBalanceEnd)),
+    medianTaxableBalance: median(traces.map((trace) => trace.taxableBalanceEnd)),
+    medianRothBalance: median(traces.map((trace) => trace.rothBalanceEnd)),
+    medianCashBalance: median(traces.map((trace) => trace.cashBalanceEnd)),
     tenthPercentileAssets: percentile(
       traces.map((trace) => trace.totalAssets),
       0.1,

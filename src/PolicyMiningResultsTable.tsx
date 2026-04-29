@@ -114,6 +114,7 @@ type Source = 'local' | 'cluster';
 type SortKey =
   | 'spend'
   | 'feasibility'
+  | 'solvent'
   | 'bequestP50'
   | 'bequestP10'
   | 'primarySs'
@@ -176,6 +177,8 @@ function compareEvals(a: PolicyEvaluation, b: PolicyEvaluation, sort: SortSpec):
         return e.policy.annualSpendTodayDollars;
       case 'feasibility':
         return e.outcome.bequestAttainmentRate;
+      case 'solvent':
+        return e.outcome.solventSuccessRate;
       case 'bequestP50':
         return e.outcome.p50EndingWealthTodayDollars;
       case 'bequestP10':
@@ -421,10 +424,49 @@ export function PolicyMiningResultsTable({
       .sort((a, b) => compareEvals(a, b, sort));
   }, [evaluations, feasibilityThreshold, sort]);
 
-  const visible = useMemo(
-    () => (showAll ? filtered : filtered.slice(0, rowLimit)),
-    [filtered, rowLimit, showAll],
-  );
+  /**
+   * Highest-spend evaluation that still clears the feasibility floor.
+   * Mirrors the "best so far" criterion the dispatcher uses (max spend
+   * subject to feasibility ≥ threshold). When the user sorts by
+   * feasibility-desc this row is buried below the high-feasibility/
+   * low-spend rows; pinning it surfaces the answer to "what's the
+   * most spend I can take and still hit my legacy?" without making
+   * the household scroll for it.
+   */
+  const bestByMaxSpend = useMemo(() => {
+    let best: PolicyEvaluation | null = null;
+    for (const ev of evaluations) {
+      if (ev.outcome.bequestAttainmentRate < feasibilityThreshold) continue;
+      if (!best) {
+        best = ev;
+        continue;
+      }
+      if (
+        ev.policy.annualSpendTodayDollars >
+        best.policy.annualSpendTodayDollars
+      ) {
+        best = ev;
+      } else if (
+        ev.policy.annualSpendTodayDollars ===
+          best.policy.annualSpendTodayDollars &&
+        ev.outcome.p50EndingWealthTodayDollars >
+          best.outcome.p50EndingWealthTodayDollars
+      ) {
+        best = ev;
+      }
+    }
+    return best;
+  }, [evaluations, feasibilityThreshold]);
+
+  const visible = useMemo(() => {
+    const base = showAll ? filtered : filtered.slice(0, rowLimit);
+    // Pin bestByMaxSpend at the top if it isn't already in the visible
+    // slice (common when the user sorts by feasibility desc and the
+    // high-spend/lower-feasibility row is below the rowLimit cut).
+    if (!bestByMaxSpend) return base;
+    if (base.some((ev) => ev.id === bestByMaxSpend.id)) return base;
+    return [bestByMaxSpend, ...base];
+  }, [filtered, rowLimit, showAll, bestByMaxSpend]);
 
   // Whether to render at all. Local mode hides if there's no baseline /
   // no records. Cluster mode renders even when empty so the picker /
@@ -749,8 +791,16 @@ export function PolicyMiningResultsTable({
                 <th
                   className="cursor-pointer py-2 pr-3 hover:text-stone-700"
                   onClick={() => toggleSort('feasibility')}
+                  title="% of stochastic trials where the household ends with at least the legacy target"
                 >
-                  Feasible{sortIndicator('feasibility')}
+                  Hits legacy{sortIndicator('feasibility')}
+                </th>
+                <th
+                  className="cursor-pointer py-2 pr-3 hover:text-stone-700"
+                  onClick={() => toggleSort('solvent')}
+                  title="% of stochastic trials where the household never runs out of money during life"
+                >
+                  Solvent{sortIndicator('solvent')}
                 </th>
                 <th
                   className="cursor-pointer py-2 pr-3 hover:text-stone-700"
@@ -793,12 +843,25 @@ export function PolicyMiningResultsTable({
                   bequestDelta != null
                     ? formatDelta(bequestDelta, formatCurrency)
                     : null;
+                const isHighestSpendPinned =
+                  bestByMaxSpend != null && ev.id === bestByMaxSpend.id;
+                const solventPct = ev.outcome.solventSuccessRate;
                 return (
                   <tr
                     key={ev.id}
-                    className="border-b border-stone-100 last:border-b-0 hover:bg-stone-50"
+                    className={`border-b border-stone-100 last:border-b-0 hover:bg-stone-50 ${
+                      isHighestSpendPinned ? 'bg-amber-50/50' : ''
+                    }`}
                   >
                     <td className="py-2 pr-3 font-semibold text-stone-900">
+                      {isHighestSpendPinned && (
+                        <span
+                          className="mr-1.5 inline-block rounded bg-amber-500 px-1 py-0.5 text-[9px] font-bold text-white"
+                          title="Highest-spend policy that still hits your legacy floor (the 'best so far' answer)"
+                        >
+                          ★ MAX
+                        </span>
+                      )}
                       {formatCurrency(ev.policy.annualSpendTodayDollars)}
                     </td>
                     <td className="py-2 pr-3">
@@ -812,6 +875,17 @@ export function PolicyMiningResultsTable({
                     </td>
                     <td className="py-2 pr-3 font-semibold text-emerald-700">
                       {formatPct(ev.outcome.bequestAttainmentRate)}
+                    </td>
+                    <td
+                      className={`py-2 pr-3 font-semibold ${
+                        solventPct >= 0.95
+                          ? 'text-emerald-700'
+                          : solventPct >= 0.85
+                          ? 'text-amber-700'
+                          : 'text-rose-600'
+                      }`}
+                    >
+                      {formatPct(solventPct)}
                     </td>
                     <td className="py-2 pr-3">
                       {formatCurrency(ev.outcome.p50EndingWealthTodayDollars)}

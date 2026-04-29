@@ -1,4 +1,13 @@
 export type ScreenId =
+  | 'cockpit'
+  | 'accounts'
+  | 'social_security'
+  | 'taxes'
+  | 'export'
+  // Below: legacy IDs retained for code that hasn't been pruned yet.
+  // They're not in the sidebar navigation, so the household can't
+  // reach them — but the components still exist in App.tsx and would
+  // throw type errors if removed before a proper cleanup pass.
   | 'overview'
   | 'plan2'
   | 'explore'
@@ -6,15 +15,11 @@ export type ScreenId =
   | 'compare'
   | 'solver'
   | 'autopilot'
-  | 'accounts'
   | 'spending'
   | 'income'
-  | 'taxes'
   | 'stress'
-  | 'social_security'
   | 'simulation'
-  | 'insights'
-  | 'export';
+  | 'insights';
 
 export type AccountBucketType = 'pretax' | 'roth' | 'taxable' | 'cash';
 
@@ -300,6 +305,14 @@ export interface BoldinBenchmark {
 export interface PathYearResult {
   year: number;
   medianAssets: number;
+  /** End-of-year balance per bucket (today's $ at sim resolution; nominal
+   *  in trace, but median across runs). Used by the Cockpit's
+   *  account-balance-by-time chart so the household can see how the mix
+   *  shifts: pretax depleting via RMDs, Roth growing, etc. */
+  medianPretaxBalance: number;
+  medianTaxableBalance: number;
+  medianRothBalance: number;
+  medianCashBalance: number;
   tenthPercentileAssets: number;
   medianIncome: number;
   medianSpending: number;
