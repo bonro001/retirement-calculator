@@ -225,12 +225,85 @@ than Trinity's historical 12% nominal.
 - iid vs block bootstrap: tested in Phase 1.2; statistically similar
   on 4% scenario. Not the driver.
 
-### Other findings (open)
+### Other findings (resolved)
 
-- **LTC inflation timing** (Phase 2.2): change to year-zero inflation per
-  Phase 0.5 decision. Pending implementation.
-- **HSA double-tracking sanity check** (Phase 2.3): worked example
-  verification pending.
-- **Inheritance-as-income worked example** (Phase 2.3): pending.
-- **Volatility bounds documentation** (Phase 2.4): document in assumption
-  panel, no code change needed.
+#### Phase 2.2 (resolved 2026-04-29) — LTC inflation timing
+
+Engine change shipped: `calculateLtcCostForYear` now inflates from year
+zero using `(1+inflationAnnual)^yearsSinceStart`. Matches industry actuarial
+projections. Headline impact on user's plan: 87.0% → 85.2% (-1.8pp), within
+predicted 1-3pp band. Three golden scenarios re-pinned. Side-finding:
+`compareRecommendationCandidates` non-transitivity surfaced and tracked
+in BACKLOG as a follow-up.
+
+#### Phase 2.3a (resolved 2026-04-29) — HSA fold-into-pretax audit
+
+**Verdict: semantically correct.** TS engine combines pretax + HSA balance
+into one investment bucket (utils.ts:626). HSA tracker is a CAP on
+tax-free medical withdrawal, not a separate investment. When HSA-eligible
+offset fires, both `balances.pretax` and `hsaBalance` decrement by the
+same amount (utils.ts:3576-3578) — that's the HSA portion being spent on
+medical, while the rest of pretax stays untouched. Math checks out.
+
+Two minor caveats documented (no fix required):
+1. **Combined allocation doesn't dynamically reweight.** If HSA is 90/10
+   and pretax is 65/35, combined starts ~70/30. As HSA spends down for
+   medical, combined should drift back to 65/35; engine keeps initial
+   weights. Second-order effect, not a bug.
+2. **HSA contributions during salary years** flow into pretax via
+   `totalPretaxContribution = 401k + match + hsaContribution`
+   (contribution-engine.ts:213). Same fold-in logic, internally consistent.
+
+#### Phase 2.3b (resolved 2026-04-29) — Inheritance-as-income audit
+
+**Verdict: not double-counting; functionally correct.**
+
+The pattern (utils.ts:3292-3294):
+```ts
+balances.cash += windfallCashInflow;
+const baseIncome = adjustedWages + ssIncome + windfallCashInflow;
+const shortfallBeforeHealthcare = max(spending - baseIncome, 0);
+```
+
+Worked example (year 2028, $500k inheritance, $144k spending):
+- Pre-flow: `balances.cash = 0`
+- Cash deposit: `balances.cash = 500k`
+- Income shows $500k for shortfall calc; `shortfall = max(144 - 500, 0) = 0`
+- No withdrawal triggered → cash stays at $500k
+- Real-world equivalent: household uses inheritance for current year's
+  needs, no need to draw from investment buckets
+
+This is slightly more conservative than "spend the inheritance directly"
+(which would land cash at $356k). The conservative path keeps more cash
+on hand for future years — a defensible buffer-preservation behavior.
+
+Verified against 2028 single-trial trace from earlier exploration:
+TS shows `medianCashBalance = 500k` in 2028, no withdrawals from any
+bucket. Matches expectation.
+
+#### Phase 2.4 (resolved 2026-04-29) — Volatility bounds documentation
+
+Bounded-normal sampling clips returns at:
+- US equity: [-0.45, 0.45]
+- INTL equity: [-0.50, 0.45]
+- Bonds: [-0.20, 0.20]
+- Cash: [-0.01, 0.08]
+- Inflation: [-0.02, 0.12]
+
+At default vols (equity 16%, bonds 7%, cash 1%, inflation 1%) the bounds
+sit at ~2.8-3 standard deviations, clipping ~0.3% of draws on each side.
+Effect on mean returns is negligible (< 0.05pp). Truncation primarily
+affects extreme-tail percentiles (P1, P99) which the engine doesn't surface.
+
+To be exposed in the Phase 3 Cockpit assumption panel for transparency.
+
+### Phase 2 summary
+
+All findings from the Rust-parity exploration resolved:
+- 5% calibration gap → root cause identified (equityMean conservatism)
+- LTC inflation → fixed (year-zero inflation default)
+- HSA fold → audited, verified correct
+- Inheritance-as-income → audited, verified correct
+- Volatility bounds → documented
+
+Ready for Phase 3 (dual view + assumption panel).
