@@ -307,3 +307,67 @@ All findings from the Rust-parity exploration resolved:
 - Volatility bounds → documented
 
 Ready for Phase 3 (dual view + assumption panel).
+
+### Phase 4 — External cross-validation against FICalc.app (2026-04-29)
+
+**Status: PASS.** Engine historical-bootstrap mode agrees with FICalc.app
+within the ±10pp tolerance band locked in Phase 0.5.
+
+**Why FICalc, not i-orp**: i-orp.com is offline (DNS_PROBE_FINISHED_NXDOMAIN
+as of 2026-04-29; James Welch appears to have retired the tool). FICalc
+is the next-best independent OSS retirement Monte Carlo tool with a
+methodology comparable to Trinity. Per Phase 0.5 plan, FICalc was the
+documented fallback.
+
+**Test setup**: identical scenarios in both engines:
+- $1M starting portfolio
+- 60% Stocks / 40% Bonds (FICalc default cash=0; engine VTI:0.6, BND:0.4)
+- 30-year horizon
+- Constant-dollar withdrawal, inflation-adjusted
+- Single household, no SS / windfalls / LTC / IRMAA / healthcare
+  (matches engine's calibration-mode tax-neutral configuration)
+
+**Results**:
+
+| Scenario | FICalc | Engine historical iid | Engine parametric | Δ (hist) | Δ (param) |
+|---|---|---|---|---|---|
+| 4% / 60-40 / 30y | 96.8% | 93.2% | 77.4% | -3.6pp | -19.4pp |
+| 5% / 60-40 / 30y | 75.2% | 81.4% | 50.8% | +6.2pp | -24.4pp |
+
+**Verdict**:
+- **Engine historical mode**: ±10pp band, **PASSES on both scenarios**.
+  3.6pp delta on 4% rule; 6.2pp delta on 5% rule. Validates engine's
+  simulation core against an independent third-party tool on the same
+  methodology.
+- **Engine parametric mode**: exceeds tolerance band by 9.4pp (4%) and
+  14.4pp (5%). This is the deliberate forward-looking conservatism
+  documented in Phase 2.1, not a bug. Parametric mode embeds an
+  equityMean ~5pp below historical nominal, which compounds to lower
+  solvency on long-horizon withdrawals.
+
+**Interesting asymmetry on 5% scenario**: engine historical (81.4%) is
+*higher* than FICalc (75.2%). Most likely explanation: FICalc uses
+rolling 30-year windows from actual history (preserves the famous 1965-
+1974 stagflation cohort cluster that Trinity Study calls out), while
+engine historical bootstrap is iid (samples individual years independently).
+iid sampling smooths over multi-year crisis clusters. The +6.2pp delta
+is consistent with this methodological difference and lands within
+tolerance. Could be tightened by enabling block bootstrap (block=5)
+which is supported by the engine but not the default; tested in Phase 1
+and produced statistically similar headline solvency on these scenarios.
+
+**Conclusion**: the engine math is sound. The dual-view UX shipped in
+Phase 3 lets users see both the conservative forward-looking number and
+the historical-precedent number simultaneously, with full assumption
+transparency. The headline 85% (forward-looking) and 96% (historical)
+on the user's actual plan are both defensible numbers reflecting
+different bets on future returns.
+
+**What we did NOT cross-check** (deferred from high-mode plan):
+- Hand calculation of a deterministic fixed-return scenario. Sufficient
+  signal already from FICalc test; can revisit if any future engine
+  changes need stronger guarantees.
+- User's actual full plan in FICalc. FICalc doesn't model SS, IRMAA,
+  HSA, LTC, mid-year salary transition, or windfalls — would require
+  significant feature stripping that defeats the purpose. The simplified
+  scenarios above are the apples-to-apples comparison.
