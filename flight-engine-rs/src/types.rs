@@ -32,22 +32,29 @@ pub struct BalanceState {
     pub roth: f64,
     pub taxable: f64,
     pub cash: f64,
+    /// HSA balance — separate bucket because of its tax treatment
+    /// (triple-tax-advantaged: deductible contribution, tax-free
+    /// growth, tax-free withdrawal for qualified medical). Default 0
+    /// for households without an HSA.
+    #[serde(default)]
+    pub hsa: f64,
 }
 
 impl BalanceState {
     pub fn total(&self) -> f64 {
-        self.pretax + self.roth + self.taxable + self.cash
+        self.pretax + self.roth + self.taxable + self.cash + self.hsa
     }
 
     pub fn apply_returns(&mut self, returns: &MarketReturns) {
         // Simple unweighted return per bucket. The real engine derives
         // a per-bucket return from its target allocation × per-asset
         // returns; this is a placeholder until the allocation math
-        // lands. For now we treat pretax + roth + taxable as equity
+        // lands. For now we treat pretax + roth + taxable + hsa as equity
         // (use equity_return) and cash as cash (cash_return).
         self.pretax *= 1.0 + returns.equity_return;
         self.roth *= 1.0 + returns.equity_return;
         self.taxable *= 1.0 + returns.equity_return;
+        self.hsa *= 1.0 + returns.equity_return;
         self.cash *= 1.0 + returns.cash_return;
     }
 }
@@ -106,6 +113,16 @@ pub struct PlanInput {
     /// Sum of essential + optional + travel + tax/insur from the TS
     /// SpendingData buckets.
     pub annual_spend_today_dollars: f64,
+    /// Travel-phase budget in today's $ — included in annual spend
+    /// during go-go years (first `travel_phase_years` of retirement),
+    /// removed after. Mirrors `travelEarlyRetirementAnnual` in the
+    /// TS spending bucket. If 0 or unset, no taper happens.
+    #[serde(default)]
+    pub travel_annual_today_dollars: f64,
+    /// Number of "go-go years" — typically 10. After this many years
+    /// past `salary_end_date`, travel budget drops to zero.
+    #[serde(default = "default_travel_phase_years")]
+    pub travel_phase_years: u32,
     /// Years to simulate (30 typical, household can plan further).
     pub planning_horizon_years: u32,
     /// Calendar year the simulation starts (e.g. 2026). Used so trace
@@ -182,11 +199,23 @@ pub struct PlanInput {
     /// Years the LTC event lasts.
     #[serde(default = "default_ltc_duration")]
     pub ltc_duration_years: u32,
+
+    // ── HSA strategy ──────────────────────────────────────────────
+    /// Annual cap on HSA qualified-medical withdrawals (today's $).
+    /// Mirrors `hsaStrategy.annualQualifiedExpenseWithdrawalCap` in
+    /// the TS seed. Used to offset healthcare costs tax-free.
+    #[serde(default)]
+    pub hsa_annual_qualified_withdrawal_cap: f64,
+    /// HSA contribution rate during salary years (% of salary).
+    /// Mirrors `preRetirementContributions.hsaPercentOfSalary`.
+    #[serde(default)]
+    pub hsa_contribution_pct_of_salary: f64,
 }
 
 fn default_medical_inflation() -> f64 { 0.055 }
 fn default_ltc_start_age() -> u32 { 85 }
 fn default_ltc_duration() -> u32 { 3 }
+fn default_travel_phase_years() -> u32 { 10 }
 
 /// Market assumptions — the dials that govern stochastic behavior.
 /// Matches TS `MarketAssumptions` for the fields we need now;

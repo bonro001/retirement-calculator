@@ -21,7 +21,7 @@
 // Type-only import so the build doesn't break if the wasm directory is
 // missing (e.g. fresh clone before someone runs `npm run wasm:build`).
 // At runtime the dynamic import below loads the actual JS shim.
-type WasmModule = typeof import('../public/wasm/flight_engine.js');
+type WasmModule = typeof import('./wasm/flight_engine.js');
 
 let cachedModule: WasmModule | null = null;
 let initPromise: Promise<WasmModule> | null = null;
@@ -41,14 +41,11 @@ export async function initWasmEngine(): Promise<WasmModule> {
   if (initPromise) return initPromise;
 
   initPromise = (async () => {
-    // Dynamic import from the runtime URL (served from /public/wasm/
-    // via Vite's static-asset handling). Using the absolute URL path
-    // sidesteps Vite's module resolver which otherwise tries to
-    // bundle the module at build time — wasm-pack output is meant
-    // to be loaded at runtime, not bundled.
-    const mod = (await import(
-      /* @vite-ignore */ '/wasm/flight_engine.js'
-    )) as WasmModule;
+    // Dynamic import from src/wasm/ — Vite bundles the JS shim and
+    // serves the .wasm as a static asset automatically when the
+    // shim is imported normally. Putting wasm-pack output in src/
+    // (not public/) is the standard Vite pattern.
+    const mod = (await import('./wasm/flight_engine.js')) as WasmModule;
     // wasm-bindgen's default export is the init function. Call it
     // once to fetch + instantiate the .wasm binary.
     // @ts-expect-error — TS sees the module as a namespace, not callable
@@ -185,6 +182,194 @@ export async function runBenchmark(
     trials: numTrials,
     yearsPerTrial,
   };
+}
+
+/**
+ * Run the full simulation via Rust+WASM. Takes the same shape inputs
+ * as buildPathResults and returns an aggregated result with
+ * year-by-year medians plus headline solvency / ending-wealth.
+ *
+ * This is the fast path. Use for cockpit instant-baseline,
+ * sensitivity scenarios, and any other "compute this projection
+ * NOW" caller. Mining still uses the cluster (which uses TS engine
+ * for now; Rust napi-rs version is a follow-up).
+ */
+export interface WasmEvaluation {
+  successRate: number;
+  medianEndingWealth: number;
+  yearlySeries: Array<{
+    year: number;
+    medianAssets: number;
+    medianSpending: number;
+    medianPretaxBalance: number;
+    medianTaxableBalance: number;
+    medianRothBalance: number;
+    medianCashBalance: number;
+  }>;
+}
+
+export interface WasmPlan {
+  startingBalances: {
+    pretax: number;
+    roth: number;
+    taxable: number;
+    cash: number;
+    hsa?: number;
+  };
+  annualSpendTodayDollars: number;
+  travelAnnualTodayDollars?: number;
+  travelPhaseYears?: number;
+  planningHorizonYears: number;
+  startYear: number;
+  salaryAnnual?: number;
+  salaryEndDate?: string;
+  socialSecurity?: Array<{ person: string; fraMonthly: number; claimAge: number }>;
+  robBirthYear?: number;
+  debbieBirthYear?: number;
+  windfalls?: Array<{
+    name: string;
+    year: number;
+    amount: number;
+    taxTreatment?: string;
+  }>;
+  filingStatus?: string;
+  employee401kPretaxPercent?: number;
+  employerMatchRate?: number;
+  employerMatchMaxPct?: number;
+  baselineAcaPremiumAnnual?: number;
+  baselineMedicarePremiumAnnual?: number;
+  medicalInflationAnnual?: number;
+  ltcEventProbability?: number;
+  ltcStartAge?: number;
+  ltcAnnualCostToday?: number;
+  ltcDurationYears?: number;
+  hsaAnnualQualifiedWithdrawalCap?: number;
+  hsaContributionPctOfSalary?: number;
+}
+
+export interface WasmAssumptions {
+  equityMean: number;
+  equityVolatility: number;
+  bondMean: number;
+  bondVolatility: number;
+  cashMean: number;
+  cashVolatility: number;
+  inflation: number;
+  inflationVolatility: number;
+  simulationRuns: number;
+  simulationSeed?: number;
+  guardrailFloorYears?: number;
+  guardrailCeilingYears?: number;
+  guardrailCutPercent?: number;
+}
+
+export async function evaluateViaWasm(
+  plan: WasmPlan,
+  assumptions: WasmAssumptions,
+  baseSeed = 20260416,
+): Promise<WasmEvaluation> {
+  const engine = await initWasmEngine();
+  // wasm-bindgen exposes evaluate_policy with BigInt seed. Convert
+  // from the JS number argument so callers don't need to think about it.
+  // @ts-expect-error — TS types from .d.ts mark seed as bigint
+  const result = engine.evaluate_policy(plan, assumptions, BigInt(baseSeed));
+  return result as WasmEvaluation;
+}
+
+/**
+ * Convert SeedData + MarketAssumptions (the TS engine's input shape)
+ * into the WasmPlan + WasmAssumptions shape. Pulls everything the
+ * Rust engine knows how to use; ignores fields it doesn't model yet
+ * (those are simply absent in the projection — same effect as if the
+ * household had set them to zero).
+ *
+ * Caller is responsible for choosing whether to use this path —
+ * `isWasmEngineAvailable()` returns true after `initWasmEngine()`
+ * has been called once successfully.
+ */
+export function adaptSeedToWasm(
+  data: { [k: string]: unknown },
+  assumptions: { [k: string]: unknown },
+  startYear?: number,
+  planningHorizonYears = 30,
+): { plan: WasmPlan; assumptions: WasmAssumptions } {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const d = data as any;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const a = assumptions as any;
+  const robBirthYear = d.household?.robBirthDate
+    ? new Date(d.household.robBirthDate).getUTCFullYear()
+    : undefined;
+  const debbieBirthYear = d.household?.debbieBirthDate
+    ? new Date(d.household.debbieBirthDate).getUTCFullYear()
+    : undefined;
+  const annualSpend =
+    (d.spending?.essentialMonthly ?? 0) * 12 +
+    (d.spending?.optionalMonthly ?? 0) * 12 +
+    (d.spending?.travelEarlyRetirementAnnual ?? 0) +
+    (d.spending?.annualTaxesInsurance ?? 0);
+  const wasmPlan: WasmPlan = {
+    startingBalances: {
+      pretax: d.accounts?.pretax?.balance ?? 0,
+      roth: d.accounts?.roth?.balance ?? 0,
+      taxable: d.accounts?.taxable?.balance ?? 0,
+      cash: d.accounts?.cash?.balance ?? 0,
+      hsa: d.accounts?.hsa?.balance ?? 0,
+    },
+    annualSpendTodayDollars: annualSpend,
+    travelAnnualTodayDollars: d.spending?.travelEarlyRetirementAnnual ?? 0,
+    travelPhaseYears: a.travelPhaseYears ?? 10,
+    planningHorizonYears,
+    startYear: startYear ?? new Date().getUTCFullYear(),
+    salaryAnnual: d.income?.salaryAnnual ?? 0,
+    salaryEndDate: d.income?.salaryEndDate,
+    socialSecurity: d.income?.socialSecurity ?? [],
+    robBirthYear,
+    debbieBirthYear,
+    windfalls: d.income?.windfalls ?? [],
+    filingStatus: d.household?.filingStatus,
+    employee401kPretaxPercent:
+      d.income?.preRetirementContributions?.employee401kPreTaxPercentOfSalary ?? 0,
+    employerMatchRate:
+      d.income?.preRetirementContributions?.employerMatch?.matchRate ?? 0,
+    employerMatchMaxPct:
+      d.income?.preRetirementContributions
+        ?.employerMatch?.maxEmployeeContributionPercentOfSalary ?? 0,
+    baselineAcaPremiumAnnual:
+      d.rules?.healthcarePremiums?.baselineAcaPremiumAnnual ?? 0,
+    baselineMedicarePremiumAnnual:
+      d.rules?.healthcarePremiums?.baselineMedicarePremiumAnnual ?? 0,
+    medicalInflationAnnual:
+      d.rules?.healthcarePremiums?.medicalInflationAnnual ?? 0.055,
+    ltcEventProbability: d.rules?.ltcAssumptions?.eventProbability ?? 0,
+    ltcStartAge: d.rules?.ltcAssumptions?.startAge ?? 85,
+    ltcAnnualCostToday: d.rules?.ltcAssumptions?.annualCostToday ?? 0,
+    ltcDurationYears: d.rules?.ltcAssumptions?.durationYears ?? 3,
+    hsaAnnualQualifiedWithdrawalCap:
+      d.rules?.hsaStrategy?.annualQualifiedExpenseWithdrawalCap ?? 0,
+    hsaContributionPctOfSalary:
+      d.income?.preRetirementContributions?.hsaPercentOfSalary ?? 0,
+  };
+  const wasmAssumptions: WasmAssumptions = {
+    equityMean: a.equityMean ?? 0.074,
+    equityVolatility: a.equityVolatility ?? 0.16,
+    bondMean: a.bondMean ?? 0.038,
+    bondVolatility: a.bondVolatility ?? 0.07,
+    cashMean: a.cashMean ?? 0.02,
+    cashVolatility: a.cashVolatility ?? 0.01,
+    inflation: a.inflation ?? 0.028,
+    inflationVolatility: a.inflationVolatility ?? 0.01,
+    simulationRuns: a.simulationRuns ?? 2000,
+    simulationSeed: a.simulationSeed,
+    guardrailFloorYears: a.guardrailFloorYears ?? 12,
+    guardrailCeilingYears: a.guardrailCeilingYears ?? 18,
+    guardrailCutPercent: a.guardrailCutPercent ?? 0.2,
+  };
+  return { plan: wasmPlan, assumptions: wasmAssumptions };
+}
+
+export function isWasmEngineAvailable(): boolean {
+  return cachedModule !== null;
 }
 
 /**

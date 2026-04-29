@@ -68,8 +68,30 @@ pub fn run_trial(
         inflation_index *= 1.0 + returns.inflation;
         medical_inflation_index *= 1.0 + plan.medical_inflation_annual;
 
+        // ── Travel phase end ─────────────────────────────────────
+        // Travel applies during the go-go window: from today through
+        // `travel_phase_years` past retirement. After the phase, drop
+        // travel budget. Mirrors TS engine's `inTravelPhase` logic
+        // (already corrected to count pre-retirement travel too).
+        let retirement_year_approx = plan
+            .salary_end_date
+            .as_deref()
+            .and_then(|s| s.get(0..4))
+            .and_then(|y| y.parse::<i32>().ok())
+            .unwrap_or(plan.start_year);
+        let years_past_retirement = year - retirement_year_approx;
+        let in_travel_phase = years_past_retirement < plan.travel_phase_years as i32;
+        let travel_today = if in_travel_phase {
+            plan.travel_annual_today_dollars
+        } else {
+            0.0
+        };
+        let active_spend_today = plan.annual_spend_today_dollars
+            - plan.travel_annual_today_dollars  // remove the travel piece included in total
+            + travel_today;                      // add it back only if in phase
+
         // Annual spend (pre-guardrail). Grows with cumulative inflation.
-        let baseline_nominal_spend = plan.annual_spend_today_dollars * inflation_index;
+        let baseline_nominal_spend = active_spend_today * inflation_index;
 
         // ── Guardrail evaluation (start-of-year, before drawing) ──
         // Funded years = totalAssets / annual_spend. If below floor,
@@ -118,18 +140,40 @@ pub fn run_trial(
         };
         balances.pretax += employee_401k_contrib + employer_match;
 
-        // Salary that actually arrives in the household (post-401k).
-        let salary = salary_gross - employee_401k_contrib;
+        // HSA contributions during salary years. IRS family limit
+        // for 2026 is ~$8,550; cap conservatively at $9k.
+        let hsa_contrib = if salary_gross > 0.0 {
+            (salary_gross * plan.hsa_contribution_pct_of_salary).min(9_000.0)
+        } else {
+            0.0
+        };
+        balances.hsa += hsa_contrib;
+
+        // Salary that actually arrives in the household (post-401k post-HSA).
+        let salary = salary_gross - employee_401k_contrib - hsa_contrib;
         // Total cash income (windfalls land in cash regardless of taxability).
         let total_income = salary + ss_income + windfalls.cash_inflow;
 
+        // ── SS taxability ─────────────────────────────────────────
+        // IRS rule: combined income (AGI + 50% SS + tax-exempt interest)
+        // determines what fraction of SS is taxable. Simplification:
+        // for MFJ households over the second base ($44k), up to 85% of
+        // SS is taxable. For households well above that (this household
+        // has six-figure income post-claim), it lands at the 85% cap.
+        // Households below the first base ($32k) get 0% taxable.
+        let ss_combined = salary + windfalls.ordinary + (ss_income * 0.5);
+        let ss_taxable_fraction = if ss_combined < 32_000.0 {
+            0.0
+        } else if ss_combined < 44_000.0 {
+            0.5
+        } else {
+            0.85
+        };
+        let ss_taxable = ss_income * ss_taxable_fraction;
+
         // ── Roth conversion (low-income bridge years) ────────────
-        // Only count TAXABLE income for the conversion target — cash
-        // inheritance doesn't push MAGI, so we should still convert
-        // even in inheritance years. Salary + SS + ordinary windfalls
-        // are the MAGI base.
         let medicare_eligible_for_conv = count_medicare_eligible(plan, year);
-        let taxable_income_pre_conv = salary + ss_income + windfalls.ordinary;
+        let taxable_income_pre_conv = salary + ss_taxable + windfalls.ordinary;
         let conv_target = if medicare_eligible_for_conv > 0 {
             // Stay within IRMAA Tier 1 by a $2k buffer.
             (tax::IRMAA_TIERS_MFJ[0].magi_ceiling - 2_000.0 - taxable_income_pre_conv).max(0.0)
@@ -148,10 +192,11 @@ pub fn run_trial(
         balances.roth += roth_conversion;
 
         // ── Tax & IRMAA ───────────────────────────────────────────
-        // Ordinary income for tax: salary + SS + ordinary windfalls + Roth conversion.
-        // Cash inheritance does NOT count.
+        // Ordinary income for tax: salary + (taxable portion of SS) +
+        // ordinary windfalls + Roth conversion. Cash inheritance does
+        // NOT count. SS taxability already capped at 85% (above).
         let ordinary_income_pre_withdrawal =
-            salary + ss_income + windfalls.ordinary + roth_conversion;
+            salary + ss_taxable + windfalls.ordinary + roth_conversion;
         let pre_withdrawal_tax = tax::calculate_federal_tax(
             ordinary_income_pre_withdrawal,
             windfalls.ltcg,
@@ -215,9 +260,22 @@ pub fn run_trial(
             0.0
         };
 
-        let healthcare_total = aca_premium + medicare_premium + ltc_cost;
+        let healthcare_total_gross = aca_premium + medicare_premium + ltc_cost;
 
-        // Net cash need: nominal spend + healthcare + tax + IRMAA − income.
+        // ── HSA offset ───────────────────────────────────────────
+        // HSA can fund qualified medical expenses tax-free. Cap is
+        // configured in the seed (default $12k/yr for typical
+        // households). Real engine prioritizes HSA usage during
+        // high-MAGI years (when avoiding income most valuable); we
+        // simplify to "always pull up to cap when there's a balance".
+        let hsa_cap = plan.hsa_annual_qualified_withdrawal_cap * inflation_index;
+        let hsa_offset = healthcare_total_gross
+            .min(hsa_cap)
+            .min(balances.hsa);
+        balances.hsa -= hsa_offset;
+        let healthcare_total = healthcare_total_gross - hsa_offset;
+
+        // Net cash need: nominal spend + (healthcare net of HSA) + tax + IRMAA − income.
         let net_need = nominal_spend + healthcare_total + pre_withdrawal_tax + irmaa - total_income;
 
         let (withdraw_cash, withdraw_taxable, withdraw_pretax, withdraw_roth);

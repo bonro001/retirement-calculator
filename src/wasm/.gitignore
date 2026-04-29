@@ -1,0 +1,5 @@
+# wasm-pack writes a `*` wildcard here that excludes everything.
+# We DO want these committed so users without a Rust toolchain can
+# still run the app. `npm run wasm:build` regenerates them.
+!*
+.gitignore

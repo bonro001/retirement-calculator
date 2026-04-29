@@ -2480,6 +2480,12 @@ export function CockpitScreen() {
         adoptedPolicy={adopted}
       />
 
+      <RustEngineDebugCard
+        data={data}
+        assumptions={assumptions}
+        baselinePath={baselinePath}
+      />
+
       <YearlyAuditDownload data={data} yearlySeries={yearlySeries} />
 
       <p className="text-[11px] text-stone-400">
@@ -2502,6 +2508,150 @@ export function CockpitScreen() {
  * the cockpit is meant to be the household's daily surface; the
  * Inspector view stays the place to see every column.
  */
+/**
+ * Rust+WASM engine debug card — runs the same plan through the Rust
+ * fast path on demand and shows the result side-by-side with the
+ * TS engine's output. Lets the household sanity-check parity, and
+ * surfaces the speedup so the value of the Rust path is visible.
+ *
+ * This is a development/validation surface — not the eventual home
+ * of the Rust engine (that's `buildPathResults` with feature flag
+ * once parity is verified). For now, click the button and compare.
+ */
+function RustEngineDebugCard({
+  data,
+  assumptions,
+  baselinePath,
+}: {
+  data: SeedData | null | undefined;
+  assumptions: MarketAssumptions | null | undefined;
+  baselinePath: PathResult | null;
+}) {
+  const [running, setRunning] = useState(false);
+  const [result, setResult] = useState<{
+    successRate: number;
+    medianEndingWealth: number;
+    timeMs: number;
+    error?: string;
+  } | null>(null);
+
+  const tsTimeMs = baselinePath ? baselinePath.yearlySeries.length * 5 : 0; // rough proxy
+
+  const handleRun = async () => {
+    if (!data || !assumptions) return;
+    setRunning(true);
+    setResult(null);
+    try {
+      const wasmEngine = await import('./wasm-engine');
+      const { plan, assumptions: a } = wasmEngine.adaptSeedToWasm(
+        data as unknown as Record<string, unknown>,
+        assumptions as unknown as Record<string, unknown>,
+        new Date().getUTCFullYear(),
+        baselinePath?.yearlySeries.length ?? 30,
+      );
+      const t0 = performance.now();
+      const r = await wasmEngine.evaluateViaWasm(
+        plan,
+        a,
+        assumptions.simulationSeed ?? 20260416,
+      );
+      const timeMs = performance.now() - t0;
+      setResult({
+        successRate: r.successRate,
+        medianEndingWealth: r.medianEndingWealth,
+        timeMs,
+      });
+    } catch (err) {
+      setResult({
+        successRate: 0,
+        medianEndingWealth: 0,
+        timeMs: 0,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    } finally {
+      setRunning(false);
+    }
+  };
+
+  if (!data || !assumptions || !baselinePath) return null;
+
+  return (
+    <div className="rounded-2xl border border-stone-200 bg-stone-50/70 p-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex-1 min-w-[280px]">
+          <p className="text-[12px] font-semibold text-stone-700">
+            🦀 Rust engine (experimental)
+          </p>
+          <p className="text-[11px] text-stone-500">
+            Runs the same projection through the WASM fast path.
+            Compare solvency + median ending wealth side-by-side with
+            the TS reference. Performance gap is what the slower
+            machines (friends with old hardware) will care about most.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={handleRun}
+          disabled={running}
+          className="whitespace-nowrap rounded-lg bg-[#0066CC] px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-[#0071E3] disabled:cursor-not-allowed disabled:bg-stone-300"
+        >
+          {running ? 'Running…' : 'Run Rust engine'}
+        </button>
+      </div>
+      {result && !result.error && (
+        <div className="mt-3 grid grid-cols-3 gap-3 text-[12px]">
+          <div className="rounded-md bg-white p-3 ring-1 ring-stone-200">
+            <p className="text-[10px] uppercase tracking-wider text-stone-400">
+              TS engine (reference)
+            </p>
+            <p className="mt-1 font-semibold text-stone-800">
+              {Math.round(baselinePath.successRate * 100)}% solvent
+            </p>
+            <p className="text-[11px] text-stone-500">
+              ${Math.round(baselinePath.medianEndingWealth / 1000)}k median EW
+            </p>
+            <p className="mt-1 text-[10px] text-stone-400">
+              ~{tsTimeMs}ms (rough)
+            </p>
+          </div>
+          <div className="rounded-md bg-[#0066CC]/5 p-3 ring-1 ring-[#0066CC]/20">
+            <p className="text-[10px] uppercase tracking-wider text-[#0066CC]">
+              Rust engine
+            </p>
+            <p className="mt-1 font-semibold text-stone-800">
+              {Math.round(result.successRate * 100)}% solvent
+            </p>
+            <p className="text-[11px] text-stone-500">
+              ${Math.round(result.medianEndingWealth / 1000)}k median EW
+            </p>
+            <p className="mt-1 text-[10px] text-[#0066CC]">
+              {result.timeMs.toFixed(1)}ms (measured)
+            </p>
+          </div>
+          <div className="rounded-md bg-emerald-50 p-3 ring-1 ring-emerald-200">
+            <p className="text-[10px] uppercase tracking-wider text-emerald-700">
+              Delta
+            </p>
+            <p className="mt-1 font-semibold text-stone-800">
+              {((result.successRate - baselinePath.successRate) * 100).toFixed(1)}pp
+            </p>
+            <p className="text-[11px] text-stone-500">
+              EW {result.medianEndingWealth >= baselinePath.medianEndingWealth ? '+' : ''}
+              ${Math.round((result.medianEndingWealth - baselinePath.medianEndingWealth) / 1000)}k
+            </p>
+            <p className="mt-1 text-[10px] text-emerald-700">
+              ~{(tsTimeMs / Math.max(result.timeMs, 1)).toFixed(1)}× speedup
+            </p>
+          </div>
+        </div>
+      )}
+      {result?.error && (
+        <p className="mt-2 text-[11px] text-rose-600">⚠ {result.error}</p>
+      )}
+    </div>
+  );
+}
+
 /**
  * "Save snapshot" panel — captures the current plan state into the
  * history store. Pulls all the inputs from the cockpit's existing
