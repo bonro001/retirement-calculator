@@ -12,6 +12,7 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:calibration": "vitest run src/calibration.test.ts",
     "cluster:dispatcher": "tsx cluster/dispatcher.ts",
     "cluster:smoke": "tsx cluster/smoke-client.ts",
     "cluster:host": "tsx cluster/host.ts",

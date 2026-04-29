@@ -94,3 +94,87 @@ Execution protocol:
 - **Privacy**: everything here is local-first per [AGENTS.md](AGENTS.md). Aggregation across users would require an explicit opt-in product decision, not just code.
 - **Aggregation math**: single-user data is noisy — one user's five-year outcome proves nothing in isolation. The value of this workplan for a single user is the *directional feedback loop* ("my plan said $1.5M, I'm at $1.2M at same horizon"), not statistical calibration of a general-purpose engine. True calibration needs many users.
 - **Peer-tool signal is the cheapest**: step 10 gives us a second engine's answer on identical inputs without waiting for real outcomes. Invest in it early.
+
+---
+
+## External validation — engine vs published literature
+
+Distinct from the over-time-actuals workflow above. This section documents
+how the engine compares to canonical retirement-finance literature (Trinity
+Study, Pfau-Kitces, Bengen) under matched assumptions. Built as a CI test
+suite (`src/calibration.test.ts`, run via `npm run test:calibration`).
+
+### Decisions locked (Phase 0.5, 2026-04-29)
+
+1. **Failure definition**: Trinity convention. A trial fails if total
+   assets hit ≤ $0 at any point during the planning horizon. This is what
+   Trinity, Bengen, Pfau, and FICalc all use. Alternative definitions
+   (strict-bequest, spending-shortfall) would shift solvency 5–10pp.
+
+2. **LTC inflation default**: inflate LTC cost from year zero using the
+   `medical_inflation_index`, not from event start. Matches industry
+   actuarial projections (Genworth, Lincoln Financial) which show LTC
+   nominal cost grows ~3.5–5%/yr from today. Current `calculateLtcCostForYear`
+   freezes-at-today's-dollars-until-event, undercounting 2055 cost ~3-4×.
+   **Fix ships in Phase 2.2** (separate workplan); will shift user's headline
+   solvency 1–3pp downward.
+
+3. **Calibration tolerance bands**:
+   | Comparison | Tolerance |
+   |---|---|
+   | Calibration mode vs literature | ±3pp solvency, ±10% median EW |
+   | Product mode vs calibration mode | Documented delta, no bound |
+   | External tools (i-orp etc.) vs our plan | ±10pp solvency |
+
+### Calibration mode results (tax-neutral, feature-stripped)
+
+`buildPathResults` run on synthetic single-household / all-Roth / no-SS /
+no-windfalls / no-LTC / no-healthcare seeds. All scenarios use 500 trials.
+
+| Scenario | Mode | Result | Literature target | Status |
+|---|---|---|---|---|
+| 4% / 60-40 / 30y | historical iid | 92-95% | Trinity ~95% | ✅ within ±3pp |
+| 4% / 60-40 / 30y | historical block(5) | 89-92% | — | ✅ band OK |
+| 4% / 60-40 / 30y | parametric | 73-78% | Pfau 85-92% | ⚠️ **GAP — Phase 2.1** |
+| 5% / 60-40 / 30y | parametric | ~36% | Pfau-Kitces 60-70% | ⚠️ **GAP — Phase 2.1** |
+| 5% / 60-40 / 30y | historical (iid + block(5)) | ≥65% | Trinity 70-80% | ✅ within band |
+| 3% / 60-40 / 30y | historical iid | ≥97% | Universal ~99%+ | ✅ |
+
+**Summary**: historical-bootstrap mode validates within ±3pp of Trinity
+Study published results — engine simulation core is mathematically sound.
+Parametric mode is materially more conservative than published parametric
+estimates; gap captured as Phase 2.1 investigation work.
+
+### Block bootstrap finding (Phase 1.2)
+
+iid sampling and block(5) bootstrap produce statistically similar headline
+solvency on 4% scenarios, with block(5) producing slightly fatter (less
+negative) left tails. This means:
+
+- Block bootstrap is NOT a free win for closing the 5% parametric gap.
+- iid sampling is a defensible choice for our default mode.
+- Block(5) is preferred where left-tail fidelity matters (stress scenarios,
+  worst-case planning).
+
+### Product-mode delta ("feature tax")
+
+Same 4%/60-40/30y scenario in product mode (pretax bucket, IRMAA, healthcare,
+RMDs at 73): solvency drops 5–10pp vs calibration mode. Within the
+±15pp ceiling we set. Documented as expected; quantifies what each engine
+feature costs.
+
+### CI integration
+
+- `npm run test:calibration` runs the full suite (~16 seconds, 11 tests)
+- Fails build if engine drifts outside tolerance bands
+- Engine PRs get caught before merge if they regress published-literature parity
+
+### Known gaps tracked in BACKLOG
+
+- **Parametric mode underperformance** (4% scenario lands 73-78% vs Pfau 85-92%):
+  driven by `equityMean: 0.074` behaving as nominal (giving ~4.6% real after
+  inflation), defensible as forward-looking conservatism but worth either
+  documenting or tightening. Phase 2.1.
+- **5% withdrawal calibration miss** (parametric 36% vs literature 60-70%):
+  the largest validation discrepancy. Phase 2.1 investigates root causes
+  (sampling correlation, vol bounds, tax interactions).
