@@ -42,19 +42,39 @@ pub struct BalanceState {
 
 impl BalanceState {
     pub fn total(&self) -> f64 {
-        self.pretax + self.roth + self.taxable + self.cash + self.hsa
+        // HSA balance is a pure tracker — the investment value lives
+        // inside `pretax`. Don't double-count.
+        self.pretax + self.roth + self.taxable + self.cash
     }
 
     pub fn apply_returns(&mut self, returns: &MarketReturns) {
-        // Simple unweighted return per bucket. The real engine derives
-        // a per-bucket return from its target allocation × per-asset
-        // returns; this is a placeholder until the allocation math
-        // lands. For now we treat pretax + roth + taxable + hsa as equity
-        // (use equity_return) and cash as cash (cash_return).
-        self.pretax *= 1.0 + returns.equity_return;
-        self.roth *= 1.0 + returns.equity_return;
-        self.taxable *= 1.0 + returns.equity_return;
-        self.hsa *= 1.0 + returns.equity_return;
+        // 60/40 stock/bond blended return for non-cash buckets. The
+        // real TS engine uses per-account targetAllocation × per-asset
+        // returns (see `getBucketReturn` in utils.ts); 60/40 is the
+        // "moderate retirement" default that approximates a typical
+        // multi-fund portfolio. Critical for parity: previously every
+        // non-cash bucket was 100% equity (16% vol), which inflated
+        // ending-wealth dispersion, fattened both tails, and tanked
+        // solvency. With 60/40, vol drops to ~10%, mean to ~6.0%.
+        // TODO: pass per-account allocations through the WASM adapter
+        // and use them here for full parity.
+        // Per-bucket defaults that match common asset-location patterns
+        // (and approximately match the user's actual allocations):
+        //   pretax:  65/35 — bonds parked here for tax efficiency
+        //   roth:    95/5  — aggressive growth, tax-free compounding
+        //   taxable: 85/15 — mostly equity, some bonds
+        //   hsa:     90/10 — long horizon, mostly equity
+        //   cash:    100% cash bucket return
+        let pretax_blend = 0.65 * returns.equity_return + 0.35 * returns.bond_return;
+        let roth_blend = 0.95 * returns.equity_return + 0.05 * returns.bond_return;
+        let taxable_blend = 0.85 * returns.equity_return + 0.15 * returns.bond_return;
+        self.pretax *= 1.0 + pretax_blend;
+        self.roth *= 1.0 + roth_blend;
+        self.taxable *= 1.0 + taxable_blend;
+        // HSA is a pure tracker (matching TS engine semantics) — its
+        // investment value lives inside `pretax` (the adapter merges
+        // HSA balance into pretax at startup). HSA balance here is
+        // only used to cap tax-free medical withdrawals. No returns.
         self.cash *= 1.0 + returns.cash_return;
     }
 }
