@@ -1168,6 +1168,7 @@ function calculateLtcCostForYear(
   plan: SimPlan,
   ages: { rob: number; debbie: number },
   eventOccurs: boolean,
+  yearsSinceStart: number,
 ) {
   if (
     !eventOccurs ||
@@ -1187,9 +1188,22 @@ function calculateLtcCostForYear(
     return 0;
   }
 
+  // PHASE 2.2 (2026-04-29): inflate LTC cost from simulation start year,
+  // not from event-start year. Industry actuarial projections (Genworth
+  // Cost of Care, Lincoln Financial) show nominal LTC costs grow ~3.5-5%/yr
+  // from today. Previous behavior froze cost at today's-dollars until the
+  // event triggered, which undercounted future costs ~3-4× by 2055.
+  //
+  // For a household where LTC starts at age 85 (year ~20 of sim), the
+  // year-1 LTC cost goes from $48k (today's dollars) to $48k × (1.055)^20
+  // ≈ $140k (real future cost). This is more accurate to actuarial
+  // projections, at the cost of 1-3pp lower headline solvency on the
+  // user's plan.
+  //
+  // Decision locked in CALIBRATION_WORKPLAN.md Phase 0.5 #2.
   return (
     plan.ltcAssumptions.annualCostToday *
-    Math.pow(1 + plan.ltcAssumptions.inflationAnnual, yearsIntoLtc)
+    Math.pow(1 + plan.ltcAssumptions.inflationAnnual, yearsSinceStart)
   );
 }
 
@@ -3351,6 +3365,7 @@ function simulatePath(
             debbie: debbieAge,
           },
           ltcEventOccurs,
+          yearOffset,
         );
 
         const lookbackMagi =
