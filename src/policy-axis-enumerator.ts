@@ -40,16 +40,38 @@ import type { SeedData } from './types';
 export function buildDefaultPolicyAxes(seedData: SeedData): PolicyAxes {
   const ssEntries = seedData.income?.socialSecurity ?? [];
   const hasSpouseSs = ssEntries.length >= 2;
-  // 65–70 reflects household policy (no early claims). Re-widen to
-  // 62..70 if a different household uses this code.
-  const ssAges = [65, 66, 67, 68, 69, 70];
+  // V2 (2026-05-01): 6-month SS resolution to match real claim
+  // flexibility. Engine supports fractional claim ages with
+  // partial-year-of-claim payment in the crossing year.
+  const ssAges = [
+    65, 65.5, 66, 66.5, 67, 67.5, 68, 68.5, 69, 69.5, 70,
+  ];
   return {
+    // V2: $5k spend resolution from $80k–$160k. This is the COARSE pass.
+    // After it completes, `cliff-refinement-analyzer.ts` inspects the
+    // corpus, identifies the spend tier where feasibility crosses the
+    // household's threshold, and recommends a FINE second pass at $1k
+    // resolution around that cliff. The fine pass mines via the
+    // existing `axesOverride` plumbing — same ranker, same corpus,
+    // ids stay distinct because spend changes.
     annualSpendTodayDollars: [
-      80_000, 90_000, 100_000, 110_000, 120_000, 130_000, 140_000, 160_000,
+      80_000, 85_000, 90_000, 95_000, 100_000, 105_000, 110_000, 115_000,
+      120_000, 125_000, 130_000, 135_000, 140_000, 145_000, 150_000, 155_000,
+      160_000,
     ],
     primarySocialSecurityClaimAge: ssAges,
     spouseSocialSecurityClaimAge: hasSpouseSs ? ssAges : null,
     rothConversionAnnualCeiling: [0, 40_000, 80_000, 120_000, 160_000, 200_000],
+    // V2: withdrawal-rule axis. Four named strategies the ranker
+    // sweeps. tax_bracket_waterfall (the historical default) is first
+    // so any backward-compat caller that grabs `axes.withdrawalRule[0]`
+    // gets the safe choice.
+    withdrawalRule: [
+      'tax_bracket_waterfall',
+      'proportional',
+      'reverse_waterfall',
+      'guyton_klinger',
+    ],
   };
 }
 
@@ -71,11 +93,13 @@ export function computeMinimumSpendFloor(seedData: SeedData): number {
  */
 export function countPolicyCandidates(axes: PolicyAxes): number {
   const spouseAges = axes.spouseSocialSecurityClaimAge ?? [null];
+  const withdrawalRules = axes.withdrawalRule ?? ['tax_bracket_waterfall'];
   return (
     axes.annualSpendTodayDollars.length *
     axes.primarySocialSecurityClaimAge.length *
     spouseAges.length *
-    axes.rothConversionAnnualCeiling.length
+    axes.rothConversionAnnualCeiling.length *
+    withdrawalRules.length
   );
 }
 
@@ -92,16 +116,23 @@ export function countPolicyCandidates(axes: PolicyAxes): number {
 export function enumeratePolicies(axes: PolicyAxes): Policy[] {
   const out: Policy[] = [];
   const spouseAges = axes.spouseSocialSecurityClaimAge ?? [null];
-  for (const roth of axes.rothConversionAnnualCeiling) {
-    for (const spouse of spouseAges) {
-      for (const primary of axes.primarySocialSecurityClaimAge) {
-        for (const spend of axes.annualSpendTodayDollars) {
-          out.push({
-            annualSpendTodayDollars: spend,
-            primarySocialSecurityClaimAge: primary,
-            spouseSocialSecurityClaimAge: spouse,
-            rothConversionAnnualCeiling: roth,
-          });
+  // Default to a single-rule sweep (tax_bracket_waterfall) when the
+  // axis isn't supplied — preserves pre-V2 corpus shape for callers
+  // that haven't been updated to specify a withdrawal-rule list.
+  const withdrawalRules = axes.withdrawalRule ?? ['tax_bracket_waterfall'];
+  for (const rule of withdrawalRules) {
+    for (const roth of axes.rothConversionAnnualCeiling) {
+      for (const spouse of spouseAges) {
+        for (const primary of axes.primarySocialSecurityClaimAge) {
+          for (const spend of axes.annualSpendTodayDollars) {
+            out.push({
+              annualSpendTodayDollars: spend,
+              primarySocialSecurityClaimAge: primary,
+              spouseSocialSecurityClaimAge: spouse,
+              rothConversionAnnualCeiling: roth,
+              withdrawalRule: rule,
+            });
+          }
         }
       }
     }
@@ -125,11 +156,15 @@ export function policyId(
   engineVersion: string,
 ): string {
   // Canonical JSON: stable key order so two hosts agree on the bytes.
+  // Withdrawal rule is included because two policies with identical
+  // (spend, SS, Roth) but different withdrawal rules produce different
+  // outcomes — they're distinct candidates, not duplicates.
   const canonical = JSON.stringify({
     a: policy.annualSpendTodayDollars,
     p: policy.primarySocialSecurityClaimAge,
     s: policy.spouseSocialSecurityClaimAge,
     r: policy.rothConversionAnnualCeiling,
+    w: policy.withdrawalRule ?? 'tax_bracket_waterfall',
     b: baselineFingerprint,
     e: engineVersion,
   });

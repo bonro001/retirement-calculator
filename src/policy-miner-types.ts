@@ -29,7 +29,7 @@
  * Format: `policy-miner-vN-engineYYYY-MM` so a glance tells you when a
  * given record's lineage was minted.
  */
-export const POLICY_MINER_ENGINE_VERSION = 'policy-miner-v1-engine2026-04';
+export const POLICY_MINER_ENGINE_VERSION = 'policy-miner-v2-2026-05-01';
 
 /**
  * The four axes the V1 miner sweeps. Adding a new axis means: (1) extend
@@ -52,12 +52,18 @@ export const POLICY_MINER_ENGINE_VERSION = 'policy-miner-v1-engine2026-04';
 export interface Policy {
   /** Constant-real annual spend the engine should hold in retirement. */
   annualSpendTodayDollars: number;
-  /** Age the primary earner files for SS (62..70). */
+  /** Age the primary earner files for SS (62..70). Supports 6-month
+   *  resolution (e.g., 67.5) — engine pays partial-year benefit at the
+   *  year of crossing. */
   primarySocialSecurityClaimAge: number;
   /** Age the spouse files for SS (62..70). null when the household has no spouse SS record. */
   spouseSocialSecurityClaimAge: number | null;
   /** Annual cap on Roth conversions during the pre-RMD bracket-fill window (today $). */
   rothConversionAnnualCeiling: number;
+  /** Withdrawal rule — bucket order and split logic. Defaults to
+   *  `tax_bracket_waterfall` for backward compatibility with corpora
+   *  written before the axis was added. */
+  withdrawalRule?: import('./types').WithdrawalRule;
 }
 
 /**
@@ -75,6 +81,10 @@ export interface PolicyAxes {
   primarySocialSecurityClaimAge: number[];
   spouseSocialSecurityClaimAge: number[] | null;
   rothConversionAnnualCeiling: number[];
+  /** Withdrawal rules to mine. Optional for backward compatibility;
+   *  callers that omit this default to tax_bracket_waterfall only
+   *  (preserving pre-2026-05-01 corpus behavior). */
+  withdrawalRule?: import('./types').WithdrawalRule[];
 }
 
 /**

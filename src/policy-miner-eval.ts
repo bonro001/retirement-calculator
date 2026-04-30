@@ -106,10 +106,17 @@ export async function evaluatePolicy(
 ): Promise<PolicyEvaluation> {
   const startMs = Date.now();
   const seed = applyPolicyToSeed(cloner(baseline), policy);
+  // Per-candidate assumptions clone with the policy's withdrawal rule
+  // applied. Mining sweeps this axis so each candidate runs against
+  // its own rule; the engine reads `assumptions.withdrawalRule` in
+  // `getStrategyBehavior` and the rule drives the per-year cascade.
+  const policyAssumptions: MarketAssumptions = policy.withdrawalRule
+    ? { ...assumptions, withdrawalRule: policy.withdrawalRule }
+    : assumptions;
   // Run all four standard paths (baseline + downside + upside + selected
   // stressors). For the miner we want the BASELINE path — `paths[0]` per
   // convention — so we run with no stressors and pull the first path.
-  const paths = buildPathResults(seed, assumptions, [], [], {
+  const paths = buildPathResults(seed, policyAssumptions, [], [], {
     annualSpendTarget: policy.annualSpendTodayDollars,
     pathMode: 'selected_only',
   });

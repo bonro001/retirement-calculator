@@ -17,15 +17,18 @@
  * household actually uses"; UnifiedPlanScreen and friends remain in
  * the codebase for reference but aren't on the household's path.
  */
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { useAppStore } from './store';
 import { useClusterSession } from './useClusterSession';
 import { buildEvaluationFingerprint } from './evaluation-fingerprint';
-import { buildPathResults } from './utils';
+import { getCachedBaselinePath } from './baseline-path-cache';
 import { PolicyMiningStatusCard } from './PolicyMiningStatusCard';
 import { PolicyMiningResultsTable } from './PolicyMiningResultsTable';
 import { POLICY_MINER_ENGINE_VERSION } from './policy-miner-types';
 import type { MarketAssumptions } from './types';
+import type { PolicyAxes } from './policy-miner-types';
+import { AxisPruningCard } from './AxisPruningCard';
+import { CliffRefinementCard } from './CliffRefinementCard';
 
 const POLICY_MINING_TRIAL_COUNT = 2000;
 
@@ -59,6 +62,15 @@ export function MiningScreen() {
   );
   const cluster = useClusterSession();
   const dispatcherUrl = cluster.snapshot.dispatcherUrl ?? null;
+
+  // Axis-pruning Apply-and-rerun state. When the household clicks
+  // "Apply narrower range" on the AxisPruningCard, the recommended
+  // narrowed grid lands here and is forwarded to PolicyMiningStatusCard,
+  // which threads it to `cluster.startSession({ axesOverride })`. The
+  // override is volatile (component-local) — closing the screen
+  // resets to the default grid. To persist across visits, lift to
+  // zustand store; tonight's scope kept it local for simplicity.
+  const [axesOverride, setAxesOverride] = useState<PolicyAxes | null>(null);
 
   // Build the evaluation fingerprint that scopes mining results to
   // the current baseline. Keeps the corpus on disk segregated by
@@ -98,24 +110,18 @@ export function MiningScreen() {
     );
   }, [data]);
 
-  // Run baseline path so we have a primary path's median ending
-  // wealth to feed into the results table for delta columns.
+  // Baseline path drives the "vs current" delta columns in the results
+  // table. Routed through the shared cache so navigating from Cockpit to
+  // here doesn't re-run the 5000-trial Monte Carlo (Cockpit already
+  // computed the same path; we hit the localStorage entry it wrote).
   const primaryPath = useMemo(() => {
     if (!data || !assumptions) return null;
-    try {
-      const paths = buildPathResults(
-        data,
-        assumptions,
-        selectedStressors ?? [],
-        selectedResponses ?? [],
-        { pathMode: 'selected_only' },
-      );
-      return paths[0] ?? null;
-    } catch (err) {
-      // eslint-disable-next-line no-console
-      console.warn('[mining] baseline path failed:', err);
-      return null;
-    }
+    return getCachedBaselinePath(
+      data,
+      assumptions,
+      selectedStressors ?? [],
+      selectedResponses ?? [],
+    );
   }, [data, assumptions, selectedStressors, selectedResponses]);
 
   const legacyTargetTodayDollars = data?.goals?.legacyTargetTodayDollars ?? 0;
@@ -156,6 +162,7 @@ export function MiningScreen() {
               }
             : undefined
         }
+        axesOverride={axesOverride}
       />
 
       <PolicyMiningResultsTable
@@ -185,6 +192,31 @@ export function MiningScreen() {
               }
             : undefined
         }
+      />
+
+      {/* Adaptive axis-pruning insight. Surfaces only when the corpus
+          for the current baseline has ≥ 50 evaluations AND at least
+          one axis value contributed zero feasible candidates. Pure
+          analyzer; no engine calls. */}
+      <AxisPruningCard
+        seedData={data}
+        baselineFingerprint={policyMiningFingerprint || null}
+        engineVersion={POLICY_MINER_ENGINE_VERSION}
+        axesOverride={axesOverride}
+        onApplyAxesOverride={setAxesOverride}
+      />
+
+      {/* Cliff-refinement card. Watches the corpus, detects the spend
+       *  tier where feasibility crosses 85%, and offers a one-click
+       *  pass-2 axis at $1k resolution across the cliff band. Dynamic:
+       *  recomputes whenever the corpus changes, so a fresh mine on
+       *  a different plan picks up the new cliff automatically. */}
+      <CliffRefinementCard
+        seedData={data}
+        baselineFingerprint={policyMiningFingerprint || null}
+        engineVersion={POLICY_MINER_ENGINE_VERSION}
+        axesOverride={axesOverride}
+        onApplyAxesOverride={setAxesOverride}
       />
     </div>
   );
