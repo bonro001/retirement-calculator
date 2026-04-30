@@ -389,17 +389,26 @@ export function PolicyMiningResultsTable({
   // `evaluationCount` in the response is the TRUE total so we still
   // display "X of Y feasible" honestly.
   //
-  // We pin `minFeasibility` to the slider's minimum (50%) rather than
-  // the live threshold so dragging the slider doesn't trigger refetches.
-  // The server returns the highest-spend candidates clearing 50%, and
-  // the client's threshold filter narrows further as the user moves the
-  // slider. Without this, the dispatcher's feasibility-desc default sort
-  // fills the topN slice with low-spend/100%-feasible rows and hides
-  // the higher-spend candidates that just clear the household's floor.
-  const SLIDER_MIN_FEASIBILITY = 0.5;
+  // `minFeasibility` is pinned to the user's slider value (rounded down
+  // to 0.05 buckets so dragging the slider doesn't trigger one fetch
+  // per tick). With spend-desc ranking, the topN slice prioritizes the
+  // highest-spend rows that *clear* the slider — which is exactly what
+  // the table is asking. An earlier version pinned this at the slider
+  // minimum (0.5), but at a household floor of 0.85 that filled the
+  // slice with $140k/0.55–0.60 records (all rejected by the client
+  // filter) and showed the user "0 of 100 feasible". Sending the actual
+  // slider keeps the slice on-band.
+  const serverMinFeasibility = Math.max(
+    0.5,
+    Math.floor(feasibilityThreshold * 20) / 20,
+  );
+  const [evaluationCount, setEvaluationCount] = useState<number>(0);
   useEffect(() => {
     if (source !== 'cluster' || !dispatcherUrl || !selectedSessionId) {
-      if (source === 'cluster') setEvaluations([]);
+      if (source === 'cluster') {
+        setEvaluations([]);
+        setEvaluationCount(0);
+      }
       return undefined;
     }
     let cancelled = false;
@@ -410,10 +419,11 @@ export function PolicyMiningResultsTable({
         const payload = await loadClusterEvaluations(
           dispatcherUrl,
           selectedSessionId,
-          { topN, minFeasibility: SLIDER_MIN_FEASIBILITY },
+          { topN, minFeasibility: serverMinFeasibility },
         );
         if (cancelled) return;
         setEvaluations(payload.evaluations);
+        setEvaluationCount(payload.evaluationCount ?? payload.evaluations.length);
         setClusterError(null);
       } catch (e) {
         if (cancelled) return;
@@ -429,7 +439,14 @@ export function PolicyMiningResultsTable({
       cancelled = true;
       clearInterval(handle);
     };
-  }, [source, dispatcherUrl, selectedSessionId, showAll, rowLimit]);
+  }, [
+    source,
+    dispatcherUrl,
+    selectedSessionId,
+    showAll,
+    rowLimit,
+    serverMinFeasibility,
+  ]);
 
   const filtered = useMemo(() => {
     return evaluations
@@ -491,7 +508,11 @@ export function PolicyMiningResultsTable({
     // Fall through to render the source toggle / undo banner.
   }
 
-  const totalEvaluated = evaluations.length;
+  // True total comes from the dispatcher (it knows the on-disk count
+  // before any topN/minFeasibility slicing). When we're in local-IDB
+  // mode we don't have that signal, so fall back to the array length.
+  const totalEvaluated =
+    source === 'cluster' ? evaluationCount : evaluations.length;
   const totalFeasible = filtered.length;
 
   const toggleSort = (key: SortKey) => {

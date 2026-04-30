@@ -1,6 +1,426 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { captureSnapshot, saveSnapshot } from './history-store';
 import { POLICY_MINER_ENGINE_VERSION } from './policy-miner-types';
+import {
+  findOptimalSocialSecurityClaimAsync,
+  type SocialSecurityOptimizationResult,
+} from './ss-optimizer';
+import {
+  findMaxSustainableSpendAsync,
+  type SpendOptimizationResult,
+} from './spend-optimizer';
+import {
+  findOptimalRothCeilingAsync,
+  type RothOptimizationResult,
+} from './roth-optimizer';
+import { approximateBequestAttainmentRate } from './plan-evaluation';
+import { CalibrationDashboard } from './CalibrationDashboard';
+import { MedicareReminderCard } from './MedicareReminderCard';
+import { MortalitySensitivityCard } from './MortalitySensitivityCard';
+import { LogActualsCard } from './LogActualsCard';
+import { getActualsStore, getPredictionStore } from './calibration-stores';
+import { buildPredictionRecord, logPrediction } from './prediction-log';
+import { MountWhenVisible } from './MountWhenVisible';
+
+/**
+ * Stage of the chained plan-optimization run. The Cockpit uses this
+ * to drive the progress label ("Optimizing SS..." vs "Optimizing
+ * spending...") and to decide which cards have data to render.
+ */
+type PlanOptimizationStage =
+  | 'idle'
+  | 'ss'
+  | 'spend'
+  | 'roth'
+  | 'done'
+  | 'error';
+
+interface PlanOptimizationOutput {
+  ssResult: SocialSecurityOptimizationResult | null;
+  spendResult: SpendOptimizationResult | null;
+  rothResult: RothOptimizationResult | null;
+  /** Full engine path at the optimized plan (recommended SS + spend +
+   *  Roth ceiling). Drives the Cockpit's year-by-year details, the
+   *  trajectory chart, and the actions-due tile — keeping every panel
+   *  consistent with the Trust headline. */
+  optimizedPath: PathResult | null;
+  /** The final seed used for the optimized projection — useful for
+   *  downstream views that need to see "what plan are we projecting
+   *  against?" without re-deriving from results. */
+  optimizedSeed: SeedData | null;
+  stage: PlanOptimizationStage;
+  error: string | null;
+  /** Composite progress 0..1 across the optimizers. */
+  progressFraction: number;
+}
+
+/**
+ * Chain SS-optimizer → spend-optimizer.
+ *
+ * The architectural shift this enables: the Cockpit's "current plan"
+ * is the *engine's recommended plan*, not the seed's monthly-spending
+ * + SS values. Seed inputs are an initial guess; the optimizers
+ * produce the planning baseline.
+ *
+ * Stage 1: run SS optimizer with the seed.
+ * Stage 2: clone the seed with the recommended SS pair applied, then
+ *          run the spend optimizer against that clone — so the
+ *          recommended max spend is computed under the optimal SS
+ *          strategy, not the seed's strategy.
+ *
+ * Total cost: ~10-15s (SS) + ~20-27s (spend) = ~35-45s on first paint.
+ * Cached by seed fingerprint so it doesn't re-run on tab swap.
+ */
+/**
+ * Module-level cache for optimizer results. Keyed on the same
+ * fingerprint the hook uses; survives Cockpit unmount/remount (tab
+ * swaps Cockpit → Mining → Cockpit no longer re-trigger the
+ * ~30-50s optimization chain). Cleared implicitly when the seed
+ * fingerprint changes — old entries stay in memory for the lifetime
+ * of the page; that's fine, they're small (~few KB) and only one
+ * baseline is ever active at a time.
+ */
+interface CachedPlanOptimization {
+  ssResult: SocialSecurityOptimizationResult;
+  spendResult: SpendOptimizationResult;
+  rothResult: RothOptimizationResult;
+  optimizedPath: PathResult | null;
+  optimizedSeed: SeedData;
+}
+
+// localStorage key for the persisted cache. Bump this suffix when the
+// CachedPlanOptimization shape changes — old entries get ignored on
+// load, which is safer than partial deserialization.
+const PLAN_CACHE_LS_KEY = 'retirement-calc:plan-opt-cache:v1';
+const PLAN_CACHE_MAX_ENTRIES = 8; // FIFO evict; small to fit in 5MB localStorage.
+
+function loadPlanCacheFromLocalStorage(): Map<string, CachedPlanOptimization> {
+  try {
+    if (typeof window === 'undefined') return new Map();
+    const raw = window.localStorage?.getItem(PLAN_CACHE_LS_KEY);
+    if (!raw) return new Map();
+    const entries = JSON.parse(raw) as Array<[string, CachedPlanOptimization]>;
+    if (!Array.isArray(entries)) return new Map();
+    return new Map(entries);
+  } catch {
+    return new Map();
+  }
+}
+
+function persistPlanCacheToLocalStorage(
+  cache: Map<string, CachedPlanOptimization>,
+): void {
+  try {
+    if (typeof window === 'undefined' || !window.localStorage) return;
+    let entries = Array.from(cache.entries());
+    if (entries.length > PLAN_CACHE_MAX_ENTRIES) {
+      entries = entries.slice(entries.length - PLAN_CACHE_MAX_ENTRIES);
+    }
+    window.localStorage.setItem(PLAN_CACHE_LS_KEY, JSON.stringify(entries));
+  } catch {
+    // Quota exceeded / private browsing / disabled storage — non-fatal.
+  }
+}
+
+// Module-level cache, hydrated from localStorage on module import. A
+// page refresh now restores the optimizer result instantly instead of
+// triggering a fresh ~12s recompute. Survives across the entire session
+// AND across hard refreshes; cleared implicitly when fingerprint changes.
+const planOptimizationCache = loadPlanCacheFromLocalStorage();
+
+function usePlanOptimization(
+  data: SeedData | null,
+  assumptions: MarketAssumptions | null,
+  /**
+   * When true, the bisection chain is skipped entirely. The cockpit
+   * sets this when the mining corpus has a recommendation — the
+   * household sees that pick directly, no need to spend ~30s of main-
+   * thread MC on a parallel bisection. Returned state stays at idle
+   * so banners / running flags don't fire.
+   */
+  skip = false,
+): PlanOptimizationOutput {
+  const [ssResult, setSsResult] =
+    useState<SocialSecurityOptimizationResult | null>(null);
+  const [spendResult, setSpendResult] =
+    useState<SpendOptimizationResult | null>(null);
+  const [rothResult, setRothResult] =
+    useState<RothOptimizationResult | null>(null);
+  const [optimizedPath, setOptimizedPath] = useState<PathResult | null>(null);
+  const [optimizedSeed, setOptimizedSeed] = useState<SeedData | null>(null);
+  const [stage, setStage] = useState<PlanOptimizationStage>('idle');
+  const [error, setError] = useState<string | null>(null);
+  const [progressFraction, setProgressFraction] = useState(0);
+  const lastKeyRef = useRef<string | null>(null);
+  // Run-id based cancellation. We bump this on each new optimization
+  // run; the in-flight async checks `runIdRef.current === myRunId` at
+  // every await checkpoint and bails if it's been superseded. This is
+  // safer than a `cancelRef` boolean because in React 18 strict mode
+  // an effect's cleanup fires BEFORE the second mount's body, which
+  // would set the boolean to "cancelled" and cause the (still valid)
+  // second-mount work to be skipped. With run ids, the second mount
+  // bumps the id and proceeds; the first mount's async sees a stale
+  // id and bails. Same for genuine cancellation across fingerprints.
+  const runIdRef = useRef(0);
+
+  const fingerprint = useMemo(() => {
+    if (!data || !assumptions) return null;
+    return JSON.stringify({
+      ss: data.income?.socialSecurity,
+      windfalls: data.income?.windfalls,
+      accts: {
+        pretax: data.accounts?.pretax?.balance,
+        roth: data.accounts?.roth?.balance,
+        taxable: data.accounts?.taxable?.balance,
+        cash: data.accounts?.cash?.balance,
+        hsa: data.accounts?.hsa?.balance,
+      },
+      birth: {
+        rob: data.household?.robBirthDate,
+        debbie: data.household?.debbieBirthDate,
+      },
+      goals: (data as SeedData & { goals?: { legacyTargetTodayDollars?: number } })
+        .goals,
+      asm: {
+        equityMean: assumptions.equityMean,
+        inflation: assumptions.inflation,
+        version: assumptions.assumptionsVersion,
+      },
+    });
+  }, [data, assumptions]);
+
+  useEffect(() => {
+    if (skip) return;
+    if (!data || !assumptions || !fingerprint) return;
+    // Module-cache fast path: if we already optimized for this
+    // fingerprint earlier (e.g. user swapped to Mining tab and back),
+    // restore the result synchronously and skip the async chain.
+    // This is the big perf win — tab swaps used to trigger a fresh
+    // ~30-50s optimization; now it's instant.
+    const cached = planOptimizationCache.get(fingerprint);
+    if (cached) {
+      lastKeyRef.current = fingerprint;
+      setSsResult(cached.ssResult);
+      setSpendResult(cached.spendResult);
+      setRothResult(cached.rothResult);
+      setOptimizedPath(cached.optimizedPath);
+      setOptimizedSeed(cached.optimizedSeed);
+      setStage('done');
+      setProgressFraction(1);
+      setError(null);
+      return;
+    }
+    // Skip if work for this fingerprint has already started (either
+    // in-flight or completed). Reset of `lastKeyRef.current` happens
+    // only on error (so we can retry) or never on success (cache).
+    // This is the strict-mode-safe gate: in StrictMode, the effect
+    // mounts twice; the second mount sees lastKeyRef already pointing
+    // at this fingerprint and short-circuits, leaving the first
+    // mount's async intact.
+    if (lastKeyRef.current === fingerprint) return;
+    lastKeyRef.current = fingerprint;
+    const myRunId = ++runIdRef.current;
+    setStage('ss');
+    setError(null);
+    setSsResult(null);
+    setSpendResult(null);
+    setRothResult(null);
+    setOptimizedPath(null);
+    setOptimizedSeed(null);
+    setProgressFraction(0);
+
+    (async () => {
+      try {
+        // Stage 1: SS optimizer.
+        const ss = await findOptimalSocialSecurityClaimAsync(data, assumptions, {
+          minClaimAge: 65,
+          maxClaimAge: 70,
+          // Trial count tuned for Cockpit interactivity. 250 trials per
+          // cell gives ~±1.5pp accuracy on solvency/legacy rates —
+          // close enough to rank candidates and call out the headline,
+          // and 2× faster than the policy-mining 500-trial baseline.
+          // The mining cluster still uses 2000 trials for the
+          // certification corpus; this is just for the live in-app
+          // recommendation surface.
+          trialCount: 250,
+          // Constraint targets default to (0.85, 0.85) inside the optimizer
+          // when the household has a legacy goal. Pass through explicitly
+          // for clarity.
+          targetSolventRate: 0.85,
+          onProgress: (done, total) => {
+            // SS phase contributes the first 40% of composite progress.
+            setProgressFraction(total > 0 ? (done / total) * 0.4 : 0);
+          },
+          isCancelled: () => runIdRef.current !== myRunId,
+        });
+        if (runIdRef.current !== myRunId) return;
+        setSsResult(ss);
+
+        // Stage 2: clone seed with recommended SS, run spend optimizer.
+        setStage('spend');
+        const clone = JSON.parse(JSON.stringify(data)) as SeedData;
+        if (clone.income?.socialSecurity?.[0] && ss.recommended) {
+          clone.income.socialSecurity[0].claimAge = ss.recommended.primaryAge;
+        }
+        if (
+          clone.income?.socialSecurity?.[1] &&
+          ss.recommended?.spouseAge !== null &&
+          ss.recommended?.spouseAge !== undefined
+        ) {
+          clone.income.socialSecurity[1].claimAge = ss.recommended.spouseAge;
+        }
+        const spend = await findMaxSustainableSpendAsync(clone, assumptions, {
+          minAnnualSpend: 60_000,
+          maxAnnualSpend: 250_000,
+          targetSolventRate: 0.85,
+          targetLegacyAttainmentRate: 0.85,
+          // Trial count tuned for Cockpit interactivity. 250 trials per
+          // cell gives ~±1.5pp accuracy on solvency/legacy rates —
+          // close enough to rank candidates and call out the headline,
+          // and 2× faster than the policy-mining 500-trial baseline.
+          // The mining cluster still uses 2000 trials for the
+          // certification corpus; this is just for the live in-app
+          // recommendation surface.
+          trialCount: 250,
+          toleranceDollars: 2_000,
+          onProgress: (iter, lo, hi) => {
+            // Spend phase contributes 35% (40-75% of composite).
+            // Bisection converges in ~log2((max-min)/tol) ≈ 8 iters.
+            void lo;
+            void hi;
+            const phaseFrac = Math.min(1, iter / 8);
+            setProgressFraction(0.4 + phaseFrac * 0.35);
+          },
+          isCancelled: () => runIdRef.current !== myRunId,
+        });
+        if (runIdRef.current !== myRunId) return;
+        setSpendResult(spend);
+
+        // Stage 3: Roth ceiling optimizer. Sweeps 6 ceiling levels at
+        // the joint plan (recommended SS + recommended spend already
+        // applied via clone + spend override) and picks the ceiling
+        // that maximizes p50 EW subject to both constraints.
+        setStage('roth');
+        const roth = await findOptimalRothCeilingAsync(
+          clone,
+          assumptions,
+          spend.recommendedAnnualSpendTodayDollars,
+          {
+            // Trial count tuned for Cockpit interactivity. 250 trials per
+          // cell gives ~±1.5pp accuracy on solvency/legacy rates —
+          // close enough to rank candidates and call out the headline,
+          // and 2× faster than the policy-mining 500-trial baseline.
+          // The mining cluster still uses 2000 trials for the
+          // certification corpus; this is just for the live in-app
+          // recommendation surface.
+          trialCount: 250,
+            targetSolventRate: 0.85,
+            onProgress: (done, total) => {
+              // Roth phase contributes 15% (75-90% of composite).
+              setProgressFraction(0.75 + (done / Math.max(1, total)) * 0.15);
+            },
+            isCancelled: () => runIdRef.current !== myRunId,
+          },
+        );
+        if (runIdRef.current !== myRunId) return;
+        setRothResult(roth);
+
+        // Apply the recommended Roth ceiling to the clone before the
+        // final projection.
+        if (roth.recommended && clone.rules) {
+          clone.rules.rothConversionPolicy = {
+            ...(clone.rules.rothConversionPolicy ?? {}),
+            enabled: roth.recommended.ceilingTodayDollars > 0,
+            minAnnualDollars: 0,
+            magiBufferDollars: roth.recommended.ceilingTodayDollars,
+          };
+        }
+
+        // Stage 4: build the optimizedPath. Run the full engine ONCE
+        // at the joint plan (recommended SS + spend + Roth ceiling all
+        // applied). This becomes the canonical projection for every
+        // Cockpit panel below the Trust card — year-by-year tiles,
+        // trajectory chart, actions due.
+        const optPaths = buildPathResults(clone, assumptions, [], [], {
+          pathMode: 'selected_only',
+          annualSpendTarget: spend.recommendedAnnualSpendTodayDollars,
+        });
+        const optPath = optPaths[0] ?? null;
+        if (runIdRef.current !== myRunId) return;
+        // Persist the full result in the module-level cache so a tab
+        // swap returns to instant load. Keyed on fingerprint; old
+        // entries naturally fall out of relevance when the seed
+        // changes (the fingerprint becomes a different key).
+        planOptimizationCache.set(fingerprint, {
+          ssResult: ss,
+          spendResult: spend,
+          rothResult: roth,
+          optimizedPath: optPath,
+          optimizedSeed: clone,
+        });
+        // Persist to localStorage so a hard refresh / new browser tab
+        // restores the result instantly instead of running another
+        // ~12s optimizer chain.
+        persistPlanCacheToLocalStorage(planOptimizationCache);
+        // Auto-log prediction record. Captures (timestamp,
+        // planFingerprint, full inputs snapshot, headline outputs,
+        // yearly trajectory) so the reconciliation layer can diff
+        // against actuals later. Append-only; localStorage-backed
+        // with FIFO eviction at 500 records (~1 year of daily uses).
+        // Logged once per finished optimization chain — the cache
+        // gate above ensures we only log when the chain RAN, not on
+        // cache hits (already logged when the chain originally ran).
+        if (optPath) {
+          try {
+            logPrediction(
+              getPredictionStore(),
+              buildPredictionRecord(clone, assumptions, optPath),
+            );
+          } catch (logErr) {
+            // Non-fatal: prediction logging failure shouldn't break
+            // the household's view of their plan.
+            // eslint-disable-next-line no-console
+            console.warn('[cockpit] prediction-log failed:', logErr);
+          }
+        }
+        setOptimizedPath(optPath);
+        setOptimizedSeed(clone);
+        setProgressFraction(1);
+        setStage('done');
+      } catch (err) {
+        if (runIdRef.current !== myRunId) return;
+        // Reset cache key so a future render can retry — otherwise the
+        // failure is sticky for the lifetime of this fingerprint.
+        lastKeyRef.current = null;
+        const message =
+          err instanceof Error ? err.message : 'unknown optimization error';
+        // eslint-disable-next-line no-console
+        console.warn('[cockpit] plan optimization failed:', err);
+        setError(message);
+        setStage('error');
+      }
+    })();
+
+    // No cleanup function: we use runIdRef as the cancellation
+    // signal, which a NEW run bumps. A unmount/remount cycle in
+    // strict mode doesn't change runIdRef on its own (only the body
+    // of the effect bumps it), so the in-flight async survives. A
+    // genuine fingerprint change runs the body, bumps runIdRef, and
+    // the prior async bails on its next checkpoint.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data, assumptions, fingerprint, skip]);
+
+  return {
+    ssResult,
+    spendResult,
+    rothResult,
+    optimizedPath,
+    optimizedSeed,
+    stage,
+    error,
+    progressFraction,
+  };
+}
 import {
   Area,
   CartesianGrid,
@@ -14,6 +434,13 @@ import {
 } from 'recharts';
 import { useAppStore } from './store';
 import { buildPathResults } from './utils';
+import {
+  getCachedBaselinePathBoth,
+  type BaselinePathBoth,
+} from './baseline-path-cache';
+import { useRecommendedPolicy } from './use-recommended-policy';
+import { useRecommendedPath } from './use-recommended-path';
+import { useClusterSession } from './useClusterSession';
 import type {
   MarketAssumptions,
   PathResult,
@@ -62,90 +489,9 @@ import type {
  * difference between them is the "future returns lower than past?" wager
  * the user has implicitly taken on.
  */
-interface BaselinePathBoth {
-  forwardLooking: PathResult | null;
-  historical: PathResult | null;
-}
-
-let baselinePathCache: {
-  key: string;
-  paths: BaselinePathBoth;
-} | null = null;
-
-function getCachedBaselinePathBoth(
-  data: SeedData,
-  assumptions: MarketAssumptions,
-  stressors: string[],
-  responses: string[],
-): BaselinePathBoth {
-  // Cheap fingerprint — only the dials that materially change the
-  // baseline projection. Keeps the key short and JSON.stringify fast.
-  const key = JSON.stringify({
-    spending: data.spending,
-    income: {
-      salaryAnnual: data.income?.salaryAnnual,
-      salaryEndDate: data.income?.salaryEndDate,
-      socialSecurity: data.income?.socialSecurity,
-      windfalls: data.income?.windfalls,
-    },
-    accounts: {
-      pretax: data.accounts?.pretax?.balance,
-      roth: data.accounts?.roth?.balance,
-      taxable: data.accounts?.taxable?.balance,
-      cash: data.accounts?.cash?.balance,
-    },
-    rules: {
-      rothPolicy: data.rules?.rothConversionPolicy,
-      ltc: data.rules?.ltcAssumptions,
-    },
-    asm: {
-      simulationRuns: assumptions.simulationRuns,
-      equityMean: assumptions.equityMean,
-      inflation: assumptions.inflation,
-      version: assumptions.assumptionsVersion,
-    },
-    s: stressors,
-    r: responses,
-  });
-  if (baselinePathCache && baselinePathCache.key === key) {
-    return baselinePathCache.paths;
-  }
-  const safeBuild = (asm: MarketAssumptions): PathResult | null => {
-    try {
-      const paths = buildPathResults(data, asm, stressors, responses, {
-        pathMode: 'selected_only',
-      });
-      return paths[0] ?? null;
-    } catch (err) {
-      // eslint-disable-next-line no-console
-      console.warn('[cockpit] baseline path failed:', err);
-      return null;
-    }
-  };
-  const forwardLooking = safeBuild(assumptions);
-  const historical = safeBuild({
-    ...assumptions,
-    useHistoricalBootstrap: true,
-  });
-  const paths: BaselinePathBoth = { forwardLooking, historical };
-  baselinePathCache = { key, paths };
-  return paths;
-}
-
-/**
- * Backwards-compatible shim returning just the forward-looking path
- * (the conservative parametric default). Callers that don't need the
- * historical reading can keep using this.
- */
-function getCachedBaselinePath(
-  data: SeedData,
-  assumptions: MarketAssumptions,
-  stressors: string[],
-  responses: string[],
-): PathResult | null {
-  return getCachedBaselinePathBoth(data, assumptions, stressors, responses)
-    .forwardLooking;
-}
+// Baseline-path cache moved to ./baseline-path-cache so the Mining
+// screen can share the same persisted result. One engine pass populates
+// both screens; refreshes hit localStorage and skip the engine entirely.
 
 // IRMAA + ACA cliff thresholds for 2026 (MFJ). Hardcoded constants
 // here — the existing engine has these elsewhere; for the prototype
@@ -766,6 +1112,12 @@ function AssumptionPanel({
               <dt className="text-stone-500">Equity vol</dt>
               <dd className="text-stone-900">
                 {(assumptions.equityVolatility * 100).toFixed(1)}% (bounded ±45%)
+              </dd>
+              <dt className="text-stone-500">Equity tail</dt>
+              <dd className="text-stone-900">
+                {assumptions.equityTailMode === 'crash_mixture'
+                  ? 'crash mixture (3%/yr from 1931/2008/1937/1974/2002)'
+                  : 'symmetric Gaussian'}
               </dd>
               <dt className="text-stone-500">Bond mean</dt>
               <dd className="text-stone-900">
@@ -2291,6 +2643,486 @@ function CockpitSensitivityPanel({
   );
 }
 
+/**
+ * Recommended SS claim card. SS claim age is purely an engine output —
+ * household has no preset; the optimizer evaluates the (65..70 × 65..70)
+ * grid against the household's north-star constraints and surfaces the
+ * pair that wins. There's no "Your current seed" comparison anymore —
+ * SS flows like income and taxes, computed from facts (FRA monthly,
+ * birth dates) plus the engine's strategy choice.
+ *
+ * Cost: ~10-15s of CPU on a 36-cell sweep at 500 trials per cell. Runs
+ * with yields between primary-age slices so the UI stays responsive.
+ * Cached by seed fingerprint via the inner ref.
+ */
+function RecommendedSocialSecurityCard({
+  result,
+  running,
+  error,
+}: {
+  result: SocialSecurityOptimizationResult | null;
+  running: boolean;
+  error: string | null;
+}) {
+  const recommended = result?.recommended ?? null;
+
+  return (
+    <div className="rounded-2xl border border-emerald-200 bg-emerald-50/40 p-4 shadow-sm">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-emerald-700">
+            Recommended SS claim · engine output
+          </p>
+          <p className="mt-1 text-[12px] text-stone-600">
+            SS claim age flows from the engine — like income and taxes —
+            optimized against your solvency + legacy goals. No preset; the
+            household just supplies FRA monthly amounts and birth dates.
+          </p>
+        </div>
+        {running && !result && (
+          <span className="shrink-0 rounded-full bg-white/70 px-2 py-0.5 text-[10px] font-medium text-emerald-700">
+            Searching…
+          </span>
+        )}
+      </div>
+
+      {error && (
+        <p className="mt-3 text-[12px] text-rose-700">
+          Optimizer error: {error}
+        </p>
+      )}
+
+      {!result && !error && (
+        <p className="mt-3 text-[12px] text-stone-500">
+          Searching the 6×6 SS claim grid (ages 65–70 each). ~10–15s on
+          first pass; cached after.
+        </p>
+      )}
+
+      {result && recommended && (
+        <div className="mt-4 grid gap-3 md:grid-cols-2">
+          <div className="md:col-span-2 rounded-xl bg-white/80 p-3 shadow-sm">
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-emerald-700">
+              Engine recommendation
+            </p>
+            <p className="mt-2 text-[20px] font-semibold tabular-nums text-stone-900">
+              Rob @ {recommended.primaryAge}
+              {result.hasSpouse && recommended.spouseAge !== null && (
+                <> · Debbie @ {recommended.spouseAge}</>
+              )}
+            </p>
+            <dl className="mt-2 grid grid-cols-3 gap-x-3 gap-y-0.5 text-[12px] tabular-nums">
+              <dt className="text-stone-500">Solvent</dt>
+              <dt className="text-stone-500">Hits legacy</dt>
+              <dt className="text-stone-500">p50 EW (today $)</dt>
+              <dd className="font-semibold text-stone-900">
+                {Math.round(recommended.solventSuccessRate * 100)}%
+              </dd>
+              <dd className="font-semibold text-stone-900">
+                {result.targetLegacyAttainmentRate !== null
+                  ? `${Math.round(recommended.bequestAttainmentRate * 100)}%`
+                  : '—'}
+              </dd>
+              <dd className="font-semibold text-stone-900">
+                {formatCurrency(recommended.p50EndingWealthTodayDollars)}
+              </dd>
+            </dl>
+          </div>
+
+          <div className="md:col-span-2 rounded-xl border border-emerald-200/60 bg-white p-3 text-[12px]">
+            <p className="text-stone-700">
+              {result.feasibleCount} of {result.ranked.length} (
+              {result.ageRange.min}–{result.ageRange.max} × {result.ageRange.min}
+              –{result.ageRange.max}) claim pairs satisfy both north stars.
+              Engine pick maximizes solvent rate → bequest attainment → p50
+              ending wealth.
+            </p>
+            <p className="mt-1 text-[11px] text-stone-400">
+              {result.trialCount} trials per cell. The Cockpit projection
+              above already runs at this recommended pair — no manual adoption
+              needed.
+            </p>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Max-sustainable-spend card. Companion to the SS recommendation:
+ * answers "how much COULD we spend if we wanted to?" by bisecting on
+ * annual spending until we find the highest level that sustains the
+ * target solvency. Doesn't change the household's lifestyle decision —
+ * just exposes the frontier so they can decide where to sit relative to
+ * it.
+ *
+ * Cost: ~7-9 engine calls × ~3s = ~20-27s on first paint at 500 trials,
+ * cached by seed fingerprint thereafter.
+ */
+function MaxSustainableSpendCard({
+  result,
+  running,
+  error,
+}: {
+  result: SpendOptimizationResult | null;
+  running: boolean;
+  error: string | null;
+}) {
+  const recommended = result?.recommendedEvaluation ?? null;
+  const current = result?.currentSeedEvaluation ?? null;
+  const spendDelta =
+    recommended && current
+      ? recommended.annualSpendTodayDollars -
+        current.annualSpendTodayDollars
+      : null;
+  const isAtFrontier =
+    spendDelta !== null && Math.abs(spendDelta) < 5_000;
+
+  return (
+    <div className="rounded-2xl border border-sky-200 bg-sky-50/40 p-4 shadow-sm">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-sky-700">
+            Max sustainable spending · engine output
+          </p>
+          <p className="mt-1 text-[12px] text-stone-600">
+            How much you could spend each year while satisfying both
+            north stars (≥85% solvent AND ≥85% chance of hitting the
+            legacy target), with the engine's recommended SS strategy
+            already applied.
+          </p>
+        </div>
+        {running && !result && (
+          <span className="shrink-0 rounded-full bg-white/70 px-2 py-0.5 text-[10px] font-medium text-sky-700">
+            Bisecting…
+          </span>
+        )}
+      </div>
+
+      {error && (
+        <p className="mt-3 text-[12px] text-rose-700">
+          Optimizer error: {error}
+        </p>
+      )}
+
+      {!result && !error && (
+        <p className="mt-3 text-[12px] text-stone-500">
+          Bisecting the spending frontier ($60k–$250k) at 500 trials per
+          step. ~20–27s on first pass; cached after.
+        </p>
+      )}
+
+      {result && recommended && (
+        <div className="mt-4 grid gap-3 md:grid-cols-2">
+          {/* Recommended frontier */}
+          <div className="rounded-xl bg-white/80 p-3 shadow-sm">
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-sky-700">
+              Frontier (
+              {Math.round(result.targetSolventRate * 100)}% solvent
+              {result.targetLegacyAttainmentRate !== null && (
+                <>
+                  {' '}+ {Math.round(result.targetLegacyAttainmentRate * 100)}% legacy
+                </>
+              )}
+              )
+            </p>
+            <p className="mt-2 text-[20px] font-semibold tabular-nums text-stone-900">
+              {formatCurrencyExact(
+                recommended.annualSpendTodayDollars,
+              )}
+              /yr
+            </p>
+            <dl className="mt-2 grid grid-cols-2 gap-x-3 gap-y-0.5 text-[12px] tabular-nums">
+              <dt className="text-stone-500">Solvent</dt>
+              <dd className="font-semibold text-stone-900">
+                {Math.round(recommended.solventSuccessRate * 100)}%
+              </dd>
+              {recommended.legacyAttainmentRate !== null && (
+                <>
+                  <dt className="text-stone-500">Hits legacy</dt>
+                  <dd className="font-semibold text-stone-900">
+                    {Math.round(recommended.legacyAttainmentRate * 100)}%
+                  </dd>
+                </>
+              )}
+              <dt className="text-stone-500">p50 EW (today $)</dt>
+              <dd className="font-semibold text-stone-900">
+                {formatCurrency(recommended.p50EndingWealthTodayDollars)}
+              </dd>
+            </dl>
+          </div>
+
+          {/* Current seed spending */}
+          <div className="rounded-xl bg-white/60 p-3 shadow-sm">
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-stone-500">
+              Your current lifestyle
+            </p>
+            {current ? (
+              <>
+                <p className="mt-2 text-[20px] font-semibold tabular-nums text-stone-900">
+                  {formatCurrencyExact(current.annualSpendTodayDollars)}/yr
+                </p>
+                <dl className="mt-2 grid grid-cols-2 gap-x-3 gap-y-0.5 text-[12px] tabular-nums">
+                  <dt className="text-stone-500">Solvent</dt>
+                  <dd className="font-semibold text-stone-900">
+                    {Math.round(current.solventSuccessRate * 100)}%
+                  </dd>
+                  {current.legacyAttainmentRate !== null && (
+                    <>
+                      <dt className="text-stone-500">Hits legacy</dt>
+                      <dd className="font-semibold text-stone-900">
+                        {Math.round(current.legacyAttainmentRate * 100)}%
+                      </dd>
+                    </>
+                  )}
+                  <dt className="text-stone-500">p50 EW (today $)</dt>
+                  <dd className="font-semibold text-stone-900">
+                    {formatCurrency(current.p50EndingWealthTodayDollars)}
+                  </dd>
+                </dl>
+              </>
+            ) : (
+              <p className="mt-2 text-[12px] text-stone-500">
+                Seed has no spending configured.
+              </p>
+            )}
+          </div>
+
+          {/* Headroom callout */}
+          <div className="md:col-span-2 rounded-xl border border-sky-200/60 bg-white p-3 text-[12px]">
+            {!result.feasible ? (
+              <p className="text-rose-700">
+                <span className="font-semibold">North star violation.</span>{' '}
+                Even at the search floor (
+                {formatCurrencyExact(result.searchRange.min)}/yr), your plan
+                fails the{' '}
+                {result.bindingConstraint === 'legacy'
+                  ? 'legacy attainment'
+                  : result.bindingConstraint === 'solvency'
+                  ? 'solvency'
+                  : 'solvency AND legacy attainment'}{' '}
+                floor. No spending tweak fixes this — the strategy needs
+                to change (returns, retirement timing, more savings, or
+                relax the legacy target).
+              </p>
+            ) : isAtFrontier ? (
+              <p className="text-stone-700">
+                You're sitting essentially at the frontier — no meaningful
+                headroom to spend more without violating a north star.
+                Binding: <span className="font-semibold">{result.bindingConstraint}</span>.
+              </p>
+            ) : spendDelta !== null && spendDelta > 0 ? (
+              <p className="text-stone-700">
+                <span className="font-semibold text-sky-700 tabular-nums">
+                  +{formatCurrencyExact(spendDelta)}/yr
+                </span>{' '}
+                of headroom while still meeting both north stars. Binding
+                constraint at the frontier:{' '}
+                <span className="font-semibold">{result.bindingConstraint}</span>
+                .
+              </p>
+            ) : (
+              <p className="text-amber-800">
+                <span className="font-semibold tabular-nums">
+                  {formatCurrencyExact(spendDelta ?? 0)}/yr
+                </span>{' '}
+                relative to frontier — your current spending is above the
+                level that satisfies both north stars. Cut to the frontier,
+                relax a constraint, or shift strategy (SS, allocation,
+                retirement timing).
+              </p>
+            )}
+            <p className="mt-1 text-[11px] text-stone-400">
+              Bisection · {result.trace.length} engine evals · {result.trialCount} trials each ·
+              tolerance {formatCurrencyExact(2_000)}/yr.
+            </p>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Recommended Roth conversion ceiling card. Companion to the SS and
+ * spend optimizer cards: at the engine-recommended SS strategy + max
+ * spend, sweeps the Roth-conversion-ceiling axis and picks the level
+ * that maximizes p50 ending wealth (today's $) subject to both north
+ * stars. The current household value is read from the seed's
+ * `rules.rothConversionPolicy.magiBufferDollars` proxy.
+ */
+function RecommendedRothCeilingCard({
+  result,
+  currentSeedCeiling,
+  running,
+  error,
+}: {
+  result: RothOptimizationResult | null;
+  currentSeedCeiling: number | null;
+  running: boolean;
+  error: string | null;
+}) {
+  const recommended = result?.recommended ?? null;
+  const currentInRanked =
+    currentSeedCeiling !== null && result
+      ? result.ranked.find(
+          (c) => c.ceilingTodayDollars === currentSeedCeiling,
+        ) ?? null
+      : null;
+  const ewDelta =
+    recommended && currentInRanked
+      ? recommended.p50EndingWealthTodayDollars -
+        currentInRanked.p50EndingWealthTodayDollars
+      : null;
+  const isSameCeiling =
+    recommended != null &&
+    currentSeedCeiling !== null &&
+    recommended.ceilingTodayDollars === currentSeedCeiling;
+  return (
+    <div className="rounded-2xl border border-violet-200 bg-violet-50/40 p-4 shadow-sm">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-violet-700">
+            Recommended Roth ceiling · engine output
+          </p>
+          <p className="mt-1 text-[12px] text-stone-600">
+            How aggressively to convert pretax → Roth each year. Engine
+            evaluates at your recommended SS + spend, picks the ceiling
+            that maximizes p50 ending wealth in today's $ while still
+            meeting both north stars.
+          </p>
+        </div>
+        {running && !result && (
+          <span className="shrink-0 rounded-full bg-white/70 px-2 py-0.5 text-[10px] font-medium text-violet-700">
+            Sweeping…
+          </span>
+        )}
+      </div>
+
+      {error && (
+        <p className="mt-3 text-[12px] text-rose-700">
+          Optimizer error: {error}
+        </p>
+      )}
+
+      {!result && !error && (
+        <p className="mt-3 text-[12px] text-stone-500">
+          Sweeping 6 ceiling levels ($0 – $200k/yr) at 500 trials each.
+          ~15–20s; cached after.
+        </p>
+      )}
+
+      {result && recommended && (
+        <div className="mt-4 grid gap-3 md:grid-cols-2">
+          <div className="rounded-xl bg-white/80 p-3 shadow-sm">
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-violet-700">
+              Recommended
+            </p>
+            <p className="mt-2 text-[20px] font-semibold tabular-nums text-stone-900">
+              {formatCurrencyExact(recommended.ceilingTodayDollars)}/yr
+            </p>
+            <dl className="mt-2 grid grid-cols-2 gap-x-3 gap-y-0.5 text-[12px] tabular-nums">
+              <dt className="text-stone-500">Solvent</dt>
+              <dd className="font-semibold text-stone-900">
+                {Math.round(recommended.solventSuccessRate * 100)}%
+              </dd>
+              {result.targetLegacyAttainmentRate !== null && (
+                <>
+                  <dt className="text-stone-500">Hits legacy</dt>
+                  <dd className="font-semibold text-stone-900">
+                    {Math.round(recommended.bequestAttainmentRate * 100)}%
+                  </dd>
+                </>
+              )}
+              <dt className="text-stone-500">p50 EW (today $)</dt>
+              <dd className="font-semibold text-stone-900">
+                {formatCurrency(recommended.p50EndingWealthTodayDollars)}
+              </dd>
+            </dl>
+          </div>
+
+          <div className="rounded-xl bg-white/60 p-3 shadow-sm">
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-stone-500">
+              Your current seed
+            </p>
+            {currentInRanked ? (
+              <>
+                <p className="mt-2 text-[20px] font-semibold tabular-nums text-stone-900">
+                  {formatCurrencyExact(currentInRanked.ceilingTodayDollars)}/yr
+                </p>
+                <dl className="mt-2 grid grid-cols-2 gap-x-3 gap-y-0.5 text-[12px] tabular-nums">
+                  <dt className="text-stone-500">Solvent</dt>
+                  <dd className="font-semibold text-stone-900">
+                    {Math.round(currentInRanked.solventSuccessRate * 100)}%
+                  </dd>
+                  {result.targetLegacyAttainmentRate !== null && (
+                    <>
+                      <dt className="text-stone-500">Hits legacy</dt>
+                      <dd className="font-semibold text-stone-900">
+                        {Math.round(currentInRanked.bequestAttainmentRate * 100)}%
+                      </dd>
+                    </>
+                  )}
+                  <dt className="text-stone-500">p50 EW (today $)</dt>
+                  <dd className="font-semibold text-stone-900">
+                    {formatCurrency(currentInRanked.p50EndingWealthTodayDollars)}
+                  </dd>
+                </dl>
+              </>
+            ) : (
+              <p className="mt-2 text-[12px] text-stone-500">
+                Seed ceiling is outside the searched grid — adopt the
+                recommendation to apply.
+              </p>
+            )}
+          </div>
+
+          <div className="md:col-span-2 rounded-xl border border-violet-200/60 bg-white p-3 text-[12px]">
+            {isSameCeiling ? (
+              <p className="text-stone-700">
+                Your seed's Roth ceiling already matches the recommendation —
+                no change indicated.
+              </p>
+            ) : ewDelta !== null && ewDelta > 0 ? (
+              <p className="text-stone-700">
+                Switching to the recommended ceiling lifts p50 ending wealth
+                by{' '}
+                <span className="font-semibold text-violet-700 tabular-nums">
+                  +{formatCurrency(ewDelta)}
+                </span>{' '}
+                (today $) under the same SS + spend plan.
+              </p>
+            ) : ewDelta !== null && ewDelta < 0 ? (
+              <p className="text-amber-800">
+                The recommended ceiling lowers p50 ending wealth by{' '}
+                <span className="font-semibold tabular-nums">
+                  {formatCurrency(ewDelta)}
+                </span>{' '}
+                vs your seed — that's because your seed sits at a more
+                aggressive level than the engine prefers under the
+                constraints. Use either; this is an information signal.
+              </p>
+            ) : (
+              <p className="text-stone-700">
+                {result.feasibleCount} of {result.ranked.length} ceilings
+                meet both north stars.
+              </p>
+            )}
+            <p className="mt-1 text-[11px] text-stone-400">
+              Sweep · 6 ceiling levels · {result.trialCount} trials each.
+              Ranking: feasibility (north stars) → max p50 EW (today $) →
+              lower median federal tax. The engine's per-year IRMAA-
+              and bracket-aware Roth logic still operates within this
+              ceiling.
+            </p>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function CockpitScreen() {
   const data = useAppStore((state) => state.appliedData);
   const editableData = useAppStore((state) => state.data);
@@ -2303,6 +3135,21 @@ export function CockpitScreen() {
   // pre-adoption spend buckets — we surface that gap explicitly).
   const lastPolicyAdoption = useAppStore((state) => state.lastPolicyAdoption);
   const commitDraftToApplied = useAppStore((state) => state.commitDraftToApplied);
+  const setCurrentScreen = useAppStore((state) => state.setCurrentScreen);
+
+  // Mining-corpus-backed recommendation. Phase 1 of MINER_REFACTOR:
+  // surface the corpus state as a banner above the existing TRUST
+  // card. The cockpit's headline numbers still read from the legacy
+  // bisection chain — Phase 2 retires that and rewires TRUST to the
+  // corpus directly.
+  const cluster = useClusterSession();
+  const recommendation = useRecommendedPolicy(
+    data ?? null,
+    assumptions ?? null,
+    selectedStressors ?? [],
+    selectedResponses ?? [],
+    cluster.snapshot.dispatcherUrl ?? null,
+  );
 
   // Run a baseline path so we have year-by-year medians for the tiles.
   // Memoized on the inputs so flipping into the cockpit tab is cheap
@@ -2323,7 +3170,51 @@ export function CockpitScreen() {
   const baselinePath: PathResult | null = baselinePathBoth.forwardLooking;
   const historicalPath: PathResult | null = baselinePathBoth.historical;
 
-  const yearlySeries = baselinePath?.yearlySeries ?? [];
+  // Phase 2: when the mining corpus has a top-1 record, that's our
+  // recommendation — bypass the bisection chain entirely (it's still
+  // there as a fallback for plans without a corpus). Skipping cuts
+  // ~30s of main-thread MC and eliminates the "Page Unresponsive"
+  // dialog the household saw on cockpit cold loads.
+  const corpusRecommendation = recommendation.policy;
+  const useCorpusPick = corpusRecommendation != null;
+
+  const recommendedPath = useRecommendedPath(
+    data ?? null,
+    assumptions ?? null,
+    corpusRecommendation,
+    selectedStressors ?? [],
+    selectedResponses ?? [],
+  );
+
+  // Plan-optimization chain (SS → spend → Roth → optimizedPath).
+  // Skipped when the corpus has a pick. See `usePlanOptimization`
+  // for staging details.
+  const planOpt = usePlanOptimization(data, assumptions, useCorpusPick);
+  const ssOptResult = planOpt.ssResult;
+  const spendOptResult = planOpt.spendResult;
+  const rothOptResult = planOpt.rothResult;
+  const optimizedPath = useCorpusPick
+    ? recommendedPath.forwardLooking
+    : planOpt.optimizedPath;
+  const planOptRunning =
+    planOpt.stage === 'ss' ||
+    planOpt.stage === 'spend' ||
+    planOpt.stage === 'roth';
+  const planOptError = planOpt.error;
+  const currentSeedRothCeiling =
+    data?.rules?.rothConversionPolicy?.magiBufferDollars ?? null;
+
+  // Drive every panel below the Trust card off the optimized path
+  // when it's ready. Falls back to the seed-based baselinePath while
+  // the optimization is still running so the UI doesn't blank out.
+  const planPath: PathResult | null = optimizedPath ?? baselinePath;
+
+  // Year-by-year series: prefer the optimized projection so every
+  // tile (this month, this year, next year, trajectory chart, actions
+  // due) stays consistent with the Trust headline. Fall back to
+  // baselinePath while the optimizer is still running.
+  const yearlySeries =
+    optimizedPath?.yearlySeries ?? baselinePath?.yearlySeries ?? [];
   const currentYear = new Date().getFullYear();
   const yearIndex = Math.max(
     0,
@@ -2342,6 +3233,87 @@ export function CockpitScreen() {
 
   const adopted = lastPolicyAdoption?.policy ?? null;
   const legacyTarget = data?.goals?.legacyTargetTodayDollars;
+
+  // Legacy attainment — second half of the north star ("leave money").
+  // Computed for BOTH modes: forward-looking parametric (the
+  // conservative default that drives the headline) and historical-
+  // precedent bootstrap (matches what most other retirement planners
+  // — Boldin, FICalc, Empower — show by default). The gap between the
+  // two is the same conservatism premium that's already visible on
+  // solvency. Cheap — no extra engine calls; reuses the cached paths.
+  const legacyAttainmentBoth = useMemo(() => {
+    if (!legacyTarget || legacyTarget <= 0) {
+      return { forwardLooking: null, historical: null };
+    }
+    const inflation = assumptions?.inflation ?? 0.025;
+    const computeFor = (path: PathResult | null): number | null => {
+      if (!path) return null;
+      const horizonYears = path.yearlySeries?.length ?? 30;
+      const factor = Math.pow(
+        1 + Math.max(-0.99, inflation),
+        Math.max(0, horizonYears),
+      );
+      const deflate = (n: number) => (factor > 0 ? n / factor : n);
+      const pcts = path.endingWealthPercentiles;
+      return approximateBequestAttainmentRate(legacyTarget, {
+        p10: deflate(pcts.p10),
+        p25: deflate(pcts.p25),
+        p50: deflate(pcts.p50),
+        p75: deflate(pcts.p75),
+        p90: deflate(pcts.p90),
+      });
+    };
+    return {
+      forwardLooking: computeFor(baselinePath),
+      historical: computeFor(historicalPath),
+    };
+  }, [baselinePath, historicalPath, legacyTarget, assumptions?.inflation]);
+  const legacyAttainmentRate = legacyAttainmentBoth.forwardLooking;
+  const legacyAttainmentHistorical = legacyAttainmentBoth.historical;
+
+  // Headline source-of-truth: the mining corpus's recommended policy
+  // (Phase 2 of MINER_REFACTOR). When the corpus has a pick, the TRUST
+  // card and footer cite ITS solvency / legacy / spend — the bisection
+  // chain is skipped entirely. Falls back to the bisection chain's
+  // output for plans without a corpus (transitional state until every
+  // household has run their first mine).
+  const optimizedSolventRate = useCorpusPick
+    ? corpusRecommendation!.outcome.solventSuccessRate
+    : (spendOptResult?.recommendedEvaluation.solventSuccessRate ?? null);
+  const optimizedLegacyRate = useCorpusPick
+    ? corpusRecommendation!.outcome.bequestAttainmentRate
+    : (spendOptResult?.recommendedEvaluation.legacyAttainmentRate ?? null);
+  const optimizedSpend = useCorpusPick
+    ? corpusRecommendation!.policy.annualSpendTodayDollars
+    : (spendOptResult?.recommendedAnnualSpendTodayDollars ?? null);
+  const optimizedFeasible = useCorpusPick
+    ? // Corpus picks always pass the ranker's gates (legacy ≥ 85%,
+      // solvency ≥ 70%) — feasibility is implicit in the recommendation.
+      true
+    : (spendOptResult?.feasible ?? null);
+  // Banner triggers only when the legacy bisection chain runs and
+  // declares the plan infeasible. Corpus path never sets this — when
+  // no record clears the ranker's gates, `recommendation.policy` is
+  // null and the cockpit's empty-state banner takes over.
+  const northStarViolated =
+    !useCorpusPick &&
+    spendOptResult !== null &&
+    spendOptResult.feasible === false;
+  // SS / Roth ages for the footer copy. Corpus picks expose these on
+  // the policy itself; bisection picks expose them on the per-stage
+  // results.
+  const recommendedPrimarySsAge = useCorpusPick
+    ? corpusRecommendation!.policy.primarySocialSecurityClaimAge
+    : (ssOptResult?.recommended.primaryAge ?? null);
+  const recommendedSpouseSsAge = useCorpusPick
+    ? corpusRecommendation!.policy.spouseSocialSecurityClaimAge
+    : (ssOptResult?.recommended.spouseAge ?? null);
+  const recommendedRothCeiling = useCorpusPick
+    ? corpusRecommendation!.policy.rothConversionAnnualCeiling
+    : (rothOptResult?.recommended.ceilingTodayDollars ?? null);
+  const recommendedWithdrawalRule = useCorpusPick
+    ? corpusRecommendation!.policy.withdrawalRule ?? null
+    : null;
 
   // Total spend currently in `appliedData` (what the engine actually
   // sees) vs the editable seed (what they're staging). When adoption
@@ -2390,6 +3362,80 @@ export function CockpitScreen() {
         </p>
       </div>
 
+      {/* Engine activity banner. The optimizer chain (SS → spend → Roth)
+       *  runs asynchronously after the baseline lands, but takes 5-15s
+       *  total. Without a visible signal, users see stale numbers
+       *  morph mid-glance — call it out. The progress bar reuses the
+       *  composite progressFraction the optimizer already updates. */}
+      {planOptRunning && !useCorpusPick && (
+        <div className="rounded-xl border border-blue-200 bg-blue-50/70 px-4 py-2.5 text-[12px] text-blue-900">
+          <div className="flex items-center justify-between gap-3">
+            <span>
+              <span
+                className="mr-2 inline-block h-2 w-2 animate-pulse rounded-full bg-blue-500 align-middle"
+                aria-hidden
+              />
+              <span className="font-semibold">Optimizing plan…</span>{' '}
+              {planOpt.stage === 'ss'
+                ? 'searching Social Security claim ages'
+                : planOpt.stage === 'spend'
+                  ? 'finding sustainable spending level'
+                  : 'tuning Roth conversion ceiling'}
+              . Numbers below will update when it finishes.
+            </span>
+            <span className="tabular-nums text-blue-700">
+              {Math.round((planOpt.progressFraction ?? 0) * 100)}%
+            </span>
+          </div>
+          <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-blue-100">
+            <div
+              className="h-full rounded-full bg-blue-500 transition-[width] duration-300"
+              style={{
+                width: `${Math.min(100, Math.max(0, (planOpt.progressFraction ?? 0) * 100))}%`,
+              }}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* MINER_REFACTOR Phase 1 — corpus-state banners. The TRUST card
+       *  below still reads from the legacy bisection chain; these
+       *  banners surface the mining corpus's state so the household
+       *  can run a mine if needed. Phase 2 retires the bisection chain
+       *  and rewires TRUST to read from the corpus directly. */}
+      {recommendation.state === 'no-corpus' && (
+        <div className="flex flex-wrap items-center gap-3 rounded-xl border border-blue-300 bg-blue-50/70 p-3 text-[12px] text-blue-900">
+          <div className="flex-1 min-w-[260px]">
+            <span className="font-semibold">No mined corpus for this plan.</span>{' '}
+            The cockpit's recommendation comes from a mining run that
+            evaluates ~50,000 strategy combinations against your plan.
+            Run one to populate the recommended policy on this screen.
+          </div>
+          <button
+            type="button"
+            onClick={() => setCurrentScreen('mining')}
+            className="rounded-md bg-blue-600 px-3 py-1.5 text-[12px] font-semibold text-white shadow-sm hover:bg-blue-700"
+          >
+            Run a mine →
+          </button>
+        </div>
+      )}
+      {recommendation.state === 'stale-corpus' && (
+        <div className="flex flex-wrap items-center gap-3 rounded-xl border border-amber-300 bg-amber-50/70 p-3 text-[12px] text-amber-900">
+          <div className="flex-1 min-w-[260px]">
+            <span className="font-semibold">Plan changed since last mine.</span>{' '}
+            Recommendations on this screen reflect a previous version of
+            your plan. Re-mine to refresh with the current inputs.
+          </div>
+          <button
+            type="button"
+            onClick={() => setCurrentScreen('mining')}
+            className="rounded-md bg-amber-600 px-3 py-1.5 text-[12px] font-semibold text-white shadow-sm hover:bg-amber-700"
+          >
+            Re-run mine →
+          </button>
+        </div>
+      )}
       {spendStale && adopted && (
         <div className="flex flex-wrap items-center gap-3 rounded-xl border border-amber-300 bg-amber-50/70 p-3 text-[12px] text-amber-900">
           <div className="flex-1 min-w-[260px]">
@@ -2422,6 +3468,52 @@ export function CockpitScreen() {
         </div>
       )}
 
+      {/* North-star violation banner. Appears when the engine completed
+       *  a full optimization pass and the household's plan can't satisfy
+       *  both stated north stars at any spend level in the search range. */}
+      {northStarViolated && spendOptResult && (
+        <div className="rounded-2xl border border-rose-300 bg-rose-50/80 p-4 shadow-sm">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-rose-700">
+            North star violation
+          </p>
+          <p className="mt-1 text-[13px] text-stone-800">
+            <span className="font-semibold">No spending level satisfies both north stars.</span>{' '}
+            Even at{' '}
+            <span className="tabular-nums">
+              {formatCurrencyExact(spendOptResult.searchRange.min)}/yr
+            </span>{' '}
+            (the search floor), with the engine's recommended SS strategy
+            applied, your plan fails the{' '}
+            {spendOptResult.bindingConstraint === 'legacy' ? (
+              <>
+                <span className="font-semibold">legacy attainment</span> floor (
+                {Math.round((spendOptResult.targetLegacyAttainmentRate ?? 0.85) * 100)}% target).
+              </>
+            ) : spendOptResult.bindingConstraint === 'solvency' ? (
+              <>
+                <span className="font-semibold">solvency</span> floor (
+                {Math.round(spendOptResult.targetSolventRate * 100)}% target).
+              </>
+            ) : (
+              <>
+                <span className="font-semibold">solvency AND legacy</span> floors
+                (both {Math.round(spendOptResult.targetSolventRate * 100)}%).
+              </>
+            )}
+          </p>
+          <p className="mt-2 text-[12px] text-stone-700">
+            Spending alone can't fix this. Real options:{' '}
+            <span className="font-semibold">delay retirement</span>,{' '}
+            <span className="font-semibold">add savings before retirement</span>,{' '}
+            <span className="font-semibold">relax a north star</span> (lower the
+            legacy target or the solvency floor), or{' '}
+            <span className="font-semibold">accept the conservative forward-looking projection</span>{' '}
+            (the historical-precedent reading on the Trust card may already meet
+            the stars under more typical assumptions).
+          </p>
+        </div>
+      )}
+
       {/* Top banner: Trust gets the lion's share (2 cols, big number),
        *  Adopted policy and Actions due are quieter sidekicks. */}
       <div className="grid gap-4 lg:grid-cols-4">
@@ -2431,31 +3523,109 @@ export function CockpitScreen() {
           </p>
           {baselinePath ? (
             <>
-              <div className="mt-3 flex items-baseline gap-3">
-                <p
-                  className={`font-serif text-7xl font-light tabular-nums leading-none ${
-                    baselinePath.successRate >= 0.85
-                      ? 'text-[#0066CC]'
-                      : baselinePath.successRate >= 0.70
-                      ? 'text-amber-700'
-                      : 'text-rose-600'
-                  }`}
-                >
-                  {Math.round(baselinePath.successRate * 100)}%
-                </p>
-                <p className="text-sm text-stone-500">
-                  stays solvent
-                  <span className="ml-1 text-stone-400">
-                    · {assumptions?.simulationRuns ?? '?'} trials · forward-looking
-                  </span>
-                </p>
-              </div>
+              {/* The Trust card now reads from the OPTIMIZED plan when
+               *  available — i.e., the projection at (recommended SS,
+               *  recommended max spend). The seed-based baselinePath is
+               *  only used as a fallback while the optimizers run. The
+               *  85% threshold is the household's stated north-star
+               *  floor; below it the number paints rose. */}
+              {(() => {
+                const useOpt = optimizedSolventRate !== null;
+                const solventForDisplay = useOpt
+                  ? optimizedSolventRate!
+                  : baselinePath.successRate;
+                const legacyForDisplay = useOpt
+                  ? optimizedLegacyRate
+                  : legacyAttainmentRate;
+                return (
+                  <div className="mt-3 grid grid-cols-2 gap-x-6">
+                    <div>
+                      <p
+                        className={`font-serif text-6xl font-light tabular-nums leading-none ${
+                          solventForDisplay >= 0.85
+                            ? 'text-[#0066CC]'
+                            : solventForDisplay >= 0.70
+                            ? 'text-amber-700'
+                            : 'text-rose-600'
+                        }`}
+                      >
+                        {Math.round(solventForDisplay * 100)}%
+                      </p>
+                      <p className="mt-1 text-[12px] text-stone-500">
+                        stays solvent
+                      </p>
+                    </div>
+                    <div>
+                      {legacyForDisplay !== null ? (
+                        <>
+                          <p
+                            className={`font-serif text-6xl font-light tabular-nums leading-none ${
+                              legacyForDisplay >= 0.85
+                                ? 'text-emerald-700'
+                                : legacyForDisplay >= 0.5
+                                ? 'text-amber-700'
+                                : 'text-rose-600'
+                            }`}
+                          >
+                            {Math.round(legacyForDisplay * 100)}%
+                          </p>
+                          <p className="mt-1 text-[12px] text-stone-500">
+                            hits {formatCurrencyExact(legacyTarget ?? null)} legacy
+                          </p>
+                        </>
+                      ) : (
+                        <>
+                          <p className="font-serif text-6xl font-light tabular-nums leading-none text-stone-300">
+                            —
+                          </p>
+                          <p className="mt-1 text-[12px] text-stone-400">
+                            legacy target not set
+                          </p>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                );
+              })()}
+              <p className="mt-3 text-[11px] text-stone-400">
+                {assumptions?.simulationRuns ?? '?'} trials · forward-looking
+                {optimizedSpend !== null && (
+                  <>
+                    {' '}· at {useCorpusPick ? 'mined' : 'engine'} plan (
+                    {formatCurrencyExact(optimizedSpend)}/yr,
+                    SS {recommendedPrimarySsAge ?? '—'}/{recommendedSpouseSsAge ?? '—'}
+                    {recommendedRothCeiling != null && (
+                      <>, Roth ≤ {formatCurrencyExact(recommendedRothCeiling)}/yr</>
+                    )}
+                    {recommendedWithdrawalRule && (
+                      <>, {recommendedWithdrawalRule.replace(/_/g, ' ')}</>
+                    )}
+                    )
+                  </>
+                )}
+                {optimizedSpend === null && planOptRunning && !useCorpusPick && (
+                  <span className="text-stone-400"> · optimizing plan…</span>
+                )}
+                {recommendedPath.computing && useCorpusPick && (
+                  <span className="text-stone-400"> · projecting recommended plan…</span>
+                )}
+              </p>
               {historicalPath && (
                 <p className="mt-1 text-[12px] text-stone-500">
                   Historical-precedent reading:{' '}
                   <span className="font-medium text-stone-700 tabular-nums">
                     {Math.round(historicalPath.successRate * 100)}%
-                  </span>
+                  </span>{' '}
+                  solvent
+                  {legacyAttainmentHistorical !== null && (
+                    <>
+                      {' · '}
+                      <span className="font-medium text-stone-700 tabular-nums">
+                        {Math.round(legacyAttainmentHistorical * 100)}%
+                      </span>{' '}
+                      hits legacy
+                    </>
+                  )}
                   {' · '}
                   median EW{' '}
                   <span className="font-medium text-stone-700 tabular-nums">
@@ -2468,7 +3638,7 @@ export function CockpitScreen() {
               <div className="mt-5 grid grid-cols-2 gap-x-6 gap-y-2 text-sm">
                 <div>
                   <p className="text-[11px] uppercase tracking-wider text-stone-400">
-                    North Star
+                    Legacy target
                   </p>
                   <p className="mt-1 font-medium text-stone-900 tabular-nums">
                     {formatCurrencyExact(legacyTarget ?? null)}
@@ -2479,14 +3649,20 @@ export function CockpitScreen() {
                     Median ending wealth
                   </p>
                   <p className="mt-1 font-medium text-stone-900 tabular-nums">
-                    {formatCurrency(baselinePath.medianEndingWealth)}
+                    {formatCurrency(
+                      (optimizedPath ?? baselinePath).medianEndingWealth,
+                    )}
                   </p>
                 </div>
               </div>
               <p className="mt-4 text-[11px] text-stone-400">
-                "Solvent" = didn't run out of money. Hitting the legacy
-                target is a separate question — see Re-run Model →
-                "Hits legacy" column.
+                "Solvent" = didn't run out of money. "Hits legacy" =
+                approximate % chance of leaving at least the target,
+                interpolated from the today's-dollars cemetery distribution.
+                Other planners (Boldin, FICalc, Empower) typically default
+                to historical-style assumptions — their headline numbers
+                are usually close to our historical-precedent reading, not
+                the conservative forward-looking default above.
               </p>
             </>
           ) : (
@@ -2560,6 +3736,79 @@ export function CockpitScreen() {
         </CockpitTile>
       </div>
 
+      {/* Phase 2 of MINER_REFACTOR: when the corpus has the recommended
+       *  policy, the bisection-chain detail cards have nothing to show
+       *  (we skipped that work). Hide them so the cockpit doesn't
+       *  display empty "running…" placeholders. The TRUST card and
+       *  footer above already cite the corpus pick. Phase 2.B will
+       *  rebuild these tiles on top of the corpus's per-axis stats. */}
+      {!useCorpusPick && (
+        <>
+          <RecommendedSocialSecurityCard
+            result={ssOptResult}
+            running={planOptRunning && ssOptResult === null}
+            error={planOptError}
+          />
+
+          <MaxSustainableSpendCard
+            result={spendOptResult}
+            running={planOptRunning}
+            error={planOptError}
+          />
+
+          <RecommendedRothCeilingCard
+            result={rothOptResult}
+            currentSeedCeiling={currentSeedRothCeiling}
+            running={planOptRunning && rothOptResult === null}
+            error={planOptError}
+          />
+        </>
+      )}
+
+      {/* Mortality sensitivity — what if Rob dies at his p10 ("early")
+          or p50 ("median") death age per SSA period life table 2020.
+          Shows the survivor switch in action: Debbie jumps from spousal
+          floor to 100% of Rob's claim amount when he dies. Rendered
+          below the optimizer cards because it's a sensitivity, not the
+          baseline; the baseline projects to 95 for both.
+          Lazy-mounted: 3 extra engine runs (~6s) start ONLY when the
+          user scrolls within 300px of this card or 2.5s after first
+          paint, whichever first. */}
+      <MountWhenVisible minHeight="120px">
+        <MortalitySensitivityCard
+          data={data}
+          assumptions={assumptions}
+          baselinePath={planPath}
+        />
+      </MountWhenVisible>
+
+      {/* Decision-grade calibration signals — UncertaintyRange,
+          TaxEfficiency, PreRetirementOptimizer tiles in a 2-column
+          grid. Plus the DeltaDashboardTile when both prediction +
+          actuals stores are passed (shipped 2026-04-30).
+          Lazy-mounted: UncertaintyRangeTile runs its OWN sensitivity
+          sweep (~5s); deferring it lets the Trust card paint first. */}
+      {planPath && assumptions && data && (
+        <MountWhenVisible minHeight="240px">
+          <CalibrationDashboard
+            seedData={data}
+            assumptions={assumptions}
+            baselinePath={planPath}
+            predictionStore={getPredictionStore()}
+            actualsStore={getActualsStore()}
+            title="Plan calibration signals"
+          />
+        </MountWhenVisible>
+      )}
+
+      {/* Log actuals — household enters real balances / spending /
+          taxes; engine writes them to the actuals log; reconciliation
+          surfaces drift in the DeltaDashboardTile above. Lazy: form
+          state isn't needed until the user scrolls there. */}
+      <MountWhenVisible minHeight="200px">
+        <LogActualsCard data={data} assumptions={assumptions} />
+      </MountWhenVisible>
+
       {assumptions && (
         <AssumptionPanel
           assumptions={assumptions}
@@ -2605,6 +3854,10 @@ export function CockpitScreen() {
           Hard stops on the radar
         </p>
         <div className="mt-3 grid gap-3 lg:grid-cols-2">
+          {/* Medicare IEP + HSA-stop check. Self-hides when no spouse
+              is within ~24 months of age 65 and no HSA conflict.
+              Spans both columns at any breakpoint via md:col-span-2. */}
+          {data && <MedicareReminderCard data={data} />}
           {/* IRMAA cliff for this year */}
           {thisYear && irmaaThisYear?.next && (
             <HardStopRow
@@ -2671,7 +3924,7 @@ export function CockpitScreen() {
         data={data}
         assumptions={assumptions}
         yearlySeries={yearlySeries}
-        baselinePath={baselinePath}
+        baselinePath={planPath}
         adoptedPolicy={adopted}
       />
 

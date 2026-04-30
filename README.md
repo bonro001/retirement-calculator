@@ -76,6 +76,8 @@ beyond tolerance bands fails the build.
 - [`BACKLOG.md`](./BACKLOG.md) — durable cross-cutting items
 - [`FLIGHT_PATH_WORKPLAN.md`](./FLIGHT_PATH_WORKPLAN.md) — phase-specific work
 - [`VALIDATION_WORKPLAN.md`](./VALIDATION_WORKPLAN.md) — engine validation track
+- [`MINER_REFACTOR_WORKPLAN.md`](./MINER_REFACTOR_WORKPLAN.md) —
+  single-source-of-truth refactor (cockpit reads from corpus, one ranker)
 - [`build-notes.md`](./build-notes.md) — operational notes
 - [`flight-engine-rs/README.md`](./flight-engine-rs/README.md) —
   experimental Rust port (dormant; not wired into the application)
