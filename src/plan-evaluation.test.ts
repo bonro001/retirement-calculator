@@ -4,9 +4,10 @@ import { approximateBequestAttainmentRate } from './plan-evaluation';
 // Tests pin the linear-interpolation contract the helper promises:
 //   - At a knot value, return the exact pAbove for that quantile.
 //   - Between knots, interpolate linearly.
-//   - Below P10 / above P90, clamp to 0.95 / 0.05 (explicit bound on
+//   - Below P10 / above P90, clamp to 0.99 / 0.01 (explicit bound on
 //     unmeasured tails — we don't pretend to know more than the engine
-//     told us).
+//     told us, but we don't squash comfortable plans into the same
+//     0.95 ceiling either).
 //   - Non-positive or non-finite targets return 1 (no constraint).
 
 const dist = {
@@ -23,12 +24,12 @@ describe('approximateBequestAttainmentRate', () => {
     expect(approximateBequestAttainmentRate(-100, dist)).toBe(1);
   });
 
-  it('returns 0.95 below P10 (capped lower bound, tail unmeasured)', () => {
-    expect(approximateBequestAttainmentRate(100_000, dist)).toBe(0.95);
+  it('returns 0.99 below P10 (capped lower bound, tail unmeasured)', () => {
+    expect(approximateBequestAttainmentRate(100_000, dist)).toBe(0.99);
   });
 
-  it('returns 0.05 above P90 (capped upper bound, tail unmeasured)', () => {
-    expect(approximateBequestAttainmentRate(15_000_000, dist)).toBe(0.05);
+  it('returns 0.01 above P90 (capped upper bound, tail unmeasured)', () => {
+    expect(approximateBequestAttainmentRate(15_000_000, dist)).toBe(0.01);
   });
 
   it('returns exact pAbove at each knot value', () => {
@@ -48,12 +49,12 @@ describe('approximateBequestAttainmentRate', () => {
 
   it('handles degenerate dist (all percentiles equal) without dividing by zero', () => {
     const flat = { p10: 1_000_000, p25: 1_000_000, p50: 1_000_000, p75: 1_000_000, p90: 1_000_000 };
-    // Below the value: clamped to 0.95
-    expect(approximateBequestAttainmentRate(500_000, flat)).toBe(0.95);
+    // Below the value: clamped to 0.99
+    expect(approximateBequestAttainmentRate(500_000, flat)).toBe(0.99);
     // Exactly at value: returns first knot's pAbove (0.9) — the zero-span
     // branch in the loop short-circuits to a.pAbove rather than dividing.
     expect(approximateBequestAttainmentRate(1_000_000, flat)).toBe(0.9);
-    // Above the value: clamped to 0.05
-    expect(approximateBequestAttainmentRate(1_500_000, flat)).toBe(0.05);
+    // Above the value: clamped to 0.01
+    expect(approximateBequestAttainmentRate(1_500_000, flat)).toBe(0.01);
   });
 });

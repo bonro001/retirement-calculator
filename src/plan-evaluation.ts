@@ -411,8 +411,13 @@ function applyLegacyPriorityToTargets(input: {
  * between adjacent knots gives the rate at any in-range target.
  *
  * Outside the [P10, P90] range the rate is *unmeasured* — we only know it's
- * above 0.9 or below 0.1. We clamp at 0.95 / 0.05 to make the bound explicit
- * rather than silently extrapolating into the tails.
+ * above 0.9 or below 0.1. We clamp at 0.99 / 0.01 to make the bound explicit
+ * rather than silently extrapolating into the tails. (Earlier versions
+ * clamped at 0.95 / 0.05, which flattened the policy-mining ranking: every
+ * comfortable plan reported the same 95% feasibility, so the miner couldn't
+ * differentiate "$80k spend, untouchable safety margin" from "$100k spend,
+ * just barely clearing the legacy floor". 0.99 keeps the unmeasured-tail
+ * honesty without collapsing the ranking.)
  *
  * If precision becomes important (e.g. for solver constraints, not just UI
  * display), plumb the nominal bequest target into the engine and count the
@@ -433,8 +438,8 @@ export function approximateBequestAttainmentRate(
   ];
   // Strict inequality on the clamp so that an exact-knot target returns the
   // measured pAbove (0.9 / 0.1) rather than the unmeasured-tail clamp.
-  if (targetTodayDollars < knots[0].value) return 0.95;
-  if (targetTodayDollars > knots[knots.length - 1].value) return 0.05;
+  if (targetTodayDollars < knots[0].value) return 0.99;
+  if (targetTodayDollars > knots[knots.length - 1].value) return 0.01;
   for (let i = 0; i < knots.length - 1; i += 1) {
     const a = knots[i];
     const b = knots[i + 1];
