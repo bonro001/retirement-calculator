@@ -302,12 +302,19 @@ function buildClusterSnapshot(): ClusterSnapshot {
       activeSession.currentStage === 'fine'
         ? activeSession.coarseTotalPolicies
         : queueSnap.totalPolicies;
-    // policiesEvaluated semantics: count of FINE-PASS evaluations
-    // that landed in the corpus (matches the serial/pool path
-    // contract). During coarse phase this stays 0; during fine it's
-    // the queue's evaluatedCount.
+    // policiesEvaluated semantics: count of evaluations that landed in
+    // the corpus. For single-pass sessions (the common case — two-stage
+    // is disabled in production) this is the queue's evaluatedCount
+    // directly. For two-stage sessions, the COARSE phase doesn't
+    // append to the corpus (those are screening trials), so the
+    // counter only ticks during the FINE phase. The earlier behavior
+    // — treating only `currentStage === 'fine'` as advancing — left
+    // the household staring at 0/N for the entire single-pass mine
+    // even as the corpus grew normally on disk.
     const finePoliciesEvaluated =
-      activeSession.currentStage === 'fine' ? queueSnap.evaluatedCount : 0;
+      activeSession.currentStage === 'coarse'
+        ? 0
+        : queueSnap.evaluatedCount;
     const stats: MiningStats = {
       sessionStartedAtIso: activeSession.startedAtIso,
       totalPolicies: totalPoliciesForSnapshot,
@@ -352,8 +359,28 @@ function buildClusterSnapshot(): ClusterSnapshot {
  *  hasn't measured throughput yet. */
 function estimateRemainingMs(): number {
   if (!activeSession) return 0;
-  const remaining = activeSession.queue.pendingCount() + activeSession.queue.inFlightCount();
+  const queueSnap = activeSession.queue.snapshot();
+  const remaining = queueSnap.pendingCount + queueSnap.inFlightCount;
   if (remaining === 0) return 0;
+
+  // Prefer OBSERVED throughput once the session has meaningful data
+  // (≥ 30s elapsed AND ≥ 50 evaluated). Theoretical (mean-ms / slots)
+  // assumes 100% worker utilization with no batch dispatch overhead,
+  // no browser-throttling on reduced hosts, and no idle slots between
+  // batches — so it under-estimates by 2-4× in practice. Observed
+  // self-corrects for all of those factors continuously.
+  const startMs = new Date(activeSession.startedAtIso).getTime();
+  const elapsedMs = Date.now() - startMs;
+  const evaluated = queueSnap.evaluatedCount;
+  if (elapsedMs >= 30_000 && evaluated >= 50) {
+    const policiesPerMs = evaluated / elapsedMs;
+    if (policiesPerMs > 0) {
+      return Math.round(remaining / policiesPerMs);
+    }
+  }
+
+  // Fall back to theoretical capacity for the first ~30s before
+  // observed throughput stabilizes. Same formula as the original.
   if (activeSession.clusterMeanMsPerPolicy <= 0) return 0;
   let totalSlots = 0;
   for (const peer of peers.values()) {

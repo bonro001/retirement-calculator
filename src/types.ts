@@ -36,7 +36,23 @@ export interface Household {
 export interface SocialSecurityEntry {
   person: string;
   fraMonthly: number;
-  claimAge: number;
+  /**
+   * SS claim age is now an ENGINE OUTPUT, not a household input. Left
+   * optional for backwards compatibility with seeds that still carry
+   * a claimAge value, and for the engine's per-trial calculations
+   * which need a default when running without the optimizer chain.
+   *
+   * When `claimAge` is undefined, the engine treats it as FRA (67 for
+   * anyone born after 1960) — a neutral baseline. The Cockpit's
+   * `usePlanOptimization` always overrides this with the optimizer's
+   * recommended pair before projecting the headline numbers, so
+   * end-users never see the FRA fallback in practice.
+   *
+   * To get a different SS strategy, call `findOptimalSocialSecurityClaim`
+   * (which sweeps 65..70 × 65..70) and clone the seed with the
+   * recommended pair before calling `buildPathResults`.
+   */
+  claimAge?: number;
 }
 
 export interface EmployerMatchFormula {
@@ -295,6 +311,36 @@ export interface MarketAssumptions {
   // next trial's sub-stream, slightly weakening (but not breaking)
   // independence — set this safely above your actual horizon.
   maxYearsPerTrial?: number;
+  /**
+   * Equity-return tail-shape mode. Default 'normal' = bounded-normal
+   * sampler (the engine's pre-2026-04-30 behavior). 'crash_mixture'
+   * adds left-tail mass via a small per-year probability of a draw
+   * from a curated list of historical worst equity years (1931, 2008,
+   * 1937, 1974, 2002), recalibrating the non-crash mean to preserve
+   * the overall `equityMean`. Closes the Fidelity p10 tail gap in
+   * default *parametric* mode without changing the central
+   * distribution shape. Has no effect when `useHistoricalBootstrap`
+   * is true (that mode already samples from real history).
+   */
+  equityTailMode?: 'normal' | 'crash_mixture';
+  // Optional deterministic mortality. When set, the engine treats the
+  // named spouse as deceased starting in years where their age exceeds
+  // this value. Today this only affects SS income (survivor switch
+  // fires when the higher earner dies; surviving spouse converts to
+  // 100% of the higher earner's claim amount). Spending continues to
+  // the planning end age regardless — the household plans for legacy
+  // longevity (95) and the death-age fields surface "what if one of
+  // us dies earlier" as a sensitivity. When undefined, both spouses
+  // are alive through planning end age (status quo before 2026-04-30).
+  robDeathAge?: number;
+  debbieDeathAge?: number;
+  /**
+   * Withdrawal rule — how each year's spending need is split across the
+   * four account buckets. Default `tax_bracket_waterfall` matches
+   * pre-2026-05-01 engine behavior. Mining sweeps this axis to find the
+   * rule that best fits the household's stated north stars.
+   */
+  withdrawalRule?: WithdrawalRule;
 }
 
 export interface BoldinBenchmark {
@@ -386,6 +432,32 @@ export interface ProjectionPoint {
 }
 
 export type SimulationStrategyMode = 'planner_enhanced' | 'raw_simulation';
+
+/**
+ * The household's withdrawal rule — how each year's spending need is
+ * split across the four account buckets (cash, taxable, pretax, roth).
+ * Independent of `SimulationStrategyMode`, which controls awareness
+ * (cliff/IRMAA defense, dynamic ordering, Roth preservation).
+ *
+ * - `tax_bracket_waterfall`: cash → taxable → pretax → roth. Drains the
+ *   most-taxed bucket first, preserves tax-free for last. Matches the
+ *   engine's historical default behavior. The canonical advice for most
+ *   households.
+ * - `proportional`: split each year's need pro-rata across all buckets
+ *   by balance. The "naive" rule — no tax optimization, but easy to
+ *   explain and surprisingly competitive in some scenarios.
+ * - `reverse_waterfall`: cash → roth → pretax → taxable. Spend Roth
+ *   first; defensive against future tax-rate hikes (you've already
+ *   paid the tax on Roth, so you lock in today's rate on the rest).
+ * - `guyton_klinger`: tax_bracket_waterfall PLUS guardrails forced on
+ *   regardless of `SimulationStrategyMode`. Dynamic spend cuts when
+ *   funded years drops below the floor, restored above the ceiling.
+ */
+export type WithdrawalRule =
+  | 'tax_bracket_waterfall'
+  | 'proportional'
+  | 'reverse_waterfall'
+  | 'guyton_klinger';
 
 export interface ClosedLoopConvergenceThresholds {
   magiDeltaDollars: number;

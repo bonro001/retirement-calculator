@@ -19,6 +19,7 @@ import type {
   SocialSecurityEntry,
   Stressor,
   WindfallTaxTreatment,
+  WithdrawalRule,
 } from './types';
 import {
   DEFAULT_CLOSED_LOOP_CONVERGENCE_THRESHOLDS,
@@ -45,6 +46,7 @@ import {
 } from './retirement-rules';
 import { calculatePreRetirementContributions } from './contribution-engine';
 import { calculateHealthcarePremiums } from './healthcare-premium-engine';
+import { computeAnnualHouseholdSocialSecurity } from './social-security';
 import {
   deriveAssetClassMappingAssumptionsFromAccounts,
   getHoldingExposure,
@@ -1053,20 +1055,90 @@ function getBenefitFactor(claimAge: number) {
   return 1;
 }
 
+/**
+ * Per-year household SS income, NOMINAL (today's $ × inflationIndex).
+ *
+ * 2026-04-29 — upgraded to use `social-security.ts` which models:
+ *   - SSA-precise own-claim adjustment (5/9 of 1%/mo + 5/12 of 1%/mo
+ *     for early-claim; 8%/yr DRC capped at 70 for delayed)
+ *   - Spousal-benefit floor: lower earner gets max(own, 50% × higher
+ *     PIA), only AFTER higher earner files (SSA's "spousal benefits
+ *     begin after the worker files" rule). For the target household
+ *     (Rob $4,100, Debbie $1,444), this lifts Debbie's effective FRA
+ *     benefit from $1,444 → $2,050 (+42%) starting the year Rob files.
+ *
+ * NOT modeled (deferred to V2): survivor switch (requires stochastic
+ * mortality, not currently in the engine — both spouses are
+ * implicitly alive through planning end age in V1).
+ */
 function getSocialSecurityIncome(
   plan: SimPlan,
   year: number,
   ages: { rob: number; debbie: number },
   inflationIndex: number,
+  /**
+   * Optional deterministic mortality. When set, the survivor switch
+   * fires once one spouse is past their assumed death age. Wired in
+   * 2026-04-30 alongside the SS engine integration. Cockpit-side
+   * callers usually pass these from MarketAssumptions.{rob,debbie}DeathAge.
+   */
+  mortality?: { robDeathAge?: number; debbieDeathAge?: number },
 ) {
-  return plan.socialSecurity.reduce((total, entry) => {
-    const age = entry.person === 'rob' ? ages.rob : ages.debbie;
-    if (age < entry.claimAge) {
-      return total;
-    }
-
-    return total + entry.fraMonthly * 12 * getBenefitFactor(entry.claimAge) * inflationIndex;
-  }, 0);
+  // Convert SimPlan SS entries → social-security.ts inputs.
+  const robEntry = plan.socialSecurity.find((e) => e.person === 'rob');
+  const debbieEntry = plan.socialSecurity.find((e) => e.person === 'debbie');
+  // Without ROB present, fall through to a per-entry sum (own-only)
+  // — happens in synthetic test seeds and households with one earner.
+  if (!robEntry && !debbieEntry) return 0;
+  // Default claim age = FRA (67 for anyone born after 1960). Reached
+  // when SS claim age is undefined — happens after 2026-04-30 when
+  // claim ages were dropped from the seed (engine output, not input).
+  // The Cockpit's `usePlanOptimization` chain always overrides this
+  // before projecting, so the FRA default is purely a safety net.
+  const FRA_DEFAULT = 67;
+  if (!robEntry || !debbieEntry) {
+    // Single-earner household: no spousal floor possible. Partial-year
+    // support for fractional claim ages: at the year where
+    // Math.floor(claimAge) === age, pay only the unclaimed-fraction of
+    // months (e.g., claim at 67.5 → 6 months in claim year, 12 months
+    // afterward). Mirrors `projectAnnualSocialSecurityIncome` so the
+    // single-earner and dual-earner paths agree.
+    return plan.socialSecurity.reduce((total, entry) => {
+      const age = entry.person === 'rob' ? ages.rob : ages.debbie;
+      const claimAge = entry.claimAge ?? FRA_DEFAULT;
+      const floor = Math.floor(claimAge);
+      let monthsThisYear = 0;
+      if (age > floor) monthsThisYear = 12;
+      else if (age === floor) {
+        monthsThisYear = Math.max(0, Math.round((1 - (claimAge - floor)) * 12));
+      }
+      if (monthsThisYear === 0) return total;
+      return (
+        total +
+        entry.fraMonthly *
+          monthsThisYear *
+          getBenefitFactor(claimAge) *
+          inflationIndex
+      );
+    }, 0);
+  }
+  const annualHouseholdTodayDollars = computeAnnualHouseholdSocialSecurity(
+    {
+      fraMonthly: robEntry.fraMonthly,
+      claimAge: robEntry.claimAge ?? FRA_DEFAULT,
+      currentAge: ages.rob,
+      assumedDeathAge: mortality?.robDeathAge,
+    },
+    {
+      fraMonthly: debbieEntry.fraMonthly,
+      claimAge: debbieEntry.claimAge ?? FRA_DEFAULT,
+      currentAge: ages.debbie,
+      assumedDeathAge: mortality?.debbieDeathAge,
+    },
+    67, // FRA — anyone born after 1960 has FRA=67.
+  );
+  void year;
+  return annualHouseholdTodayDollars * inflationIndex;
 }
 
 interface WindfallRealization {
@@ -1336,6 +1408,54 @@ function buildBlockBootstrapIndexSequence(
   return sequence;
 }
 
+/**
+ * Crash-mixture sampler constants. Adds left-tail mass to the parametric
+ * equity sampler by mixing in a small per-year probability of a draw
+ * from a curated list of historical worst-year US equity returns. Used
+ * when `MarketAssumptions.equityTailMode === 'crash_mixture'`.
+ *
+ * Source returns are S&P 500 worst single calendar years over the past
+ * ~95 years (rounded to the published values):
+ *   - 1931: -43.8%  (Great Depression deflation crash)
+ *   - 2008: -37.0%  (Global Financial Crisis)
+ *   - 1937: -35.0%  (Roosevelt Recession)
+ *   - 1974: -26.5%  (Stagflation / Bretton Woods collapse)
+ *   - 2002: -22.1%  (dot-com bust completion)
+ *
+ * Probability of 3% per year mirrors empirical frequency: 5 such crashes
+ * over ~95 years ≈ 5.3% empirical, but spacing (rare clusters around
+ * 1929-32 and 2000-02) means a 3% per-year independent draw produces
+ * the ROUGHLY right left-tail mass without overcorrecting. Tunable via
+ * the constants below.
+ *
+ * Mean-preservation: when the crash mixture is on, the bounded-normal
+ * sampler's mean is shifted UP slightly so the overall expected return
+ * (3% × E[crash] + 97% × adjusted mean) equals the household's
+ * configured `equityMean`. Without this adjustment, every crash-mixture
+ * scenario would silently drag headline returns lower — turning an
+ * "add tail risk" feature into a "lower returns" feature.
+ */
+const EQUITY_CRASH_RETURNS = [-0.438, -0.370, -0.350, -0.265, -0.221];
+const EQUITY_CRASH_PROBABILITY = 0.03;
+const EQUITY_CRASH_MEAN =
+  EQUITY_CRASH_RETURNS.reduce((acc, r) => acc + r, 0) /
+  EQUITY_CRASH_RETURNS.length;
+
+/**
+ * Compensating mean shift for the bounded-normal sampler when crash
+ * mixture is active. Returns the mean to use for the non-crash draws
+ * so that the OVERALL expected return matches `originalMean`.
+ *
+ * E[overall] = p × E[crash] + (1 − p) × μ_adjusted
+ * → μ_adjusted = (originalMean − p × E[crash]) / (1 − p)
+ */
+function adjustEquityMeanForCrashMixture(originalMean: number): number {
+  return (
+    (originalMean - EQUITY_CRASH_PROBABILITY * EQUITY_CRASH_MEAN) /
+    (1 - EQUITY_CRASH_PROBABILITY)
+  );
+}
+
 function getStressAdjustedReturns(
   plan: SimPlan,
   assumptions: MarketAssumptions,
@@ -1393,18 +1513,69 @@ function getStressAdjustedReturns(
     random,
   );
 
-  const assetReturns: Record<AssetClass, number> = assumptions.useCorrelatedReturns
+  // Crash-mixture path: with probability `EQUITY_CRASH_PROBABILITY`,
+  // override US + INTL equity returns with a draw from the historical
+  // crash list. Mean-preserving: when not a crash year, the bounded
+  // normal uses an UPWARD-shifted mean so the overall expected return
+  // matches the household's configured `equityMean`.
+  //
+  // Bonds + cash are NOT crashed in unison — historically they tend
+  // to rally during equity crashes (flight to quality). They draw
+  // from the normal sampler regardless. US and INTL crash TOGETHER
+  // at the same value (real crashes correlate globally, especially
+  // post-2000).
+  //
+  // Disabled when `useHistoricalBootstrap: true` (that mode already
+  // samples real history, including crash years, so adding another
+  // mixture would double-count tail risk).
+  const useCrashMixture =
+    assumptions.equityTailMode === 'crash_mixture' &&
+    !assumptions.useHistoricalBootstrap;
+  const isCrashYear = useCrashMixture && random() < EQUITY_CRASH_PROBABILITY;
+  const usEquityMean = useCrashMixture
+    ? adjustEquityMeanForCrashMixture(assumptions.equityMean)
+    : assumptions.equityMean;
+  const intlEquityMean = useCrashMixture
+    ? adjustEquityMeanForCrashMixture(assumptions.internationalEquityMean)
+    : assumptions.internationalEquityMean;
+
+  const assetReturns: Record<AssetClass, number> = isCrashYear
+    ? (() => {
+        // Crash year: draw a single crash return; both US and INTL
+        // get this same value. Bonds + cash sample independently.
+        const crashIdx = Math.floor(random() * EQUITY_CRASH_RETURNS.length);
+        const crashReturn = EQUITY_CRASH_RETURNS[crashIdx];
+        return {
+          US_EQUITY: crashReturn,
+          INTL_EQUITY: crashReturn,
+          BONDS: boundedNormal(
+            assumptions.bondMean,
+            assumptions.bondVolatility,
+            -0.2,
+            0.2,
+            random,
+          ),
+          CASH: boundedNormal(
+            assumptions.cashMean,
+            assumptions.cashVolatility,
+            -0.01,
+            0.08,
+            random,
+          ),
+        };
+      })()
+    : assumptions.useCorrelatedReturns
     ? (() => {
         const [usEquity, intlEquity, bonds, cash] = correlatedAssetReturns(
           [
             {
-              mean: assumptions.equityMean,
+              mean: usEquityMean,
               stdDev: assumptions.equityVolatility,
               min: -0.45,
               max: 0.45,
             },
             {
-              mean: assumptions.internationalEquityMean,
+              mean: intlEquityMean,
               stdDev: assumptions.internationalEquityVolatility,
               min: -0.5,
               max: 0.45,
@@ -1434,14 +1605,14 @@ function getStressAdjustedReturns(
       })()
     : {
         US_EQUITY: boundedNormal(
-          assumptions.equityMean,
+          usEquityMean,
           assumptions.equityVolatility,
           -0.45,
           0.45,
           random,
         ),
         INTL_EQUITY: boundedNormal(
-          assumptions.internationalEquityMean,
+          intlEquityMean,
           assumptions.internationalEquityVolatility,
           -0.5,
           0.45,
@@ -1588,6 +1759,12 @@ interface StrategyBehavior {
   preserveRothPreference: boolean;
   withdrawalOrderLabel: string[];
   acaAwareWithdrawalOptimization: boolean;
+  /**
+   * Withdrawal rule — controls bucket order and split logic. Orthogonal
+   * to `mode`/`plannerLogicActive` (which control awareness levels).
+   * Default `tax_bracket_waterfall` matches pre-2026-05-01 engine behavior.
+   */
+  withdrawalRule: WithdrawalRule;
 }
 
 function resolveAcaFriendlyMagiCeiling(
@@ -1603,19 +1780,26 @@ function resolveAcaFriendlyMagiCeiling(
 function getStrategyBehavior(
   mode: SimulationStrategyMode,
   plan: SimPlan,
+  withdrawalRule: WithdrawalRule = 'tax_bracket_waterfall',
 ): StrategyBehavior {
   const plannerLogicActive = mode === 'planner_enhanced';
+  // Guyton-Klinger forces guardrails on regardless of strategy mode —
+  // that's the defining feature of GK (dynamic spend cuts when funded
+  // years drops below floor). Other rules respect the strategy mode's
+  // guardrail decision.
+  const guyton = withdrawalRule === 'guyton_klinger';
 
   if (!plannerLogicActive) {
     return {
       mode,
       plannerLogicActive,
-      guardrailsEnabled: false,
+      guardrailsEnabled: guyton, // GK forces guardrails on; otherwise off in raw mode
       dynamicDefenseOrdering: false,
       irmaaAwareWithdrawalBuffer: false,
       preserveRothPreference: false,
-      withdrawalOrderLabel: [...RAW_WITHDRAWAL_ORDER],
+      withdrawalOrderLabel: withdrawalOrderLabelFor(withdrawalRule),
       acaAwareWithdrawalOptimization: false,
+      withdrawalRule,
     };
   }
 
@@ -1626,10 +1810,40 @@ function getStrategyBehavior(
     dynamicDefenseOrdering: true,
     irmaaAwareWithdrawalBuffer: plan.irmaaAware,
     preserveRothPreference: plan.preserveRoth,
-    withdrawalOrderLabel: ['cash', 'taxable', 'pretax', 'roth (conditional)'],
+    withdrawalOrderLabel: withdrawalOrderLabelFor(withdrawalRule),
     acaAwareWithdrawalOptimization: true,
+    withdrawalRule,
   };
 }
+
+/**
+ * Display label for the household-facing strategy summary. Matches
+ * the bucket-order semantics each rule actually executes — so the
+ * summary the household reads matches what the engine simulates.
+ */
+function withdrawalOrderLabelFor(rule: WithdrawalRule): string[] {
+  switch (rule) {
+    case 'tax_bracket_waterfall':
+    case 'guyton_klinger':
+      return ['cash', 'taxable', 'pretax', 'roth (conditional)'];
+    case 'reverse_waterfall':
+      return ['cash', 'roth', 'pretax', 'taxable'];
+    case 'proportional':
+      return ['proportional split: cash + taxable + pretax + roth'];
+  }
+}
+
+// Rule-specific cascade orders. Proportional doesn't actually use this
+// path (it's handled in `withdrawForNeed` via a single pro-rata split),
+// but we return all four buckets in a deterministic order for the
+// `withdrawalOrderLabel` debug surface and any callers that walk
+// `buildWithdrawalOrder` for display.
+const REVERSE_WATERFALL_ORDER: AccountBucketType[] = [
+  'cash',
+  'roth',
+  'pretax',
+  'taxable',
+];
 
 function buildWithdrawalOrder(
   plan: SimPlan,
@@ -1637,6 +1851,23 @@ function buildWithdrawalOrder(
   marketState: 'normal' | 'down' | 'up',
   strategy: StrategyBehavior,
 ) {
+  // Reverse waterfall: spend Roth first (defense against future tax-rate
+  // hikes — you've locked in today's rate on Roth contributions; pretax
+  // and taxable still have unrealized tax exposure). Bypasses the
+  // planner-enhanced ACA/IRMAA logic by design — reverse waterfall is
+  // explicitly NOT trying to optimize tax brackets, it's optimizing
+  // against a different risk (tax-rate hikes).
+  if (strategy.withdrawalRule === 'reverse_waterfall') {
+    return REVERSE_WATERFALL_ORDER.filter((bucket) => balances[bucket] > 0);
+  }
+
+  // Proportional: bucket order doesn't matter for execution (the split
+  // logic in `withdrawForNeed` ignores it), but return a stable order
+  // for the trace label.
+  if (strategy.withdrawalRule === 'proportional') {
+    return RAW_WITHDRAWAL_ORDER.filter((bucket) => balances[bucket] > 0);
+  }
+
   if (!strategy.plannerLogicActive) {
     return RAW_WITHDRAWAL_ORDER.filter((bucket) => balances[bucket] > 0);
   }
@@ -1820,6 +2051,63 @@ function withdrawForNeed(
     if (excessRmd > 0) {
       balances.cash += excessRmd;
     }
+  }
+
+  // Proportional rule: split the remaining need pro-rata across all
+  // four buckets by current balance (post-RMD). This is the "naive"
+  // rule by design — no cliff awareness, no defense ordering. The
+  // mining sweep is what tells the household whether this beats the
+  // smarter rules in their specific plan.
+  if (strategy.withdrawalRule === 'proportional' && remaining > 0) {
+    const totalBalance =
+      balances.cash + balances.taxable + balances.pretax + balances.roth;
+    if (totalBalance > 0) {
+      const buckets: AccountBucketType[] = ['cash', 'taxable', 'pretax', 'roth'];
+      // Compute pro-rata target per bucket. Cap at available balance to
+      // prevent overdraw; iterate until either remaining = 0 or every
+      // bucket is exhausted (handles the case where one bucket runs out
+      // mid-allocation and the shortfall has to be redistributed).
+      let needLeft = remaining;
+      for (let pass = 0; pass < 4 && needLeft > 0; pass += 1) {
+        const liveBalance = buckets.reduce(
+          (sum, b) => sum + Math.max(0, balances[b]),
+          0,
+        );
+        if (liveBalance <= 0) break;
+        const passNeed = needLeft;
+        for (const bucket of buckets) {
+          if (needLeft <= 0) break;
+          const bal = balances[bucket];
+          if (bal <= 0) continue;
+          const share = (bal / liveBalance) * passNeed;
+          const take = Math.min(bal, share, needLeft);
+          if (take <= 0) continue;
+          balances[bucket] -= take;
+          withdrawals[bucket] += take;
+          needLeft -= take;
+          if (bucket === 'pretax') {
+            taxInputs.ira401kWithdrawals += take;
+          } else if (bucket === 'taxable') {
+            taxInputs.realizedLTCG += take * DEFAULT_TAXABLE_WITHDRAWAL_LTCG_RATIO;
+          } else if (bucket === 'roth') {
+            taxInputs.rothWithdrawals += take;
+          }
+        }
+      }
+      recalculateTax();
+      remaining = needLeft;
+    }
+    // Skip the cascade order.forEach below — proportional handled it all.
+    const decisionTrace = buildWithdrawalDecisionTrace({
+      needed,
+      withdrawals,
+      taxResult,
+      assumptions,
+      strategy,
+      marketState,
+      acaFriendlyMagiCeiling,
+    });
+    return { remaining, withdrawals, taxInputs, taxResult, rmdWithdrawn, decisionTrace };
   }
 
   order.forEach((bucket) => {
@@ -3060,7 +3348,14 @@ function simulatePath(
   const basePlan = buildPlan(data, assumptions, options?.annualSpendTarget);
   const stressedPlan = applyStressors(basePlan, stressors, options?.stressorKnobs);
   const effectivePlan = applyResponses(stressedPlan, responses, options?.stressorKnobs);
-  const strategyBehavior = getStrategyBehavior(simulationMode, effectivePlan);
+  // Withdrawal rule comes from MarketAssumptions (defaults to today's
+  // behavior, tax_bracket_waterfall). Mining sweeps this axis to find
+  // the rule that best fits the household's stated north stars.
+  const strategyBehavior = getStrategyBehavior(
+    simulationMode,
+    effectivePlan,
+    assumptions.withdrawalRule ?? 'tax_bracket_waterfall',
+  );
   const runCount = Math.max(1, assumptions.simulationRuns);
   const simulationSeed = assumptions.simulationSeed ?? 20260416;
   const assumptionsVersion = assumptions.assumptionsVersion ?? 'v1';
@@ -3250,6 +3545,10 @@ function simulatePath(
           year,
           { rob: robAge, debbie: debbieAge },
           inflationIndex,
+          {
+            robDeathAge: assumptions.robDeathAge,
+            debbieDeathAge: assumptions.debbieDeathAge,
+          },
         );
         const rmdResult = calculateRequiredMinimumDistribution({
           pretaxBalance: pretaxBalanceForRmd,
