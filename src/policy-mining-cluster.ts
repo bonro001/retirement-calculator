@@ -171,21 +171,33 @@ export async function loadClusterSessions(
  * callers get the bare array and the metadata as a tuple-shaped result.
  *
  * Phase 2.D: optional `topN` caps the returned array at the top-N
- * most-feasible evaluations server-side. Saves the browser from
- * parsing 10MB+ JSON every poll during a Full mine. The
- * `evaluationCount` in the response is the TOTAL records on disk —
- * the UI can show "showing 200 of 4,346 evaluated" so the household
- * knows the cap exists.
+ * evaluations server-side. Saves the browser from parsing 10MB+ JSON
+ * every poll during a Full mine. The `evaluationCount` in the response
+ * is the TOTAL records on disk — the UI can show "showing 200 of 4,346
+ * evaluated" so the household knows the cap exists.
+ *
+ * `minFeasibility` (0..1) filters out infeasible records server-side
+ * and switches the default sort to spend-desc, so the top-N reflects
+ * "highest spend that still hits the legacy floor". Without it the
+ * dispatcher sorts feasibility-first, which buries high-spend/just-
+ * feasible rows under low-spend/100%-feasible ones and makes the
+ * client's ★ MAX badge under-report achievable spend.
  */
 export async function loadClusterEvaluations(
   dispatcherUrl: string,
   sessionId: string,
-  options?: { topN?: number },
+  options?: { topN?: number; minFeasibility?: number },
 ): Promise<ClusterEvaluationsPayload> {
-  const qs =
-    options?.topN && options.topN > 0
-      ? `?topN=${encodeURIComponent(String(options.topN))}`
-      : '';
+  const qsParts: string[] = [];
+  if (options?.topN && options.topN > 0) {
+    qsParts.push(`topN=${encodeURIComponent(String(options.topN))}`);
+  }
+  if (options?.minFeasibility && options.minFeasibility > 0) {
+    qsParts.push(
+      `minFeasibility=${encodeURIComponent(String(options.minFeasibility))}`,
+    );
+  }
+  const qs = qsParts.length > 0 ? `?${qsParts.join('&')}` : '';
   return fetchJson<ClusterEvaluationsPayload>(
     dispatcherUrl,
     `/sessions/${encodeURIComponent(sessionId)}/evaluations${qs}`,

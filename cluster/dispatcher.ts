@@ -1392,11 +1392,22 @@ function startDispatcher(port: number): void {
     //                   scale (7776 polices) the unbounded payload was
     //                   ~10MB JSON and crashed Chrome through poll churn.
     //                   Omit (or topN<=0) for the full corpus.
-    //   ?sort=feasibility  (default) Sort feasible-first (by
-    //                   bequestAttainmentRate desc), then by spend desc
-    //                   among feasibles. This is the same ranking the
-    //                   browser table uses, so top-N matches what the
-    //                   user would see anyway.
+    //   ?minFeasibility=<0..1>
+    //                   Filter to records with bequestAttainmentRate ≥
+    //                   this floor BEFORE sort+slice. When set, sort
+    //                   defaults to spend-desc so the top-N reflects
+    //                   "highest spend that still hits the legacy floor"
+    //                   — the answer the household actually wants. Without
+    //                   this, the legacy feasibility-desc sort buries
+    //                   high-spend/just-feasible rows beneath a flood of
+    //                   low-spend/100%-feasible ones, so the user sees a
+    //                   misleadingly low max spend.
+    //   ?sort=feasibility  (default when no minFeasibility) Sort
+    //                   feasible-first (by bequestAttainmentRate desc),
+    //                   then by spend desc among feasibles.
+    //   ?sort=spend     (default when minFeasibility>0) Sort by spend
+    //                   desc, with feasibility as the tiebreaker. Matches
+    //                   the table's "max spend at floor" question.
     //   ?sort=order     Preserve evaluation-completion order (legacy
     //                   behavior — what /evaluations used to return).
     //
@@ -1418,14 +1429,36 @@ function startDispatcher(port: number): void {
         const params = new URLSearchParams(queryStr);
         const topNRaw = params.get('topN');
         const topN = topNRaw ? Number.parseInt(topNRaw, 10) : 0;
-        const sortMode = params.get('sort') ?? 'feasibility';
+        const minFeasibilityRaw = params.get('minFeasibility');
+        const minFeasibility = minFeasibilityRaw
+          ? Number.parseFloat(minFeasibilityRaw)
+          : 0;
+        const sortMode =
+          params.get('sort') ??
+          (minFeasibility > 0 ? 'spend' : 'feasibility');
 
         let evaluations = allEvaluations;
-        if (sortMode === 'feasibility') {
+        if (Number.isFinite(minFeasibility) && minFeasibility > 0) {
+          evaluations = evaluations.filter(
+            (e) => (e.outcome?.bequestAttainmentRate ?? 0) >= minFeasibility,
+          );
+        }
+        if (sortMode === 'spend') {
+          // Highest-spend feasibles first; feasibility breaks ties so
+          // among same-spend rows the sturdier one wins.
+          evaluations = [...evaluations].sort((a, b) => {
+            const aspend = a.policy?.annualSpendTodayDollars ?? 0;
+            const bspend = b.policy?.annualSpendTodayDollars ?? 0;
+            if (aspend !== bspend) return bspend - aspend;
+            const ar = a.outcome?.bequestAttainmentRate ?? 0;
+            const br = b.outcome?.bequestAttainmentRate ?? 0;
+            return br - ar;
+          });
+        } else if (sortMode === 'feasibility') {
           // Sort feasible-first, then by spend desc — matches the
           // PolicyMiningResultsTable ranking. O(n log n); 7776 records
           // is <5ms even on the dispatcher's main thread.
-          evaluations = [...allEvaluations].sort((a, b) => {
+          evaluations = [...evaluations].sort((a, b) => {
             const ar = a.outcome?.bequestAttainmentRate ?? 0;
             const br = b.outcome?.bequestAttainmentRate ?? 0;
             if (ar !== br) return br - ar;
