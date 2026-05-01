@@ -90,6 +90,21 @@ export const LEGACY_FIRST_LEXICOGRAPHIC: RankingRule = {
       direction: 'desc',
       metric: (e) => e.outcome.p50EndingWealthTodayDollars,
     },
+    {
+      // When the engine outcomes are otherwise indistinguishable
+      // (legacy, solvency, spend, p50 EW all match within Monte Carlo
+      // noise), prefer the strategy that pays out earliest. This is the
+      // household's "if it doesn't change the financial outcome, take
+      // the cash sooner" intuition — relevant when the lower earner's
+      // spousal floor dominates her own benefit so claiming after FRA
+      // is the same monthly $ for fewer years of payments. The metric
+      // sums primary + spouse claim ages; lower wins.
+      label: 'earlier SS claim ages asc',
+      direction: 'asc',
+      metric: (e) =>
+        e.policy.primarySocialSecurityClaimAge +
+        (e.policy.spouseSocialSecurityClaimAge ?? 0),
+    },
   ],
 };
 

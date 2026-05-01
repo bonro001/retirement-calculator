@@ -93,7 +93,7 @@ function earlyClaimFactor(fraAge: number, claimAge: number): number {
  * Returns 1.0 at FRA, > 1 above FRA up to 1.32 at age 70 with FRA 65,
  * 1.24 at age 70 with FRA 67.
  */
-export function delayedRetirementCreditFactor(
+function delayedRetirementCreditFactor(
   fraAge: number,
   claimAge: number,
 ): number {

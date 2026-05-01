@@ -1,6 +1,5 @@
 import type { Policy, PolicyAxes } from './policy-miner-types';
 import type { SeedData } from './types';
-import { delayedRetirementCreditFactor } from './social-security';
 
 /**
  * Policy Axis Enumerator — turns a `PolicyAxes` spec into the full
@@ -48,42 +47,6 @@ export function buildDefaultPolicyAxes(seedData: SeedData): PolicyAxes {
     65, 65.5, 66, 66.5, 67, 67.5, 68, 68.5, 69, 69.5, 70,
   ];
 
-  // SS axis pruning for the lower earner when her own benefit is
-  // strictly dominated by the spousal floor across the entire axis.
-  // SSA rule: spousal benefits never accrue delayed-retirement credits,
-  // so the spousal floor (50% of the higher earner's PIA at FRA) is
-  // FLAT past FRA. The lower earner's own benefit grows with DRC up to
-  // age 70 (max +24% for FRA=67). If own@70 still falls below the
-  // floor, claiming after FRA is strictly suboptimal — fewer years of
-  // identical monthly payment. Prune those ages so the corpus doesn't
-  // recommend Debbie@70 when Debbie@67 yields the same monthly $ for
-  // three more years of payments. Mining cost: this household drops
-  // from 11×11 SS combos = 121 to 11×5 = 55, a ~55% cut on the SS axis.
-  const FRA_AGE = 67;
-  let primaryAges = ssAges;
-  let spouseAges: number[] = ssAges;
-  if (hasSpouseSs) {
-    const e1 = ssEntries[0];
-    const e2 = ssEntries[1];
-    const lower = e1.fraMonthly <= e2.fraMonthly ? e1 : e2;
-    const higher = lower === e1 ? e2 : e1;
-    const lowerOwnAt70 =
-      lower.fraMonthly * delayedRetirementCreditFactor(FRA_AGE, 70);
-    const spousalFloor = 0.5 * higher.fraMonthly;
-    if (lowerOwnAt70 < spousalFloor) {
-      // Lower earner's own benefit never catches up — restrict her
-      // axis to FRA and earlier so the corpus doesn't waste candidates
-      // on dominated combos.
-      const lowerIsPrimary = lower === e1;
-      const prunedAges = ssAges.filter((age) => age <= FRA_AGE);
-      if (lowerIsPrimary) {
-        primaryAges = prunedAges;
-      } else {
-        spouseAges = prunedAges;
-      }
-    }
-  }
-
   return {
     // V2: $5k spend resolution from $80k–$160k. This is the COARSE pass.
     // After it completes, `cliff-refinement-analyzer.ts` inspects the
@@ -97,8 +60,8 @@ export function buildDefaultPolicyAxes(seedData: SeedData): PolicyAxes {
       120_000, 125_000, 130_000, 135_000, 140_000, 145_000, 150_000, 155_000,
       160_000,
     ],
-    primarySocialSecurityClaimAge: primaryAges,
-    spouseSocialSecurityClaimAge: hasSpouseSs ? spouseAges : null,
+    primarySocialSecurityClaimAge: ssAges,
+    spouseSocialSecurityClaimAge: hasSpouseSs ? ssAges : null,
     rothConversionAnnualCeiling: [0, 40_000, 80_000, 120_000, 160_000, 200_000],
     // V2: withdrawal-rule axis. Four named strategies the ranker
     // sweeps. tax_bracket_waterfall (the historical default) is first

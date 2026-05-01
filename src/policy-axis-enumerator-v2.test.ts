@@ -19,20 +19,14 @@ import type { SeedData } from './types';
 import seedFixture from '../seed-data.json';
 
 describe('policy axis V2 (workplan step 13)', () => {
-  it('default coarse axes for the household fixture: V2 grid with the lower-earner spouse axis pruned past FRA (her spousal floor dominates own benefit at every claim age, so ages > 67 are strictly suboptimal)', () => {
+  it('default coarse axes produce expected V2 candidate count: 17 × 11 × 11 × 6 × 4 = 49,368', () => {
     const axes = buildDefaultPolicyAxes(seedFixture as SeedData);
     expect(axes.annualSpendTodayDollars).toHaveLength(17);
     expect(axes.primarySocialSecurityClaimAge).toHaveLength(11);
-    // Debbie's spousal floor (50% of Rob's $4,100 PIA = $2,050) exceeds
-    // her own benefit at the max DRC age 70 ($1,444 × 1.24 = $1,791),
-    // so claiming after FRA is dominated. Pruned to 65, 65.5, 66, 66.5,
-    // 67 = 5 values.
-    expect(axes.spouseSocialSecurityClaimAge).toHaveLength(5);
-    expect(axes.spouseSocialSecurityClaimAge).toEqual([65, 65.5, 66, 66.5, 67]);
+    expect(axes.spouseSocialSecurityClaimAge).toHaveLength(11);
     expect(axes.rothConversionAnnualCeiling).toHaveLength(6);
     expect(axes.withdrawalRule).toHaveLength(4);
-    // 17 × 11 × 5 × 6 × 4 = 22,440
-    expect(countPolicyCandidates(axes)).toBe(22_440);
+    expect(countPolicyCandidates(axes)).toBe(49_368);
   });
 
   it('spend axis covers $80k-$160k in $5k steps (coarse pass)', () => {
@@ -62,7 +56,7 @@ describe('policy axis V2 (workplan step 13)', () => {
   it('every enumerated policy carries a withdrawalRule', () => {
     const axes = buildDefaultPolicyAxes(seedFixture as SeedData);
     const policies = enumeratePolicies(axes);
-    expect(policies).toHaveLength(22_440);
+    expect(policies).toHaveLength(49_368);
     expect(policies.every((p) => p.withdrawalRule != null)).toBe(true);
   });
 
