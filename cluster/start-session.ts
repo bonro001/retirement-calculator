@@ -37,11 +37,11 @@
  *                           Only used when SESSION_COARSE_TRIALS is set.
  */
 
-import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { hostname } from 'node:os';
 import WebSocket from 'ws';
 import { initialSeedData } from '../src/data';
+import { buildEvaluationFingerprint } from '../src/evaluation-fingerprint';
 import {
   buildDefaultPolicyAxes,
   countPolicyCandidates,
@@ -113,19 +113,25 @@ const DEFAULT_ASSUMPTIONS: MarketAssumptions = {
 // ---------------------------------------------------------------------------
 
 /**
- * Stable hash of a SeedData blob. Mirrors what the browser's miner does
- * conceptually (hash → corpus partition key) so a record minted by this
- * controller against the default seed is comparable to one minted by the
- * in-browser miner against the same seed.
- *
- * Implementation note: JSON.stringify is order-stable for object literals
- * in V8, but to defend against accidental reordering we sort keys before
- * hashing. This is the same trick `policyId` uses in the enumerator.
+ * Baseline fingerprint matches the format that `useRecommendedPolicy`
+ * looks for so the cockpit can discover corpora produced by this CLI
+ * controller. Without this alignment, CLI-driven mines were invisible to
+ * the cockpit hook (Phase 3 finding, 2026-05-01). The trials= and fpv1
+ * suffixes mirror what the Mining screen / cockpit hook append to the
+ * base hash — see src/use-recommended-policy.ts for the matching code.
  */
-function computeBaselineFingerprint(seed: SeedData): string {
-  const sortedJson = JSON.stringify(seed, Object.keys(seed).sort());
-  const hash = createHash('sha256').update(sortedJson).digest('hex');
-  return `cli-${hash.slice(0, 16)}`;
+function computeBaselineFingerprint(
+  seed: SeedData,
+  assumptions: MarketAssumptions,
+  trialCount: number,
+): string {
+  const base = buildEvaluationFingerprint({
+    data: seed,
+    assumptions,
+    selectedStressors: [],
+    selectedResponses: [],
+  });
+  return `${base}|trials=${trialCount}|fpv1`;
 }
 
 // ---------------------------------------------------------------------------
@@ -243,7 +249,11 @@ async function main(): Promise<void> {
     throw new Error(`invalid SESSION_FEASIBILITY=${cfg.feasibilityThreshold}`);
   }
 
-  const baselineFingerprint = computeBaselineFingerprint(cfg.seed);
+  const baselineFingerprint = computeBaselineFingerprint(
+    cfg.seed,
+    cfg.assumptions,
+    cfg.trialCount,
+  );
   const axes = buildDefaultPolicyAxes(cfg.seed);
   const totalCandidates = countPolicyCandidates(axes);
   const cap = cfg.maxPolicies ?? totalCandidates;

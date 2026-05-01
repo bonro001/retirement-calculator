@@ -500,8 +500,11 @@ describe('decision-engine layer', () => {
   });
 
   it('includes excluded high-impact insights when constraints block strong levers', async () => {
+    // 80 trials no longer reliably crosses the high-impact threshold for
+    // retirement-delay scenarios after the V2 engine recalibration. Bump
+    // to 240 so the deltaSuccessRate signal sits well above MC noise.
     const report = await evaluateDecisionLevers(buildInput(), {
-      simulationRunsOverride: 80,
+      simulationRunsOverride: 240,
       constraints: {
         rules: {
           allowRetirementDelay: false,

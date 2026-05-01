@@ -39,6 +39,11 @@ import {
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { PolicyEvaluation, PolicyMiningSessionConfig } from '../src/policy-miner-types';
+import {
+  clearsGates,
+  compareByTiebreakers,
+  LEGACY_FIRST_LEXICOGRAPHIC,
+} from '../src/policy-ranker';
 
 /** Default root for session artifacts. Sits under cluster/data/ so a single
  *  `.gitignore` keeps the whole tree out of git. Override with the env var
@@ -270,8 +275,11 @@ function scanExistingEvaluations(
     }
     ids.add(ev.id);
     count += 1;
-    if (ev.outcome.bequestAttainmentRate >= feasibilityThreshold) {
-      if (!bestSoFar || isBetterFeasible(ev, bestSoFar, feasibilityThreshold)) {
+    if (clearsGates(ev, LEGACY_FIRST_LEXICOGRAPHIC)) {
+      if (
+        !bestSoFar ||
+        compareByTiebreakers(ev, bestSoFar, LEGACY_FIRST_LEXICOGRAPHIC) < 0
+      ) {
         bestSoFar = ev;
       }
     }
@@ -316,11 +324,20 @@ export function appendEvaluations(
 
   let feasibleInBatch = 0;
   for (const ev of evaluations) {
+    // Feasibility count uses the configurable bequest-only threshold —
+    // it's a "candidate population" signal for the household's progress
+    // bar, not a recommendation.
     if (ev.outcome.bequestAttainmentRate >= session.feasibilityThreshold) {
       feasibleInBatch += 1;
+    }
+    // The running-best pick uses the locked-in LEGACY_FIRST_LEXICOGRAPHIC
+    // rule (legacy ≥ 0.85, solvent ≥ 0.70, max spend, tiebreak solvency
+    // then p50 EW) so dispatcher / cockpit / mining-table all agree on
+    // the recommendation. (MINER_REFACTOR Phase 3 fix, 2026-05-01.)
+    if (clearsGates(ev, LEGACY_FIRST_LEXICOGRAPHIC)) {
       if (
         !session.bestSoFar ||
-        isBetterFeasible(ev, session.bestSoFar, session.feasibilityThreshold)
+        compareByTiebreakers(ev, session.bestSoFar, LEGACY_FIRST_LEXICOGRAPHIC) < 0
       ) {
         session.bestSoFar = ev;
       }
@@ -328,30 +345,6 @@ export function appendEvaluations(
   }
   session.evaluationCount += evaluations.length;
   return { feasibleInBatch, runningBest: session.bestSoFar };
-}
-
-/**
- * Comparator mirrors the V1 ranking from the in-browser miner: among
- * feasible candidates (bequest attainment ≥ threshold), prefer higher
- * annual spend; tiebreak on higher p50 ending wealth.
- *
- * Lives here (not in policy-miner-eval) because the dispatcher needs to
- * pick a "best so far" without dragging in the browser miner's helpers.
- */
-function isBetterFeasible(
-  candidate: PolicyEvaluation,
-  incumbent: PolicyEvaluation,
-  threshold: number,
-): boolean {
-  if (candidate.outcome.bequestAttainmentRate < threshold) return false;
-  if (incumbent.outcome.bequestAttainmentRate < threshold) return true;
-  if (candidate.policy.annualSpendTodayDollars !== incumbent.policy.annualSpendTodayDollars) {
-    return candidate.policy.annualSpendTodayDollars > incumbent.policy.annualSpendTodayDollars;
-  }
-  return (
-    candidate.outcome.p50EndingWealthTodayDollars >
-    incumbent.outcome.p50EndingWealthTodayDollars
-  );
 }
 
 /**

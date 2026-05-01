@@ -93,11 +93,11 @@ export const LEGACY_FIRST_LEXICOGRAPHIC: RankingRule = {
   ],
 };
 
-function clearsGates(e: PolicyEvaluation, rule: RankingRule): boolean {
+export function clearsGates(e: PolicyEvaluation, rule: RankingRule): boolean {
   return rule.gates.every((g) => g.metric(e) >= g.minimum);
 }
 
-function compareByTiebreakers(
+export function compareByTiebreakers(
   a: PolicyEvaluation,
   b: PolicyEvaluation,
   rule: RankingRule,
