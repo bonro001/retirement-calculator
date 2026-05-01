@@ -149,8 +149,9 @@ function formatMetricMs(ms: number | null | undefined): string {
 function formatBuildLabel(view: PeerView): string {
   const commit = view.buildInfo?.gitCommit;
   const shortCommit = commit ? commit.slice(0, 7) : null;
+  const dirtyFile = view.buildInfo?.gitDirtyFiles?.[0] ?? null;
   if (view.buildStatus === 'mismatch') return `update needed${shortCommit ? ` · ${shortCommit}` : ''}`;
-  if (view.buildStatus === 'dirty') return `dirty${shortCommit ? ` · ${shortCommit}` : ''}`;
+  if (view.buildStatus === 'dirty') return `dirty${dirtyFile ? ` · ${dirtyFile}` : shortCommit ? ` · ${shortCommit}` : ''}`;
   if (view.buildStatus === 'match') return shortCommit ?? 'current';
   return 'unknown build';
 }

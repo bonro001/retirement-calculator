@@ -72,6 +72,7 @@ export interface ClusterBuildInfo {
   gitBranch: string | null;
   gitCommit: string | null;
   gitDirty: boolean;
+  gitDirtyFiles?: string[];
   gitUpstream: string | null;
   gitUpstreamCommit: string | null;
   source: 'git' | 'env' | 'unknown';

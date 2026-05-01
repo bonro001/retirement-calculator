@@ -57,14 +57,25 @@ function packageVersion() {
   }
 }
 
+function parseDirtyFiles(status) {
+  if (!status) return [];
+  return status
+    .split('\n')
+    .filter((line) => line.trim().length > 0)
+    .map((line) => line.replace(/^[ MADRCU?!]{1,2}\s+/, '').trim())
+    .filter(Boolean)
+}
+
 function buildInfo() {
   const upstream = git(['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{u}']);
   const trackedStatus = git(['status', '--porcelain', '--untracked-files=no']);
+  const gitDirtyFiles = parseDirtyFiles(trackedStatus);
   return {
     packageVersion: packageVersion(),
     gitBranch: git(['rev-parse', '--abbrev-ref', 'HEAD']),
     gitCommit: git(['rev-parse', '--short=12', 'HEAD']),
-    gitDirty: trackedStatus !== null && trackedStatus.length > 0,
+    gitDirty: gitDirtyFiles.length > 0,
+    gitDirtyFiles,
     gitUpstream: upstream,
     gitUpstreamCommit: upstream ? git(['rev-parse', '--short=12', '@{u}']) : null,
     source: git(['rev-parse', '--short=12', 'HEAD']) ? 'git' : 'unknown',
@@ -78,7 +89,10 @@ function updateIfBehind() {
     return;
   }
   if (before.gitDirty) {
-    console.log('[start-rust-host] auto-update skipped: local tracked files are dirty');
+    console.log(
+      `[start-rust-host] auto-update skipped: local tracked files are dirty ` +
+        `(${(before.gitDirtyFiles ?? []).join(', ') || 'unknown files'})`,
+    );
     return;
   }
   runStep('git', ['fetch', '--prune']);

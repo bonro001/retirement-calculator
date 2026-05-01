@@ -763,6 +763,7 @@ function maybeRequestAutoUpdate(
     log('warn', 'auto-update skipped: local tracked files are dirty', {
       local: formatBuildInfo(HOST_BUILD_INFO),
       expected: formatBuildInfo(expectedBuildInfo),
+      dirtyFiles: HOST_BUILD_INFO.gitDirtyFiles,
       source,
     });
     return;

@@ -29,6 +29,15 @@ function git(args: string[]): string | null {
   }
 }
 
+function parseDirtyFiles(status: string | null): string[] {
+  if (!status) return [];
+  return status
+    .split('\n')
+    .filter((line) => line.trim().length > 0)
+    .map((line) => line.replace(/^[ MADRCU?!]{1,2}\s+/, '').trim())
+    .filter(Boolean)
+}
+
 export function getLocalBuildInfo(): ClusterBuildInfo {
   const envJson = process.env.HOST_BUILD_INFO_JSON;
   if (envJson) {
@@ -46,12 +55,14 @@ export function getLocalBuildInfo(): ClusterBuildInfo {
     ? git(['rev-parse', '--short=12', '@{u}'])
     : null;
   const trackedStatus = git(['status', '--porcelain', '--untracked-files=no']);
+  const gitDirtyFiles = parseDirtyFiles(trackedStatus);
 
   return {
     packageVersion: readPackageVersion(),
     gitBranch,
     gitCommit,
-    gitDirty: trackedStatus !== null && trackedStatus.length > 0,
+    gitDirty: gitDirtyFiles.length > 0,
+    gitDirtyFiles,
     gitUpstream,
     gitUpstreamCommit,
     source: gitCommit ? 'git' : 'unknown',
