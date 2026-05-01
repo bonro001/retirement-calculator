@@ -223,16 +223,20 @@ function resetPeerRuntimeMetrics(peer: Peer): void {
   peer.lastUtilizationSampleMs = Date.now();
 }
 
-function maxBatchSizeForPeer(peer: Peer): number {
+function maxBatchSizeForPeer(
+  peer: Peer,
+  freeSlots: number = peer.capabilities?.workerCount ?? 1,
+): number {
   const runtime = peer.capabilities?.engineRuntime;
   const workers = peer.capabilities?.workerCount ?? 1;
+  const slots = Math.max(1, Math.min(workers, freeSlots));
   if (runtime === 'rust-native-compact') {
-    return Math.max(50, Math.min(200, workers * 16));
+    return Math.max(1, Math.min(200, slots * 16));
   }
   if (runtime === 'rust-native-compact-shadow') {
-    return Math.max(25, Math.min(100, workers * 8));
+    return Math.max(1, Math.min(100, slots * 8));
   }
-  return 25;
+  return Math.max(1, Math.min(25, slots));
 }
 
 function accountPeerUtilization(nowMs: number): void {
@@ -1050,7 +1054,8 @@ function pumpDispatch(): void {
     if (session.queue.pendingCount() === 0) break;
     // Authoritative — see `effectiveFreeSlots` above for why heartbeat
     // can't be trusted here.
-    if (effectiveFreeSlots(peer) <= 0) continue;
+    const freeSlots = effectiveFreeSlots(peer);
+    if (freeSlots <= 0) continue;
     if (peer.socket.readyState !== peer.socket.OPEN) continue;
     if (peer.pumpCooldownUntilMs > now) continue;
 
@@ -1075,7 +1080,7 @@ function pumpDispatch(): void {
       peer.completedBatchCount >= 3 ? peer.meanMsPerPolicy : null,
       session.queue.pendingCount(),
       batchTrialCount,
-      { maxBatchSize: maxBatchSizeForPeer(peer) },
+      { maxBatchSize: maxBatchSizeForPeer(peer, freeSlots) },
     );
     const assigned = session.queue.assignBatch(peer.peerId, size);
     if (!assigned) continue;
@@ -1099,7 +1104,7 @@ function pumpDispatch(): void {
     peer.inFlightBatchIds.add(assigned.batchId);
     const reservedSlots = Math.max(
       1,
-      Math.min(assigned.policies.length, peer.capabilities?.workerCount ?? 1),
+      Math.min(assigned.policies.length, freeSlots),
     );
     peer.inFlightSlotReservations.set(assigned.batchId, reservedSlots);
     peer.assignedBatches += 1;
