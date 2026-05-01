@@ -390,6 +390,7 @@ export function MiningScreen() {
             : undefined
         }
         axesOverride={axesOverride}
+        autoRefinePhase={autoRefine?.status ?? null}
       />
 
       <PolicyMiningResultsTable

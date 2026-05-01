@@ -78,6 +78,17 @@ interface Props {
    *  via `StartSessionOptions.axesOverride`; we just thread it through
    *  the UI. Pass `null` to use the default grid (the common case). */
   axesOverride?: import('./policy-miner-types').PolicyAxes | null;
+  /** Auto cliff-refinement phase, when MiningScreen has chained pass-1
+   *  → pass-2. While in any non-null/non-complete phase the start button
+   *  is disabled (prevents the household from triggering a third mine
+   *  that fights the running pass-2) and the running session is labeled
+   *  "Pass 2 of 2" so the workflow reads as one coherent flow. */
+  autoRefinePhase?:
+    | 'analyzing'
+    | 'starting'
+    | 'running'
+    | 'complete'
+    | null;
 }
 
 const POLL_INTERVAL_MS = 5_000;
@@ -161,6 +172,7 @@ export function PolicyMiningStatusCard({
   engineVersion,
   controls,
   axesOverride,
+  autoRefinePhase,
 }: Props): JSX.Element | null {
   const cluster = useClusterSession();
   const [bestEval, setBestEval] = useState<PolicyEvaluation | null>(null);
@@ -361,8 +373,21 @@ export function PolicyMiningStatusCard({
   const session = cluster.session;
   const stats = session?.stats ?? null;
   const sessionRunning = !!session;
-  const canStart = !!controls && cluster.state === 'connected' && !sessionRunning;
+  // While the auto cliff-refinement workflow is mid-flight (analyzer
+  // running between pass-1 and pass-2, or pass-2 itself running), we
+  // treat Start as disabled — the household shouldn't kick a parallel
+  // mine that fights the queued pass-2.
+  const autoRefineInFlight =
+    autoRefinePhase === 'analyzing' ||
+    autoRefinePhase === 'starting' ||
+    autoRefinePhase === 'running';
+  const canStart =
+    !!controls &&
+    cluster.state === 'connected' &&
+    !sessionRunning &&
+    !autoRefineInFlight;
   const canCancel = !!controls && cluster.state === 'connected' && sessionRunning;
+  const isPass2 = sessionRunning && autoRefinePhase === 'running';
 
   // Connection state badge color
   const connColor =
@@ -384,12 +409,20 @@ export function PolicyMiningStatusCard({
             ? 'disconnected'
             : 'idle';
 
-  // Session state for the upper-right badge
+  // Session state for the upper-right badge. The auto cliff-refinement
+  // chain treats pass-1 and pass-2 as one workflow from the household's
+  // POV — the badge labels reflect that.
   const sessionStateLabel: string | null = sessionRunning
-    ? 'running'
-    : evalCount > 0
-      ? 'idle (corpus has data)'
-      : null;
+    ? isPass2
+      ? 'running pass 2 of 2 · refining cliff'
+      : 'running'
+    : autoRefinePhase === 'analyzing'
+      ? 'analyzing pass 1 for feasibility cliff'
+      : autoRefinePhase === 'starting'
+        ? 'starting pass 2 of 2'
+        : evalCount > 0
+          ? 'idle (corpus has data)'
+          : null;
   const sessionStateColor = sessionRunning
     ? 'text-emerald-700'
     : 'text-stone-500';

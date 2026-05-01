@@ -152,6 +152,32 @@ export function PolicyFrontierChart({
     return offFront;
   }, [projected, frontIds]);
 
+  // Explicit x-axis ticks at every distinct spend value present in the
+  // corpus. Without this Recharts auto-picks "round" ticks (every $5k or
+  // $10k) and hides the cliff-refinement $1k inserts visually — the
+  // household reads the axis labels as the data resolution. We cap the
+  // tick density so wide ranges with many fine inserts don't render an
+  // unreadable axis.
+  const spendTicks = useMemo<number[]>(() => {
+    const distinct = new Set<number>();
+    for (const p of projected) {
+      distinct.add(p.evaluation.policy.annualSpendTodayDollars);
+    }
+    const sorted = Array.from(distinct).sort((a, b) => a - b);
+    if (sorted.length <= 25) return sorted;
+    // Density fallback: keep $5k grid + the $1k inserts, drop denser
+    // accidental duplicates. Should rarely fire on the V2 hybrid axes
+    // (~21 values), but defensively prevents a dense $1k full-range
+    // axis from rendering 80+ ticks.
+    return sorted.filter(
+      (v, i) =>
+        v % 5_000 === 0 ||
+        i === 0 ||
+        i === sorted.length - 1 ||
+        Math.abs(v - sorted[i - 1]) >= 1_000,
+    );
+  }, [projected]);
+
   // Adopted point — synthesize a FrontierPoint for chart highlighting.
   const adoptedPoint = useMemo<FrontierPoint | null>(() => {
     if (!adoptedPolicy) return null;
@@ -242,7 +268,8 @@ export function PolicyFrontierChart({
                 offset: -10,
                 style: { fill: '#78716c', fontSize: 11 },
               }}
-              domain={['dataMin - 5000', 'dataMax + 5000']}
+              domain={['dataMin - 1000', 'dataMax + 1000']}
+              ticks={spendTicks}
             />
             <YAxis
               type="number"
