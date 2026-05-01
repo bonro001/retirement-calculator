@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { arch, cpus, hostname, platform } from 'node:os';
+import { fileURLToPath } from 'node:url';
 
 function readArg(name) {
   const prefix = `--${name}=`;
@@ -73,4 +74,6 @@ console.log(
     `profile=${profile.source}`,
 );
 
-await import('../cluster/host.ts');
+const hostEntryUrl = new URL('../cluster/host.ts', import.meta.url);
+process.argv[1] = fileURLToPath(hostEntryUrl);
+await import(hostEntryUrl.href);
