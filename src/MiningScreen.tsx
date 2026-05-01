@@ -159,7 +159,9 @@ export function MiningScreen() {
       // Pass-2 just ended for this fingerprint. Mark complete regardless
       // of where the prior status got stuck (analyzing/starting/running)
       // so the banner doesn't strand on an in-progress label after the
-      // refine session actually wrapped.
+      // refine session actually wrapped. Also clear `axesOverride` —
+      // pass-2's hybrid axes shouldn't persist into a manual Full click,
+      // which the household expects to mine the default $5k grid.
       setAutoRefine((prev) => {
         if (!prev || prev.status === 'complete') return prev;
         return {
@@ -171,6 +173,7 @@ export function MiningScreen() {
               : 'Cliff refinement complete.',
         };
       });
+      setAxesOverride(null);
       return;
     }
 

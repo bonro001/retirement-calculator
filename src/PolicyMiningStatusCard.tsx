@@ -314,17 +314,21 @@ export function PolicyMiningStatusCard({
 
   // -------------------------------------------------------------------------
   // Total candidate count — needed for the "Start" tooltip and to size the
-  // expected-duration line. Computed off the controls' baseline so it
-  // stays in sync with what the dispatcher will enumerate.
+  // expected-duration line. When the auto cliff-refinement chain has set
+  // an `axesOverride` (hybrid $5k grid + $1k inserts in the cliff
+  // bracket), the pill should reflect the OVERRIDE count so the label
+  // matches the in-flight session's evaluated total. Otherwise it's the
+  // default V2 grid count (49,368).
   // -------------------------------------------------------------------------
   const totalCandidates = useMemo(() => {
     if (!controls) return null;
     try {
-      return countPolicyCandidates(buildDefaultPolicyAxes(controls.baseline));
+      const axes = axesOverride ?? buildDefaultPolicyAxes(controls.baseline);
+      return countPolicyCandidates(axes);
     } catch {
       return null;
     }
-  }, [controls]);
+  }, [controls, axesOverride]);
 
   // -------------------------------------------------------------------------
   // Controls — dispatch through the cluster client, no local pool work
