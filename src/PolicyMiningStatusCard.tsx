@@ -415,11 +415,18 @@ export function PolicyMiningStatusCard({
 
   // Session state for the upper-right badge. The auto cliff-refinement
   // chain treats pass-1 and pass-2 as one workflow from the household's
-  // POV — the badge labels reflect that.
+  // POV — the badge labels reflect that. A Full mine ALWAYS auto-runs a
+  // pass-2 cliff refinement when a feasibility cliff is detected, so we
+  // proactively label pass-1 as "Pass 1 of 2" — that way the household
+  // sees the two-pass workflow ahead of time, not as a surprise.
+  // Quick mines stay labeled simply "running" since they don't refine.
+  const isFullMine = sessionSize === 'full';
   const sessionStateLabel: string | null = sessionRunning
     ? isPass2
       ? 'running pass 2 of 2 · refining cliff'
-      : 'running'
+      : isFullMine
+        ? 'running pass 1 of 2 · sweeping the grid'
+        : 'running'
     : autoRefinePhase === 'analyzing'
       ? 'analyzing pass 1 for feasibility cliff'
       : autoRefinePhase === 'starting'
@@ -696,7 +703,7 @@ export function PolicyMiningStatusCard({
           <p className="text-[11px] text-stone-500">
             {sessionSize === 'quick'
               ? `Validates the top of the frontier against your current baseline. Use after editing the plan.`
-              : `Searches every spend × SS × Roth combination. Use for initial exploration or final certification.`}
+              : `Two-pass mine. Pass 1 sweeps every spend × SS × Roth combination at $5k spend resolution; if a feasibility cliff is detected, pass 2 auto-runs at $1k resolution across the cliff so adoption-grade results land near the boundary. No clicks between passes — they chain automatically.`}
           </p>
         )}
       </div>

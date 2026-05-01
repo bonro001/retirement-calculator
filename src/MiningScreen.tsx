@@ -147,6 +147,25 @@ export function MiningScreen() {
   // before it could resolve — banner stuck on "Analyzing".
   const currentSessionId = cluster.session?.sessionId ?? null;
   const startSession = cluster.startSession;
+
+  // Synchronous detection of the running→idle transition for the
+  // current render. The auto-refine effect doesn't commit its first
+  // setAutoRefine('analyzing') until AFTER the render that observes
+  // session=null. Without an inline signal there's a single frame where
+  // PolicyMiningStatusCard sees `sessionRunning=false` and
+  // `autoRefinePhase=null` — the Start button briefly re-enables and
+  // visually "blinks" before pass-2 starts. By comparing the prev-ref
+  // to the current id during render (the ref is mutated only inside
+  // the effect, AFTER render), we detect the transition in the same
+  // frame and pass `autoRefineImminent` to the status card so Start
+  // stays disabled across the gap. Once the effect commits and
+  // setAutoRefine('analyzing') flows in, this flag is no longer needed
+  // (autoRefinePhase covers it).
+  const autoRefineImminent =
+    prevSessionIdRef.current != null &&
+    currentSessionId == null &&
+    !!policyMiningFingerprint &&
+    !autoRefinedFingerprintsRef.current.has(policyMiningFingerprint);
   useEffect(() => {
     const currentId = currentSessionId;
     const previousId = prevSessionIdRef.current;
@@ -393,7 +412,9 @@ export function MiningScreen() {
             : undefined
         }
         axesOverride={axesOverride}
-        autoRefinePhase={autoRefine?.status ?? null}
+        autoRefinePhase={
+          autoRefine?.status ?? (autoRefineImminent ? 'analyzing' : null)
+        }
       />
 
       <PolicyMiningResultsTable
