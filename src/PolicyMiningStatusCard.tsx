@@ -146,6 +146,15 @@ function formatMetricMs(ms: number | null | undefined): string {
   return `${(ms / 1000).toFixed(1)}s`;
 }
 
+function formatBuildLabel(view: PeerView): string {
+  const commit = view.buildInfo?.gitCommit;
+  const shortCommit = commit ? commit.slice(0, 7) : null;
+  if (view.buildStatus === 'mismatch') return `update needed${shortCommit ? ` · ${shortCommit}` : ''}`;
+  if (view.buildStatus === 'dirty') return `dirty${shortCommit ? ` · ${shortCommit}` : ''}`;
+  if (view.buildStatus === 'match') return shortCommit ?? 'current';
+  return 'unknown build';
+}
+
 export function PolicyMiningStatusCard({
   baselineFingerprint,
   engineVersion,
@@ -733,6 +742,19 @@ export function PolicyMiningStatusCard({
                     : v.roles.includes('controller')
                       ? 'controller'
                       : '—'}
+                  {v.workerCount !== null && (
+                    <span
+                      className={`ml-1 ${
+                        v.buildStatus === 'mismatch'
+                          ? 'font-semibold text-rose-600'
+                          : v.buildStatus === 'dirty'
+                            ? 'font-semibold text-amber-600'
+                            : 'text-stone-400'
+                      }`}
+                    >
+                      · {formatBuildLabel(v)}
+                    </span>
+                  )}
                 </span>
                 <span className="col-span-2 text-stone-500">
                   {throughputLabel}
@@ -779,6 +801,9 @@ export function PolicyMiningStatusCard({
     const nonRustHosts = liveHosts.filter(
       (v) => v.capabilities?.engineRuntime !== 'rust-native-compact',
     );
+    const staleBuildHosts = liveHosts.filter(
+      (v) => v.buildStatus === 'mismatch' || v.buildStatus === 'dirty',
+    );
     const idleRatio =
       metrics.hostBusySlotMs + metrics.hostIdleWhilePendingSlotMs > 0
         ? metrics.hostIdleWhilePendingSlotMs /
@@ -789,6 +814,8 @@ export function PolicyMiningStatusCard({
     const hint =
       nonRustHosts.length > 0
         ? `${nonRustHosts.length} live host${nonRustHosts.length === 1 ? '' : 's'} not on Rust compact`
+        : staleBuildHosts.length > 0
+          ? `${staleBuildHosts.length} live host${staleBuildHosts.length === 1 ? '' : 's'} need code attention`
         : metrics.policiesDropped > 0
         ? 'dropped policies need investigation'
         : capacityNackRate > 0.1
@@ -856,7 +883,9 @@ export function PolicyMiningStatusCard({
               {rustHosts.length}/{liveHosts.length} Rust compact
             </p>
             <p className="text-stone-500">
-              {nonRustHosts.length === 0
+              {staleBuildHosts.length > 0
+                ? staleBuildHosts.map((v) => v.displayName).join(', ')
+                : nonRustHosts.length === 0
                 ? 'all live hosts on compiled path'
                 : nonRustHosts.map((v) => v.displayName).join(', ')}
             </p>

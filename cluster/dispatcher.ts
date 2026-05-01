@@ -52,6 +52,7 @@ import {
   decodeMessage,
   encodeMessage,
   type BatchAssignMessage,
+  type ClusterBuildInfo,
   type CancelSessionMessage,
   type ClusterMessage,
   type ClusterPeerMetrics,
@@ -91,6 +92,11 @@ import {
   readEvaluations,
   readSessionMetadata,
 } from './corpus-reader';
+import {
+  compareBuildInfo,
+  formatBuildInfo,
+  getLocalBuildInfo,
+} from './build-info';
 
 // ---------------------------------------------------------------------------
 // Peer registry
@@ -111,6 +117,7 @@ interface Peer {
   displayName: string;
   roles: PeerRole[];
   capabilities: HostCapabilities | null;
+  buildInfo?: ClusterBuildInfo;
   socket: WebSocket;
   lastHeartbeatTs: number | null;
   /** Rolling mean ms-per-policy from completed batches. Updated on each
@@ -300,6 +307,7 @@ function buildRuntimeMetrics(queueSnap: ReturnType<WorkQueue['snapshot']>): Clus
 }
 
 const peers = new Map<string, Peer>();
+const DISPATCHER_BUILD_INFO = getLocalBuildInfo();
 
 // ---------------------------------------------------------------------------
 // Session state
@@ -475,11 +483,14 @@ function buildClusterSnapshot(): ClusterSnapshot {
   }
   return {
     protocolVersion: MINING_PROTOCOL_VERSION,
+    dispatcherBuildInfo: DISPATCHER_BUILD_INFO,
     peers: [...peers.values()].map((p) => ({
       peerId: p.peerId,
       displayName: p.displayName,
       roles: p.roles,
       capabilities: p.capabilities,
+      buildInfo: p.buildInfo,
+      buildStatus: compareBuildInfo(DISPATCHER_BUILD_INFO, p.buildInfo),
       lastHeartbeatTs: p.lastHeartbeatTs,
       meanMsPerPolicy: p.meanMsPerPolicy,
       inFlightBatchCount: p.inFlightBatchIds.size,
@@ -589,6 +600,7 @@ function handleRegister(socket: WebSocket, registration: RegisterMessage, remote
     displayName: registration.displayName,
     roles: registration.roles,
     capabilities: registration.capabilities ?? null,
+    buildInfo: registration.buildInfo,
     socket,
     lastHeartbeatTs: Date.now(),
     meanMsPerPolicy: null,
@@ -629,6 +641,9 @@ function handleRegister(socket: WebSocket, registration: RegisterMessage, remote
     roles: peer.roles.join(','),
     workers: peer.capabilities?.workerCount ?? '?',
     perfClass: peer.capabilities?.perfClass ?? 'unknown',
+    build: formatBuildInfo(peer.buildInfo),
+    expectedBuild: formatBuildInfo(DISPATCHER_BUILD_INFO),
+    buildStatus: compareBuildInfo(DISPATCHER_BUILD_INFO, peer.buildInfo),
     remoteAddress,
   });
 
@@ -1217,7 +1232,7 @@ function handleBatchResult(peer: Peer, message: Extract<ClusterMessage, { kind: 
     return;
   }
   const session = activeSession;
-  if (message.result.shadowStats) {
+  if (message.result.shadowStats && message.result.shadowStats.evaluated > 0) {
     log(
       message.result.shadowStats.mismatches > 0 ||
         message.result.shadowStats.errors > 0 ||
@@ -1574,6 +1589,7 @@ function startDispatcher(port: number, host?: string): void {
       sendJson(res, 200, {
         status: 'ok',
         protocolVersion: MINING_PROTOCOL_VERSION,
+        buildInfo: DISPATCHER_BUILD_INFO,
         peerCount: peers.size,
         activeSessionId: activeSession?.sessionId ?? null,
         uptimeSec: Math.round(process.uptime()),

@@ -67,6 +67,22 @@ export const DEFAULT_DISPATCHER_PORT = 8765;
  */
 export type PeerRole = 'host' | 'controller' | 'observer';
 
+export interface ClusterBuildInfo {
+  packageVersion: string;
+  gitBranch: string | null;
+  gitCommit: string | null;
+  gitDirty: boolean;
+  gitUpstream: string | null;
+  gitUpstreamCommit: string | null;
+  source: 'git' | 'env' | 'unknown';
+}
+
+export type ClusterBuildStatus =
+  | 'match'
+  | 'mismatch'
+  | 'dirty'
+  | 'unknown';
+
 /**
  * Capabilities a host advertises at registration time. The dispatcher
  * uses these to decide how big a batch to send and how aggressively to
@@ -148,6 +164,8 @@ export interface RegisterMessage extends BaseMessage {
   roles: PeerRole[];
   /** Human-readable name for logs and the per-host stats panel. */
   displayName: string;
+  /** Git/package identity for version compatibility diagnostics. */
+  buildInfo?: ClusterBuildInfo;
   /** Stable id the peer would prefer to keep across reconnects. */
   desiredPeerId?: string;
   /** Only set when `roles` includes `host`. */
@@ -348,11 +366,15 @@ export interface ClusterRuntimeMetrics {
  */
 export interface ClusterSnapshot {
   protocolVersion: string;
+  /** Code identity the dispatcher expects hosts to run. */
+  dispatcherBuildInfo?: ClusterBuildInfo;
   peers: Array<{
     peerId: string;
     displayName: string;
     roles: PeerRole[];
     capabilities: HostCapabilities | null;
+    buildInfo?: ClusterBuildInfo;
+    buildStatus?: ClusterBuildStatus;
     /** Last heartbeat received, ms-since-epoch. Used to render "stale" indicators. */
     lastHeartbeatTs: number | null;
     /** Rolling mean wall-clock ms per policy on this host. */

@@ -62,6 +62,11 @@ import {
   type RegisterMessage,
   type StartSessionMessage,
 } from '../src/mining-protocol';
+import {
+  compareBuildInfo,
+  formatBuildInfo,
+  getLocalBuildInfo,
+} from './build-info';
 import type {
   MiningJobBatch,
   MiningJobResult,
@@ -126,6 +131,11 @@ const PLATFORM_DESCRIPTOR =
 
 const HOST_ENGINE_RUNTIME =
   process.env.ENGINE_RUNTIME ?? process.env.ENGINE_RUNTIME_DEFAULT ?? 'ts';
+const HOST_BUILD_INFO = getLocalBuildInfo();
+const HOST_AUTO_UPDATE =
+  process.env.HOST_AUTO_UPDATE === '1' ||
+  process.env.HOST_AUTO_UPDATE === 'true';
+const AUTO_UPDATE_EXIT_CODE = 75;
 
 // ---------------------------------------------------------------------------
 // Logging — tagged with hostname so multi-host log scraping is easy
@@ -740,6 +750,43 @@ let heartbeatTimer: NodeJS.Timeout | null = null;
 let reconnectTimer: NodeJS.Timeout | null = null;
 let reconnectAttempt = 0;
 let stopReconnecting = false;
+let autoUpdateRequested = false;
+
+function maybeRequestAutoUpdate(
+  expectedBuildInfo: Parameters<typeof compareBuildInfo>[0],
+  source: string,
+): void {
+  if (!HOST_AUTO_UPDATE || autoUpdateRequested) return;
+  const status = compareBuildInfo(expectedBuildInfo, HOST_BUILD_INFO);
+  if (status !== 'mismatch') return;
+  if (HOST_BUILD_INFO.gitDirty) {
+    log('warn', 'auto-update skipped: local tracked files are dirty', {
+      local: formatBuildInfo(HOST_BUILD_INFO),
+      expected: formatBuildInfo(expectedBuildInfo),
+      source,
+    });
+    return;
+  }
+  if (activeSession || inFlightBatchIds.size > 0 || pendingRuns.size > 0) {
+    log('info', 'auto-update waiting for idle host', {
+      local: formatBuildInfo(HOST_BUILD_INFO),
+      expected: formatBuildInfo(expectedBuildInfo),
+      source,
+      activeSession: activeSession?.sessionId ?? null,
+      inFlightBatches: inFlightBatchIds.size,
+    });
+    return;
+  }
+  autoUpdateRequested = true;
+  stopReconnecting = true;
+  log('warn', 'auto-update requested: host code is behind dispatcher', {
+    local: formatBuildInfo(HOST_BUILD_INFO),
+    expected: formatBuildInfo(expectedBuildInfo),
+    source,
+  });
+  socket?.close(1000, 'auto-update requested');
+  setTimeout(() => process.exit(AUTO_UPDATE_EXIT_CODE), 250).unref();
+}
 
 /**
  * Reset peer-scoped state on disconnect. The dispatcher has already
@@ -829,6 +876,7 @@ function connect(): void {
       protocolVersion: MINING_PROTOCOL_VERSION,
       roles: ['host'],
       displayName: HOST_DISPLAY_NAME,
+      buildInfo: HOST_BUILD_INFO,
       capabilities: {
         workerCount: HOST_WORKER_COUNT,
         perfClass: HOST_PERF_CLASS,
@@ -842,6 +890,8 @@ function connect(): void {
       perf: HOST_PERF_CLASS,
       platform: PLATFORM_DESCRIPTOR,
       runtime: HOST_ENGINE_RUNTIME,
+      build: formatBuildInfo(HOST_BUILD_INFO),
+      autoUpdate: HOST_AUTO_UPDATE,
     });
     // Don't reset reconnectAttempt here — wait for the dispatcher's
     // 'welcome' to confirm we were actually accepted. A socket can open
@@ -897,8 +947,13 @@ async function handleDispatcherMessage(message: ClusterMessage): Promise<void> {
       log('info', 'welcomed', {
         peerId: message.peerId,
         clusterPeers: message.clusterSnapshot.peers.length,
+        buildStatus: compareBuildInfo(
+          message.clusterSnapshot.dispatcherBuildInfo,
+          HOST_BUILD_INFO,
+        ),
         ...(wasReconnect ? { afterReconnect: true } : {}),
       });
+      maybeRequestAutoUpdate(message.clusterSnapshot.dispatcherBuildInfo, 'welcome');
       startHeartbeat();
       return;
     }
@@ -933,6 +988,8 @@ async function handleDispatcherMessage(message: ClusterMessage): Promise<void> {
       return;
     }
     case 'cluster_state':
+      maybeRequestAutoUpdate(message.snapshot.dispatcherBuildInfo, 'cluster_state');
+      return;
     case 'evaluations_ingested':
       // Hosts don't act on these; observers do. Ignore.
       return;

@@ -1,4 +1,10 @@
-import { HEARTBEAT_INTERVAL_MS, type ClusterSnapshot, type HostCapabilities } from './mining-protocol';
+import {
+  HEARTBEAT_INTERVAL_MS,
+  type ClusterBuildInfo,
+  type ClusterBuildStatus,
+  type ClusterSnapshot,
+  type HostCapabilities,
+} from './mining-protocol';
 
 /**
  * Per-host visibility helpers for the Policy Mining status card.
@@ -57,6 +63,8 @@ export interface PeerView {
   displayName: string;
   roles: SnapshotPeer['roles'];
   capabilities: HostCapabilities | null;
+  buildInfo?: ClusterBuildInfo;
+  buildStatus?: ClusterBuildStatus;
   status: PeerStatus;
   /** ms-since-epoch — last heartbeat for live/stale peers, last snapshot
    *  presence for ghosts. Used to render "X ago". */
@@ -198,6 +206,8 @@ export function buildPeerView(
     displayName: peer.displayName,
     roles: peer.roles,
     capabilities: peer.capabilities,
+    buildInfo: peer.buildInfo,
+    buildStatus: peer.buildStatus,
     status,
     lastSeenAt: peer.lastHeartbeatTs ?? nowMs,
     lastHeartbeatTs: peer.lastHeartbeatTs,
@@ -227,6 +237,8 @@ export function buildGhostView(ghost: PeerGhost): PeerView {
     displayName: peer.displayName,
     roles: peer.roles,
     capabilities: peer.capabilities,
+    buildInfo: peer.buildInfo,
+    buildStatus: peer.buildStatus,
     status: 'offline',
     lastSeenAt: ghost.disappearedAt,
     lastHeartbeatTs: peer.lastHeartbeatTs,
