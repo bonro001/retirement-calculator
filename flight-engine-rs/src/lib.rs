@@ -76,20 +76,14 @@ pub fn smoke_sum(values: Vec<f64>) -> f64 {
 /// Calling both with the same args lets us measure speedup before
 /// committing to the full port.
 #[wasm_bindgen]
-pub fn benchmark_montecarlo(
-    num_trials: u32,
-    years_per_trial: u32,
-    seed: u32,
-) -> f64 {
+pub fn benchmark_montecarlo(num_trials: u32, years_per_trial: u32, seed: u32) -> f64 {
     // Tiny LCG (linear congruential generator) — same constants as
     // Numerical Recipes' "ranqd1". Deterministic for a given seed,
     // fast, and trivially portable to JS so both implementations use
     // identical sequences.
     let mut state: u32 = seed;
     let next = |s: &mut u32| -> f64 {
-        *s = s
-            .wrapping_mul(1664525)
-            .wrapping_add(1013904223);
+        *s = s.wrapping_mul(1664525).wrapping_add(1013904223);
         // Map to [0, 1)
         (*s as f64) / 4_294_967_296.0
     };
@@ -140,6 +134,9 @@ pub fn benchmark_montecarlo(
 }
 
 // Real engine modules.
+pub mod candidate_engine;
+#[cfg(all(feature = "node-napi", not(target_arch = "wasm32")))]
+mod node_napi;
 pub mod tax;
 pub mod trial;
 pub mod types;
@@ -160,8 +157,8 @@ pub fn simulate_trial(
     assumptions_js: JsValue,
     seed: u64,
 ) -> Result<JsValue, JsValue> {
-    let plan: PlanInput = from_value(plan_js)
-        .map_err(|e| JsValue::from_str(&format!("plan parse error: {e}")))?;
+    let plan: PlanInput =
+        from_value(plan_js).map_err(|e| JsValue::from_str(&format!("plan parse error: {e}")))?;
     let assumptions: AssumptionsInput = from_value(assumptions_js)
         .map_err(|e| JsValue::from_str(&format!("assumptions parse error: {e}")))?;
     let result = trial::run_trial(&plan, &assumptions, seed);
@@ -178,8 +175,8 @@ pub fn evaluate_policy(
     assumptions_js: JsValue,
     base_seed: u64,
 ) -> Result<JsValue, JsValue> {
-    let plan: PlanInput = from_value(plan_js)
-        .map_err(|e| JsValue::from_str(&format!("plan parse error: {e}")))?;
+    let plan: PlanInput =
+        from_value(plan_js).map_err(|e| JsValue::from_str(&format!("plan parse error: {e}")))?;
     let assumptions: AssumptionsInput = from_value(assumptions_js)
         .map_err(|e| JsValue::from_str(&format!("assumptions parse error: {e}")))?;
     let n = assumptions.simulation_runs.max(1) as usize;
@@ -190,7 +187,9 @@ pub fn evaluate_policy(
     for i in 0..n {
         // Each trial gets a deterministic but distinct seed. Bit-mix
         // base_seed and trial index to avoid pathological correlations.
-        let trial_seed = base_seed.wrapping_mul(2_862_933_555_777_941_757).wrapping_add(i as u64);
+        let trial_seed = base_seed
+            .wrapping_mul(2_862_933_555_777_941_757)
+            .wrapping_add(i as u64);
         all_trials.push(trial::run_trial(&plan, &assumptions, trial_seed));
     }
 

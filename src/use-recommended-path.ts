@@ -18,8 +18,7 @@
 import { useEffect, useState } from 'react';
 import type { MarketAssumptions, PathResult, SeedData } from './types';
 import type { PolicyEvaluation } from './policy-miner-types';
-import { buildPathResults } from './utils';
-import { applyPolicyToSeed } from './policy-miner-eval';
+import { evaluatePolicyFullTrace } from './policy-miner-eval';
 
 const RECOMMENDED_PATH_LS_KEY = 'retirement-calc:recommended-path-cache:v1';
 
@@ -134,24 +133,19 @@ export function useRecommendedPath(
     // useEffect blocks the main thread before any UI shows.
     const handle = setTimeout(() => {
       try {
-        const seed = applyPolicyToSeed(structuredCloneSafe(data), recommendation.policy);
-        // Per-policy assumptions (apply withdrawal rule from the
-        // recommended policy). Mirrors the per-candidate handling in
-        // the miner so the cockpit's path matches the corpus's metrics.
-        const policyAssumptions: MarketAssumptions = recommendation.policy.withdrawalRule
-          ? { ...assumptions, withdrawalRule: recommendation.policy.withdrawalRule }
-          : assumptions;
-
-        const buildOne = (asm: MarketAssumptions): PathResult | null => {
+        const buildOne = (useHistoricalBootstrap: boolean): PathResult | null => {
           try {
-            const paths = buildPathResults(
-              seed,
-              asm,
-              selectedStressors,
-              selectedResponses,
-              { pathMode: 'selected_only' },
+            return evaluatePolicyFullTrace(
+              recommendation.policy,
+              data,
+              assumptions,
+              structuredCloneSafe,
+              {
+                selectedStressors,
+                selectedResponses,
+                useHistoricalBootstrap,
+              },
             );
-            return paths[0] ?? null;
           } catch (err) {
             // eslint-disable-next-line no-console
             console.warn('[useRecommendedPath] build failed:', err);
@@ -159,11 +153,8 @@ export function useRecommendedPath(
           }
         };
 
-        const forwardLooking = buildOne(policyAssumptions);
-        const historical = buildOne({
-          ...policyAssumptions,
-          useHistoricalBootstrap: true,
-        });
+        const forwardLooking = buildOne(false);
+        const historical = buildOne(true);
 
         if (cancelled) return;
         const entry: CachedEntry = {

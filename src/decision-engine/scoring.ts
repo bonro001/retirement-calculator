@@ -8,19 +8,13 @@ import type {
 } from './types';
 
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
-const COMPLEXITY_RANK: Record<LeverScenarioResult['complexity'], number> = {
-  simple: 0,
-  moderate: 1,
-  complex: 2,
-};
-const DISRUPTION_RANK: Record<LeverScenarioResult['disruption'], number> = {
-  low: 0,
-  medium: 1,
-  high: 2,
-};
 
 export const MIN_RECOMMENDED_SUCCESS_IMPROVEMENT = 0.01;
 export const HIGH_DISRUPTION_MIN_SUCCESS_IMPROVEMENT = 0.05;
+// Retained as a public constant for external callers that bucket
+// candidates as "similar impact" — the core comparator no longer uses
+// it (transitivity rewrite, 2026-04-29). Keep at 0.01 so any external
+// bucket that did use it stays calibrated.
 export const SIMILAR_IMPACT_SUCCESS_DELTA = 0.01;
 export const DEDUPE_SUCCESS_DELTA_TOLERANCE = 0.01;
 export const DEDUPE_EARLY_FAIL_DELTA_TOLERANCE = 0.01;
@@ -179,40 +173,51 @@ export function areRecommendationsEquivalent(
   return true;
 }
 
+/**
+ * Composite rank for a recommendation. Higher = better. This is the
+ * sort key — `compareRecommendationCandidates` only does a descending
+ * compare on this scalar (with a final alphabetical tie-break).
+ *
+ * Why a single composite scalar: the previous comparator had a
+ * "similar-impact" branch (when delta success rates were within 1pp,
+ * fall through to category/complexity/disruption tiebreakers) that
+ * was non-transitive — A < B < C < A configurations were possible
+ * because different pairs took different branches. Surfaced 2026-04-29
+ * after Phase 2.2 LTC inflation fix shifted scores enough that the
+ * `decision-engine.test.ts` strict ordering check started failing.
+ *
+ * Composite design:
+ *   - Primary signal: `recommendationScore` (already includes
+ *     disruption + complexity penalties via `calculateRecommendationScore`).
+ *   - Secondary nudge: `category === 'combo'` subtracts a small
+ *     constant. This preserves the original intent that simpler
+ *     non-combo recommendations break ties with similar-impact combos.
+ *     The nudge is small enough that materially-better combos still
+ *     outrank simpler options.
+ *
+ * Ties on the composite scalar fall through to alphabetical name
+ * for determinism. Result: pairwise-consistent total order, no
+ * cycles, sort output is the same as the comparator predicts.
+ */
+const COMBO_TIEBREAK_PENALTY = 1.0;
+
+export function compositeRecommendationRank(
+  candidate: LeverScenarioResult,
+): number {
+  const comboPenalty =
+    candidate.category === 'combo' ? COMBO_TIEBREAK_PENALTY : 0;
+  return candidate.recommendationScore - comboPenalty;
+}
+
 export function compareRecommendationCandidates(
   left: LeverScenarioResult,
   right: LeverScenarioResult,
 ) {
-  const successGap = Math.abs(left.delta.deltaSuccessRate - right.delta.deltaSuccessRate);
-  if (successGap <= SIMILAR_IMPACT_SUCCESS_DELTA) {
-    if (left.category !== right.category) {
-      if (left.category === 'combo') {
-        return 1;
-      }
-      if (right.category === 'combo') {
-        return -1;
-      }
-    }
-
-    const complexityGap =
-      COMPLEXITY_RANK[left.complexity] - COMPLEXITY_RANK[right.complexity];
-    if (complexityGap !== 0) {
-      return complexityGap;
-    }
-
-    const disruptionGap =
-      DISRUPTION_RANK[left.disruption] - DISRUPTION_RANK[right.disruption];
-    if (disruptionGap !== 0) {
-      return disruptionGap;
-    }
-  }
-
-  if (left.recommendationScore !== right.recommendationScore) {
-    return right.recommendationScore - left.recommendationScore;
-  }
-  if (left.delta.deltaSuccessRate !== right.delta.deltaSuccessRate) {
-    return right.delta.deltaSuccessRate - left.delta.deltaSuccessRate;
-  }
+  const rankDelta = compositeRecommendationRank(right) - compositeRecommendationRank(left);
+  if (rankDelta !== 0) return rankDelta;
+  // Pure tie on the composite scalar — alphabetical for deterministic
+  // output. Without this, `Array.sort` is implementation-defined for
+  // equal items, which breaks snapshot tests on engine drift.
   return left.name.localeCompare(right.name);
 }
 

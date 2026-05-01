@@ -103,19 +103,20 @@ describe('decision-engine layer', () => {
     expect(report.baseline.successRate).toBeLessThanOrEqual(1);
     expect(report.allScenarioResults.length).toBeGreaterThanOrEqual(20);
 
-    // 2026-04-29: relaxed from strict-pairwise-ordering check after the
-    // Phase 2.2 LTC inflation fix surfaced a pre-existing non-transitivity
-    // in compareRecommendationCandidates (similar-impact tie-break paths
-    // can violate transitivity, leaving Array.sort output in an order
-    // that satisfies most but not all adjacent pairs). The full fix lives
-    // in BACKLOG. This relaxed check verifies recommendations are sorted
-    // by recommendationScore descending, which is the dominant order
-    // criterion when impact ties don't trigger the tie-breakers.
-    const scoreOrderViolations = report.rankedRecommendations.filter(
-      (item, index, list) =>
-        index > 0 && list[index - 1].recommendationScore < item.recommendationScore - 0.01,
-    ).length;
-    expect(scoreOrderViolations).toBeLessThanOrEqual(2);
+    // Strict pairwise-ordering check, restored 2026-04-29 after the
+    // composite-rank rewrite of compareRecommendationCandidates fixed
+    // the pre-existing non-transitivity. Every adjacent pair in the
+    // ranked output must agree with the comparator — no exceptions.
+    // If this regresses, the comparator is non-transitive again.
+    for (let i = 1; i < report.rankedRecommendations.length; i += 1) {
+      const prev = report.rankedRecommendations[i - 1];
+      const curr = report.rankedRecommendations[i];
+      const cmp = compareRecommendationCandidates(prev, curr);
+      expect(
+        cmp,
+        `Pairwise ordering violated at index ${i}: ${prev.name} vs ${curr.name}`,
+      ).toBeLessThanOrEqual(0);
+    }
     expect(report.notes.length).toBeGreaterThan(0);
   });
 

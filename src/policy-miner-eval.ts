@@ -1,8 +1,18 @@
-import type { MarketAssumptions, SeedData } from './types';
-import { buildPathResults } from './utils';
+import type { MarketAssumptions, PathResult, SeedData } from './types';
+import type { SimulationRandomTape } from './random-tape';
+import { buildPathResults, buildPolicyMiningRandomTape } from './utils';
 import { approximateBequestAttainmentRate } from './plan-evaluation';
 import { policyId } from './policy-axis-enumerator';
 import type { Policy, PolicyEvaluation } from './policy-miner-types';
+import {
+  buildCandidateReplayPackage,
+  type CandidateReplayPackage,
+} from './candidate-replay-package';
+import {
+  deflateSummaryEndingWealth,
+  pathToPolicyMiningSummary,
+  type PolicyMiningSummary,
+} from './policy-mining-summary-contract';
 
 /**
  * Pure evaluation helpers for the policy miner.
@@ -27,6 +37,122 @@ import type { Policy, PolicyEvaluation } from './policy-miner-types';
 
 /** A function the host environment provides to clone SeedData safely. */
 export type SeedDataCloner = (seed: SeedData) => SeedData;
+
+export type PolicyEvaluationWithSummary = CandidateReplayPackage;
+
+export interface PolicyEvaluationTiming {
+  tapeRecordDurationMs: number;
+}
+
+export interface PolicyFullTraceOptions {
+  selectedStressors?: string[];
+  selectedResponses?: string[];
+  useHistoricalBootstrap?: boolean;
+}
+
+export function buildPolicyEvaluationFromSummary(input: {
+  policy: Policy;
+  summary: PolicyMiningSummary;
+  assumptions: MarketAssumptions;
+  baselineFingerprint: string;
+  engineVersion: string;
+  evaluatedByNodeId: string;
+  legacyTargetTodayDollars: number;
+  evaluationDurationMs: number;
+  evaluatedAtIso?: string;
+}): PolicyEvaluation {
+  const horizonYears = input.summary.monteCarloMetadata.planningHorizonYears ?? 30;
+  const inflation = input.assumptions.inflation ?? 0.025;
+  const todayDollars = deflateSummaryEndingWealth(
+    input.summary,
+    inflation,
+    horizonYears,
+  );
+  const bequestAttainmentRate =
+    input.legacyTargetTodayDollars > 0
+      ? approximateBequestAttainmentRate(input.legacyTargetTodayDollars, {
+          p10: todayDollars.p10,
+          p25: todayDollars.p25,
+          p50: todayDollars.p50,
+          p75: todayDollars.p75,
+          p90: todayDollars.p90,
+        })
+      : 1;
+
+  return {
+    id: policyId(
+      input.policy,
+      input.baselineFingerprint,
+      input.engineVersion,
+    ),
+    baselineFingerprint: input.baselineFingerprint,
+    engineVersion: input.engineVersion,
+    evaluatedByNodeId: input.evaluatedByNodeId,
+    evaluatedAtIso: input.evaluatedAtIso ?? new Date().toISOString(),
+    policy: input.policy,
+    outcome: {
+      solventSuccessRate: input.summary.successRate,
+      bequestAttainmentRate,
+      p10EndingWealthTodayDollars: todayDollars.p10,
+      p25EndingWealthTodayDollars: todayDollars.p25,
+      p50EndingWealthTodayDollars: todayDollars.p50,
+      p75EndingWealthTodayDollars: todayDollars.p75,
+      p90EndingWealthTodayDollars: todayDollars.p90,
+      // V1 placeholders — these need engine-side aggregation that isn't
+      // on PathResult yet. Phase A ships with success/cemetery only;
+      // V1.1 adds the spend / tax aggregations.
+      medianLifetimeSpendTodayDollars: 0,
+      medianSpendVolatility: 0,
+      medianLifetimeFederalTaxTodayDollars:
+        input.summary.annualFederalTaxEstimate ?? 0,
+      irmaaExposureRate: input.summary.irmaaExposureRate ?? 0,
+    },
+    evaluationDurationMs: input.evaluationDurationMs,
+  };
+}
+
+export function assumptionsForPolicy(
+  assumptions: MarketAssumptions,
+  policy: Policy,
+): MarketAssumptions {
+  return policy.withdrawalRule
+    ? { ...assumptions, withdrawalRule: policy.withdrawalRule }
+    : assumptions;
+}
+
+export function buildPolicyMiningReplayInput(
+  policy: Policy,
+  baseline: SeedData,
+  assumptions: MarketAssumptions,
+  baselineFingerprint: string,
+  engineVersion: string,
+  cloner: SeedDataCloner,
+  options: {
+    replayTape?: SimulationRandomTape;
+  } = {},
+) {
+  const seed = applyPolicyToSeed(cloner(baseline), policy);
+  const policyAssumptions = assumptionsForPolicy(assumptions, policy);
+  const tape =
+    options.replayTape ??
+    buildPolicyMiningRandomTape({
+      data: seed,
+      assumptions: policyAssumptions,
+      annualSpendTarget: policy.annualSpendTodayDollars,
+      label: `policy-miner:${policyId(
+        policy,
+        baselineFingerprint,
+        engineVersion,
+      )}`,
+    });
+  return {
+    candidateData: seed,
+    candidateAssumptions: policyAssumptions,
+    tape,
+    simulationMode: tape.simulationMode,
+    annualSpendTarget: policy.annualSpendTodayDollars,
+  };
+}
 
 /**
  * Apply a Policy to a SeedData baseline. Mutates the *clone*, not the
@@ -70,26 +196,6 @@ export function applyPolicyToSeed(seed: SeedData, policy: Policy): SeedData {
 }
 
 /**
- * Inflation-deflate a nominal future-dollar amount to today's dollars,
- * matching `spend-solver.ts:toTodayDollars` exactly.
- *
- * Inlined here rather than imported to keep the spend-solver module's
- * surface area minimal and to avoid an export from a hot-path file.
- */
-function toTodayDollars(
-  nominal: number,
-  inflation: number,
-  horizonYears: number,
-): number {
-  const factor = Math.pow(
-    1 + Math.max(-0.99, inflation),
-    Math.max(0, horizonYears),
-  );
-  if (factor <= 0) return nominal;
-  return nominal / factor;
-}
-
-/**
  * Run the engine on a single policy. The host passes its own SeedData
  * cloner so this module stays free of lodash / structuredClone version
  * concerns (the worker context may not have structuredClone).
@@ -104,75 +210,129 @@ export async function evaluatePolicy(
   cloner: SeedDataCloner,
   legacyTargetTodayDollars: number,
 ): Promise<PolicyEvaluation> {
+  const run = await evaluatePolicyWithSummary(
+    policy,
+    baseline,
+    assumptions,
+    baselineFingerprint,
+    engineVersion,
+    evaluatedByNodeId,
+    cloner,
+    legacyTargetTodayDollars,
+  );
+  return run.evaluation;
+}
+
+export async function evaluatePolicyWithSummary(
+  policy: Policy,
+  baseline: SeedData,
+  assumptions: MarketAssumptions,
+  baselineFingerprint: string,
+  engineVersion: string,
+  evaluatedByNodeId: string,
+  cloner: SeedDataCloner,
+  legacyTargetTodayDollars: number,
+  options: {
+    recordTape?: boolean;
+    onTiming?: (timing: PolicyEvaluationTiming) => void;
+  } = {},
+): Promise<CandidateReplayPackage> {
   const startMs = Date.now();
   const seed = applyPolicyToSeed(cloner(baseline), policy);
   // Per-candidate assumptions clone with the policy's withdrawal rule
   // applied. Mining sweeps this axis so each candidate runs against
   // its own rule; the engine reads `assumptions.withdrawalRule` in
   // `getStrategyBehavior` and the rule drives the per-year cascade.
-  const policyAssumptions: MarketAssumptions = policy.withdrawalRule
-    ? { ...assumptions, withdrawalRule: policy.withdrawalRule }
-    : assumptions;
+  const policyAssumptions = assumptionsForPolicy(assumptions, policy);
   // Run all four standard paths (baseline + downside + upside + selected
   // stressors). For the miner we want the BASELINE path — `paths[0]` per
   // convention — so we run with no stressors and pull the first path.
+  let recordedTape: CandidateReplayPackage['tape'];
+  let tapeRecordDurationMs = 0;
   const paths = buildPathResults(seed, policyAssumptions, [], [], {
     annualSpendTarget: policy.annualSpendTodayDollars,
     pathMode: 'selected_only',
+    outputLevel: 'policy_mining_summary',
+    randomTape: options.recordTape
+      ? {
+          mode: 'record',
+          label: `policy-miner:${policyId(
+            policy,
+            baselineFingerprint,
+            engineVersion,
+          )}`,
+          onRecord: (tape) => {
+            const tapeRecordStartedAt = performance.now();
+            recordedTape = tape;
+            tapeRecordDurationMs += performance.now() - tapeRecordStartedAt;
+          },
+        }
+      : undefined,
   });
+  options.onTiming?.({ tapeRecordDurationMs });
   const baselinePath = paths[0];
   if (!baselinePath) {
     throw new Error('evaluatePolicy: engine returned no path results');
   }
 
-  // Convert nominal cemetery percentiles to today's dollars. The horizon
-  // is (last-sim-year - first-sim-year). Use yearlySeries length as a
-  // proxy when an explicit horizon isn't on the path result.
-  const horizonYears = baselinePath.yearlySeries?.length ?? 30;
-  const inflation = assumptions.inflation ?? 0.025;
-  const deflate = (nominal: number) =>
-    toTodayDollars(nominal, inflation, horizonYears);
-  const todayDollarsP10 = deflate(baselinePath.endingWealthPercentiles.p10);
-  const todayDollarsP25 = deflate(baselinePath.endingWealthPercentiles.p25);
-  const todayDollarsP50 = deflate(baselinePath.endingWealthPercentiles.p50);
-  const todayDollarsP75 = deflate(baselinePath.endingWealthPercentiles.p75);
-  const todayDollarsP90 = deflate(baselinePath.endingWealthPercentiles.p90);
-
-  const bequestAttainmentRate =
-    legacyTargetTodayDollars > 0
-      ? approximateBequestAttainmentRate(legacyTargetTodayDollars, {
-          p10: todayDollarsP10,
-          p25: todayDollarsP25,
-          p50: todayDollarsP50,
-          p75: todayDollarsP75,
-          p90: todayDollarsP90,
-        })
-      : 1;
-
-  return {
-    id: policyId(policy, baselineFingerprint, engineVersion),
+  const summary = pathToPolicyMiningSummary(baselinePath);
+  const evaluation = buildPolicyEvaluationFromSummary({
+    policy,
+    summary,
+    assumptions: policyAssumptions,
     baselineFingerprint,
     engineVersion,
     evaluatedByNodeId,
-    evaluatedAtIso: new Date().toISOString(),
-    policy,
-    outcome: {
-      solventSuccessRate: baselinePath.successRate,
-      bequestAttainmentRate,
-      p10EndingWealthTodayDollars: todayDollarsP10,
-      p25EndingWealthTodayDollars: todayDollarsP25,
-      p50EndingWealthTodayDollars: todayDollarsP50,
-      p75EndingWealthTodayDollars: todayDollarsP75,
-      p90EndingWealthTodayDollars: todayDollarsP90,
-      // V1 placeholders — these need engine-side aggregation that isn't
-      // on PathResult yet. Phase A ships with success/cemetery only;
-      // V1.1 adds the spend / tax aggregations.
-      medianLifetimeSpendTodayDollars: 0,
-      medianSpendVolatility: 0,
-      medianLifetimeFederalTaxTodayDollars:
-        baselinePath.annualFederalTaxEstimate ?? 0,
-      irmaaExposureRate: baselinePath.irmaaExposureRate ?? 0,
-    },
+    legacyTargetTodayDollars,
     evaluationDurationMs: Date.now() - startMs,
-  };
+  });
+
+  return buildCandidateReplayPackage({
+    policy,
+    evaluation,
+    summary,
+    candidateData: seed,
+    candidateAssumptions: policyAssumptions,
+    tape: recordedTape,
+  });
+}
+
+/**
+ * Re-run one mined policy with the full explainability trace.
+ *
+ * Corpus mining uses `policy_mining_summary` so ranking stays cheap.
+ * Drilldowns and cockpit finalist views call this helper for the top
+ * candidate slice only, preserving the same policy mutation, withdrawal
+ * rule handling, and annual-spend target as the mining evaluator.
+ */
+export function evaluatePolicyFullTrace(
+  policy: Policy,
+  baseline: SeedData,
+  assumptions: MarketAssumptions,
+  cloner: SeedDataCloner,
+  options: PolicyFullTraceOptions = {},
+): PathResult {
+  const seed = applyPolicyToSeed(cloner(baseline), policy);
+  const policyAssumptions = assumptionsForPolicy(
+    options.useHistoricalBootstrap === undefined
+      ? assumptions
+      : { ...assumptions, useHistoricalBootstrap: options.useHistoricalBootstrap },
+    policy,
+  );
+  const paths = buildPathResults(
+    seed,
+    policyAssumptions,
+    options.selectedStressors ?? [],
+    options.selectedResponses ?? [],
+    {
+      annualSpendTarget: policy.annualSpendTodayDollars,
+      pathMode: 'selected_only',
+      outputLevel: 'full_trace',
+    },
+  );
+  const path = paths[0];
+  if (!path) {
+    throw new Error('evaluatePolicyFullTrace: engine returned no path results');
+  }
+  return path;
 }

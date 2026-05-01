@@ -1,4 +1,4 @@
-import type { MarketAssumptions, SeedData } from './types';
+import type { MarketAssumptions, PathResult, SeedData } from './types';
 import {
   policyId,
   countPolicyCandidates,
@@ -27,7 +27,12 @@ import type {
 // bottom so existing import sites (`policy-miner.worker.ts`,
 // `policy-miner.throughput.test.ts`, `PolicyMiningStatusCard.tsx`)
 // keep working unchanged.
-import { evaluatePolicy, type SeedDataCloner } from './policy-miner-eval';
+import {
+  evaluatePolicy,
+  evaluatePolicyFullTrace,
+  type SeedDataCloner,
+} from './policy-miner-eval';
+import { rankPolicies } from './policy-ranker';
 
 /**
  * V1 ranking comparator: among feasibility-passing candidates, prefer
@@ -769,11 +774,41 @@ export function runMiningSessionWithPool(args: {
   return handle;
 }
 
+export function rerunTopPoliciesFullTrace(args: {
+  evaluations: PolicyEvaluation[];
+  baseline: SeedData;
+  assumptions: MarketAssumptions;
+  cloner: SeedDataCloner;
+  topN?: number;
+  selectedStressors?: string[];
+  selectedResponses?: string[];
+  useHistoricalBootstrap?: boolean;
+}): Array<{ evaluation: PolicyEvaluation; path: PathResult }> {
+  const topN = Math.max(1, Math.floor(args.topN ?? 1));
+  return rankPolicies(args.evaluations)
+    .slice(0, topN)
+    .map((evaluation) => ({
+      evaluation,
+      path: evaluatePolicyFullTrace(
+        evaluation.policy,
+        args.baseline,
+        args.assumptions,
+        args.cloner,
+        {
+          selectedStressors: args.selectedStressors,
+          selectedResponses: args.selectedResponses,
+          useHistoricalBootstrap: args.useHistoricalBootstrap,
+        },
+      ),
+    }));
+}
+
 // Re-export the pure eval helpers so existing import sites
 // (`policy-miner.worker.ts`, `policy-miner.throughput.test.ts`,
 // `PolicyMiningStatusCard.tsx`) keep working unchanged.
 export {
   applyPolicyToSeed,
   evaluatePolicy,
+  evaluatePolicyFullTrace,
   type SeedDataCloner,
 } from './policy-miner-eval';

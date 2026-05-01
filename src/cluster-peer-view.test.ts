@@ -112,14 +112,12 @@ describe('perWorkerPolPerMinute', () => {
 });
 
 describe('totalPolPerMinute', () => {
-  it('returns null when either input is missing', () => {
-    expect(totalPolPerMinute(null, 8)).toBeNull();
-    expect(totalPolPerMinute(100, null)).toBeNull();
-    expect(totalPolPerMinute(100, 0)).toBeNull();
+  it('returns null when mean timing is missing', () => {
+    expect(totalPolPerMinute(null)).toBeNull();
   });
 
-  it('multiplies per-worker rate by worker count', () => {
-    expect(totalPolPerMinute(100, 8)).toBeCloseTo(600 * 8);
+  it('uses observed host-level ms/policy directly', () => {
+    expect(totalPolPerMinute(100)).toBeCloseTo(600);
   });
 });
 
@@ -133,7 +131,7 @@ describe('buildPeerView', () => {
     expect(view.status).toBe('live');
     expect(view.workerCount).toBe(8);
     expect(view.perWorkerPolPerMin).toBeCloseTo(60_000 / 200);
-    expect(view.totalPolPerMin).toBeCloseTo((60_000 / 200) * 8);
+    expect(view.totalPolPerMin).toBeCloseTo(60_000 / 200);
     expect(view.lastSeenAt).toBe(NOW - 1_000);
   });
 

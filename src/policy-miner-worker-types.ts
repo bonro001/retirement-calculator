@@ -1,5 +1,9 @@
 import type { MarketAssumptions, SeedData } from './types';
-import type { Policy, PolicyEvaluation } from './policy-miner-types';
+import type {
+  Policy,
+  PolicyEvaluation,
+  PolicyMinerShadowStats,
+} from './policy-miner-types';
 
 /**
  * Wire protocol for the policy-miner worker pool.
@@ -70,6 +74,7 @@ export interface PolicyMinerResultResponse {
   evaluations: PolicyEvaluation[];
   /** Wall-clock time the worker spent on this batch, milliseconds. */
   batchDurationMs: number;
+  shadowStats?: PolicyMinerShadowStats;
 }
 
 export interface PolicyMinerErrorResponse {
@@ -78,12 +83,14 @@ export interface PolicyMinerErrorResponse {
   error: string;
   /** Evaluations completed before the failure, if any. */
   partial: PolicyEvaluation[];
+  shadowStats?: PolicyMinerShadowStats;
 }
 
 export interface PolicyMinerCancelledResponse {
   type: 'cancelled';
   requestId: string;
   partial: PolicyEvaluation[];
+  shadowStats?: PolicyMinerShadowStats;
 }
 
 export type PolicyMinerWorkerResponse =

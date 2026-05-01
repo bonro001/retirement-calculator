@@ -54,6 +54,8 @@ import {
   type BatchAssignMessage,
   type CancelSessionMessage,
   type ClusterMessage,
+  type ClusterPeerMetrics,
+  type ClusterRuntimeMetrics,
   type ClusterSnapshot,
   type HostCapabilities,
   type PeerRole,
@@ -120,6 +122,20 @@ interface Peer {
   freeWorkerSlots: number;
   /** Batch ids the dispatcher has handed this peer and not yet seen acked. */
   inFlightBatchIds: Set<string>;
+  /** Estimated worker slots reserved by each in-flight batch. Host fan-out
+   *  can consume many slots for one batch, so batch-count alone is not
+   *  a safe capacity proxy. */
+  inFlightSlotReservations: Map<string, number>;
+  assignedBatches: number;
+  completedBatches: number;
+  nackedBatches: number;
+  capacityNacks: number;
+  assignedPolicies: number;
+  completedPolicies: number;
+  totalDispatchToResultMs: number;
+  busySlotMs: number;
+  idleWhilePendingSlotMs: number;
+  lastUtilizationSampleMs: number | null;
   /** Connection time, used for "uptime" diagnostics in logs. */
   connectedAtMs: number;
   /** Count of completed batches; threshold for "trust the measured mean
@@ -131,10 +147,25 @@ interface Peer {
   pumpCooldownUntilMs: number;
 }
 
+interface SessionRuntimeCounters {
+  batchesAssigned: number;
+  batchResults: number;
+  batchNacks: number;
+  capacityNacks: number;
+  policiesAssigned: number;
+  policiesCompleted: number;
+  policiesRequeued: number;
+  policiesDropped: number;
+  totalDispatchToResultMs: number;
+}
+
 /** How long after a nack to skip a peer in pumpDispatch. Long enough to
  *  let the host re-prime / recover; short enough that a healthy host
  *  bouncing one bad batch doesn't sit idle. */
 const NACK_COOLDOWN_MS = 1_000;
+/** Capacity NACKs are normal backpressure/race signals, not host failures.
+ *  Keep the pause short so a just-freed fast host can be fed promptly. */
+const CAPACITY_NACK_COOLDOWN_MS = 100;
 
 /**
  * Authoritative free-slot count for a peer. The peer's heartbeat-reported
@@ -146,25 +177,126 @@ const NACK_COOLDOWN_MS = 1_000;
  * `batch_result`, which the dispatcher treated as "complete" and
  * silently dropped the policies.
  *
- * The fix: derive free slots from `workerCount - inFlightBatchIds.size`.
- * Both numbers are owned by the dispatcher: workerCount comes from
- * register; inFlightBatchIds is updated whenever we assign / complete /
- * nack / disconnect. By construction this can't lie.
+ * The fix: derive free slots from `workerCount - reservedSlots`. Both
+ * numbers are owned by the dispatcher: workerCount comes from register;
+ * reservations are updated whenever we assign / complete / nack /
+ * disconnect. By construction this can't lie as badly as heartbeat lag.
  *
- * Note: this DOES overpack with the cluster/host.ts fan-out (commit
- * b2a7de9) where each batch consumes ALL of a host's worker slots. We
- * tested capping at 1-2 in-flight batches per host (commits 1a6f711+)
- * but it made cluster wall time WORSE at 500-policy scale: hosts went
- * idle waiting for the next batch between fan-out completions. The
- * existing overpack-and-nack behavior turns out to be the right tradeoff
- * for this workload — the host nacks promptly, the dispatcher requeues
- * with cooldown, and the next batch lands the moment the host has
- * capacity. A proper fix needs event-driven dispatch (host signals
- * "ready" when fan-out completes its LAST sub-batch); deferred work.
+ * Host fan-out means one batch can consume every worker slot on that host.
+ * Counting one in-flight batch as one slot overfeeds fast hosts and turns
+ * capacity backpressure into a storm of `host_no_free_slots` nacks.
  */
 function effectiveFreeSlots(peer: Peer): number {
   const total = peer.capabilities?.workerCount ?? 0;
-  return Math.max(0, total - peer.inFlightBatchIds.size);
+  let reserved = 0;
+  for (const slots of peer.inFlightSlotReservations.values()) {
+    reserved += slots;
+  }
+  return Math.max(0, total - reserved);
+}
+
+function reservedWorkerSlots(peer: Peer): number {
+  let reserved = 0;
+  for (const slots of peer.inFlightSlotReservations.values()) {
+    reserved += slots;
+  }
+  return reserved;
+}
+
+function resetPeerRuntimeMetrics(peer: Peer): void {
+  peer.assignedBatches = 0;
+  peer.completedBatches = 0;
+  peer.nackedBatches = 0;
+  peer.capacityNacks = 0;
+  peer.assignedPolicies = 0;
+  peer.completedPolicies = 0;
+  peer.totalDispatchToResultMs = 0;
+  peer.busySlotMs = 0;
+  peer.idleWhilePendingSlotMs = 0;
+  peer.lastUtilizationSampleMs = Date.now();
+}
+
+function maxBatchSizeForPeer(peer: Peer): number {
+  const runtime = peer.capabilities?.engineRuntime;
+  const workers = peer.capabilities?.workerCount ?? 1;
+  if (runtime === 'rust-native-compact') {
+    return Math.max(50, Math.min(200, workers * 16));
+  }
+  if (runtime === 'rust-native-compact-shadow') {
+    return Math.max(25, Math.min(100, workers * 8));
+  }
+  return 25;
+}
+
+function accountPeerUtilization(nowMs: number): void {
+  const pendingWorkExists = !!activeSession && activeSession.queue.pendingCount() > 0;
+  for (const peer of peers.values()) {
+    if (!peer.roles.includes('host')) continue;
+    if (peer.lastUtilizationSampleMs === null) {
+      peer.lastUtilizationSampleMs = nowMs;
+      continue;
+    }
+    const dt = Math.max(0, Math.min(10_000, nowMs - peer.lastUtilizationSampleMs));
+    peer.lastUtilizationSampleMs = nowMs;
+    if (!activeSession || dt === 0) continue;
+    const workers = peer.capabilities?.workerCount ?? 0;
+    if (workers <= 0) continue;
+    const busySlots = Math.min(workers, reservedWorkerSlots(peer));
+    peer.busySlotMs += busySlots * dt;
+    if (pendingWorkExists) {
+      peer.idleWhilePendingSlotMs += Math.max(0, workers - busySlots) * dt;
+    }
+  }
+}
+
+function buildPeerMetrics(peer: Peer): ClusterPeerMetrics {
+  const denominator = peer.busySlotMs + peer.idleWhilePendingSlotMs;
+  return {
+    assignedBatches: peer.assignedBatches,
+    completedBatches: peer.completedBatches,
+    nackedBatches: peer.nackedBatches,
+    capacityNacks: peer.capacityNacks,
+    assignedPolicies: peer.assignedPolicies,
+    completedPolicies: peer.completedPolicies,
+    reservedWorkerSlots: reservedWorkerSlots(peer),
+    busySlotMs: Math.round(peer.busySlotMs),
+    idleWhilePendingSlotMs: Math.round(peer.idleWhilePendingSlotMs),
+    utilizationRate: denominator > 0 ? peer.busySlotMs / denominator : null,
+    avgDispatchToResultMs:
+      peer.completedBatches > 0 ? peer.totalDispatchToResultMs / peer.completedBatches : null,
+  };
+}
+
+function buildRuntimeMetrics(queueSnap: ReturnType<WorkQueue['snapshot']>): ClusterRuntimeMetrics | undefined {
+  if (!activeSession) return undefined;
+  let hostBusySlotMs = 0;
+  let hostIdleWhilePendingSlotMs = 0;
+  for (const peer of peers.values()) {
+    if (!peer.roles.includes('host')) continue;
+    hostBusySlotMs += peer.busySlotMs;
+    hostIdleWhilePendingSlotMs += peer.idleWhilePendingSlotMs;
+  }
+  const m = activeSession.runtimeMetrics;
+  const utilizationDenominator = hostBusySlotMs + hostIdleWhilePendingSlotMs;
+  return {
+    pendingPolicies: queueSnap.pendingCount,
+    inFlightBatches: queueSnap.inFlightCount,
+    batchesAssigned: m.batchesAssigned,
+    batchResults: m.batchResults,
+    batchNacks: m.batchNacks,
+    capacityNacks: m.capacityNacks,
+    policiesAssigned: m.policiesAssigned,
+    policiesCompleted: m.policiesCompleted,
+    policiesRequeued: m.policiesRequeued,
+    policiesDropped: m.policiesDropped,
+    avgBatchSize: m.batchesAssigned > 0 ? m.policiesAssigned / m.batchesAssigned : null,
+    avgDispatchToResultMs:
+      m.batchResults > 0 ? m.totalDispatchToResultMs / m.batchResults : null,
+    hostBusySlotMs: Math.round(hostBusySlotMs),
+    hostIdleWhilePendingSlotMs: Math.round(hostIdleWhilePendingSlotMs),
+    hostUtilizationRate:
+      utilizationDenominator > 0 ? hostBusySlotMs / utilizationDenominator : null,
+  };
 }
 
 const peers = new Map<string, Peer>();
@@ -225,6 +357,7 @@ interface ActiveSession {
    *  the fine queue and the snapshot's progress denominator must keep
    *  the original headline (X of original-N evaluated). */
   coarseTotalPolicies: number;
+  runtimeMetrics: SessionRuntimeCounters;
 }
 
 let activeSession: ActiveSession | null = null;
@@ -287,6 +420,7 @@ function log(level: 'info' | 'warn' | 'error', message: string, meta?: Record<st
  * `peers` + `activeSession` so tests can stub it.
  */
 function buildClusterSnapshot(): ClusterSnapshot {
+  accountPeerUtilization(Date.now());
   let session: ClusterSnapshot['session'] = null;
   if (activeSession) {
     const queueSnap = activeSession.queue.snapshot();
@@ -336,6 +470,7 @@ function buildClusterSnapshot(): ClusterSnapshot {
       sessionId: activeSession.sessionId,
       startedAtIso: activeSession.startedAtIso,
       stats,
+      metrics: buildRuntimeMetrics(queueSnap),
     };
   }
   return {
@@ -348,6 +483,7 @@ function buildClusterSnapshot(): ClusterSnapshot {
       lastHeartbeatTs: p.lastHeartbeatTs,
       meanMsPerPolicy: p.meanMsPerPolicy,
       inFlightBatchCount: p.inFlightBatchIds.size,
+      metrics: p.roles.includes('host') ? buildPeerMetrics(p) : undefined,
     })),
     session,
   };
@@ -460,6 +596,17 @@ function handleRegister(socket: WebSocket, registration: RegisterMessage, remote
     // first batch before any heartbeat arrives. Heartbeats refine this.
     freeWorkerSlots: registration.capabilities?.workerCount ?? 0,
     inFlightBatchIds: new Set(),
+    inFlightSlotReservations: new Map(),
+    assignedBatches: 0,
+    completedBatches: 0,
+    nackedBatches: 0,
+    capacityNacks: 0,
+    assignedPolicies: 0,
+    completedPolicies: 0,
+    totalDispatchToResultMs: 0,
+    busySlotMs: 0,
+    idleWhilePendingSlotMs: 0,
+    lastUtilizationSampleMs: null,
     connectedAtMs: Date.now(),
     completedBatchCount: 0,
     pumpCooldownUntilMs: 0,
@@ -508,6 +655,8 @@ function handleDisconnect(peer: Peer | null, reason: string): void {
     const r = activeSession.queue.requeueAllForPeer(peer.peerId);
     requeued = r.requeued;
     dropped = r.dropped;
+    activeSession.runtimeMetrics.policiesRequeued += requeued;
+    activeSession.runtimeMetrics.policiesDropped += dropped;
   }
   log('info', 'peer disconnected', {
     peerId: peer.peerId,
@@ -675,6 +824,17 @@ function handleStartSession(peer: Peer, message: StartSessionMessage): void {
     coarseEvaluatedTotal: 0,
     coarseScreenedOutTotal: 0,
     coarseTotalPolicies,
+    runtimeMetrics: {
+      batchesAssigned: 0,
+      batchResults: 0,
+      batchNacks: 0,
+      capacityNacks: 0,
+      policiesAssigned: 0,
+      policiesCompleted: 0,
+      policiesRequeued: 0,
+      policiesDropped: 0,
+      totalDispatchToResultMs: 0,
+    },
   };
 
   // Phase 2.C bug fix: reset per-host throughput EWMAs at session start.
@@ -690,6 +850,7 @@ function handleStartSession(peer: Peer, message: StartSessionMessage): void {
   for (const p of peers.values()) {
     p.meanMsPerPolicy = null;
     p.completedBatchCount = 0;
+    resetPeerRuntimeMetrics(p);
   }
 
   log('info', isResume ? 'session resumed' : 'session started', {
@@ -810,6 +971,7 @@ function endSession(state: 'completed' | 'cancelled' | 'error', reason?: string)
   // keeps the cluster snapshot honest immediately.
   for (const peer of peers.values()) {
     peer.inFlightBatchIds.clear();
+    peer.inFlightSlotReservations.clear();
   }
 
   log('info', 'session ended', {
@@ -898,6 +1060,7 @@ function pumpDispatch(): void {
       peer.completedBatchCount >= 3 ? peer.meanMsPerPolicy : null,
       session.queue.pendingCount(),
       batchTrialCount,
+      { maxBatchSize: maxBatchSizeForPeer(peer) },
     );
     const assigned = session.queue.assignBatch(peer.peerId, size);
     if (!assigned) continue;
@@ -919,9 +1082,18 @@ function pumpDispatch(): void {
     };
     sendTo(peer, batchAssign);
     peer.inFlightBatchIds.add(assigned.batchId);
+    const reservedSlots = Math.max(
+      1,
+      Math.min(assigned.policies.length, peer.capabilities?.workerCount ?? 1),
+    );
+    peer.inFlightSlotReservations.set(assigned.batchId, reservedSlots);
+    peer.assignedBatches += 1;
+    peer.assignedPolicies += assigned.policies.length;
+    session.runtimeMetrics.batchesAssigned += 1;
+    session.runtimeMetrics.policiesAssigned += assigned.policies.length;
     // No optimistic decrement of peer.freeWorkerSlots: that field is
-    // now informational only. inFlightBatchIds.add IS the decrement
-    // (effectiveFreeSlots reads it directly).
+    // informational only. Slot reservations are the decrement
+    // (effectiveFreeSlots reads them directly).
   }
 }
 
@@ -1045,6 +1217,21 @@ function handleBatchResult(peer: Peer, message: Extract<ClusterMessage, { kind: 
     return;
   }
   const session = activeSession;
+  if (message.result.shadowStats) {
+    log(
+      message.result.shadowStats.mismatches > 0 ||
+        message.result.shadowStats.errors > 0 ||
+        message.result.shadowStats.skipped > 0
+        ? 'warn'
+        : 'info',
+      'engine shadow batch telemetry',
+      {
+        from: peer.peerId,
+        batchId: message.result.batchId,
+        ...message.result.shadowStats,
+      },
+    );
+  }
 
   // Phase 2.C: route by stage.
   //   - coarse: collect into in-memory buffer; never touches the corpus.
@@ -1104,6 +1291,13 @@ function handleBatchResult(peer: Peer, message: Extract<ClusterMessage, { kind: 
   // EWMA; we keep the EWMA so a single slow batch doesn't tank the
   // estimate that the next pump uses for sizing.
   if (message.result.evaluations.length > 0) {
+    const dispatchToResultMs = Date.now() - completed.assignedAtMs;
+    peer.completedBatches += 1;
+    peer.completedPolicies += completed.policies.length;
+    peer.totalDispatchToResultMs += dispatchToResultMs;
+    session.runtimeMetrics.batchResults += 1;
+    session.runtimeMetrics.policiesCompleted += completed.policies.length;
+    session.runtimeMetrics.totalDispatchToResultMs += dispatchToResultMs;
     const batchMsPerPolicy = message.result.batchDurationMs / message.result.evaluations.length;
     if (peer.meanMsPerPolicy === null) {
       peer.meanMsPerPolicy = batchMsPerPolicy;
@@ -1128,8 +1322,9 @@ function handleBatchResult(peer: Peer, message: Extract<ClusterMessage, { kind: 
     session.bestPolicyId = appendOutcome.runningBest.id;
   }
   peer.inFlightBatchIds.delete(message.result.batchId);
+  peer.inFlightSlotReservations.delete(message.result.batchId);
   // No need to bump peer.freeWorkerSlots — effectiveFreeSlots reads
-  // inFlightBatchIds.size directly, and the delete above IS the bump.
+  // slot reservations directly, and the delete above IS the bump.
 
   // Ack so the host clears its in-flight tracking.
   sendTo(peer, {
@@ -1175,23 +1370,34 @@ function handleBatchNack(peer: Peer, message: Extract<ClusterMessage, { kind: 'b
     });
     return;
   }
-  const r = activeSession.queue.requeueBatch(message.batchId);
+  const isCapacityNack = message.reason === 'host_no_free_slots';
+  const r = activeSession.queue.requeueBatch(message.batchId, {
+    countAttemptFailure: !isCapacityNack,
+  });
   peer.inFlightBatchIds.delete(message.batchId);
-  // effectiveFreeSlots reads inFlightBatchIds.size directly — no need
+  peer.inFlightSlotReservations.delete(message.batchId);
+  peer.nackedBatches += 1;
+  if (isCapacityNack) peer.capacityNacks += 1;
+  activeSession.runtimeMetrics.batchNacks += 1;
+  if (isCapacityNack) activeSession.runtimeMetrics.capacityNacks += 1;
+  activeSession.runtimeMetrics.policiesRequeued += r?.requeued ?? 0;
+  activeSession.runtimeMetrics.policiesDropped += r?.dropped ?? 0;
+  // effectiveFreeSlots reads slot reservations directly — no need
   // to touch peer.freeWorkerSlots.
   // Cool-down: don't reassign to this peer for a moment. Without this, a
   // peer that's permanently broken (priming failure, stale state) and a
   // dispatcher that always pumps on nack go into a tight infinite-loop
   // racing through batch ids. The 1Hz failsafe pump will retry within a
   // second — plenty fast.
-  peer.pumpCooldownUntilMs = Date.now() + NACK_COOLDOWN_MS;
+  const cooldownMs = isCapacityNack ? CAPACITY_NACK_COOLDOWN_MS : NACK_COOLDOWN_MS;
+  peer.pumpCooldownUntilMs = Date.now() + cooldownMs;
   log('info', 'batch nacked', {
     from: peer.peerId,
     batchId: message.batchId,
     reason: message.reason,
     requeuedPolicies: r?.requeued ?? 0,
     droppedPolicies: r?.dropped ?? 0,
-    cooldownMs: NACK_COOLDOWN_MS,
+    cooldownMs,
   });
   if (r && r.dropped > 0) {
     log('warn', 'dropped policies after exhausting attempts', {
@@ -1344,7 +1550,7 @@ function getCorpusRoot(): string | undefined {
   return CLUSTER_DATA_ROOT;
 }
 
-function startDispatcher(port: number): void {
+function startDispatcher(port: number, host?: string): void {
   const httpServer = createServer((req, res) => {
     applyCorsHeaders(res);
 
@@ -1573,8 +1779,9 @@ function startDispatcher(port: number): void {
     });
   });
 
-  httpServer.listen(port, () => {
+  httpServer.listen(port, host, () => {
     log('info', 'dispatcher listening', {
+      host: host ?? '0.0.0.0',
       port,
       protocolVersion: MINING_PROTOCOL_VERSION,
       heartbeatIntervalMs: HEARTBEAT_INTERVAL_MS,
@@ -1662,4 +1869,4 @@ if (!Number.isFinite(port) || port <= 0 || port > 65_535) {
   console.error(`invalid DISPATCHER_PORT="${portEnv}"`);
   process.exit(1);
 }
-startDispatcher(port);
+startDispatcher(port, process.env.DISPATCHER_HOST);

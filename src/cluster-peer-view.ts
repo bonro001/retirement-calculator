@@ -65,16 +65,21 @@ export interface PeerView {
    *  snapshot for live/stale; carried forward for ghosts. */
   lastHeartbeatTs: number | null;
   meanMsPerPolicy: number | null;
-  /** Aggregate pol/min for the host (workerCount × per-worker rate).
-   *  Null until we have at least one completed batch. */
+  /** Observed host pol/min from dispatcher batch wall time. The host may
+   *  fan one batch across all workers, so multiplying by workerCount
+   *  would double-count capacity. */
   totalPolPerMin: number | null;
-  /** pol/min/worker — what the existing UI showed. */
+  /** Legacy name kept for callers; now the same observed host rate. */
   perWorkerPolPerMin: number | null;
   /** Batches in flight at last snapshot. Always 0 for ghosts. */
   inFlightBatchCount: number;
   /** Workers this host advertised. Null when capabilities is missing
    *  (controllers that aren't also hosts). */
   workerCount: number | null;
+  reservedWorkerSlots: number;
+  utilizationRate: number | null;
+  capacityNacks: number;
+  avgDispatchToResultMs: number | null;
 }
 
 /** Ghost entry — a peer that left the snapshot, kept for grace period. */
@@ -127,6 +132,34 @@ export function formatPerfClass(
 }
 
 /**
+ * Compact runtime label for the host list. The raw env values are useful
+ * in logs, but too wide for the status row.
+ */
+export function formatEngineRuntime(runtime: string | undefined): string {
+  switch (runtime) {
+    case 'rust-native-compact':
+      return 'Rust compact';
+    case 'rust-native-compact-shadow':
+      return 'Rust shadow';
+    case 'rust-native-shadow':
+      return 'Rust native shadow';
+    case 'rust-shadow':
+      return 'Rust shadow';
+    case 'rust-dry-run':
+      return 'Rust dry-run';
+    case 'ts-browser':
+      return 'TS browser';
+    case 'ts':
+      return 'TS';
+    case undefined:
+    case '':
+      return '? runtime';
+    default:
+      return runtime;
+  }
+}
+
+/**
  * Per-worker pol/min from a mean ms/policy. Returns null when the host
  * hasn't completed a batch yet — better to show "awaiting first batch"
  * than a misleading 0.
@@ -139,16 +172,14 @@ export function perWorkerPolPerMinute(
 }
 
 /**
- * Aggregate host throughput in pol/min. Multiplies the per-worker rate
- * by the worker count. Returns null when either input is missing.
+ * Observed host throughput in pol/min. `meanMsPerPolicy` is already
+ * measured from the full batch wall time, so it represents host-level
+ * throughput for fan-out hosts.
  */
 export function totalPolPerMinute(
   meanMsPerPolicy: number | null,
-  workerCount: number | null,
 ): number | null {
-  const perWorker = perWorkerPolPerMinute(meanMsPerPolicy);
-  if (perWorker == null || workerCount == null || workerCount <= 0) return null;
-  return perWorker * workerCount;
+  return perWorkerPolPerMinute(meanMsPerPolicy);
 }
 
 /**
@@ -161,6 +192,7 @@ export function buildPeerView(
 ): PeerView {
   const status = classifyPeerStatus(peer.lastHeartbeatTs, nowMs);
   const workerCount = peer.capabilities?.workerCount ?? null;
+  const isHost = peer.roles.includes('host') && workerCount !== null && workerCount > 0;
   return {
     peerId: peer.peerId,
     displayName: peer.displayName,
@@ -170,10 +202,14 @@ export function buildPeerView(
     lastSeenAt: peer.lastHeartbeatTs ?? nowMs,
     lastHeartbeatTs: peer.lastHeartbeatTs,
     meanMsPerPolicy: peer.meanMsPerPolicy,
-    totalPolPerMin: totalPolPerMinute(peer.meanMsPerPolicy, workerCount),
-    perWorkerPolPerMin: perWorkerPolPerMinute(peer.meanMsPerPolicy),
+    totalPolPerMin: isHost ? totalPolPerMinute(peer.meanMsPerPolicy) : null,
+    perWorkerPolPerMin: isHost ? perWorkerPolPerMinute(peer.meanMsPerPolicy) : null,
     inFlightBatchCount: peer.inFlightBatchCount,
     workerCount,
+    reservedWorkerSlots: peer.metrics?.reservedWorkerSlots ?? peer.inFlightBatchCount,
+    utilizationRate: peer.metrics?.utilizationRate ?? null,
+    capacityNacks: peer.metrics?.capacityNacks ?? 0,
+    avgDispatchToResultMs: peer.metrics?.avgDispatchToResultMs ?? null,
   };
 }
 
@@ -185,6 +221,7 @@ export function buildPeerView(
 export function buildGhostView(ghost: PeerGhost): PeerView {
   const peer = ghost.peer;
   const workerCount = peer.capabilities?.workerCount ?? null;
+  const isHost = peer.roles.includes('host') && workerCount !== null && workerCount > 0;
   return {
     peerId: peer.peerId,
     displayName: peer.displayName,
@@ -194,10 +231,14 @@ export function buildGhostView(ghost: PeerGhost): PeerView {
     lastSeenAt: ghost.disappearedAt,
     lastHeartbeatTs: peer.lastHeartbeatTs,
     meanMsPerPolicy: peer.meanMsPerPolicy,
-    totalPolPerMin: totalPolPerMinute(peer.meanMsPerPolicy, workerCount),
-    perWorkerPolPerMin: perWorkerPolPerMinute(peer.meanMsPerPolicy),
+    totalPolPerMin: isHost ? totalPolPerMinute(peer.meanMsPerPolicy) : null,
+    perWorkerPolPerMin: isHost ? perWorkerPolPerMinute(peer.meanMsPerPolicy) : null,
     inFlightBatchCount: 0,
     workerCount,
+    reservedWorkerSlots: 0,
+    utilizationRate: peer.metrics?.utilizationRate ?? null,
+    capacityNacks: peer.metrics?.capacityNacks ?? 0,
+    avgDispatchToResultMs: peer.metrics?.avgDispatchToResultMs ?? null,
   };
 }
 

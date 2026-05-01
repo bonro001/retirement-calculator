@@ -70,10 +70,19 @@ const EXPLICIT_HOLDING_MAP: Record<string, AssetClassExposure> = {
   BND: { BONDS: 1 },
   VTI: { US_EQUITY: 1 },
   VXUS: { INTL_EQUITY: 1 },
-  FCNTX: { US_EQUITY: 1 },
+  // 2026-04-30 — Fidelity Contrafund (FCNTX) ACTUAL composition per
+  // most recent fact sheet: ~90% US equities, ~8% non-US equities,
+  // ~2% short-term/cash. Previously mapped 100% US, which materially
+  // overstated US-equity exposure in the engine vs Fidelity's
+  // reported 65% portfolio mix (FCNTX is the biggest single position
+  // at ~$258k in the household's Roth).
+  FCNTX: { US_EQUITY: 0.9, INTL_EQUITY: 0.08, CASH: 0.02 },
   FXAIX: { US_EQUITY: 1 },
   IEFA: { INTL_EQUITY: 1 },
-  FDGRX: { US_EQUITY: 1 },
+  // Fidelity Growth Company (FDGRX) ACTUAL: ~95% US, ~4% non-US,
+  // ~1% cash. Smaller position so impact is minor but worth getting
+  // right while we're touching this map.
+  FDGRX: { US_EQUITY: 0.95, INTL_EQUITY: 0.04, CASH: 0.01 },
   IJH: { US_EQUITY: 1 },
   IEMG: { INTL_EQUITY: 1 },
   MUB: { BONDS: 1 },

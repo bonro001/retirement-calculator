@@ -126,6 +126,9 @@ export interface SpendSolverResult {
   p10EndingWealth: number;
   p90EndingWealth: number;
   p10EndingWealthTodayDollars: number;
+  p25EndingWealthTodayDollars: number;
+  medianEndingWealthTodayDollars: number;
+  p75EndingWealthTodayDollars: number;
   p90EndingWealthTodayDollars: number;
   endingWealthOneSigmaApproxTodayDollars: number;
   endingWealthOneSigmaLowerTodayDollars: number;
@@ -2431,6 +2434,9 @@ export function solveSpendByReverseTimeline(input: SpendSolverInputs): SpendSolv
     p10EndingWealth,
     p90EndingWealth,
     p10EndingWealthTodayDollars,
+    p25EndingWealthTodayDollars,
+    medianEndingWealthTodayDollars: recommended.projectedLegacyTodayDollars,
+    p75EndingWealthTodayDollars,
     p90EndingWealthTodayDollars,
     endingWealthOneSigmaApproxTodayDollars,
     endingWealthOneSigmaLowerTodayDollars,

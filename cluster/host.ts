@@ -67,6 +67,7 @@ import type {
   MiningJobResult,
   Policy,
   PolicyEvaluation,
+  PolicyMinerShadowStats,
 } from '../src/policy-miner-types';
 import type {
   PolicyMinerWorkerRequest,
@@ -123,6 +124,9 @@ const PLATFORM_DESCRIPTOR =
   process.env.HOST_PLATFORM_DESCRIPTOR ??
   `${platform()}-${arch()}-${cpus().length}cpu`;
 
+const HOST_ENGINE_RUNTIME =
+  process.env.ENGINE_RUNTIME ?? process.env.ENGINE_RUNTIME_DEFAULT ?? 'ts';
+
 // ---------------------------------------------------------------------------
 // Logging — tagged with hostname so multi-host log scraping is easy
 // ---------------------------------------------------------------------------
@@ -157,8 +161,13 @@ interface WorkerSlot {
 }
 
 interface PendingRun {
-  resolve: (evals: PolicyEvaluation[]) => void;
-  reject: (err: Error & { partial?: PolicyEvaluation[] }) => void;
+  resolve: (result: WorkerRunResult) => void;
+  reject: (err: Error & { partial?: PolicyEvaluation[]; shadowStats?: PolicyMinerShadowStats }) => void;
+}
+
+interface WorkerRunResult {
+  evaluations: PolicyEvaluation[];
+  shadowStats?: PolicyMinerShadowStats;
 }
 
 const slots: WorkerSlot[] = [];
@@ -225,18 +234,25 @@ function handleWorkerMessage(
   pendingRuns.delete(msg.requestId);
   slot.busy = false;
   if (msg.type === 'result') {
-    pending.resolve(msg.evaluations);
+    pending.resolve({
+      evaluations: msg.evaluations,
+      shadowStats: msg.shadowStats,
+    });
     return;
   }
   if (msg.type === 'cancelled') {
     const err = Object.assign(new Error('POLICY_MINER_CANCELLED'), {
       partial: msg.partial,
+      shadowStats: msg.shadowStats,
     });
     pending.reject(err);
     return;
   }
   // 'error'
-  const err = Object.assign(new Error(msg.error), { partial: msg.partial });
+  const err = Object.assign(new Error(msg.error), {
+    partial: msg.partial,
+    shadowStats: msg.shadowStats,
+  });
   pending.reject(err);
 }
 
@@ -245,6 +261,163 @@ function pickFreeSlot(): WorkerSlot | null {
     if (!slot.busy) return slot;
   }
   return null;
+}
+
+function combineShadowStats(
+  stats: Array<PolicyMinerShadowStats | undefined>,
+): PolicyMinerShadowStats | undefined {
+  const present = stats.filter(
+    (item): item is PolicyMinerShadowStats => Boolean(item),
+  );
+  if (present.length === 0) return undefined;
+  const runtime = present[0].runtime;
+  const sumTiming = (
+    total: PolicyMinerShadowStats,
+    item: PolicyMinerShadowStats,
+    key: keyof NonNullable<PolicyMinerShadowStats['timings']>,
+  ) => Number(total.timings?.[key] ?? 0) + Number(item.timings?.[key] ?? 0);
+  const avgTiming = (
+    total: PolicyMinerShadowStats,
+    item: PolicyMinerShadowStats,
+    key: keyof NonNullable<PolicyMinerShadowStats['timings']>,
+  ) => {
+    const evaluated = total.evaluated + item.evaluated;
+    return evaluated > 0 ? sumTiming(total, item, key) / evaluated : 0;
+  };
+  return present.reduce<PolicyMinerShadowStats>(
+    (total, item) => ({
+      runtime,
+      evaluated: total.evaluated + item.evaluated,
+      mismatches: total.mismatches + item.mismatches,
+      errors: total.errors + item.errors,
+      skipped: total.skipped + item.skipped,
+      timings: {
+        tsEvaluationDurationMsTotal:
+          (total.timings?.tsEvaluationDurationMsTotal ?? 0) +
+          (item.timings?.tsEvaluationDurationMsTotal ?? 0),
+        rustSummaryDurationMsTotal:
+          (total.timings?.rustSummaryDurationMsTotal ?? 0) +
+          (item.timings?.rustSummaryDurationMsTotal ?? 0),
+        tsEvaluationDurationMsAverage:
+          total.evaluated + item.evaluated > 0
+            ? ((total.timings?.tsEvaluationDurationMsTotal ?? 0) +
+                (item.timings?.tsEvaluationDurationMsTotal ?? 0)) /
+              (total.evaluated + item.evaluated)
+            : 0,
+        rustSummaryDurationMsAverage:
+          total.evaluated + item.evaluated > 0
+            ? ((total.timings?.rustSummaryDurationMsTotal ?? 0) +
+                (item.timings?.rustSummaryDurationMsTotal ?? 0)) /
+              (total.evaluated + item.evaluated)
+            : 0,
+        tapeRecordDurationMsTotal: sumTiming(total, item, 'tapeRecordDurationMsTotal'),
+        requestBuildDurationMsTotal: sumTiming(total, item, 'requestBuildDurationMsTotal'),
+        rustIpcWriteDurationMsTotal: sumTiming(total, item, 'rustIpcWriteDurationMsTotal'),
+        rustResponseWaitDurationMsTotal: sumTiming(total, item, 'rustResponseWaitDurationMsTotal'),
+        rustResponseParseDurationMsTotal: sumTiming(total, item, 'rustResponseParseDurationMsTotal'),
+        rustTotalDurationMsTotal: sumTiming(total, item, 'rustTotalDurationMsTotal'),
+        compareDurationMsTotal: sumTiming(total, item, 'compareDurationMsTotal'),
+        candidateRequestBytesTotal: sumTiming(total, item, 'candidateRequestBytesTotal'),
+        candidateRequestDataBytesTotal: sumTiming(total, item, 'candidateRequestDataBytesTotal'),
+        candidateRequestAssumptionsBytesTotal: sumTiming(total, item, 'candidateRequestAssumptionsBytesTotal'),
+        candidateRequestTapeBytesTotal: sumTiming(total, item, 'candidateRequestTapeBytesTotal'),
+        candidateRequestTapeBytesSavedTotal: sumTiming(
+          total,
+          item,
+          'candidateRequestTapeBytesSavedTotal',
+        ),
+        candidateRequestEnvelopeBytesTotal: sumTiming(total, item, 'candidateRequestEnvelopeBytesTotal'),
+        rustResponseBytesTotal: sumTiming(total, item, 'rustResponseBytesTotal'),
+        tapeCacheHitsTotal: sumTiming(total, item, 'tapeCacheHitsTotal'),
+        tapeCacheMissesTotal: sumTiming(total, item, 'tapeCacheMissesTotal'),
+        compactTapeCacheHitsTotal: sumTiming(total, item, 'compactTapeCacheHitsTotal'),
+        compactTapeCacheMissesTotal: sumTiming(total, item, 'compactTapeCacheMissesTotal'),
+        tapeRecordDurationMsAverage: avgTiming(total, item, 'tapeRecordDurationMsTotal'),
+        requestBuildDurationMsAverage: avgTiming(total, item, 'requestBuildDurationMsTotal'),
+        rustIpcWriteDurationMsAverage: avgTiming(total, item, 'rustIpcWriteDurationMsTotal'),
+        rustResponseWaitDurationMsAverage: avgTiming(total, item, 'rustResponseWaitDurationMsTotal'),
+        rustResponseParseDurationMsAverage: avgTiming(total, item, 'rustResponseParseDurationMsTotal'),
+        rustTotalDurationMsAverage: avgTiming(total, item, 'rustTotalDurationMsTotal'),
+        compareDurationMsAverage: avgTiming(total, item, 'compareDurationMsTotal'),
+        candidateRequestBytesAverage: avgTiming(total, item, 'candidateRequestBytesTotal'),
+        candidateRequestDataBytesAverage: avgTiming(total, item, 'candidateRequestDataBytesTotal'),
+        candidateRequestAssumptionsBytesAverage: avgTiming(total, item, 'candidateRequestAssumptionsBytesTotal'),
+        candidateRequestTapeBytesAverage: avgTiming(total, item, 'candidateRequestTapeBytesTotal'),
+        candidateRequestTapeBytesSavedAverage: avgTiming(
+          total,
+          item,
+          'candidateRequestTapeBytesSavedTotal',
+        ),
+        candidateRequestEnvelopeBytesAverage: avgTiming(total, item, 'candidateRequestEnvelopeBytesTotal'),
+        rustResponseBytesAverage: avgTiming(total, item, 'rustResponseBytesTotal'),
+        tapeCacheHitRate:
+          sumTiming(total, item, 'tapeCacheHitsTotal') +
+            sumTiming(total, item, 'tapeCacheMissesTotal') >
+          0
+            ? sumTiming(total, item, 'tapeCacheHitsTotal') /
+              (sumTiming(total, item, 'tapeCacheHitsTotal') +
+                sumTiming(total, item, 'tapeCacheMissesTotal'))
+            : 0,
+        compactTapeCacheHitRate:
+          sumTiming(total, item, 'compactTapeCacheHitsTotal') +
+            sumTiming(total, item, 'compactTapeCacheMissesTotal') >
+          0
+            ? sumTiming(total, item, 'compactTapeCacheHitsTotal') /
+              (sumTiming(total, item, 'compactTapeCacheHitsTotal') +
+                sumTiming(total, item, 'compactTapeCacheMissesTotal'))
+            : 0,
+      },
+      firstMismatch: total.firstMismatch ?? item.firstMismatch,
+    }),
+    {
+      runtime,
+      evaluated: 0,
+      mismatches: 0,
+      errors: 0,
+      skipped: 0,
+      timings: {
+        tsEvaluationDurationMsTotal: 0,
+        rustSummaryDurationMsTotal: 0,
+        tsEvaluationDurationMsAverage: 0,
+        rustSummaryDurationMsAverage: 0,
+        tapeRecordDurationMsTotal: 0,
+        requestBuildDurationMsTotal: 0,
+        rustIpcWriteDurationMsTotal: 0,
+        rustResponseWaitDurationMsTotal: 0,
+        rustResponseParseDurationMsTotal: 0,
+        rustTotalDurationMsTotal: 0,
+        compareDurationMsTotal: 0,
+        candidateRequestBytesTotal: 0,
+        candidateRequestDataBytesTotal: 0,
+        candidateRequestAssumptionsBytesTotal: 0,
+        candidateRequestTapeBytesTotal: 0,
+        candidateRequestTapeBytesSavedTotal: 0,
+        candidateRequestEnvelopeBytesTotal: 0,
+        rustResponseBytesTotal: 0,
+        tapeCacheHitsTotal: 0,
+        tapeCacheMissesTotal: 0,
+        compactTapeCacheHitsTotal: 0,
+        compactTapeCacheMissesTotal: 0,
+        tapeRecordDurationMsAverage: 0,
+        requestBuildDurationMsAverage: 0,
+        rustIpcWriteDurationMsAverage: 0,
+        rustResponseWaitDurationMsAverage: 0,
+        rustResponseParseDurationMsAverage: 0,
+        rustTotalDurationMsAverage: 0,
+        compareDurationMsAverage: 0,
+        candidateRequestBytesAverage: 0,
+        candidateRequestDataBytesAverage: 0,
+        candidateRequestAssumptionsBytesAverage: 0,
+        candidateRequestTapeBytesAverage: 0,
+        candidateRequestTapeBytesSavedAverage: 0,
+        candidateRequestEnvelopeBytesAverage: 0,
+        rustResponseBytesAverage: 0,
+        tapeCacheHitRate: 0,
+        compactTapeCacheHitRate: 0,
+      },
+      firstMismatch: null,
+    },
+  );
 }
 
 /**
@@ -340,7 +513,7 @@ function runBatchOnPool(
   sessionId: string,
   batchId: string,
   policies: Policy[],
-): Promise<PolicyEvaluation[]> {
+): Promise<WorkerRunResult> {
   // Collect the free, primed slots we can use. We only consider slots
   // already primed for this session — the prime handler primes every
   // slot at session start, so this should always equal freeSlotCount(),
@@ -382,7 +555,7 @@ function runSingleSubBatch(
   batchId: string,
   policies: Policy[],
   slot: WorkerSlot,
-): Promise<PolicyEvaluation[]> {
+): Promise<WorkerRunResult> {
   return new Promise((resolve, reject) => {
     const requestId = `${sessionId}-${batchId}`;
     pendingRuns.set(requestId, {
@@ -412,10 +585,10 @@ function runFanOutBatch(
   batchId: string,
   partitions: Policy[][],
   freeSlots: WorkerSlot[],
-): Promise<PolicyEvaluation[]> {
+): Promise<WorkerRunResult> {
   return new Promise((resolve, reject) => {
-    const successful: (PolicyEvaluation[] | null)[] = partitions.map(() => null);
-    const partials: (PolicyEvaluation[] | null)[] = partitions.map(() => null);
+    const successful: (WorkerRunResult | null)[] = partitions.map(() => null);
+    const partials: (WorkerRunResult | null)[] = partitions.map(() => null);
     let completed = 0;
     let failed = false;
     let failureMessage: string | null = null;
@@ -427,13 +600,24 @@ function runFanOutBatch(
         // successful sub-batches and from the partial buffer of any
         // sub-batch that failed mid-stream.
         const allPartials: PolicyEvaluation[] = [];
+        const partialShadowStats: PolicyMinerShadowStats[] = [];
         for (let i = 0; i < partitions.length; i += 1) {
-          if (successful[i]) allPartials.push(...(successful[i] as PolicyEvaluation[]));
-          else if (partials[i]) allPartials.push(...(partials[i] as PolicyEvaluation[]));
+          const success = successful[i];
+          const partial = partials[i];
+          if (success) {
+            allPartials.push(...success.evaluations);
+            if (success.shadowStats) partialShadowStats.push(success.shadowStats);
+          } else if (partial) {
+            allPartials.push(...partial.evaluations);
+            if (partial.shadowStats) partialShadowStats.push(partial.shadowStats);
+          }
         }
         const err = Object.assign(
           new Error(failureMessage ?? 'host: fan-out sub-batch failed'),
-          { partial: allPartials },
+          {
+            partial: allPartials,
+            shadowStats: combineShadowStats(partialShadowStats),
+          },
         );
         reject(err);
         return;
@@ -443,10 +627,17 @@ function runFanOutBatch(
       // successful[1] the next, etc. Result equals the original input
       // policy order.
       const merged: PolicyEvaluation[] = [];
+      const shadowStats: PolicyMinerShadowStats[] = [];
       for (const part of successful) {
-        if (part) merged.push(...part);
+        if (part) {
+          merged.push(...part.evaluations);
+          if (part.shadowStats) shadowStats.push(part.shadowStats);
+        }
       }
-      resolve(merged);
+      resolve({
+        evaluations: merged,
+        shadowStats: combineShadowStats(shadowStats),
+      });
     };
 
     for (let i = 0; i < partitions.length; i += 1) {
@@ -454,13 +645,16 @@ function runFanOutBatch(
       const partition = partitions[i];
       const subRequestId = `${sessionId}-${batchId}-s${i}`;
       pendingRuns.set(subRequestId, {
-        resolve: (evals) => {
-          successful[i] = evals;
+        resolve: (result) => {
+          successful[i] = result;
           completed += 1;
           finalize();
         },
         reject: (err) => {
-          partials[i] = err.partial ?? [];
+          partials[i] = {
+            evaluations: err.partial ?? [],
+            shadowStats: err.shadowStats,
+          };
           // Capture the FIRST failure message; later failures are
           // typically follow-on cancellations from the same session
           // tear-down.
@@ -639,6 +833,7 @@ function connect(): void {
         workerCount: HOST_WORKER_COUNT,
         perfClass: HOST_PERF_CLASS,
         platformDescriptor: PLATFORM_DESCRIPTOR,
+        engineRuntime: HOST_ENGINE_RUNTIME,
       },
     };
     ws.send(encodeMessage(register));
@@ -646,6 +841,7 @@ function connect(): void {
       workers: HOST_WORKER_COUNT,
       perf: HOST_PERF_CLASS,
       platform: PLATFORM_DESCRIPTOR,
+      runtime: HOST_ENGINE_RUNTIME,
     });
     // Don't reset reconnectAttempt here — wait for the dispatcher's
     // 'welcome' to confirm we were actually accepted. A socket can open
@@ -868,9 +1064,12 @@ async function handleBatchAssign(message: BatchAssignMessage): Promise<void> {
 
   const startedAt = Date.now();
   let evaluations: PolicyEvaluation[] = [];
+  let shadowStats: PolicyMinerShadowStats | undefined;
   let partialFailure: MiningJobResult['partialFailure'] = null;
   try {
-    evaluations = await runBatchOnPool(sessionId, batch.batchId, batch.policies);
+    const run = await runBatchOnPool(sessionId, batch.batchId, batch.policies);
+    evaluations = run.evaluations;
+    shadowStats = run.shadowStats;
   } catch (err) {
     // Race fallback: precheck thought a slot was free but it got taken
     // before runBatchOnPool grabbed it. Nack and bail — same reasoning
@@ -888,6 +1087,7 @@ async function handleBatchAssign(message: BatchAssignMessage): Promise<void> {
     if (partial && partial.length > 0) {
       evaluations = partial;
     }
+    shadowStats = (err as Error & { shadowStats?: PolicyMinerShadowStats }).shadowStats;
     partialFailure = {
       completedPolicyIds: evaluations.map((e) => e.id),
       reason: err instanceof Error ? err.message : String(err),
@@ -905,6 +1105,7 @@ async function handleBatchAssign(message: BatchAssignMessage): Promise<void> {
     evaluatedByNodeId: myPeerId ?? 'unknown',
     batchDurationMs: Date.now() - startedAt,
     evaluations,
+    shadowStats,
     partialFailure,
   };
   sendBatchResult(sessionId, result);
@@ -926,6 +1127,7 @@ async function handleBatchAssign(message: BatchAssignMessage): Promise<void> {
       msPerPolicy: Math.round(msPerPolicy),
       sessionBatches: sessionBatchesCompleted,
       sessionPolicies: sessionPoliciesCompleted,
+      shadowStats,
     });
   }
 }

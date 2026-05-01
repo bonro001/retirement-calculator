@@ -24,6 +24,13 @@ export interface SolvedSpendProfile {
   successTarget: number;
   /** Actual success achieved at the recommended spend. */
   achievedSuccess: number;
+  cemetery?: {
+    p10TodayDollars: number;
+    p25TodayDollars: number;
+    medianTodayDollars: number;
+    p75TodayDollars: number;
+    p90TodayDollars: number;
+  };
 }
 
 export interface SimulationStressorKnobsPayload {
@@ -40,6 +47,12 @@ export interface SimulationRunPayload {
   selectedStressors: string[];
   selectedResponses: string[];
   stressorKnobs?: SimulationStressorKnobsPayload;
+  /**
+   * The solved-spend pass is useful for sandbox explainability but can be
+   * very expensive in browser WebKit during cold plan load. Plan analysis
+   * may skip it and let UI fall back to the Monte Carlo path outputs.
+   */
+  solvedSpendMode?: 'fast' | 'skip';
 }
 
 export type SimulationWorkerRequest =

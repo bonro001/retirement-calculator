@@ -1,12 +1,11 @@
 /**
  * Baseline-path cache shared by the Cockpit and Mining screens.
  *
- * Both screens need a single 5000-trial Monte Carlo over the household's
- * current plan to drive their headline tiles. Without persistence, every
- * navigation between them (or any page refresh) ran the engine again on
- * the main thread for ~3-5s per pass — and the Cockpit runs it twice
- * (forward-looking + historical bootstrap), pushing past Chrome's 5s
- * Page-Unresponsive threshold.
+ * Both screens can use a single cached Monte Carlo over the household's
+ * current plan to drive their headline tiles. Cold-building that result
+ * on the main thread is not safe: every page refresh used to run two
+ * full engine passes before navigation could respond, which produced
+ * browser "wait" prompts on slower WebKit/Chrome sessions.
  *
  * This module gives them a single in-memory + localStorage cache keyed
  * on a cheap fingerprint of the dials that materially change the path.
@@ -17,7 +16,6 @@
  * and we don't want stale entries piling up in storage. Bump the LS
  * key suffix when the PathResult shape changes.
  */
-import { buildPathResults } from './utils';
 import type { MarketAssumptions, PathResult, SeedData } from './types';
 
 export interface BaselinePathBoth {
@@ -42,19 +40,6 @@ let cache: { key: string; paths: BaselinePathBoth } | null = (() => {
     return null;
   }
 })();
-
-function persist(entry: { key: string; paths: BaselinePathBoth } | null): void {
-  try {
-    if (typeof window === 'undefined' || !window.localStorage) return;
-    if (!entry) {
-      window.localStorage.removeItem(BASELINE_PATH_LS_KEY);
-      return;
-    }
-    window.localStorage.setItem(BASELINE_PATH_LS_KEY, JSON.stringify(entry));
-  } catch {
-    // Quota exceeded / private browsing / disabled storage — non-fatal.
-  }
-}
 
 function fingerprint(
   data: SeedData,
@@ -99,24 +84,7 @@ export function getCachedBaselinePathBoth(
 ): BaselinePathBoth {
   const key = fingerprint(data, assumptions, stressors, responses);
   if (cache && cache.key === key) return cache.paths;
-  const safeBuild = (asm: MarketAssumptions): PathResult | null => {
-    try {
-      const paths = buildPathResults(data, asm, stressors, responses, {
-        pathMode: 'selected_only',
-      });
-      return paths[0] ?? null;
-    } catch (err) {
-      // eslint-disable-next-line no-console
-      console.warn('[baseline-path-cache] build failed:', err);
-      return null;
-    }
-  };
-  const forwardLooking = safeBuild(assumptions);
-  const historical = safeBuild({ ...assumptions, useHistoricalBootstrap: true });
-  const paths: BaselinePathBoth = { forwardLooking, historical };
-  cache = { key, paths };
-  persist(cache);
-  return paths;
+  return { forwardLooking: null, historical: null };
 }
 
 /**

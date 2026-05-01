@@ -738,7 +738,7 @@ export function App() {
   const [simCacheCheckPending, setSimCacheCheckPending] = useState(true);
   const [planResultFromCache, setPlanResultFromCache] = useState(false);
 
-  const [planResultStatus, setPlanResultStatus] = useState<SimulationStatus>('running');
+  const [planResultStatus, setPlanResultStatus] = useState<SimulationStatus>('stale');
   const [simulationStatus, setSimulationStatus] = useState<SimulationStatus>('stale');
   const [analysisProgress, setAnalysisProgress] = useState(0);
   const [planResultError, setPlanResultError] = useState<string | null>(null);
@@ -938,6 +938,31 @@ export function App() {
         setPlanResultError(message.error);
       }
     };
+    worker.onerror = (event) => {
+      const activeRequestId = activeRequestIdRef.current;
+      const activeMeta = activeRequestMetaRef.current;
+      if (!activeRequestId || !activeMeta) return;
+      const message = event.message || 'Simulation worker failed';
+      stopTrackedAnalysis(activeRequestId, 'error', { error: message });
+      activeRequestIdRef.current = null;
+      activeRequestMetaRef.current = null;
+      if (activeMeta.target === 'simulation') {
+        setSimulationError(message);
+        setSimulationStatus(
+          lastSimulationRunInputsRef.current === latestSimulationInputFingerprintRef.current
+            ? 'fresh'
+            : 'stale',
+        );
+      } else {
+        setPlanResultError(message);
+        setPlanResultStatus(
+          lastPlanRunInputsRef.current === latestPlanInputFingerprintRef.current
+            ? 'fresh'
+            : 'stale',
+        );
+      }
+      setAnalysisProgress(0);
+    };
 
     return () => {
       const activeRequestId = activeRequestIdRef.current;
@@ -1091,6 +1116,7 @@ export function App() {
         selectedStressors: analysisInput.selectedStressors,
         selectedResponses: analysisInput.selectedResponses,
         stressorKnobs: analysisInput.stressorKnobs,
+        solvedSpendMode: target === 'plan' ? 'skip' : 'fast',
       },
     };
     worker.postMessage(runMessage);
@@ -1163,9 +1189,12 @@ export function App() {
     if (simCacheCheckPending || currentPlanResult || activeRequestIdRef.current) {
       return;
     }
+    if (currentScreen !== 'overview' && currentScreen !== 'insights') {
+      return;
+    }
     perfLog('simulation', 'effect-triggered initial plan analysis');
     runAnalysis('plan');
-  }, [runAnalysis, currentPlanResult, simCacheCheckPending]);
+  }, [runAnalysis, currentPlanResult, currentScreen, simCacheCheckPending]);
 
   // Proactively run plan evaluation in the background after the main simulation
   // completes, so Plan 2.0 doesn't need to cold-start its own evaluation.
@@ -3191,13 +3220,13 @@ function AdvisorRoom({
   // The headline metric households actually care about is "what's the chance
   // I leave at least my goal?" — computed from the 5-percentile cemetery
   // distribution via linear interpolation of the CDF.
-  const legacyTarget = data.goals?.legacyTargetTodayDollars;
+  const legacyTarget = data.goals?.legacyTargetTodayDollars ?? null;
   const cemetery = solvedSpendProfile?.cemetery ?? null;
   const projectedMedianLegacy = cemetery?.medianTodayDollars ?? null;
   const projectedP10Legacy = cemetery?.p10TodayDollars ?? null;
   const projectedP90Legacy = cemetery?.p90TodayDollars ?? null;
   const bequestAttainmentRate =
-    legacyTarget !== undefined && legacyTarget > 0 && cemetery !== null
+    legacyTarget !== null && legacyTarget > 0 && cemetery !== null
       ? approximateBequestAttainmentRate(legacyTarget, {
           p10: cemetery.p10TodayDollars,
           p25: cemetery.p25TodayDollars,
@@ -3416,7 +3445,7 @@ function AdvisorRoom({
                 Goal
               </p>
               <p className="mt-1 text-3xl font-semibold tabular-nums text-stone-900">
-                {formatCurrency(Math.round(legacyTarget))}
+                {formatCurrency(Math.round(legacyTarget ?? 0))}
               </p>
               <button
                 type="button"
@@ -9479,7 +9508,7 @@ function InsightsScreen({
         selectedResponses,
         strategyMode: 'planner_enhanced',
         simulationRunsOverride: interactiveAssumptions.simulationRuns,
-        seedBase: interactiveAssumptions.simulationSeed,
+        seedBase: interactiveAssumptions.simulationSeed ?? 0,
         constraints: recommendationConstraints,
       },
     };

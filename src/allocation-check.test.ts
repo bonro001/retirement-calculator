@@ -72,9 +72,13 @@ describe('allocation check vs Fidelity-reported asset mix', () => {
     // other, unknown). Our CASH includes Fidelity's shortTerm; Fidelity's
     // "other" + "unknown" (~1.8% combined) don't have a mapping target
     // on our side and will simply reduce the absolute alignment by that
-    // much. We use an 8pp tolerance to absorb both the class-boundary
-    // rounding and the ~2% "other" Fidelity reports.
-    const tolerance = 0.08;
+    // much. Tightened from 8pp → 5pp on 2026-04-30 after FCNTX/FDGRX
+    // mappings were updated to reflect their actual non-US holdings
+    // (~8% intl in Contrafund, ~4% intl in Growth Company). Residual
+    // ~4pp US-equity drift is from CENTRAL_MANAGED proxy uncertainty
+    // (no public composition for that account); narrow further when
+    // the household supplies an override.
+    const tolerance = 0.05;
 
     // eslint-disable-next-line no-console
     console.log('allocation check:');

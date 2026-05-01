@@ -20,6 +20,7 @@ self.onmessage = async (event: MessageEvent<PlanningExportWorkerRequest>) => {
       assumptions: assumptionsForExport,
       selectedStressorIds: message.payload.selectedStressorIds,
       selectedResponseIds: message.payload.selectedResponseIds,
+      exportMode: message.payload.exportMode,
       unifiedPlanEvaluation: message.payload.unifiedPlanEvaluation,
       unifiedPlanEvaluationCapturedAtIso: message.payload.unifiedPlanEvaluationCapturedAtIso,
     });

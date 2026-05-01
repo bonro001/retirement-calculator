@@ -35,6 +35,10 @@ opt-level = 3
 lto = true
 codegen-units = 1
 
+[features]
+console_error_panic_hook = []
+node-napi = []
+
 [dependencies]
 # wasm-bindgen: glue layer between Rust and JS. Generates the JS shim
 # that turns Rust functions into callable JS functions and handles
@@ -50,6 +54,7 @@ js-sys = "0.3"
 # serde handles the conversion without manual JSON parsing.
 serde = { version = "1", features = ["derive"] }
 serde-wasm-bindgen = "0.6"
+serde_json = "1"
 
 # Cheap, deterministic RNG that compiles to small WASM and matches the
 # TS engine's seeded behavior. The TS code uses a Mulberry32-style PRNG

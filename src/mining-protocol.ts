@@ -105,6 +105,11 @@ export interface HostCapabilities {
    * `win32-x64-16cpu-amd-ryzen7-7800x3d`).
    */
   platformDescriptor: string;
+  /**
+   * Engine runtime the host will use for policy batches. Optional so
+   * older hosts can still join; UI treats missing as "unknown".
+   */
+  engineRuntime?: string;
 }
 
 /**
@@ -301,6 +306,38 @@ export interface BatchAckMessage extends BaseMessage {
 // Stats / observability
 // ============================================================================
 
+export interface ClusterPeerMetrics {
+  assignedBatches: number;
+  completedBatches: number;
+  nackedBatches: number;
+  capacityNacks: number;
+  assignedPolicies: number;
+  completedPolicies: number;
+  reservedWorkerSlots: number;
+  busySlotMs: number;
+  idleWhilePendingSlotMs: number;
+  utilizationRate: number | null;
+  avgDispatchToResultMs: number | null;
+}
+
+export interface ClusterRuntimeMetrics {
+  pendingPolicies: number;
+  inFlightBatches: number;
+  batchesAssigned: number;
+  batchResults: number;
+  batchNacks: number;
+  capacityNacks: number;
+  policiesAssigned: number;
+  policiesCompleted: number;
+  policiesRequeued: number;
+  policiesDropped: number;
+  avgBatchSize: number | null;
+  avgDispatchToResultMs: number | null;
+  hostBusySlotMs: number;
+  hostIdleWhilePendingSlotMs: number;
+  hostUtilizationRate: number | null;
+}
+
 /**
  * Snapshot of the entire cluster — peers, current session, per-host
  * throughput. Sent on `welcome` and re-broadcast every
@@ -322,12 +359,14 @@ export interface ClusterSnapshot {
     meanMsPerPolicy: number | null;
     /** Batches in flight on this host right now. */
     inFlightBatchCount: number;
+    metrics?: ClusterPeerMetrics;
   }>;
   /** Current session — null when nothing is mining. */
   session: {
     sessionId: string;
     startedAtIso: string;
     stats: MiningStats;
+    metrics?: ClusterRuntimeMetrics;
   } | null;
 }
 

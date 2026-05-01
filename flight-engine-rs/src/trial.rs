@@ -38,11 +38,7 @@ use rand::{Rng, SeedableRng};
 
 /// Run one trial. Pure function over (plan, assumptions, seed).
 /// Returns the year-by-year trace + headline outcomes.
-pub fn run_trial(
-    plan: &PlanInput,
-    assumptions: &AssumptionsInput,
-    seed: u64,
-) -> TrialResult {
+pub fn run_trial(plan: &PlanInput, assumptions: &AssumptionsInput, seed: u64) -> TrialResult {
     let mut rng = SmallRng::seed_from_u64(seed);
     let mut balances = plan.starting_balances;
     let mut inflation_index = 1.0_f64;
@@ -88,7 +84,7 @@ pub fn run_trial(
         };
         let active_spend_today = plan.annual_spend_today_dollars
             - plan.travel_annual_today_dollars  // remove the travel piece included in total
-            + travel_today;                      // add it back only if in phase
+            + travel_today; // add it back only if in phase
 
         // Annual spend (pre-guardrail). Grows with cumulative inflation.
         let baseline_nominal_spend = active_spend_today * inflation_index;
@@ -257,14 +253,12 @@ pub fn run_trial(
         // rothConversionPolicy.maxPretaxBalancePercent). Conversion
         // during salary years was tested and regressed solvency —
         // immediate 22% tax cost outweighs long-horizon Roth gain.
-        let roth_conversion = if salary > 0.0
-            || balances.pretax < 50_000.0
-            || conv_headroom < 5_000.0
-        {
-            0.0
-        } else {
-            conv_headroom.min(balances.pretax * 0.12)
-        };
+        let roth_conversion =
+            if salary > 0.0 || balances.pretax < 50_000.0 || conv_headroom < 5_000.0 {
+                0.0
+            } else {
+                conv_headroom.min(balances.pretax * 0.12)
+            };
         balances.pretax -= roth_conversion;
         balances.roth += roth_conversion;
 
@@ -288,10 +282,8 @@ pub fn run_trial(
         // doesn't count. SS taxability already capped at 85% (above).
         let ordinary_income_pre_withdrawal =
             salary + ss_taxable + windfalls.ordinary + roth_conversion + rmd_amount;
-        let pre_withdrawal_tax = tax::calculate_federal_tax(
-            ordinary_income_pre_withdrawal,
-            windfalls.ltcg,
-        );
+        let pre_withdrawal_tax =
+            tax::calculate_federal_tax(ordinary_income_pre_withdrawal, windfalls.ltcg);
 
         // IRMAA: surcharge applies if either member ≥65.
         let medicare_eligible = count_medicare_eligible(plan, year);
@@ -355,8 +347,7 @@ pub fn run_trial(
         // ~2050 that was ~4× the correct cost, devastating tail trials.
         let ltc_cost = if in_ltc_window {
             let years_into_ltc = (household_age - plan.ltc_start_age as i32).max(0) as i32;
-            plan.ltc_annual_cost_today
-                * (1.0 + plan.medical_inflation_annual).powi(years_into_ltc)
+            plan.ltc_annual_cost_today * (1.0 + plan.medical_inflation_annual).powi(years_into_ltc)
         } else {
             0.0
         };
@@ -393,12 +384,9 @@ pub fn run_trial(
             // Surplus year — bank leftover EARNED income into taxable.
             // Don't bank windfalls — they already landed in cash and
             // should stay there as a buffer (TS keeps them in cash too).
-            let earned_surplus = (earned_income
-                - nominal_spend
-                - healthcare_total
-                - pre_withdrawal_tax
-                - irmaa)
-                .max(0.0);
+            let earned_surplus =
+                (earned_income - nominal_spend - healthcare_total - pre_withdrawal_tax - irmaa)
+                    .max(0.0);
             balances.taxable += earned_surplus;
             withdraw_cash = 0.0;
             withdraw_taxable = 0.0;
@@ -425,11 +413,8 @@ pub fn run_trial(
             let taxable_taken = take_from(&mut balances.taxable, &mut needed);
 
             // IRMAA-aware pretax cap.
-            let pretax_cap = compute_pretax_cap(
-                magi,
-                medicare_eligible,
-                magi < 80_000.0 * inflation_index,
-            );
+            let pretax_cap =
+                compute_pretax_cap(magi, medicare_eligible, magi < 80_000.0 * inflation_index);
             let pretax_first = pretax_cap.min(needed).min(balances.pretax);
             balances.pretax -= pretax_first;
             needed -= pretax_first;
@@ -460,7 +445,9 @@ pub fn run_trial(
             total_assets: balances.total(),
             // Engine's "spending" trace is the realized full nominal spend
             // (post-income, what actually went out the door). Match that.
-            spending: nominal_spend.min(total_income + withdraw_cash + withdraw_taxable + withdraw_pretax + withdraw_roth),
+            spending: nominal_spend.min(
+                total_income + withdraw_cash + withdraw_taxable + withdraw_pretax + withdraw_roth,
+            ),
             income: total_income,
             withdrawal_cash: withdraw_cash,
             withdrawal_taxable: withdraw_taxable,
@@ -488,16 +475,54 @@ pub fn run_trial(
 /// start age. Mirrors TS retirement-rules.ts DEFAULT_RMD_CONFIG.
 fn rmd_divisor(age: i32) -> f64 {
     match age {
-        72 => 27.4, 73 => 26.5, 74 => 25.5, 75 => 24.6, 76 => 23.7,
-        77 => 22.9, 78 => 22.0, 79 => 21.1, 80 => 20.2, 81 => 19.4,
-        82 => 18.5, 83 => 17.7, 84 => 16.8, 85 => 16.0, 86 => 15.2,
-        87 => 14.4, 88 => 13.7, 89 => 12.9, 90 => 12.2, 91 => 11.5,
-        92 => 10.8, 93 => 10.1, 94 => 9.5, 95 => 8.9, 96 => 8.4,
-        97 => 7.8, 98 => 7.3, 99 => 6.8, 100 => 6.4, 101 => 6.0,
-        102 => 5.6, 103 => 5.2, 104 => 4.9, 105 => 4.6, 106 => 4.3,
-        107 => 4.1, 108 => 3.9, 109 => 3.7, 110 => 3.5, 111 => 3.4,
-        112 => 3.3, 113 => 3.1, 114 => 3.0, 115 => 2.9, 116 => 2.8,
-        117 => 2.7, 118 => 2.5, 119 => 2.3,
+        72 => 27.4,
+        73 => 26.5,
+        74 => 25.5,
+        75 => 24.6,
+        76 => 23.7,
+        77 => 22.9,
+        78 => 22.0,
+        79 => 21.1,
+        80 => 20.2,
+        81 => 19.4,
+        82 => 18.5,
+        83 => 17.7,
+        84 => 16.8,
+        85 => 16.0,
+        86 => 15.2,
+        87 => 14.4,
+        88 => 13.7,
+        89 => 12.9,
+        90 => 12.2,
+        91 => 11.5,
+        92 => 10.8,
+        93 => 10.1,
+        94 => 9.5,
+        95 => 8.9,
+        96 => 8.4,
+        97 => 7.8,
+        98 => 7.3,
+        99 => 6.8,
+        100 => 6.4,
+        101 => 6.0,
+        102 => 5.6,
+        103 => 5.2,
+        104 => 4.9,
+        105 => 4.6,
+        106 => 4.3,
+        107 => 4.1,
+        108 => 3.9,
+        109 => 3.7,
+        110 => 3.5,
+        111 => 3.4,
+        112 => 3.3,
+        113 => 3.1,
+        114 => 3.0,
+        115 => 2.9,
+        116 => 2.8,
+        117 => 2.7,
+        118 => 2.5,
+        119 => 2.3,
         a if a >= 120 => 2.0,
         _ => 0.0,
     }
@@ -505,9 +530,13 @@ fn rmd_divisor(age: i32) -> f64 {
 
 /// SECURE Act 2.0 RMD start age. Same as TS getRmdStartAgeForBirthYear.
 fn rmd_start_age(birth_year: i32) -> i32 {
-    if birth_year <= 1950 { 72 }
-    else if birth_year <= 1959 { 73 }
-    else { 75 }
+    if birth_year <= 1950 {
+        72
+    } else if birth_year <= 1959 {
+        73
+    } else {
+        75
+    }
 }
 
 /// Total household RMD. Splits pretax balance equally across members
@@ -517,14 +546,17 @@ fn compute_household_rmd(plan: &PlanInput, year: i32, pretax_balance: f64) -> f6
     if pretax_balance <= 0.0 {
         return 0.0;
     }
-    let total_members = (plan.rob_birth_year.is_some() as i32)
-        + (plan.debbie_birth_year.is_some() as i32);
+    let total_members =
+        (plan.rob_birth_year.is_some() as i32) + (plan.debbie_birth_year.is_some() as i32);
     if total_members == 0 {
         return 0.0;
     }
     let share = 1.0 / total_members as f64;
     let mut total_rmd = 0.0;
-    for by in [plan.rob_birth_year, plan.debbie_birth_year].iter().flatten() {
+    for by in [plan.rob_birth_year, plan.debbie_birth_year]
+        .iter()
+        .flatten()
+    {
         let age = year - by;
         if age >= rmd_start_age(*by) {
             let divisor = rmd_divisor(age);
@@ -675,7 +707,9 @@ fn compute_windfalls(plan: &PlanInput, year: i32) -> WindfallTotals {
     let mut totals = WindfallTotals::default();
     for w in plan.windfalls.iter().filter(|w| w.year == year) {
         let amount = w.amount.max(0.0);
-        let treatment = w.tax_treatment.as_deref()
+        let treatment = w
+            .tax_treatment
+            .as_deref()
             .or_else(|| match w.name.as_str() {
                 "inheritance" => Some("cash_non_taxable"),
                 "home_sale" => Some("primary_home_sale"),

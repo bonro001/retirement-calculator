@@ -29,9 +29,16 @@ function withRequiredById<T extends { id: string }>(items: T[], required: T[]) {
 function normalizeSeedData(input: SeedData): SeedData {
   return {
     ...input,
+    income: {
+      ...input.income,
+      socialSecurity: input.income.socialSecurity.map((entry) => ({
+        ...entry,
+        claimAge: entry.claimAge ?? 67,
+      })),
+    },
     stressors: withRequiredById(input.stressors, requiredStressors),
     responses: withRequiredById(input.responses, requiredResponses),
   };
 }
 
-export const initialSeedData = normalizeSeedData(seedData as SeedData);
+export const initialSeedData = normalizeSeedData(seedData as unknown as SeedData);

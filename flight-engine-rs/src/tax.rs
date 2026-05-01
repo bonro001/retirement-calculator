@@ -21,13 +21,34 @@ pub struct Bracket {
 
 /// MFJ 2026 ordinary income brackets. Mirror of TS DEFAULT_TAX_ENGINE_CONFIG.
 pub const MFJ_ORDINARY_BRACKETS: &[Bracket] = &[
-    Bracket { up_to: 23_200.0, rate: 0.10 },
-    Bracket { up_to: 94_300.0, rate: 0.12 },
-    Bracket { up_to: 201_050.0, rate: 0.22 },
-    Bracket { up_to: 383_900.0, rate: 0.24 },
-    Bracket { up_to: 487_450.0, rate: 0.32 },
-    Bracket { up_to: 731_200.0, rate: 0.35 },
-    Bracket { up_to: ORDINARY_INF, rate: 0.37 },
+    Bracket {
+        up_to: 23_200.0,
+        rate: 0.10,
+    },
+    Bracket {
+        up_to: 94_300.0,
+        rate: 0.12,
+    },
+    Bracket {
+        up_to: 201_050.0,
+        rate: 0.22,
+    },
+    Bracket {
+        up_to: 383_900.0,
+        rate: 0.24,
+    },
+    Bracket {
+        up_to: 487_450.0,
+        rate: 0.32,
+    },
+    Bracket {
+        up_to: 731_200.0,
+        rate: 0.35,
+    },
+    Bracket {
+        up_to: ORDINARY_INF,
+        rate: 0.37,
+    },
 ];
 
 pub const MFJ_STANDARD_DEDUCTION: f64 = 29_200.0;
@@ -49,12 +70,36 @@ pub struct IrmaaTier {
 }
 
 pub const IRMAA_TIERS_MFJ: &[IrmaaTier] = &[
-    IrmaaTier { name: "Tier 0 (no surcharge)", magi_ceiling: 206_000.0, surcharge_per_person_monthly: 0.0 },
-    IrmaaTier { name: "Tier 1", magi_ceiling: 258_000.0, surcharge_per_person_monthly: 74.0 },
-    IrmaaTier { name: "Tier 2", magi_ceiling: 322_000.0, surcharge_per_person_monthly: 184.0 },
-    IrmaaTier { name: "Tier 3", magi_ceiling: 386_000.0, surcharge_per_person_monthly: 295.0 },
-    IrmaaTier { name: "Tier 4", magi_ceiling: 750_000.0, surcharge_per_person_monthly: 405.0 },
-    IrmaaTier { name: "Tier 5", magi_ceiling: f64::INFINITY, surcharge_per_person_monthly: 444.0 },
+    IrmaaTier {
+        name: "Tier 0 (no surcharge)",
+        magi_ceiling: 206_000.0,
+        surcharge_per_person_monthly: 0.0,
+    },
+    IrmaaTier {
+        name: "Tier 1",
+        magi_ceiling: 258_000.0,
+        surcharge_per_person_monthly: 74.0,
+    },
+    IrmaaTier {
+        name: "Tier 2",
+        magi_ceiling: 322_000.0,
+        surcharge_per_person_monthly: 184.0,
+    },
+    IrmaaTier {
+        name: "Tier 3",
+        magi_ceiling: 386_000.0,
+        surcharge_per_person_monthly: 295.0,
+    },
+    IrmaaTier {
+        name: "Tier 4",
+        magi_ceiling: 750_000.0,
+        surcharge_per_person_monthly: 405.0,
+    },
+    IrmaaTier {
+        name: "Tier 5",
+        magi_ceiling: f64::INFINITY,
+        surcharge_per_person_monthly: 444.0,
+    },
 ];
 
 /// Apply progressive brackets. Returns total tax owed.

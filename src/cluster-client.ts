@@ -252,6 +252,7 @@ export function createClusterClient(config: ClusterClientConfig): ClusterClient 
       workerCount: sizing.poolSize,
       perfClass,
       platformDescriptor: `browser-${ua.slice(0, 60).replace(/\s+/g, '_')}-hc${sizing.hardwareConcurrency}`,
+      engineRuntime: 'ts-browser',
     };
   }
 
@@ -330,7 +331,7 @@ export function createClusterClient(config: ClusterClientConfig): ClusterClient 
         protocolVersion: MINING_PROTOCOL_VERSION,
         roles: isHost ? ['host', 'controller'] : ['controller'],
         displayName,
-        capabilities: browserCapabilities(),
+        ...(isHost ? { capabilities: browserCapabilities() } : {}),
       };
       s.send(encodeMessage(register));
     });

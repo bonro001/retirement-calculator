@@ -11,7 +11,7 @@ export interface DecisionEngineWorkerRunPayload {
   strategyMode: 'raw_simulation' | 'planner_enhanced';
   simulationRunsOverride: number;
   seedBase: number;
-  constraints: RecommendationConstraints;
+  constraints?: RecommendationConstraints;
 }
 
 export type DecisionEngineWorkerRequest =

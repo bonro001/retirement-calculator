@@ -277,6 +277,8 @@ export interface MiningJobResult {
   batchDurationMs: number;
   /** One evaluation per input policy, in input order. */
   evaluations: PolicyEvaluation[];
+  /** Optional runtime-shadow telemetry, populated by Node hosts running shadow engines. */
+  shadowStats?: PolicyMinerShadowStats;
   /**
    * If the batch failed mid-flight, the partial results so far plus a
    * reason. Lets the dispatcher retry the missing policies on another
@@ -285,6 +287,67 @@ export interface MiningJobResult {
   partialFailure: {
     completedPolicyIds: string[];
     reason: string;
+  } | null;
+}
+
+export interface PolicyMinerShadowStats {
+  runtime:
+    | 'rust-shadow'
+    | 'rust-dry-run'
+    | 'rust-native-shadow'
+    | 'rust-native-compact-shadow'
+    | 'rust-native-compact';
+  evaluated: number;
+  mismatches: number;
+  errors: number;
+  skipped: number;
+  timings?: {
+    tsEvaluationDurationMsTotal: number;
+    rustSummaryDurationMsTotal: number;
+    tsEvaluationDurationMsAverage: number;
+    rustSummaryDurationMsAverage: number;
+    tapeRecordDurationMsTotal?: number;
+    requestBuildDurationMsTotal?: number;
+    rustIpcWriteDurationMsTotal?: number;
+    rustResponseWaitDurationMsTotal?: number;
+    rustResponseParseDurationMsTotal?: number;
+    rustTotalDurationMsTotal?: number;
+    compareDurationMsTotal?: number;
+    candidateRequestBytesTotal?: number;
+    candidateRequestDataBytesTotal?: number;
+    candidateRequestAssumptionsBytesTotal?: number;
+    candidateRequestTapeBytesTotal?: number;
+    candidateRequestTapeBytesSavedTotal?: number;
+    candidateRequestEnvelopeBytesTotal?: number;
+    rustResponseBytesTotal?: number;
+    tapeCacheHitsTotal?: number;
+    tapeCacheMissesTotal?: number;
+    compactTapeCacheHitsTotal?: number;
+    compactTapeCacheMissesTotal?: number;
+    tapeRecordDurationMsAverage?: number;
+    requestBuildDurationMsAverage?: number;
+    rustIpcWriteDurationMsAverage?: number;
+    rustResponseWaitDurationMsAverage?: number;
+    rustResponseParseDurationMsAverage?: number;
+    rustTotalDurationMsAverage?: number;
+    compareDurationMsAverage?: number;
+    candidateRequestBytesAverage?: number;
+    candidateRequestDataBytesAverage?: number;
+    candidateRequestAssumptionsBytesAverage?: number;
+    candidateRequestTapeBytesAverage?: number;
+    candidateRequestTapeBytesSavedAverage?: number;
+    candidateRequestEnvelopeBytesAverage?: number;
+    rustResponseBytesAverage?: number;
+    tapeCacheHitRate?: number;
+    compactTapeCacheHitRate?: number;
+  };
+  firstMismatch: {
+    policyId: string;
+    field: string;
+    expected: number;
+    actual: number;
+    delta: number;
+    tolerance: number;
   } | null;
 }
 

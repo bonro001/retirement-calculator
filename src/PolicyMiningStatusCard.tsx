@@ -19,10 +19,12 @@ import { browserPoolHint, setBrowserHostMode } from './cluster-client';
 import {
   buildPeerViewList,
   formatAgo,
+  formatEngineRuntime,
   formatPerfClass,
   formatThroughput,
   type PeerView,
 } from './cluster-peer-view';
+import type { ClusterRuntimeMetrics } from './mining-protocol';
 
 /**
  * Read+control card for the Policy Miner running across the cluster.
@@ -34,10 +36,11 @@ import {
  * itself, via cluster-client, plus any Node hosts on the LAN), ingests
  * results into the canonical on-disk corpus.
  *
- * The browser is always BOTH a host (its 12-worker pool serves the
- * dispatcher) and a controller (the Start button below sends
- * `start_session`). With no other hosts connected, all the work runs
- * locally — the only cost is one localhost WS roundtrip per batch.
+ * The browser can be a host (its Web Worker pool serves the dispatcher)
+ * and is always a controller (the Start button below sends
+ * `start_session`). With no other hosts connected, Browser Max runs the
+ * work locally; with Node hosts connected, Node Hosts Only keeps this
+ * tab out of the compute pool.
  *
  * Why no "local-only" fallback: it doubles the code paths and the
  * dispatcher is a single tsx process — `npm run cluster:dispatcher`
@@ -68,6 +71,13 @@ interface Props {
   baselineFingerprint: string | null;
   engineVersion: string;
   controls?: PolicyMiningControls;
+  /** Optional override of the policy axes (spend/SS/Roth grid) to mine
+   *  against. When set, replaces `buildDefaultPolicyAxes(baseline)`'s
+   *  output for THIS session — used by the AxisPruningCard's "Apply
+   *  narrower range" workflow. Cluster-client already supports this
+   *  via `StartSessionOptions.axesOverride`; we just thread it through
+   *  the UI. Pass `null` to use the default grid (the common case). */
+  axesOverride?: import('./policy-miner-types').PolicyAxes | null;
 }
 
 const POLL_INTERVAL_MS = 5_000;
@@ -130,10 +140,17 @@ function formatRelative(ms: number | null): string {
   return `${Math.round(ageSec / 60)}m ago`;
 }
 
+function formatMetricMs(ms: number | null | undefined): string {
+  if (ms == null || !Number.isFinite(ms)) return '—';
+  if (ms < 1000) return `${Math.round(ms)}ms`;
+  return `${(ms / 1000).toFixed(1)}s`;
+}
+
 export function PolicyMiningStatusCard({
   baselineFingerprint,
   engineVersion,
   controls,
+  axesOverride,
 }: Props): JSX.Element | null {
   const cluster = useClusterSession();
   const [bestEval, setBestEval] = useState<PolicyEvaluation | null>(null);
@@ -166,8 +183,10 @@ export function PolicyMiningStatusCard({
   // doesn't display stale "last run" info from a different session.
   const runningStartMsRef = useRef<number | null>(null);
   const [lastRunWallMs, setLastRunWallMs] = useState<number | null>(null);
+  const [lastRunMetrics, setLastRunMetrics] = useState<ClusterRuntimeMetrics | null>(null);
   useEffect(() => {
     if (cluster.session) {
+      if (cluster.session.metrics) setLastRunMetrics(cluster.session.metrics);
       if (runningStartMsRef.current === null) {
         // Session just appeared — stamp the start, clear any prior
         // last-run-wall-time so it doesn't bleed into the running tile.
@@ -175,6 +194,7 @@ export function PolicyMiningStatusCard({
           cluster.session.startedAtIso,
         ).getTime();
         setLastRunWallMs(null);
+        setLastRunMetrics(cluster.session.metrics ?? null);
       }
     } else if (runningStartMsRef.current !== null) {
       // Session just ended — freeze the final wall time for display
@@ -306,6 +326,12 @@ export function PolicyMiningStatusCard({
         feasibilityThreshold: controls.feasibilityThreshold ?? 0.7,
         maxPoliciesPerSession: cap,
         trialCount: controls.trialCount,
+        // axesOverride is the Apply-narrowed-range path — when the
+        // AxisPruningCard's "Apply" button has fired, this is set;
+        // otherwise undefined, in which case the cluster client falls
+        // back to `buildDefaultPolicyAxes(baseline)` (the default
+        // 1,728-cell grid).
+        axesOverride: axesOverride ?? undefined,
         // Phase 2.C: two-stage screening capability remains on
         // StartSessionOptions but is no longer surfaced in the UI
         // (testing showed no cluster wall-time win). Future code
@@ -561,22 +587,17 @@ export function PolicyMiningStatusCard({
             {poolHint.hardwareConcurrency} cores
           </span>
         </div>
-        {/* Phase 2.C UX — browser host mode picker. Lets the household
-            decide how aggressively the browser tab participates as a
-            host. Default 'reduced' (4 workers) is memory-safe AND
-            contributes meaningfully when other Node hosts are also
-            connected. 'off' is for "I have dedicated hosts and want
-            zero browser-side risk on a Full mine". 'full' is for
-            "browser is my only compute pool". Changes apply on next
-            page load (rebuilding the pool mid-session would need draining
-            in-flight batches; YAGNI for a settings change).
+        {/* Phase 2.C UX — compute mode picker. Lets the household decide
+            whether this browser contributes workers or only controls a
+            dedicated Node/Rust host pool. Changing modes reconnects the
+            browser so the dispatcher immediately sees the new role.
             Stays visible (disabled) during sessions so the operator
             always knows what mode the running session is using —
             screenshots of in-flight progress carry the configuration
             context. */}
         <div className="flex flex-wrap items-center gap-2 text-[11px] text-stone-600">
           <span className="font-semibold text-stone-700">
-            Browser host:
+            Compute:
           </span>
           <div
             role="radiogroup"
@@ -584,9 +605,9 @@ export function PolicyMiningStatusCard({
           >
             {(['off', 'reduced', 'full'] as const).map((mode) => {
               const labels: Record<typeof mode, string> = {
-                off: 'Off',
-                reduced: 'Reduced (4w)',
-                full: 'Full',
+                off: 'Node hosts only',
+                reduced: 'Mixed',
+                full: 'Browser max',
               };
               const isActive = poolHint.mode === mode;
               return (
@@ -598,10 +619,8 @@ export function PolicyMiningStatusCard({
                   disabled={sessionRunning}
                   onClick={() => {
                     setBrowserHostMode(mode);
-                    // Force a re-render so the active state flips
-                    // immediately even though the live pool won't
-                    // rebuild until reload.
                     setNowMs(Date.now());
+                    cluster.reconnect();
                   }}
                   className={`px-2.5 py-0.5 transition ${
                     isActive
@@ -616,18 +635,10 @@ export function PolicyMiningStatusCard({
           </div>
           <span className="text-stone-400">
             {poolHint.mode === 'off'
-              ? 'controller only · no browser-side compute'
+              ? 'controller only'
               : poolHint.mode === 'reduced'
-                ? 'safe with co-located Node host'
-                : 'browser is the only compute pool'}
-            {poolHint.actualPoolSize !== null &&
-              poolHint.actualPoolSize !==
-                (poolHint.mode === 'off'
-                  ? 0
-                  : poolHint.mode === 'reduced'
-                    ? Math.min(4, poolHint.hardwareConcurrency)
-                    : Math.min(12, Math.ceil(poolHint.hardwareConcurrency * 1.5))) &&
-              ' · reload to apply'}
+                ? `${Math.min(4, poolHint.hardwareConcurrency)} browser workers`
+                : `${poolHint.poolSize} browser workers`}
           </span>
         </div>
         {/* One-line caption tying the picker to the iteration loop so
@@ -694,7 +705,7 @@ export function PolicyMiningStatusCard({
             // mentally divide.
             const loadFrac =
               v.workerCount && v.workerCount > 0
-                ? Math.min(1, v.inFlightBatchCount / v.workerCount)
+                ? Math.min(1, v.reservedWorkerSlots / v.workerCount)
                 : 0;
             const throughputLabel = isHost
               ? v.totalPolPerMin !== null
@@ -716,14 +727,14 @@ export function PolicyMiningStatusCard({
                     {v.displayName}
                   </span>
                 </span>
-                <span className="col-span-2 text-stone-500">
+                <span className="col-span-3 truncate text-stone-500">
                   {v.workerCount !== null
-                    ? `${v.workerCount}w · ${formatPerfClass(v.capabilities?.perfClass)}`
+                    ? `${v.workerCount}w · ${formatPerfClass(v.capabilities?.perfClass)} · ${formatEngineRuntime(v.capabilities?.engineRuntime)}`
                     : v.roles.includes('controller')
                       ? 'controller'
                       : '—'}
                 </span>
-                <span className="col-span-3 text-stone-500">
+                <span className="col-span-2 text-stone-500">
                   {throughputLabel}
                 </span>
                 <span className="col-span-2">
@@ -740,7 +751,7 @@ export function PolicyMiningStatusCard({
                         />
                       </span>
                       <span className="text-[10px] text-stone-500">
-                        {v.inFlightBatchCount}/{v.workerCount}
+                        {v.reservedWorkerSlots}/{v.workerCount}
                       </span>
                     </span>
                   ) : null}
@@ -751,6 +762,105 @@ export function PolicyMiningStatusCard({
               </div>
             );
           })}
+        </div>
+      </div>
+    );
+  };
+
+  const renderPerformancePanel = () => {
+    const metrics = cluster.session?.metrics ?? lastRunMetrics;
+    if (!metrics) return null;
+    const isLive = !!cluster.session?.metrics;
+    const views = buildPeerViewList(cluster.peers, cluster.ghosts, nowMs);
+    const liveHosts = views.filter((v) => v.status === 'live' && v.roles.includes('host'));
+    const rustHosts = liveHosts.filter(
+      (v) => v.capabilities?.engineRuntime === 'rust-native-compact',
+    );
+    const nonRustHosts = liveHosts.filter(
+      (v) => v.capabilities?.engineRuntime !== 'rust-native-compact',
+    );
+    const idleRatio =
+      metrics.hostBusySlotMs + metrics.hostIdleWhilePendingSlotMs > 0
+        ? metrics.hostIdleWhilePendingSlotMs /
+          (metrics.hostBusySlotMs + metrics.hostIdleWhilePendingSlotMs)
+        : 0;
+    const capacityNackRate =
+      metrics.batchesAssigned > 0 ? metrics.capacityNacks / metrics.batchesAssigned : 0;
+    const hint =
+      nonRustHosts.length > 0
+        ? `${nonRustHosts.length} live host${nonRustHosts.length === 1 ? '' : 's'} not on Rust compact`
+        : metrics.policiesDropped > 0
+        ? 'dropped policies need investigation'
+        : capacityNackRate > 0.1
+          ? 'capacity backpressure is the next scheduler target'
+          : idleRatio > 0.15 && metrics.pendingPolicies > 0
+            ? 'idle slots while work is pending point at dispatch handoff'
+            : metrics.avgBatchSize !== null && metrics.avgBatchSize < 3 && metrics.pendingPolicies > 0
+              ? 'tail batches are now dominating completion time'
+              : 'engine compute and tape cache are likely the next limit';
+
+    return (
+      <div className="mt-4 border-t border-stone-100 pt-3">
+        <div className="mb-2 flex items-baseline justify-between">
+          <p className="text-[11px] font-medium uppercase tracking-wider text-stone-500">
+            {isLive ? 'Performance' : 'Last Run Performance'}
+          </p>
+          <span className="text-[10px] text-stone-400">
+            {hint}
+          </span>
+        </div>
+        <div className="grid gap-3 text-[11px] sm:grid-cols-2 lg:grid-cols-5">
+          <div>
+            <p className="uppercase tracking-wider text-stone-400">Utilization</p>
+            <p className="mt-0.5 font-semibold tabular-nums text-stone-800">
+              {metrics.hostUtilizationRate === null
+                ? '—'
+                : `${Math.round(metrics.hostUtilizationRate * 100)}%`}
+            </p>
+            <p className="text-stone-500">
+              idle debt {formatWallTime(metrics.hostIdleWhilePendingSlotMs)}
+            </p>
+          </div>
+          <div>
+            <p className="uppercase tracking-wider text-stone-400">Batching</p>
+            <p className="mt-0.5 font-semibold tabular-nums text-stone-800">
+              {metrics.avgBatchSize === null ? '—' : metrics.avgBatchSize.toFixed(1)} pol/batch
+            </p>
+            <p className="text-stone-500">
+              {metrics.pendingPolicies.toLocaleString()} pending ·{' '}
+              {metrics.inFlightBatches.toLocaleString()} in flight
+            </p>
+          </div>
+          <div>
+            <p className="uppercase tracking-wider text-stone-400">Backpressure</p>
+            <p className="mt-0.5 font-semibold tabular-nums text-stone-800">
+              {metrics.capacityNacks.toLocaleString()} capacity nacks
+            </p>
+            <p className="text-stone-500">
+              {metrics.policiesRequeued.toLocaleString()} requeued ·{' '}
+              {metrics.policiesDropped.toLocaleString()} dropped
+            </p>
+          </div>
+          <div>
+            <p className="uppercase tracking-wider text-stone-400">Latency</p>
+            <p className="mt-0.5 font-semibold tabular-nums text-stone-800">
+              {formatMetricMs(metrics.avgDispatchToResultMs)}
+            </p>
+            <p className="text-stone-500">
+              dispatch to result · {metrics.batchResults.toLocaleString()} results
+            </p>
+          </div>
+          <div>
+            <p className="uppercase tracking-wider text-stone-400">Runtime Mix</p>
+            <p className="mt-0.5 font-semibold tabular-nums text-stone-800">
+              {rustHosts.length}/{liveHosts.length} Rust compact
+            </p>
+            <p className="text-stone-500">
+              {nonRustHosts.length === 0
+                ? 'all live hosts on compiled path'
+                : nonRustHosts.map((v) => v.displayName).join(', ')}
+            </p>
+          </div>
         </div>
       </div>
     );
@@ -976,6 +1086,7 @@ export function PolicyMiningStatusCard({
         </div>
       </div>
       {renderControls()}
+      {renderPerformancePanel()}
       {renderHostPanel()}
     </div>
   );

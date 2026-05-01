@@ -136,6 +136,7 @@ export function recommendedBatchSize(
   measuredMsPerPolicy: number | null,
   remainingPolicies: number,
   trialCount: number = HINT_BASELINE_TRIAL_COUNT,
+  opts: { maxBatchSize?: number; targetBatchWallClockMs?: number } = {},
 ): number {
   // Tail-stealing: when the queue is near-empty, force 1-policy batches
   // for everyone. This bounds the tail latency to a single policy on
@@ -147,6 +148,11 @@ export function recommendedBatchSize(
   if (remainingPolicies <= TAIL_STEAL_THRESHOLD) {
     return Math.max(1, Math.min(1, remainingPolicies));
   }
+  const maxBatchSize = Math.max(1, Math.floor(opts.maxBatchSize ?? MAX_BATCH_SIZE));
+  const targetBatchWallClockMs = Math.max(
+    100,
+    opts.targetBatchWallClockMs ?? TARGET_BATCH_WALL_CLOCK_MS,
+  );
   let msPerPolicy: number;
   if (measuredMsPerPolicy && Number.isFinite(measuredMsPerPolicy) && measuredMsPerPolicy > 0) {
     msPerPolicy = measuredMsPerPolicy;
@@ -163,11 +169,11 @@ export function recommendedBatchSize(
     const scale = Math.max(0.05, trialCount / HINT_BASELINE_TRIAL_COUNT);
     msPerPolicy = baselineHint * scale;
   }
-  const sizeFromTime = Math.max(1, Math.floor(TARGET_BATCH_WALL_CLOCK_MS / msPerPolicy));
+  const sizeFromTime = Math.max(1, Math.floor(targetBatchWallClockMs / msPerPolicy));
   // Don't hand out a batch bigger than what's actually left to do — at the
   // tail of a session, fast hosts should still get useful work even if
   // it's small.
-  return Math.min(sizeFromTime, MAX_BATCH_SIZE, Math.max(1, remainingPolicies));
+  return Math.min(sizeFromTime, maxBatchSize, Math.max(1, remainingPolicies));
 }
 
 /**
@@ -389,10 +395,14 @@ export class WorkQueue {
    *   - `{requeued, dropped}` counts otherwise. `requeued + dropped` ==
    *     batch.policies.length.
    */
-  requeueBatch(batchId: string): { requeued: number; dropped: number } | null {
+  requeueBatch(
+    batchId: string,
+    opts: { countAttemptFailure?: boolean } = {},
+  ): { requeued: number; dropped: number } | null {
     const batch = this.inFlight.get(batchId);
     if (!batch) return null;
     this.inFlight.delete(batchId);
+    const countAttemptFailure = opts.countAttemptFailure ?? true;
     let requeued = 0;
     let dropped = 0;
     // Walk in reverse so the requeued tail ends up at the END of the
@@ -402,6 +412,16 @@ export class WorkQueue {
     for (let i = batch.policies.length - 1; i >= 0; i -= 1) {
       const policy = batch.policies[i];
       const attempts = this.attemptsByPolicy.get(policy) ?? 0;
+      if (!countAttemptFailure) {
+        if (attempts <= 1) {
+          this.attemptsByPolicy.delete(policy);
+        } else {
+          this.attemptsByPolicy.set(policy, attempts - 1);
+        }
+        this.pending.push(policy);
+        requeued += 1;
+        continue;
+      }
       if (attempts >= MAX_POLICY_ATTEMPTS) {
         // Give up on this policy. Don't reset attempts — the dead-letter
         // record carries the final count for diagnostics.

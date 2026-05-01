@@ -49,6 +49,7 @@ export const EXPORT_SCHEMA_VERSION = 'retirement-planner-export.v2';
 export const PLANNING_EXPORT_CACHE_VERSION = 'planner-mode-routing-v2';
 
 export type ActiveSimulationProfile = 'rawSimulation' | 'plannerEnhancedSimulation';
+export type PlanningExportMode = 'compact' | 'full';
 
 type HousingFundingPolicy = 'baseline' | 'home_sale_accelerated';
 type WithdrawalPreference = 'standard' | 'preserve_roth';
@@ -322,6 +323,8 @@ export interface PlanningStateExport {
   exportQualityGate: ExportQualityGate;
 }
 
+export type PlanningStateExportCompact = PlanningStateExport;
+
 /**
  * Tiny (~2–5 KB) subset of PlanningStateExport used to render the Plan 2.0
  * top strip (focus card, active-plan headline, summary cards) before the full
@@ -389,6 +392,7 @@ interface BuildPlanningExportInput {
   assumptions: MarketAssumptions;
   selectedStressorIds: string[];
   selectedResponseIds: string[];
+  exportMode?: PlanningExportMode;
   optimizationObjective?: OptimizationObjective;
   unifiedPlanEvaluation?: PlanEvaluation | null;
   unifiedPlanEvaluationCapturedAtIso?: string | null;

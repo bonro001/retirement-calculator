@@ -36,6 +36,8 @@ import { PolicyMiningStatusCard } from './PolicyMiningStatusCard';
 import { PolicyMiningResultsTable } from './PolicyMiningResultsTable';
 import { POLICY_MINER_ENGINE_VERSION } from './policy-miner-types';
 import { useClusterSession } from './useClusterSession';
+import { CalibrationDashboard } from './CalibrationDashboard';
+import { AxisPruningCard } from './AxisPruningCard';
 
 const INTERACTIVE_UNIFIED_PLAN_MAX_RUNS = 250;
 /**
@@ -2579,7 +2581,36 @@ export function UnifiedPlanScreen({
               : undefined
           }
         />
+        {/* Adaptive axis-pruning insight. Surfaces only when the corpus
+            for this baseline has ≥ 50 evaluations AND at least one
+            axis value contributed zero feasible candidates. Display +
+            copy-to-clipboard for V1; the cluster client already
+            supports `axesOverride` so a future Apply-and-rerun is a
+            straight wire-up. */}
+        <div className="mt-3">
+          <AxisPruningCard
+            seedData={data}
+            baselineFingerprint={policyMiningFingerprint || null}
+            engineVersion={POLICY_MINER_ENGINE_VERSION}
+          />
+        </div>
       </div>
+
+      {/* Decision-grade calibration signals — composes UncertaintyRange,
+          TaxEfficiency, and PreRetirementOptimizer tiles built earlier
+          this sprint into a single 2-column grid. Surfaces lifetime tax
+          exposure, success-rate range (not point), and pre-retirement
+          shortfall actions next to the planner. Only renders when there's
+          a finished baseline path to drive the tax/uncertainty math. */}
+      {primaryPath ? (
+        <div className="mb-4">
+          <CalibrationDashboard
+            seedData={data}
+            assumptions={assumptions}
+            baselinePath={primaryPath}
+          />
+        </div>
+      ) : null}
 
       {error ? (
         <p className="mb-4 rounded-2xl bg-red-50 px-4 py-3 text-sm text-red-700">

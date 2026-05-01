@@ -35,8 +35,16 @@ function buildSolverInput() {
     assumptions: SOLVER_TEST_ASSUMPTIONS,
     selectedStressors: ['market_down'],
     selectedResponses: ['cut_spending'],
-    targetLegacyTodayDollars: 900000,
-    minSuccessRate: 0.8,
+    // Re-tuned 2026-04-29 after the SS engine integration: spousal-floor
+    // math added ~$7,272/yr to Debbie's projected SS income, lifting
+    // overall household solvency. Previous target ($900k) and floor
+    // (80% solvent) became trivially achievable, so the solver hit
+    // its upper-spending-cap without actually bisecting — adjacent
+    // tests started seeing zero phase deltas / no differentiation.
+    // Raised to $1.6M legacy + 90% solvency to put the constraints
+    // back on the binding edge where the solver has real work to do.
+    targetLegacyTodayDollars: 1_600_000,
+    minSuccessRate: 0.9,
     spendingFloorAnnual: 60000,
     spendingCeilingAnnual: 220000,
     toleranceAnnual: 500,
@@ -50,16 +58,20 @@ function getPhaseDelta(result: ReturnType<typeof solveSpendByReverseTimeline>, p
 
 describe('spend-solver', () => {
   it('reduces allowed spending when primary residence sale is disabled', () => {
+    // Re-tuned 2026-04-29: target $1.2M / 85% became trivially
+    // achievable after SS engine integration; both policies hit the
+    // upper cap with identical recommended spends. Bumped to $2M /
+    // 90% so the home-sale-vs-no-home-sale distinction binds.
     const allowsHomeSale = solveSpendByReverseTimeline({
       ...buildSolverInput(),
-      targetLegacyTodayDollars: 1_200_000,
-      minSuccessRate: 0.85,
+      targetLegacyTodayDollars: 2_000_000,
+      minSuccessRate: 0.9,
       housingFundingPolicy: 'allow_primary_residence_sale',
     });
     const blocksHomeSale = solveSpendByReverseTimeline({
       ...buildSolverInput(),
-      targetLegacyTodayDollars: 1_200_000,
-      minSuccessRate: 0.85,
+      targetLegacyTodayDollars: 2_000_000,
+      minSuccessRate: 0.9,
       housingFundingPolicy: 'do_not_sell_primary_residence',
     });
 
@@ -127,13 +139,17 @@ describe('spend-solver', () => {
   });
 
   it('produces differentiated phase spending adjustments in time-weighted mode', () => {
+    // Re-tuned 2026-04-29: target $750k / 75% after SS engine
+    // integration → solver hit upper cap, all phases zero. Bumped
+    // to $1.8M / 88% so the time-weighted optimization actually has
+    // headroom-vs-constraint to differentiate go-go from late.
     const result = solveSpendByReverseTimeline({
       ...buildSolverInput(),
       selectedStressors: [],
       selectedResponses: [],
       optimizationObjective: 'maximize_time_weighted_spending',
-      targetLegacyTodayDollars: 750_000,
-      minSuccessRate: 0.75,
+      targetLegacyTodayDollars: 1_800_000,
+      minSuccessRate: 0.88,
     });
 
     const goGoDelta = getPhaseDelta(result, 'go_go');
@@ -450,7 +466,12 @@ describe('spend-solver', () => {
   }, 20000);
 
   it('lands near target when constraints permit a close target-seeking solution', () => {
-    const targetLegacy = 1_000_000;
+    // Re-tuned 2026-04-29: previous target $1M / 65% solvent was
+    // trivially achievable after SS engine integration — solver
+    // landed at the spending ceiling ($151k vs the test's expected
+    // ≤$100k from-target). Bumped target to $2.5M to put the
+    // optimizer genuinely on the target's edge.
+    const targetLegacy = 2_500_000;
     const result = solveSpendByReverseTimeline({
       ...buildSolverInput(),
       selectedStressors: [],

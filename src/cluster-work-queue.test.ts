@@ -22,7 +22,7 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { MAX_POLICY_ATTEMPTS, WorkQueue } from '../cluster/work-queue';
+import { MAX_POLICY_ATTEMPTS, WorkQueue, recommendedBatchSize } from '../cluster/work-queue';
 import type { Policy } from './policy-miner-types';
 
 function makePolicy(spend: number): Policy {
@@ -33,6 +33,28 @@ function makePolicy(spend: number): Policy {
     rothConversionAnnualCeiling: 0,
   };
 }
+
+describe('recommendedBatchSize', () => {
+  it('keeps the legacy 25-policy cap by default', () => {
+    expect(recommendedBatchSize('apple-silicon-perf', 10, 500, 1000)).toBe(25);
+  });
+
+  it('allows a runtime-specific cap for fast fan-out hosts', () => {
+    expect(
+      recommendedBatchSize('apple-silicon-perf', 50, 500, 1000, {
+        maxBatchSize: 128,
+      }),
+    ).toBe(100);
+  });
+
+  it('still uses single-policy batches at the tail', () => {
+    expect(
+      recommendedBatchSize('apple-silicon-perf', 10, 8, 1000, {
+        maxBatchSize: 128,
+      }),
+    ).toBe(1);
+  });
+});
 
 describe('WorkQueue (D.4 baseline)', () => {
   it('hands out batches in input order and counts evaluated correctly', () => {
@@ -60,6 +82,34 @@ describe('WorkQueue (D.4 baseline)', () => {
     expect(q.pendingCount()).toBe(2);
     expect(q.droppedCountValue()).toBe(0);
     expect(q.snapshot().droppedCount).toBe(0);
+  });
+
+  it('can requeue capacity backpressure without consuming policy attempts', () => {
+    const policy = makePolicy(50_000);
+    const q = new WorkQueue('s-capacity', [policy]);
+
+    for (let i = 0; i < MAX_POLICY_ATTEMPTS + 3; i += 1) {
+      const a = q.assignBatch('peer-busy', 1);
+      expect(a).not.toBeNull();
+      expect(q.requeueBatch(a!.batchId, { countAttemptFailure: false })).toEqual({
+        requeued: 1,
+        dropped: 0,
+      });
+    }
+
+    expect(q.pendingCount()).toBe(1);
+    expect(q.droppedCountValue()).toBe(0);
+
+    for (let attempt = 1; attempt <= MAX_POLICY_ATTEMPTS; attempt += 1) {
+      const a = q.assignBatch('peer-poison', 1);
+      expect(a).not.toBeNull();
+      const r = q.requeueBatch(a!.batchId);
+      expect(r).toEqual(
+        attempt < MAX_POLICY_ATTEMPTS
+          ? { requeued: 1, dropped: 0 }
+          : { requeued: 0, dropped: 1 },
+      );
+    }
   });
 });
 

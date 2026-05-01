@@ -1,6 +1,6 @@
 import type { MarketAssumptions, SeedData } from './types';
 import type { PlanEvaluation } from './plan-evaluation';
-import type { PlanningStateExport } from './planning-export';
+import type { PlanningExportMode, PlanningStateExport } from './planning-export';
 
 export interface PlanningExportWorkerPayload {
   requestId: string;
@@ -8,6 +8,7 @@ export interface PlanningExportWorkerPayload {
   assumptions: MarketAssumptions;
   selectedStressorIds: string[];
   selectedResponseIds: string[];
+  exportMode?: PlanningExportMode;
   unifiedPlanEvaluation: PlanEvaluation | null;
   unifiedPlanEvaluationCapturedAtIso: string | null;
 }

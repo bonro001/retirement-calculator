@@ -10,8 +10,8 @@
     "salaryAnnual": 210000,
     "salaryEndDate": "2027-07-01",
     "socialSecurity": [
-      { "person": "rob", "fraMonthly": 4100, "claimAge": 67 },
-      { "person": "debbie", "fraMonthly": 2000, "claimAge": 67 }
+      { "person": "rob", "fraMonthly": 4100 },
+      { "person": "debbie", "fraMonthly": 1444 }
     ],
     "windfalls": [
       { "name": "inheritance", "year": 2028, "amount": 500000, "taxTreatment": "cash_non_taxable" },
@@ -34,10 +34,10 @@
     }
   },
   "spending": {
-    "essentialMonthly": 5000,
-    "optionalMonthly": 5000,
-    "annualTaxesInsurance": 12000,
-    "travelEarlyRetirementAnnual": 14000
+    "essentialMonthly": 4795,
+    "optionalMonthly": 4795,
+    "annualTaxesInsurance": 11507,
+    "travelEarlyRetirementAnnual": 13425
   },
   "accounts": {
     "pretax": {

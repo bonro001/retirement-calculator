@@ -232,10 +232,18 @@ pub struct PlanInput {
     pub hsa_contribution_pct_of_salary: f64,
 }
 
-fn default_medical_inflation() -> f64 { 0.055 }
-fn default_ltc_start_age() -> u32 { 85 }
-fn default_ltc_duration() -> u32 { 3 }
-fn default_travel_phase_years() -> u32 { 10 }
+fn default_medical_inflation() -> f64 {
+    0.055
+}
+fn default_ltc_start_age() -> u32 {
+    85
+}
+fn default_ltc_duration() -> u32 {
+    3
+}
+fn default_travel_phase_years() -> u32 {
+    10
+}
 
 /// Market assumptions — the dials that govern stochastic behavior.
 /// Matches TS `MarketAssumptions` for the fields we need now;
@@ -268,9 +276,15 @@ pub struct AssumptionsInput {
     pub guardrail_cut_percent: f64,
 }
 
-fn default_ceiling_years() -> f64 { 18.0 }
-fn default_floor_years() -> f64 { 12.0 }
-fn default_cut_percent() -> f64 { 0.20 }
+fn default_ceiling_years() -> f64 {
+    18.0
+}
+fn default_floor_years() -> f64 {
+    12.0
+}
+fn default_cut_percent() -> f64 {
+    0.20
+}
 
 /// One trace row — what the engine records per simulated year.
 /// Field set for this iteration is minimal; will grow to mirror

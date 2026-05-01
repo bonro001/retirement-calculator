@@ -3171,10 +3171,9 @@ export function CockpitScreen() {
   const historicalPath: PathResult | null = baselinePathBoth.historical;
 
   // Phase 2: when the mining corpus has a top-1 record, that's our
-  // recommendation — bypass the bisection chain entirely (it's still
-  // there as a fallback for plans without a corpus). Skipping cuts
-  // ~30s of main-thread MC and eliminates the "Page Unresponsive"
-  // dialog the household saw on cockpit cold loads.
+  // recommendation. If no corpus exists yet, do not run the old
+  // bisection fallback automatically; it can monopolize the main thread
+  // long enough that the user cannot click into the mining screen.
   const corpusRecommendation = recommendation.policy;
   const useCorpusPick = corpusRecommendation != null;
 
@@ -3187,9 +3186,9 @@ export function CockpitScreen() {
   );
 
   // Plan-optimization chain (SS → spend → Roth → optimizedPath).
-  // Skipped when the corpus has a pick. See `usePlanOptimization`
-  // for staging details.
-  const planOpt = usePlanOptimization(data, assumptions, useCorpusPick);
+  // Kept as a dormant fallback API, but skipped by default so mining is
+  // the authoritative recommendation path and startup remains clickable.
+  const planOpt = usePlanOptimization(data, assumptions, true);
   const ssOptResult = planOpt.ssResult;
   const spendOptResult = planOpt.spendResult;
   const rothOptResult = planOpt.rothResult;

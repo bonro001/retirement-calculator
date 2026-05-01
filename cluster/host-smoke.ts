@@ -41,6 +41,22 @@ import {
 
 const POLICY_COUNT = Number.parseInt(process.env.SMOKE_POLICIES ?? '4', 10);
 const TRIAL_COUNT = Number.parseInt(process.env.SMOKE_TRIALS ?? '200', 10);
+const POLICY_OFFSET = Number.parseInt(process.env.SMOKE_POLICY_OFFSET ?? '0', 10);
+const USE_HISTORICAL_BOOTSTRAP = process.env.SMOKE_HISTORICAL === '1';
+const HISTORICAL_BOOTSTRAP_BLOCK_LENGTH = Number.parseInt(
+  process.env.SMOKE_HISTORICAL_BLOCK_LENGTH ?? '1',
+  10,
+);
+const EXPECTED_ENGINE_RUNTIME = process.env.SMOKE_EXPECT_ENGINE_RUNTIME;
+const MAX_MS_PER_POLICY = process.env.SMOKE_MAX_MS_PER_POLICY
+  ? Number(process.env.SMOKE_MAX_MS_PER_POLICY)
+  : null;
+const MIN_TAPE_CACHE_HIT_RATE = process.env.SMOKE_MIN_TAPE_CACHE_HIT_RATE
+  ? Number(process.env.SMOKE_MIN_TAPE_CACHE_HIT_RATE)
+  : null;
+const MIN_COMPACT_TAPE_CACHE_HIT_RATE = process.env.SMOKE_MIN_COMPACT_TAPE_CACHE_HIT_RATE
+  ? Number(process.env.SMOKE_MIN_COMPACT_TAPE_CACHE_HIT_RATE)
+  : null;
 
 function log(msg: string, meta?: Record<string, unknown>) {
   const tail = meta ? ' ' + JSON.stringify(meta) : '';
@@ -68,7 +84,11 @@ const SMOKE_ASSUMPTIONS: MarketAssumptions = {
   debbiePlanningEndAge: 95,
   travelPhaseYears: 10,
   simulationSeed: 20_260_417,
-  assumptionsVersion: 'host-smoke',
+  useHistoricalBootstrap: USE_HISTORICAL_BOOTSTRAP,
+  historicalBootstrapBlockLength: HISTORICAL_BOOTSTRAP_BLOCK_LENGTH,
+  assumptionsVersion: USE_HISTORICAL_BOOTSTRAP
+    ? 'host-smoke-historical'
+    : 'host-smoke-parametric',
 };
 
 async function main(): Promise<void> {
@@ -76,6 +96,8 @@ async function main(): Promise<void> {
     workers: HOST_WORKER_COUNT,
     policies: POLICY_COUNT,
     trials: TRIAL_COUNT,
+    historical: USE_HISTORICAL_BOOTSTRAP,
+    policyOffset: POLICY_OFFSET,
   });
 
   spawnPool();
@@ -105,26 +127,30 @@ async function main(): Promise<void> {
   const stride = Math.max(1, Math.floor(allPolicies.length / POLICY_COUNT));
   const policies = [];
   for (let i = 0; i < POLICY_COUNT && i * stride < allPolicies.length; i += 1) {
-    policies.push(allPolicies[i * stride]);
+    policies.push(allPolicies[(POLICY_OFFSET + i * stride) % allPolicies.length]);
   }
   log('policy slice', {
     sampled: policies.length,
     totalCorpus: allPolicies.length,
     stride,
+    offset: POLICY_OFFSET,
   });
 
   // Run the full batch on a single slot — same code path the dispatcher
   // would trigger. We could fan to multiple slots in parallel here too,
   // but keeping it serial makes the per-policy timing easy to read.
   const startMs = Date.now();
-  const evaluations = await runBatchOnPool(sessionId, 'smoke-batch-1', policies);
+  const run = await runBatchOnPool(sessionId, 'smoke-batch-1', policies);
+  const evaluations = run.evaluations;
   const elapsedMs = Date.now() - startMs;
+  const msPerPolicy = elapsedMs / Math.max(1, evaluations.length);
 
   log('batch complete', {
     evaluations: evaluations.length,
     totalMs: elapsedMs,
-    msPerPolicy: Math.round(elapsedMs / Math.max(1, evaluations.length)),
+    msPerPolicy: Math.round(msPerPolicy),
     freeSlots: freeSlotCount(),
+    shadowStats: run.shadowStats,
   });
 
   // Sanity checks — fail loudly if the engine returned nonsense.
@@ -146,6 +172,41 @@ async function main(): Promise<void> {
     if (!Number.isFinite(ev.outcome.p50EndingWealthTodayDollars)) {
       throw new Error(`non-finite p50 wealth on ${ev.id}`);
     }
+  }
+  const shadowStats = run.shadowStats;
+  if (EXPECTED_ENGINE_RUNTIME && shadowStats?.runtime !== EXPECTED_ENGINE_RUNTIME) {
+    throw new Error(
+      `runtime mismatch: got ${shadowStats?.runtime ?? 'none'}, expected ${EXPECTED_ENGINE_RUNTIME}`,
+    );
+  }
+  if (shadowStats && (shadowStats.mismatches > 0 || shadowStats.errors > 0 || shadowStats.skipped > 0)) {
+    throw new Error(
+      `shadow stats not clean: mismatches=${shadowStats.mismatches} errors=${shadowStats.errors} skipped=${shadowStats.skipped}`,
+    );
+  }
+  if (MAX_MS_PER_POLICY !== null && msPerPolicy > MAX_MS_PER_POLICY) {
+    throw new Error(
+      `host smoke exceeded max ms/policy: ${msPerPolicy.toFixed(1)} > ${MAX_MS_PER_POLICY}`,
+    );
+  }
+  const tapeCacheHitRate = shadowStats?.timings?.tapeCacheHitRate;
+  if (
+    MIN_TAPE_CACHE_HIT_RATE !== null &&
+    (typeof tapeCacheHitRate !== 'number' || tapeCacheHitRate < MIN_TAPE_CACHE_HIT_RATE)
+  ) {
+    throw new Error(
+      `tape cache hit rate ${tapeCacheHitRate ?? 'n/a'} below ${MIN_TAPE_CACHE_HIT_RATE}`,
+    );
+  }
+  const compactTapeCacheHitRate = shadowStats?.timings?.compactTapeCacheHitRate;
+  if (
+    MIN_COMPACT_TAPE_CACHE_HIT_RATE !== null &&
+    (typeof compactTapeCacheHitRate !== 'number' ||
+      compactTapeCacheHitRate < MIN_COMPACT_TAPE_CACHE_HIT_RATE)
+  ) {
+    throw new Error(
+      `compact tape cache hit rate ${compactTapeCacheHitRate ?? 'n/a'} below ${MIN_COMPACT_TAPE_CACHE_HIT_RATE}`,
+    );
   }
   log('shape checks passed', {
     sampleId: evaluations[0]?.id,

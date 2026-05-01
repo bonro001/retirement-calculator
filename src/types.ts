@@ -52,7 +52,7 @@ export interface SocialSecurityEntry {
    * (which sweeps 65..70 × 65..70) and clone the seed with the
    * recommended pair before calling `buildPathResults`.
    */
-  claimAge?: number;
+  claimAge: number;
 }
 
 export interface EmployerMatchFormula {
@@ -248,6 +248,18 @@ export interface SeedData {
   rules: RulesData;
   stressors: Stressor[];
   responses: ResponseOption[];
+  goals?: {
+    legacyTargetTodayDollars?: number | null;
+    [key: string]: unknown;
+  };
+}
+
+export interface GuardrailTier {
+  id: string;
+  triggerFundedYears: number;
+  action: 'cut_optional' | 'cut_travel' | 'sell_house' | 'claim_ss_early';
+  amountPercent?: number;
+  label?: string;
 }
 
 export interface MarketAssumptions {
@@ -269,6 +281,9 @@ export interface MarketAssumptions {
   robPlanningEndAge: number;
   debbiePlanningEndAge: number;
   travelPhaseYears: number;
+  pivotSellHouseFloorYears?: number;
+  pivotClaimSSEarlyFloorYears?: number;
+  guardrailLadder?: GuardrailTier[];
   simulationSeed?: number;
   assumptionsVersion?: string;
   // Opt-in: sample correlated asset-class returns via a fixed Cholesky

@@ -53,11 +53,13 @@ import {
 } from '../src/policy-miner-types';
 import {
   DEFAULT_DISPATCHER_PORT,
+  HEARTBEAT_INTERVAL_MS,
   MINING_PROTOCOL_VERSION,
   decodeMessage,
   encodeMessage,
   type ClusterMessage,
   type ClusterSnapshot,
+  type HeartbeatMessage,
   type StartSessionMessage,
 } from '../src/mining-protocol';
 import type { MarketAssumptions, SeedData } from '../src/types';
@@ -202,6 +204,7 @@ function renderClusterState(snap: ClusterSnapshot): void {
       ? (stats.estimatedRemainingMs / 60_000).toFixed(1) + ' min'
       : '?';
   const hostsActive = snap.peers.filter((p) => p.roles.includes('host')).length;
+  const metrics = snap.session.metrics;
   log('progress', {
     pct: `${pct}%`,
     evaluated: `${stats.policiesEvaluated}/${stats.totalPolicies}`,
@@ -211,6 +214,12 @@ function renderClusterState(snap: ClusterSnapshot): void {
     msPerPolicy: Math.round(stats.meanMsPerPolicy),
     eta: remainingMin,
     hosts: hostsActive,
+    utilization: metrics?.hostUtilizationRate == null
+      ? undefined
+      : `${Math.round(metrics.hostUtilizationRate * 100)}%`,
+    capacityNacks: metrics?.capacityNacks,
+    dropped: metrics?.policiesDropped,
+    avgBatch: metrics?.avgBatchSize == null ? undefined : Number(metrics.avgBatchSize.toFixed(1)),
   });
 }
 
@@ -257,6 +266,27 @@ async function main(): Promise<void> {
 
   let sessionId: string | null = null;
   let started = false;
+  let heartbeatTimer: NodeJS.Timeout | null = null;
+
+  const stopHeartbeat = (): void => {
+    if (!heartbeatTimer) return;
+    clearInterval(heartbeatTimer);
+    heartbeatTimer = null;
+  };
+
+  const startHeartbeat = (peerId: string): void => {
+    stopHeartbeat();
+    heartbeatTimer = setInterval(() => {
+      if (ws.readyState !== WebSocket.OPEN) return;
+      const hb: HeartbeatMessage = {
+        kind: 'heartbeat',
+        from: peerId,
+        inFlightBatchIds: [],
+        freeWorkerSlots: 0,
+      };
+      ws.send(encodeMessage(hb));
+    }, HEARTBEAT_INTERVAL_MS);
+  };
 
   ws.on('open', () => {
     log('connected, registering as controller');
@@ -282,6 +312,7 @@ async function main(): Promise<void> {
     switch (message.kind) {
       case 'welcome': {
         log('welcomed', { peerId: message.peerId });
+        startHeartbeat(message.peerId);
         // Now send the session start. The dispatcher generates and assigns
         // the sessionId; we'll learn it from the next cluster_state.
         // Phase 2.C: optional coarseStage from SESSION_COARSE_TRIALS env.
@@ -374,11 +405,13 @@ async function main(): Promise<void> {
   });
 
   ws.on('close', (code) => {
+    stopHeartbeat();
     log('connection closed', { code, sessionId });
     resolveDone(started ? 0 : 2);
   });
 
   ws.on('error', (err) => {
+    stopHeartbeat();
     log('socket error', { err: String(err) });
     resolveDone(1);
   });
@@ -387,6 +420,7 @@ async function main(): Promise<void> {
   // socket. Without this, the dispatcher would keep churning until it
   // detected the disconnect, which is fine but wasteful.
   process.on('SIGINT', () => {
+    stopHeartbeat();
     if (sessionId) {
       log('SIGINT — cancelling session', { sessionId });
       try {
