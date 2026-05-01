@@ -35,6 +35,19 @@ export interface RankingRule {
     label: string;
     direction: 'asc' | 'desc';
     metric: (e: PolicyEvaluation) => number;
+    /**
+     * Optional tolerance band: when |metric(a) - metric(b)| ≤ tolerance,
+     * the comparator treats the records as tied and falls through to
+     * the next tiebreaker. Without tolerance, MC noise on engine
+     * outputs (legacy / solvency / P50 EW typically vary ±1.5pp /
+     * ±$50k at 2000 trials) makes the upstream tiebreaker break ties
+     * effectively at random and downstream rules — like "earlier SS
+     * claim ages" — almost never fire. Tolerances let the ranker
+     * absorb noise and reach the meaningful tiebreaker. Defaults to 0
+     * (strict equality) when omitted, suitable for precise-from-policy
+     * metrics like annual spend.
+     */
+    tolerance?: number;
   }>;
 }
 
@@ -71,33 +84,56 @@ export const LEGACY_FIRST_LEXICOGRAPHIC: RankingRule = {
   ],
   tiebreakers: [
     {
+      // Spend is set by the policy, not an engine output — exact
+      // equality is meaningful, no tolerance.
       label: 'spend desc',
       direction: 'desc',
       metric: (e) => e.policy.annualSpendTodayDollars,
     },
     {
+      // Solvency at 2000 trials: ±1.5pp standard error. 0.5pp tolerance
+      // absorbs noise without bridging policies that genuinely differ.
       label: 'solvency desc',
       direction: 'desc',
       metric: (e) => e.outcome.solventSuccessRate,
+      tolerance: 0.005,
     },
     {
       label: 'legacy attainment desc',
       direction: 'desc',
       metric: (e) => e.outcome.bequestAttainmentRate,
+      tolerance: 0.005,
     },
     {
+      // P50 EW MC noise at 2000 trials runs ~$30-60k on a ~$2M-$3M
+      // distribution; $50k is ~2% — wide enough to absorb noise,
+      // narrow enough to keep meaningfully different policies separate.
       label: 'p50 EW desc',
       direction: 'desc',
       metric: (e) => e.outcome.p50EndingWealthTodayDollars,
+      tolerance: 50_000,
+    },
+    {
+      // When the upstream metrics tie (within their tolerance bands),
+      // prefer the strategy that pays out earliest — the household's
+      // "if income is the same, start earlier" rule. Especially
+      // relevant when the lower earner's spousal floor dominates her
+      // own benefit, so claiming at FRA gives the same monthly $ as
+      // claiming at 70 but for more years of payments.
+      label: 'earlier SS claim ages asc',
+      direction: 'asc',
+      metric: (e) =>
+        e.policy.primarySocialSecurityClaimAge +
+        (e.policy.spouseSocialSecurityClaimAge ?? 0),
     },
   ],
 };
 
-function clearsGates(e: PolicyEvaluation, rule: RankingRule): boolean {
+export function clearsGates(e: PolicyEvaluation, rule: RankingRule): boolean {
   return rule.gates.every((g) => g.metric(e) >= g.minimum);
 }
 
-function compareByTiebreakers(
+export function compareByTiebreakers(
   a: PolicyEvaluation,
   b: PolicyEvaluation,
   rule: RankingRule,
@@ -105,7 +141,8 @@ function compareByTiebreakers(
   for (const t of rule.tiebreakers) {
     const av = t.metric(a);
     const bv = t.metric(b);
-    if (av === bv) continue;
+    const tolerance = t.tolerance ?? 0;
+    if (Math.abs(av - bv) <= tolerance) continue;
     return t.direction === 'desc' ? bv - av : av - bv;
   }
   // Stable tiebreak so rerunning the ranker on the same inputs returns

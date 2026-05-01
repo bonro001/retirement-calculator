@@ -58,9 +58,20 @@ describe('cliff refinement analyzer', () => {
     expect(result.hasRecommendation).toBe(true);
     expect(result.cliffLowerSpend).toBe(115_000);
     expect(result.cliffUpperSpend).toBe(120_000);
-    expect(result.axes.annualSpendTodayDollars).toEqual([
-      115_000, 116_000, 117_000, 118_000, 119_000, 120_000,
-    ]);
+    // Hybrid axes: full $5k grid ∪ $1k cliff inserts, sorted + deduped.
+    // Pass-2 supersedes pass-1 so the corpus stays a single conceptual
+    // surface (coarse $5k landscape + dense $1k through the cliff).
+    const spend = result.axes.annualSpendTodayDollars;
+    expect(spend).toContain(115_000);
+    expect(spend).toContain(116_000);
+    expect(spend).toContain(117_000);
+    expect(spend).toContain(118_000);
+    expect(spend).toContain(119_000);
+    expect(spend).toContain(120_000);
+    expect(spend).toContain(80_000); // base $5k grid still represented
+    expect(spend).toContain(160_000);
+    expect(spend).toEqual([...spend].sort((a, b) => a - b)); // sorted
+    expect(new Set(spend).size).toBe(spend.length); // deduped
     expect(result.rationale).toContain('$115,000');
     expect(result.rationale).toContain('$120,000');
   });
@@ -82,9 +93,15 @@ describe('cliff refinement analyzer', () => {
     expect(result.hasRecommendation).toBe(true);
     expect(result.cliffLowerSpend).toBe(130_000);
     expect(result.cliffUpperSpend).toBe(135_000);
-    expect(result.axes.annualSpendTodayDollars).toEqual([
-      130_000, 131_000, 132_000, 133_000, 134_000, 135_000,
-    ]);
+    const spend = result.axes.annualSpendTodayDollars;
+    expect(spend).toContain(130_000);
+    expect(spend).toContain(131_000);
+    expect(spend).toContain(132_000);
+    expect(spend).toContain(133_000);
+    expect(spend).toContain(134_000);
+    expect(spend).toContain(135_000);
+    expect(spend).toContain(80_000);
+    expect(spend).toContain(160_000);
   });
 
   it('respects a non-default feasibility threshold (e.g. 0.95 strict)', () => {

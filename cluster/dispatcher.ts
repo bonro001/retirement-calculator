@@ -40,6 +40,7 @@
  *     has to re-issue start_session. Resume is D.5.
  */
 
+import { createHash } from 'node:crypto';
 import { createServer, type IncomingMessage } from 'node:http';
 import { hostname } from 'node:os';
 import { WebSocketServer, type WebSocket } from 'ws';
@@ -778,10 +779,17 @@ function handleStartSession(peer: Peer, message: StartSessionMessage): void {
     // doesn't double-resume the same on-disk session.
     resumableSessions.delete(cfg.baselineFingerprint);
   } else {
-    // Fresh session: stamp id with baseline prefix + time so logs read
-    // well and re-running doesn't collide with a stale on-disk session dir.
+    // Fresh session: stamp id with a short hash of the baseline fingerprint
+    // plus time, so logs read well and a re-run doesn't collide with a
+    // stale on-disk session dir. We hash because cockpit-format fingerprints
+    // (`{"data":...}::stressors|responses|knobs|trials=2000|fpv1`) are long
+    // JSON and would produce ugly session IDs / filenames if used raw.
     const startedAtMs = Date.now();
-    sessionId = `s-${cfg.baselineFingerprint.slice(0, 12)}-${startedAtMs}`;
+    const fpHash = createHash('sha256')
+      .update(cfg.baselineFingerprint)
+      .digest('hex')
+      .slice(0, 12);
+    sessionId = `s-${fpHash}-${startedAtMs}`;
     startedAtIso = new Date(startedAtMs).toISOString();
     queue = new WorkQueue(sessionId, sliced);
   }

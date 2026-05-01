@@ -2239,9 +2239,11 @@ function buildSimulationProfile({
     activeStressors: [...stressorIds],
     activeResponses: [...responseIds],
     withdrawalPolicy: {
-      order: plannerLogicActive
-        ? ['cash', 'taxable', 'pretax', 'roth (conditional)']
-        : ['cash', 'taxable', 'pretax', 'roth'],
+      // Both modes execute the same cascade for the default
+      // tax_bracket_waterfall rule (cash → taxable → pretax → roth, with
+      // Roth only used when prior buckets fall short — i.e. conditional).
+      // Aligned with `withdrawalOrderLabelFor` in src/utils.ts.
+      order: ['cash', 'taxable', 'pretax', 'roth (conditional)'],
       dynamicDefenseOrdering: plannerLogicActive,
       irmaaAware: plannerLogicActive,
       acaAware: plannerLogicActive,

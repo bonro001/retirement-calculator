@@ -46,6 +46,7 @@ export function buildDefaultPolicyAxes(seedData: SeedData): PolicyAxes {
   const ssAges = [
     65, 65.5, 66, 66.5, 67, 67.5, 68, 68.5, 69, 69.5, 70,
   ];
+
   return {
     // V2: $5k spend resolution from $80k–$160k. This is the COARSE pass.
     // After it completes, `cliff-refinement-analyzer.ts` inspects the

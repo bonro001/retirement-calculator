@@ -78,6 +78,17 @@ interface Props {
    *  via `StartSessionOptions.axesOverride`; we just thread it through
    *  the UI. Pass `null` to use the default grid (the common case). */
   axesOverride?: import('./policy-miner-types').PolicyAxes | null;
+  /** Auto cliff-refinement phase, when MiningScreen has chained pass-1
+   *  → pass-2. While in any non-null/non-complete phase the start button
+   *  is disabled (prevents the household from triggering a third mine
+   *  that fights the running pass-2) and the running session is labeled
+   *  "Pass 2 of 2" so the workflow reads as one coherent flow. */
+  autoRefinePhase?:
+    | 'analyzing'
+    | 'starting'
+    | 'running'
+    | 'complete'
+    | null;
 }
 
 const POLL_INTERVAL_MS = 5_000;
@@ -161,6 +172,7 @@ export function PolicyMiningStatusCard({
   engineVersion,
   controls,
   axesOverride,
+  autoRefinePhase,
 }: Props): JSX.Element | null {
   const cluster = useClusterSession();
   const [bestEval, setBestEval] = useState<PolicyEvaluation | null>(null);
@@ -302,17 +314,21 @@ export function PolicyMiningStatusCard({
 
   // -------------------------------------------------------------------------
   // Total candidate count — needed for the "Start" tooltip and to size the
-  // expected-duration line. Computed off the controls' baseline so it
-  // stays in sync with what the dispatcher will enumerate.
+  // expected-duration line. When the auto cliff-refinement chain has set
+  // an `axesOverride` (hybrid $5k grid + $1k inserts in the cliff
+  // bracket), the pill should reflect the OVERRIDE count so the label
+  // matches the in-flight session's evaluated total. Otherwise it's the
+  // default V2 grid count (49,368).
   // -------------------------------------------------------------------------
   const totalCandidates = useMemo(() => {
     if (!controls) return null;
     try {
-      return countPolicyCandidates(buildDefaultPolicyAxes(controls.baseline));
+      const axes = axesOverride ?? buildDefaultPolicyAxes(controls.baseline);
+      return countPolicyCandidates(axes);
     } catch {
       return null;
     }
-  }, [controls]);
+  }, [controls, axesOverride]);
 
   // -------------------------------------------------------------------------
   // Controls — dispatch through the cluster client, no local pool work
@@ -361,8 +377,21 @@ export function PolicyMiningStatusCard({
   const session = cluster.session;
   const stats = session?.stats ?? null;
   const sessionRunning = !!session;
-  const canStart = !!controls && cluster.state === 'connected' && !sessionRunning;
+  // While the auto cliff-refinement workflow is mid-flight (analyzer
+  // running between pass-1 and pass-2, or pass-2 itself running), we
+  // treat Start as disabled — the household shouldn't kick a parallel
+  // mine that fights the queued pass-2.
+  const autoRefineInFlight =
+    autoRefinePhase === 'analyzing' ||
+    autoRefinePhase === 'starting' ||
+    autoRefinePhase === 'running';
+  const canStart =
+    !!controls &&
+    cluster.state === 'connected' &&
+    !sessionRunning &&
+    !autoRefineInFlight;
   const canCancel = !!controls && cluster.state === 'connected' && sessionRunning;
+  const isPass2 = sessionRunning && autoRefinePhase === 'running';
 
   // Connection state badge color
   const connColor =
@@ -384,12 +413,27 @@ export function PolicyMiningStatusCard({
             ? 'disconnected'
             : 'idle';
 
-  // Session state for the upper-right badge
+  // Session state for the upper-right badge. The auto cliff-refinement
+  // chain treats pass-1 and pass-2 as one workflow from the household's
+  // POV — the badge labels reflect that. A Full mine ALWAYS auto-runs a
+  // pass-2 cliff refinement when a feasibility cliff is detected, so we
+  // proactively label pass-1 as "Pass 1 of 2" — that way the household
+  // sees the two-pass workflow ahead of time, not as a surprise.
+  // Quick mines stay labeled simply "running" since they don't refine.
+  const isFullMine = sessionSize === 'full';
   const sessionStateLabel: string | null = sessionRunning
-    ? 'running'
-    : evalCount > 0
-      ? 'idle (corpus has data)'
-      : null;
+    ? isPass2
+      ? 'running pass 2 of 2 · refining cliff'
+      : isFullMine
+        ? 'running pass 1 of 2 · sweeping the grid'
+        : 'running'
+    : autoRefinePhase === 'analyzing'
+      ? 'analyzing pass 1 for feasibility cliff'
+      : autoRefinePhase === 'starting'
+        ? 'starting pass 2 of 2'
+        : evalCount > 0
+          ? 'idle (corpus has data)'
+          : null;
   const sessionStateColor = sessionRunning
     ? 'text-emerald-700'
     : 'text-stone-500';
@@ -659,7 +703,7 @@ export function PolicyMiningStatusCard({
           <p className="text-[11px] text-stone-500">
             {sessionSize === 'quick'
               ? `Validates the top of the frontier against your current baseline. Use after editing the plan.`
-              : `Searches every spend × SS × Roth combination. Use for initial exploration or final certification.`}
+              : `Two-pass mine. Pass 1 sweeps every spend × SS × Roth combination at $5k spend resolution; if a feasibility cliff is detected, pass 2 auto-runs at $1k resolution across the cliff so adoption-grade results land near the boundary. No clicks between passes — they chain automatically.`}
           </p>
         )}
       </div>

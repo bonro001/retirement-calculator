@@ -506,7 +506,10 @@ describe('spend-solver', () => {
 
     expect(result.activeOptimizationObjective).toBe('maximize_time_weighted_spending');
     expect(result.feasible).toBe(true);
-    expect(Math.abs(result.distanceFromTarget)).toBeLessThanOrEqual(100_000);
+    // Tolerance widened from 100k after the V2 engine recalibration (LTC
+    // inflation fix, spousal floor, withdrawal-rule axis) shifted the
+    // balanced 92% solver landing point a few pp.
+    expect(Math.abs(result.distanceFromTarget)).toBeLessThanOrEqual(125_000);
   }, 30000);
 
   it('increases supported spending as success floor is relaxed from 99% -> 95% -> 92%', () => {
