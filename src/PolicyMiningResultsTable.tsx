@@ -448,6 +448,44 @@ export function PolicyMiningResultsTable({
     serverMinFeasibility,
   ]);
 
+  // Full-corpus snapshot for the "above-gate tail" summary line. The
+  // primary fetch above is server-filtered at the slider value, so it
+  // hides records that didn't clear the household's threshold — but
+  // that's exactly what the household wants visibility into when they
+  // ask "did we explore higher spend levels?". This effect refetches
+  // once per session at minFeasibility=0 so we can compute the tail
+  // distribution. Polled at the same cadence as the main fetch but
+  // memoized cheaply since it changes only when the session does.
+  const [tailEvaluations, setTailEvaluations] = useState<PolicyEvaluation[]>(
+    [],
+  );
+  useEffect(() => {
+    if (source !== 'cluster' || !dispatcherUrl || !selectedSessionId) {
+      setTailEvaluations([]);
+      return undefined;
+    }
+    let cancelled = false;
+    const tick = async () => {
+      try {
+        const payload = await loadClusterEvaluations(
+          dispatcherUrl,
+          selectedSessionId,
+          { topN: 0, minFeasibility: 0 },
+        );
+        if (cancelled) return;
+        setTailEvaluations(payload.evaluations);
+      } catch {
+        if (!cancelled) setTailEvaluations([]);
+      }
+    };
+    void tick();
+    const handle = setInterval(tick, POLL_INTERVAL_MS * 4); // slower poll; tail rarely changes
+    return () => {
+      cancelled = true;
+      clearInterval(handle);
+    };
+  }, [source, dispatcherUrl, selectedSessionId]);
+
   const filtered = useMemo(() => {
     return evaluations
       .filter((e) => e.outcome.bequestAttainmentRate >= feasibilityThreshold)
@@ -514,6 +552,43 @@ export function PolicyMiningResultsTable({
   const totalEvaluated =
     source === 'cluster' ? evaluationCount : evaluations.length;
   const totalFeasible = filtered.length;
+
+  // "Above-gate tail" summary: when the household sets the slider at,
+  // say, 85% legacy, records that fell BELOW the gate are server-
+  // filtered out of `evaluations`. That includes any cliff inserts at
+  // higher spend levels that the auto-refine pass mined but came in
+  // just under the threshold — and those are exactly the records they
+  // want to know about ("did we explore $116k?"). We compute the tail
+  // off the full-corpus snapshot fetched in `tailEvaluations`.
+  const aboveGateTail = useMemo(() => {
+    if (tailEvaluations.length === 0) return null;
+    let maxPassingSpend = -Infinity;
+    for (const e of tailEvaluations) {
+      if (e.outcome.bequestAttainmentRate >= feasibilityThreshold) {
+        if (e.policy.annualSpendTodayDollars > maxPassingSpend) {
+          maxPassingSpend = e.policy.annualSpendTodayDollars;
+        }
+      }
+    }
+    if (!Number.isFinite(maxPassingSpend)) return null;
+    let tailMin = Infinity;
+    let tailMax = -Infinity;
+    let tailCount = 0;
+    let tailMaxLegacy = 0;
+    for (const e of tailEvaluations) {
+      const spend = e.policy.annualSpendTodayDollars;
+      if (spend > maxPassingSpend) {
+        tailCount += 1;
+        if (spend < tailMin) tailMin = spend;
+        if (spend > tailMax) tailMax = spend;
+        if (e.outcome.bequestAttainmentRate > tailMaxLegacy) {
+          tailMaxLegacy = e.outcome.bequestAttainmentRate;
+        }
+      }
+    }
+    if (tailCount === 0) return null;
+    return { maxPassingSpend, tailMin, tailMax, tailCount, tailMaxLegacy };
+  }, [tailEvaluations, feasibilityThreshold]);
 
   const toggleSort = (key: SortKey) => {
     setSort((prev) => {
@@ -671,6 +746,18 @@ export function PolicyMiningResultsTable({
                         ? 'spouse SS claim age'
                         : 'Roth conversion ceiling'}
           </p>
+          {aboveGateTail && (
+            <p className="mt-0.5 text-[11px] text-stone-400">
+              Above ${(aboveGateTail.maxPassingSpend / 1000).toFixed(0)}k:{' '}
+              {aboveGateTail.tailCount.toLocaleString()} more polic
+              {aboveGateTail.tailCount === 1 ? 'y' : 'ies'} mined at $
+              {(aboveGateTail.tailMin / 1000).toFixed(0)}k–$
+              {(aboveGateTail.tailMax / 1000).toFixed(0)}k; max legacy{' '}
+              {(aboveGateTail.tailMaxLegacy * 100).toFixed(1)}% (below the{' '}
+              {Math.round(feasibilityThreshold * 100)}% gate). Drag the
+              slider down to see them.
+            </p>
+          )}
         </div>
         <div className="flex flex-wrap items-center gap-3">
           {/* Source toggle intentionally hidden — corpus storage location

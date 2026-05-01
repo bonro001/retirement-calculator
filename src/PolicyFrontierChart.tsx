@@ -244,7 +244,7 @@ export function PolicyFrontierChart({
               type="range"
               min={0}
               max={100}
-              step={5}
+              step={1}
               value={Math.round(feasibilityFloor * 100)}
               onChange={(e) => setFeasibilityFloor(Number(e.target.value) / 100)}
               className="ml-1 h-1 w-24"
