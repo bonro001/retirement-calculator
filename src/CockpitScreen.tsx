@@ -2516,7 +2516,12 @@ export function CockpitScreen() {
           <p className="text-[11px] font-medium uppercase tracking-[0.2em] text-stone-400">
             Trust
           </p>
-          {baselinePath ? (
+          {/* Render the card if EITHER the corpus has a recommendation OR
+           *  the seed-based baseline path is computed. Pre-refactor the
+           *  card was gated on `baselinePath` alone, so a fresh corpus
+           *  recommendation (which doesn't need baselinePath) showed
+           *  "No projection yet" while waiting on the slower path. */}
+          {optimizedSolventRate !== null || baselinePath ? (
             <>
               {/* The Trust card now reads from the OPTIMIZED plan when
                *  available — i.e., the projection at (recommended SS,
@@ -2528,7 +2533,7 @@ export function CockpitScreen() {
                 const useOpt = optimizedSolventRate !== null;
                 const solventForDisplay = useOpt
                   ? optimizedSolventRate!
-                  : baselinePath.successRate;
+                  : baselinePath!.successRate;
                 const legacyForDisplay = useOpt
                   ? optimizedLegacyRate
                   : legacyAttainmentRate;
@@ -2641,9 +2646,24 @@ export function CockpitScreen() {
                     Median ending wealth
                   </p>
                   <p className="mt-1 font-medium text-stone-900 tabular-nums">
-                    {formatCurrency(
-                      (optimizedPath ?? baselinePath).medianEndingWealth,
-                    )}
+                    {(() => {
+                      const ewSource = optimizedPath ?? baselinePath;
+                      // When the corpus has a recommendation but the
+                      // recommended-path engine run is still in flight,
+                      // surface the corpus's p50 EW so the card has a
+                      // number instead of a dash.
+                      if (
+                        !ewSource &&
+                        corpusRecommendation?.outcome
+                          .p50EndingWealthTodayDollars != null
+                      ) {
+                        return formatCurrency(
+                          corpusRecommendation.outcome
+                            .p50EndingWealthTodayDollars,
+                        );
+                      }
+                      return formatCurrency(ewSource?.medianEndingWealth ?? null);
+                    })()}
                   </p>
                 </div>
               </div>

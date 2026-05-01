@@ -185,21 +185,30 @@ export function recommendCliffRefinement(
     };
   }
 
-  const refinedSpend: number[] = [];
+  // Build pass-2 spend axis as the UNION of the original $5k grid + the
+  // $1k inserts inside the cliff bracket. Pass-2 supersedes pass-1 from
+  // every viewpoint (cockpit, mining table, frontier chart) so the corpus
+  // stays a single conceptual surface — coarse $5k overview everywhere,
+  // dense $1k resolution through the cliff. Without the union, pass-2's
+  // corpus would only cover the cliff band and the household would lose
+  // the broader $80k–$160k landscape.
+  const insertSpend: number[] = [];
   for (
     let v = cliff.lowerSpend;
     v <= cliff.upperSpend;
     v += stepDollars
   ) {
-    refinedSpend.push(v);
+    insertSpend.push(v);
   }
+  const mergedSpend = Array.from(
+    new Set<number>([...baseAxes.annualSpendTodayDollars, ...insertSpend]),
+  ).sort((a, b) => a - b);
 
-  // Build pass-2 axes: same base except spend is the refined band only.
   // Other axes stay full-resolution so the ranker can still find the
   // best (SS, Roth, withdrawal) combo at each refined spend.
   const refinedAxes: PolicyAxes = {
     ...baseAxes,
-    annualSpendTodayDollars: refinedSpend,
+    annualSpendTodayDollars: mergedSpend,
   };
 
   const lowerTier = perTier.find((t) => t.spend === cliff.lowerSpend);
