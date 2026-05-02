@@ -21,6 +21,7 @@ import {
   formatAgo,
   formatEngineRuntime,
   formatPerfClass,
+  formatPeerActivity,
   formatThroughput,
   type PeerView,
 } from './cluster-peer-view';
@@ -717,11 +718,7 @@ export function PolicyMiningStatusCard({
               v.workerCount && v.workerCount > 0
                 ? Math.min(1, v.reservedWorkerSlots / v.workerCount)
                 : 0;
-            const throughputLabel = isHost
-              ? v.totalPolPerMin !== null
-                ? formatThroughput(v.totalPolPerMin)
-                : 'awaiting first batch'
-              : v.roles.join('+');
+            const throughputLabel = formatPeerActivity(v);
             return (
               <div
                 key={v.peerId}

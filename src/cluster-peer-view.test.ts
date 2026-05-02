@@ -6,6 +6,7 @@ import {
   buildPeerViewList,
   classifyPeerStatus,
   formatAgo,
+  formatPeerActivity,
   formatPerfClass,
   formatThroughput,
   GHOST_RETENTION_MS,
@@ -319,6 +320,69 @@ describe('formatThroughput', () => {
 
   it('keeps one decimal below 100', () => {
     expect(formatThroughput(12.34)).toBe('12.3 pol/min');
+  });
+});
+
+describe('formatPeerActivity', () => {
+  it('shows throughput after a host has completed batches', () => {
+    const view = buildPeerView(makePeer({ meanMsPerPolicy: 100 }), NOW);
+    expect(formatPeerActivity(view)).toBe('600 pol/min');
+  });
+
+  it('shows working first batch when slots are reserved but no throughput exists yet', () => {
+    const view = buildPeerView(
+      makePeer({
+        meanMsPerPolicy: null,
+        inFlightBatchCount: 1,
+        metrics: {
+          assignedBatches: 1,
+          completedBatches: 0,
+          nackedBatches: 0,
+          capacityNacks: 0,
+          assignedPolicies: 12,
+          completedPolicies: 0,
+          reservedWorkerSlots: 12,
+          busySlotMs: 0,
+          idleWhilePendingSlotMs: 0,
+          utilizationRate: null,
+          avgDispatchToResultMs: null,
+        },
+      }),
+      NOW,
+    );
+    expect(formatPeerActivity(view)).toBe('working first batch');
+  });
+
+  it('shows awaiting first batch only when a host has no work and no throughput', () => {
+    const view = buildPeerView(
+      makePeer({
+        meanMsPerPolicy: null,
+        inFlightBatchCount: 0,
+        metrics: {
+          assignedBatches: 0,
+          completedBatches: 0,
+          nackedBatches: 0,
+          capacityNacks: 0,
+          assignedPolicies: 0,
+          completedPolicies: 0,
+          reservedWorkerSlots: 0,
+          busySlotMs: 0,
+          idleWhilePendingSlotMs: 0,
+          utilizationRate: null,
+          avgDispatchToResultMs: null,
+        },
+      }),
+      NOW,
+    );
+    expect(formatPeerActivity(view)).toBe('awaiting first batch');
+  });
+
+  it('uses roles for controller-only peers', () => {
+    const view = buildPeerView(
+      makePeer({ capabilities: null, roles: ['controller'], meanMsPerPolicy: null }),
+      NOW,
+    );
+    expect(formatPeerActivity(view)).toBe('controller');
   });
 });
 

@@ -349,6 +349,25 @@ export function formatThroughput(perMin: number | null): string {
   return `${perMin.toFixed(1)} pol/min`;
 }
 
+export function formatPeerActivity(view: Pick<
+  PeerView,
+  | 'roles'
+  | 'totalPolPerMin'
+  | 'reservedWorkerSlots'
+  | 'inFlightBatchCount'
+>): string {
+  if (!view.roles.includes('host')) {
+    return view.roles.join('+');
+  }
+  if (view.totalPolPerMin !== null) {
+    return formatThroughput(view.totalPolPerMin);
+  }
+  if (view.reservedWorkerSlots > 0 || view.inFlightBatchCount > 0) {
+    return 'working first batch';
+  }
+  return 'awaiting first batch';
+}
+
 /**
  * Render a relative-time string the operator can read at a glance.
  * Carried separately from PolicyMiningStatusCard's `formatRelative`
