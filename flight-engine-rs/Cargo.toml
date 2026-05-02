@@ -55,6 +55,10 @@ js-sys = "0.3"
 serde = { version = "1", features = ["derive"] }
 serde-wasm-bindgen = "0.6"
 serde_json = "1"
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+futures-util = "0.3"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time"] }
+tokio-tungstenite = "0.28"
 
 # Cheap, deterministic RNG that compiles to small WASM and matches the
 # TS engine's seeded behavior. The TS code uses a Mulberry32-style PRNG

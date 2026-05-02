@@ -27,6 +27,8 @@
     "engine:rust:test": "cargo test --manifest-path flight-engine-rs/Cargo.toml",
     "engine:rust:build:cli": "cargo build --manifest-path flight-engine-rs/Cargo.toml --bin engine_candidate",
     "engine:rust:build:cli:release": "cargo build --release --manifest-path flight-engine-rs/Cargo.toml --bin engine_candidate",
+    "cluster:rust-worker:build": "cargo build --release --manifest-path flight-engine-rs/Cargo.toml --bin retirement_worker",
+    "cluster:rust-worker": "cargo run --manifest-path flight-engine-rs/Cargo.toml --bin retirement_worker",
     "cluster:dispatcher": "node --import tsx cluster/dispatcher.ts",
     "cluster:dispatcher:local": "DISPATCHER_HOST=127.0.0.1 node --import tsx cluster/dispatcher.ts",
     "cluster:smoke": "tsx cluster/smoke-client.ts",
