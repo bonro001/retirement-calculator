@@ -138,7 +138,16 @@ function switchToBranch(targetBranch, remote, autostash) {
   }
 }
 
-function updateIfBehind({ targetBranch, remote, autostash }) {
+function rebuildRuntime(runtime) {
+  runStep('npm', ['install']);
+  if (runtime === 'ts') {
+    console.log('[start-rust-host] auto-update: runtime=ts, skipping Rust N-API build');
+    return;
+  }
+  runStep('npm', ['run', 'engine:rust:build:napi']);
+}
+
+function updateIfBehind({ targetBranch, remote, autostash, runtime }) {
   if (targetBranch) {
     runStep('git', ['fetch', '--prune', remote]);
     switchToBranch(targetBranch, remote, autostash);
@@ -174,8 +183,7 @@ function updateIfBehind({ targetBranch, remote, autostash }) {
       return;
     }
     runStep('git', ['pull', '--ff-only']);
-    runStep('npm', ['install']);
-    runStep('npm', ['run', 'engine:rust:build:napi']);
+    rebuildRuntime(runtime);
   } finally {
     restoreAutostash(didStash);
   }
@@ -286,7 +294,7 @@ function startChild() {
     }
     if (autoUpdate && code === AUTO_UPDATE_EXIT_CODE) {
       try {
-        updateIfBehind({ targetBranch: updateBranch, remote: updateRemote, autostash });
+        updateIfBehind({ targetBranch: updateBranch, remote: updateRemote, autostash, runtime });
       } catch (err) {
         console.error('[start-rust-host] auto-update failed', err);
       }
@@ -307,7 +315,7 @@ for (const signal of ['SIGINT', 'SIGTERM']) {
 
 if (autoUpdate) {
   try {
-    updateIfBehind({ targetBranch: updateBranch, remote: updateRemote, autostash });
+    updateIfBehind({ targetBranch: updateBranch, remote: updateRemote, autostash, runtime });
   } catch (err) {
     console.error('[start-rust-host] initial auto-update failed', err);
   }
