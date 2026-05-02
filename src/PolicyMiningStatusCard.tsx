@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   loadEvaluationsForBaseline,
 } from './policy-mining-corpus';
@@ -23,6 +23,7 @@ import {
   formatPerfClass,
   formatThroughput,
   type PeerView,
+  type SnapshotPeer,
 } from './cluster-peer-view';
 import type { ClusterRuntimeMetrics } from './mining-protocol';
 
@@ -78,6 +79,15 @@ interface Props {
    *  via `StartSessionOptions.axesOverride`; we just thread it through
    *  the UI. Pass `null` to use the default grid (the common case). */
   axesOverride?: import('./policy-miner-types').PolicyAxes | null;
+  /** Incrementing token used by callers that want to launch a session
+   *  immediately after changing axesOverride, e.g. pass-2 cliff mining. */
+  autoStartNonce?: number;
+  /** Session size to use for an auto-started session. */
+  autoStartMode?: SessionSize;
+  /** Human label shown while an auto-started session is being handed to
+   *  the dispatcher. Keeps pass-2 from looking like a separate button
+   *  blink between corpus passes. */
+  autoStartLabel?: string;
 }
 
 const POLL_INTERVAL_MS = 5_000;
@@ -156,11 +166,58 @@ function formatBuildLabel(view: PeerView): string {
   return 'unknown build';
 }
 
+function engineCompatibilityLabel(
+  view: PeerView,
+  currentEngineVersion: string,
+): { label: string; className: string; title?: string } | null {
+  if (!view.roles.includes('host')) return null;
+  if (view.disabledReason) {
+    const missingNativeAddon = view.disabledReason.includes('Cannot find module');
+    return {
+      label: missingNativeAddon ? 'native addon missing' : 'host disabled',
+      className: 'text-rose-700',
+      title: view.disabledReason,
+    };
+  }
+  if (view.engineCompatibility === 'blocked') {
+    return { label: 'engine blocked', className: 'text-rose-700' };
+  }
+  if (view.engineCompatibility === 'current') {
+    return { label: 'engine current', className: 'text-emerald-700' };
+  }
+  if (view.engineCompatibility === 'legacy-same-build') {
+    return { label: 'legacy-ok', className: 'text-amber-700' };
+  }
+  const hostVersion = view.capabilities?.policyMinerEngineVersion;
+  if (hostVersion === currentEngineVersion) {
+    return { label: 'engine current', className: 'text-emerald-700' };
+  }
+  if (!hostVersion && view.buildInfo && view.buildStatus !== 'mismatch') {
+    return { label: 'legacy-ok', className: 'text-amber-700' };
+  }
+  return { label: 'engine blocked', className: 'text-rose-700' };
+}
+
+function peerIsEngineEligible(
+  peer: SnapshotPeer,
+  currentEngineVersion: string,
+): boolean {
+  if (!peer.roles.includes('host')) return false;
+  if (peer.disabledReason) return false;
+  if (peer.engineCompatibility) return peer.engineCompatibility !== 'blocked';
+  const hostVersion = peer.capabilities?.policyMinerEngineVersion;
+  if (hostVersion === currentEngineVersion) return true;
+  return !hostVersion && !!peer.buildInfo && peer.buildStatus !== 'mismatch';
+}
+
 export function PolicyMiningStatusCard({
   baselineFingerprint,
   engineVersion,
   controls,
   axesOverride,
+  autoStartNonce = 0,
+  autoStartMode = 'full',
+  autoStartLabel = 'Starting pass 2 mine',
 }: Props): JSX.Element | null {
   const cluster = useClusterSession();
   const [bestEval, setBestEval] = useState<PolicyEvaluation | null>(null);
@@ -194,8 +251,15 @@ export function PolicyMiningStatusCard({
   const runningStartMsRef = useRef<number | null>(null);
   const [lastRunWallMs, setLastRunWallMs] = useState<number | null>(null);
   const [lastRunMetrics, setLastRunMetrics] = useState<ClusterRuntimeMetrics | null>(null);
+  const [startingSession, setStartingSession] = useState<{
+    label: string;
+    size: SessionSize;
+    startedAtMs: number;
+  } | null>(null);
+  const lastAutoStartNonceRef = useRef(0);
   useEffect(() => {
     if (cluster.session) {
+      setStartingSession(null);
       if (cluster.session.metrics) setLastRunMetrics(cluster.session.metrics);
       if (runningStartMsRef.current === null) {
         // Session just appeared — stamp the start, clear any prior
@@ -308,23 +372,32 @@ export function PolicyMiningStatusCard({
   const totalCandidates = useMemo(() => {
     if (!controls) return null;
     try {
-      return countPolicyCandidates(buildDefaultPolicyAxes(controls.baseline));
+      return countPolicyCandidates(
+        axesOverride ?? buildDefaultPolicyAxes(controls.baseline),
+      );
     } catch {
       return null;
     }
-  }, [controls]);
+  }, [axesOverride, controls]);
 
   // -------------------------------------------------------------------------
   // Controls — dispatch through the cluster client, no local pool work
   // -------------------------------------------------------------------------
-  const startMining = () => {
+  const startMining = useCallback((
+    requestedSize: SessionSize = sessionSize,
+    startingLabel = requestedSize === 'quick'
+      ? 'Starting quick mine'
+      : axesOverride
+        ? 'Starting pass 2 mine'
+        : 'Starting full mine',
+  ) => {
     if (!controls || !baselineFingerprint) return;
     setStartError(null);
     // The picker (Quick / Full) wins over any cap the caller passed,
     // since the picker is the household's just-now choice. Caller's
     // cap is the floor for legacy code paths that don't show a picker.
     const cap =
-      sessionSize === 'quick'
+      requestedSize === 'quick'
         ? QUICK_MINE_POLICY_COUNT
         : controls.maxPoliciesPerSession;
     try {
@@ -347,13 +420,17 @@ export function PolicyMiningStatusCard({
         // (testing showed no cluster wall-time win). Future code
         // paths can populate `coarseStage` here to opt in.
       });
+      setStartingSession({
+        label: startingLabel,
+        size: requestedSize,
+        startedAtMs: Date.now(),
+      });
     } catch (e) {
+      setStartingSession(null);
       setStartError(e instanceof Error ? e.message : String(e));
     }
-  };
+  }, [axesOverride, baselineFingerprint, cluster, controls, sessionSize]);
   const cancelMining = () => cluster.cancelSession('user clicked cancel');
-
-  if (!baselineFingerprint) return null;
 
   // -------------------------------------------------------------------------
   // Derived state for rendering
@@ -361,8 +438,20 @@ export function PolicyMiningStatusCard({
   const session = cluster.session;
   const stats = session?.stats ?? null;
   const sessionRunning = !!session;
-  const canStart = !!controls && cluster.state === 'connected' && !sessionRunning;
+  const sessionStarting = startingSession !== null && !sessionRunning;
+  const sessionBusy = sessionRunning || sessionStarting;
+  const canStart = !!controls && cluster.state === 'connected' && !sessionBusy;
   const canCancel = !!controls && cluster.state === 'connected' && sessionRunning;
+
+  useEffect(() => {
+    if (!autoStartNonce || autoStartNonce === lastAutoStartNonceRef.current) {
+      return;
+    }
+    if (!canStart) return;
+    lastAutoStartNonceRef.current = autoStartNonce;
+    setSessionSize(autoStartMode);
+    startMining(autoStartMode, autoStartLabel);
+  }, [autoStartLabel, autoStartMode, autoStartNonce, canStart, startMining]);
 
   // Connection state badge color
   const connColor =
@@ -387,15 +476,25 @@ export function PolicyMiningStatusCard({
   // Session state for the upper-right badge
   const sessionStateLabel: string | null = sessionRunning
     ? 'running'
+    : sessionStarting
+      ? 'starting'
     : evalCount > 0
       ? 'idle (corpus has data)'
       : null;
   const sessionStateColor = sessionRunning
     ? 'text-emerald-700'
+    : sessionStarting
+      ? 'text-amber-700'
     : 'text-stone-500';
 
   // Pool hint for the diagnostics line
   const poolHint = browserPoolHint();
+  const hostWorkerCount = cluster.peers
+    .filter((p) => p.roles.includes('host'))
+    .reduce((sum, p) => sum + (p.capabilities?.workerCount ?? 0), 0);
+  const eligibleHostWorkerCount = cluster.peers
+    .filter((p) => peerIsEngineEligible(p, engineVersion))
+    .reduce((sum, p) => sum + (p.capabilities?.workerCount ?? 0), 0);
   const spendFloor = controls
     ? computeMinimumSpendFloor(controls.baseline)
     : 0;
@@ -415,6 +514,14 @@ export function PolicyMiningStatusCard({
     stats && stats.totalPolicies > 0
       ? Math.round((stats.policiesEvaluated / stats.totalPolicies) * 100)
       : null;
+  const currentPassLabel = axesOverride
+    ? 'Pass 2 · Granular cliff'
+    : 'Pass 1 · Broad grid';
+  const currentPassDetail = axesOverride
+    ? 'Narrow $1k spend band; same SS, Roth, and withdrawal grid'
+    : 'Full spend grid; finds the cliff and broad frontier';
+
+  if (!baselineFingerprint) return null;
 
   // -------------------------------------------------------------------------
   // Sub-renders
@@ -499,7 +606,7 @@ export function PolicyMiningStatusCard({
     if (meanMsPerPolicy === null) return null;
     // Sum of in-flight worker counts across all peers (host role only).
     const totalWorkers = cluster.peers
-      .filter((p) => p.roles.includes('host'))
+      .filter((p) => peerIsEngineEligible(p, engineVersion))
       .reduce((s, p) => s + (p.capabilities?.workerCount ?? 0), 0);
     if (totalWorkers === 0) return null;
     return (policyCount * meanMsPerPolicy) / totalWorkers;
@@ -512,6 +619,22 @@ export function PolicyMiningStatusCard({
   const renderControls = () =>
     !controls ? null : (
       <div className="mt-3 space-y-2">
+        <div className="flex flex-wrap items-center gap-2 rounded-md border border-stone-100 bg-stone-50/70 px-3 py-2 text-[11px] text-stone-600">
+          <span className="font-semibold uppercase tracking-wider text-stone-700">
+            {currentPassLabel}
+          </span>
+          <span>{currentPassDetail}</span>
+          {sessionStarting && (
+            <span className="ml-auto font-semibold text-amber-700">
+              {startingSession?.label ?? 'Starting'}
+            </span>
+          )}
+          {sessionRunning && (
+            <span className="ml-auto font-semibold text-emerald-700">
+              Running
+            </span>
+          )}
+        </div>
         <div className="flex flex-wrap items-center gap-2">
           {/* Session size picker — the iteration-vs-exploration choice.
               Disabled while a session runs so the picker can't drift
@@ -525,7 +648,7 @@ export function PolicyMiningStatusCard({
               type="button"
               role="radio"
               aria-checked={sessionSize === 'quick'}
-              disabled={sessionRunning}
+              disabled={sessionBusy}
               onClick={() => setSessionSize('quick')}
               className={`px-3 py-1 font-semibold transition ${
                 sessionSize === 'quick'
@@ -544,7 +667,7 @@ export function PolicyMiningStatusCard({
               type="button"
               role="radio"
               aria-checked={sessionSize === 'full'}
-              disabled={sessionRunning}
+              disabled={sessionBusy}
               onClick={() => setSessionSize('full')}
               className={`border-l border-stone-200 px-3 py-1 font-semibold transition ${
                 sessionSize === 'full'
@@ -568,10 +691,18 @@ export function PolicyMiningStatusCard({
           <button
             type="button"
             disabled={!canStart}
-            onClick={startMining}
+            onClick={() => startMining()}
             className="rounded-full bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-stone-200 disabled:text-stone-400"
           >
-            {sessionSize === 'quick' ? 'Start quick mine' : 'Start full mine'}
+            {sessionStarting
+              ? (startingSession?.label ?? 'Starting mine')
+              : axesOverride
+                ? sessionSize === 'quick'
+                  ? 'Start pass 2 quick'
+                  : 'Start pass 2 mine'
+                : sessionSize === 'quick'
+                  ? 'Start quick mine'
+                  : 'Start full mine'}
           </button>
           <button
             type="button"
@@ -587,7 +718,19 @@ export function PolicyMiningStatusCard({
           <span className="ml-auto text-[11px] text-stone-500">
             floor: {formatCurrency(spendFloor)}/yr
             {' · '}
-            pool:{' '}
+            farm:{' '}
+            <span
+              className={
+                eligibleHostWorkerCount < hostWorkerCount
+                  ? 'font-semibold text-amber-700'
+                  : 'text-stone-500'
+              }
+            >
+              {eligibleHostWorkerCount}/{hostWorkerCount}
+            </span>{' '}
+            workers
+            {' · '}
+            browser:{' '}
             {poolHint.actualPoolSize !== null &&
             poolHint.actualPoolSize !== poolHint.poolSize
               ? `${poolHint.actualPoolSize} actual / ${poolHint.poolSize} target`
@@ -624,9 +767,9 @@ export function PolicyMiningStatusCard({
                 <button
                   key={mode}
                   type="button"
-                  role="radio"
-                  aria-checked={isActive}
-                  disabled={sessionRunning}
+	                  role="radio"
+	                  aria-checked={isActive}
+	                  disabled={sessionBusy}
                   onClick={() => {
                     setBrowserHostMode(mode);
                     setNowMs(Date.now());
@@ -655,7 +798,7 @@ export function PolicyMiningStatusCard({
             the household understands WHY the picker exists. Hidden once
             a session is running — the throughput row above tells the
             same story live. */}
-        {!sessionRunning && (
+        {!sessionBusy && (
           <p className="text-[11px] text-stone-500">
             {sessionSize === 'quick'
               ? `Validates the top of the frontier against your current baseline. Use after editing the plan.`
@@ -722,6 +865,7 @@ export function PolicyMiningStatusCard({
                 ? formatThroughput(v.totalPolPerMin)
                 : 'awaiting first batch'
               : v.roles.join('+');
+            const engineCompatibility = engineCompatibilityLabel(v, engineVersion);
             return (
               <div
                 key={v.peerId}
@@ -754,6 +898,14 @@ export function PolicyMiningStatusCard({
                       }`}
                     >
                       · {formatBuildLabel(v)}
+                    </span>
+                  )}
+                  {engineCompatibility && (
+                    <span
+                      className={`ml-1 font-semibold ${engineCompatibility.className}`}
+                      title={engineCompatibility.title}
+                    >
+                      · {engineCompatibility.label}
                     </span>
                   )}
                 </span>
@@ -996,6 +1148,26 @@ export function PolicyMiningStatusCard({
                   <p className="mt-1 text-[11px] text-emerald-700">
                     Pass 1: screened {stats!.coarseEvaluated.toLocaleString()},{' '}
                     {stats!.coarseScreenedOut.toLocaleString()} dropped
+                  </p>
+                </>
+              );
+            }
+            if (sessionStarting) {
+              return (
+                <>
+                  <p className="text-[11px] font-medium uppercase tracking-wider text-amber-700">
+                    {currentPassLabel}
+                  </p>
+                  <p className="mt-1 text-2xl font-semibold tabular-nums text-stone-900">
+                    Starting
+                  </p>
+                  <p className="mt-1 text-[11px] text-stone-500">
+                    {totalCandidates !== null
+                      ? `${totalCandidates.toLocaleString()} policies queued`
+                      : 'handing session to dispatcher'}
+                  </p>
+                  <p className="mt-1 text-[11px] text-amber-700">
+                    {startingSession?.label ?? 'Starting mine'}
                   </p>
                 </>
               );

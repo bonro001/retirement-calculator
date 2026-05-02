@@ -90,6 +90,7 @@ import {
 import {
   listSessions,
   readEvaluations,
+  readSpendTierSummaries,
   readSessionMetadata,
 } from './corpus-reader';
 import {
@@ -152,6 +153,9 @@ interface Peer {
    *  nack handler to break tight nack loops; the failsafe pump tick
    *  retries after the cooldown elapses. */
   pumpCooldownUntilMs: number;
+  /** Set when a peer violates the batch-result protocol. Kept connected
+   * for diagnostics/heartbeats, but excluded from future dispatch. */
+  disabledReason: string | null;
 }
 
 interface SessionRuntimeCounters {
@@ -276,6 +280,33 @@ function buildPeerMetrics(peer: Peer): ClusterPeerMetrics {
     avgDispatchToResultMs:
       peer.completedBatches > 0 ? peer.totalDispatchToResultMs / peer.completedBatches : null,
   };
+}
+
+type EngineCompatibility = 'current' | 'legacy-same-build' | 'blocked';
+
+function peerEngineCompatibility(
+  peer: Peer,
+  engineVersion: string,
+): EngineCompatibility {
+  if (peer.disabledReason) return 'blocked';
+  const hostVersion = peer.capabilities?.policyMinerEngineVersion;
+  if (hostVersion === engineVersion) return 'current';
+  if (hostVersion) return 'blocked';
+
+  // Hosts started before the policyMinerEngineVersion handshake can
+  // still be safe when they are on the dispatcher's same git build.
+  // This keeps the farm available immediately after a dispatcher/client
+  // UI change, while still excluding explicit old-version or mismatched
+  // builds from the corpus.
+  const buildStatus = compareBuildInfo(DISPATCHER_BUILD_INFO, peer.buildInfo);
+  if (peer.buildInfo && buildStatus !== 'mismatch') {
+    return 'legacy-same-build';
+  }
+  return 'blocked';
+}
+
+function peerSupportsSessionEngine(peer: Peer, engineVersion: string): boolean {
+  return peerEngineCompatibility(peer, engineVersion) !== 'blocked';
 }
 
 function buildRuntimeMetrics(queueSnap: ReturnType<WorkQueue['snapshot']>): ClusterRuntimeMetrics | undefined {
@@ -495,6 +526,10 @@ function buildClusterSnapshot(): ClusterSnapshot {
       capabilities: p.capabilities,
       buildInfo: p.buildInfo,
       buildStatus: compareBuildInfo(DISPATCHER_BUILD_INFO, p.buildInfo),
+      engineCompatibility: activeSession
+        ? peerEngineCompatibility(p, activeSession.config.engineVersion)
+        : undefined,
+      disabledReason: p.disabledReason,
       lastHeartbeatTs: p.lastHeartbeatTs,
       meanMsPerPolicy: p.meanMsPerPolicy,
       inFlightBatchCount: p.inFlightBatchIds.size,
@@ -626,6 +661,7 @@ function handleRegister(socket: WebSocket, registration: RegisterMessage, remote
     connectedAtMs: Date.now(),
     completedBatchCount: 0,
     pumpCooldownUntilMs: 0,
+    disabledReason: null,
   };
   peers.set(peerId, peer);
 
@@ -645,6 +681,8 @@ function handleRegister(socket: WebSocket, registration: RegisterMessage, remote
     roles: peer.roles.join(','),
     workers: peer.capabilities?.workerCount ?? '?',
     perfClass: peer.capabilities?.perfClass ?? 'unknown',
+    policyMinerEngineVersion:
+      peer.capabilities?.policyMinerEngineVersion ?? 'legacy-handshake',
     build: formatBuildInfo(peer.buildInfo),
     expectedBuild: formatBuildInfo(DISPATCHER_BUILD_INFO),
     buildStatus: compareBuildInfo(DISPATCHER_BUILD_INFO, peer.buildInfo),
@@ -869,8 +907,14 @@ function handleStartSession(peer: Peer, message: StartSessionMessage): void {
   for (const p of peers.values()) {
     p.meanMsPerPolicy = null;
     p.completedBatchCount = 0;
+    p.disabledReason = null;
     resetPeerRuntimeMetrics(p);
   }
+
+  const hostPeers = [...peers.values()].filter((p) => p.roles.includes('host'));
+  const compatibleHosts = hostPeers.filter((p) =>
+    peerSupportsSessionEngine(p, cfg.engineVersion),
+  );
 
   log('info', isResume ? 'session resumed' : 'session started', {
     sessionId,
@@ -879,7 +923,15 @@ function handleStartSession(peer: Peer, message: StartSessionMessage): void {
     trialCount: message.trialCount,
     feasibilityThreshold: cfg.feasibilityThreshold,
     controller: peer.displayName,
-    hostsAvailable: [...peers.values()].filter((p) => p.roles.includes('host')).length,
+    hostsAvailable: hostPeers.length,
+    compatibleHosts: compatibleHosts.length,
+    engineCompatibility: hostPeers.map((p) => ({
+      peerId: p.peerId,
+      displayName: p.displayName,
+      compatibility: peerEngineCompatibility(p, cfg.engineVersion),
+      policyMinerEngineVersion:
+        p.capabilities?.policyMinerEngineVersion ?? null,
+    })),
   });
 
   // Forward start_session to every host so they prime their worker pools
@@ -1046,8 +1098,24 @@ function pumpDispatch(): void {
   // Walk hosts in a stable order so a tied set of hosts is fair across
   // pumps. Sort by displayName as a deterministic-ish proxy.
   const hostsByName = [...peers.values()]
-    .filter((p) => p.roles.includes('host'))
+    .filter((p) =>
+      p.roles.includes('host') &&
+      peerSupportsSessionEngine(p, session.config.engineVersion),
+    )
     .sort((a, b) => a.displayName.localeCompare(b.displayName));
+  if (hostsByName.length === 0) {
+    log('warn', 'pumpDispatch: no compatible hosts for session engine', {
+      sessionId: session.sessionId,
+      engineVersion: session.config.engineVersion,
+      connectedHosts: [...peers.values()].filter((p) => p.roles.includes('host')).map((p) => ({
+        peerId: p.peerId,
+        displayName: p.displayName,
+        compatibility: peerEngineCompatibility(p, session.config.engineVersion),
+        policyMinerEngineVersion: p.capabilities?.policyMinerEngineVersion ?? null,
+      })),
+    });
+    return;
+  }
 
   const now = Date.now();
   for (const peer of hostsByName) {
@@ -1253,6 +1321,56 @@ function handleBatchResult(peer: Peer, message: Extract<ClusterMessage, { kind: 
     );
   }
 
+  const expectedBatch = session.queue.inFlightBatch(message.result.batchId);
+  if (!expectedBatch) {
+    log('warn', 'batch_result for unknown batch (already completed?)', {
+      from: peer.peerId,
+      batchId: message.result.batchId,
+    });
+    // Still send an ack — the host needs to clear its in-flight tracking.
+    sendTo(peer, {
+      kind: 'batch_ack',
+      sessionId: session.sessionId,
+      batchId: message.result.batchId,
+      from: 'dispatcher',
+      to: peer.peerId,
+    });
+    return;
+  }
+  if (message.result.evaluations.length !== expectedBatch.policies.length) {
+    const requeued = session.queue.requeueBatch(message.result.batchId, {
+      countAttemptFailure: true,
+    });
+    const partialReason = message.result.partialFailure?.reason;
+    peer.disabledReason = partialReason
+      ? `returned ${message.result.evaluations.length}/${expectedBatch.policies.length} evaluations: ${partialReason}`
+      : `returned ${message.result.evaluations.length}/${expectedBatch.policies.length} evaluations`;
+    peer.inFlightBatchIds.delete(message.result.batchId);
+    peer.inFlightSlotReservations.delete(message.result.batchId);
+    session.runtimeMetrics.policiesRequeued += requeued?.requeued ?? 0;
+    session.runtimeMetrics.policiesDropped += requeued?.dropped ?? 0;
+    log('warn', 'batch_result underfilled — disabling peer and requeueing batch', {
+      from: peer.peerId,
+      displayName: peer.displayName,
+      batchId: message.result.batchId,
+      expectedEvaluations: expectedBatch.policies.length,
+      actualEvaluations: message.result.evaluations.length,
+      partialFailure: message.result.partialFailure,
+      requeued: requeued?.requeued ?? 0,
+      dropped: requeued?.dropped ?? 0,
+    });
+    sendTo(peer, {
+      kind: 'batch_ack',
+      sessionId: session.sessionId,
+      batchId: message.result.batchId,
+      from: 'dispatcher',
+      to: peer.peerId,
+    });
+    broadcastClusterState();
+    pumpDispatch();
+    return;
+  }
+
   // Phase 2.C: route by stage.
   //   - coarse: collect into in-memory buffer; never touches the corpus.
   //   - fine / single: append to disk before marking complete (existing path).
@@ -1291,21 +1409,7 @@ function handleBatchResult(peer: Peer, message: Extract<ClusterMessage, { kind: 
   }
 
   const completed = session.queue.completeBatch(message.result.batchId, appendOutcome.feasibleInBatch);
-  if (!completed) {
-    log('warn', 'batch_result for unknown batch (already completed?)', {
-      from: peer.peerId,
-      batchId: message.result.batchId,
-    });
-    // Still send an ack — the host needs to clear its in-flight tracking.
-    sendTo(peer, {
-      kind: 'batch_ack',
-      sessionId: session.sessionId,
-      batchId: message.result.batchId,
-      from: 'dispatcher',
-      to: peer.peerId,
-    });
-    return;
-  }
+  if (!completed) return;
 
   // Update per-host throughput. msPerPolicy from the batch dominates the
   // EWMA; we keep the EWMA so a single slow batch doesn't tank the
@@ -1613,6 +1717,43 @@ function startDispatcher(port: number, host?: string): void {
         log('warn', 'GET /sessions failed', { err: String(err) });
         sendJson(res, 500, { error: 'list failed', detail: String(err) });
       }
+      return;
+    }
+
+    const spendTierMatch = url.match(/^\/sessions\/([^/]+)\/spend-tiers(\?.*)?$/);
+    if (spendTierMatch) {
+      const sessionId = decodeURIComponent(spendTierMatch[1]);
+      const meta = readSessionMetadata(sessionId, getCorpusRoot());
+      if (!meta) {
+        sendNotFound(res, `session not found: ${sessionId}`);
+        return;
+      }
+      const queryStr = url.includes('?') ? url.slice(url.indexOf('?')) : '';
+      const params = new URLSearchParams(queryStr);
+      const thresholdRaw = params.get('threshold');
+      const threshold = thresholdRaw ? Number.parseFloat(thresholdRaw) : 0.85;
+      readSpendTierSummaries(
+        sessionId,
+        Number.isFinite(threshold) ? threshold : 0.85,
+        getCorpusRoot(),
+      )
+        .then((spendTiers) => {
+          sendJson(res, 200, {
+            sessionId,
+            baselineFingerprint: meta.manifest.config.baselineFingerprint,
+            engineVersion: meta.manifest.config.engineVersion,
+            evaluationCount: meta.evaluationCount,
+            feasibilityThreshold: Number.isFinite(threshold) ? threshold : 0.85,
+            spendTiers,
+          });
+        })
+        .catch((err: unknown) => {
+          log('warn', 'GET /sessions/:id/spend-tiers failed', {
+            sessionId,
+            err: String(err),
+          });
+          sendJson(res, 500, { error: 'read failed', detail: String(err) });
+        });
       return;
     }
 

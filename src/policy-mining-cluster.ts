@@ -72,6 +72,35 @@ export interface ClusterEvaluationsPayload {
   evaluations: PolicyEvaluation[];
 }
 
+export interface ClusterSpendTierSummary {
+  spend: number;
+  totalRecords: number;
+  feasibleRecords: number;
+  maxFeasibility: number;
+}
+
+export interface ClusterSpendTiersPayload {
+  sessionId: string;
+  baselineFingerprint: string;
+  engineVersion: string;
+  evaluationCount: number;
+  feasibilityThreshold: number;
+  spendTiers: ClusterSpendTierSummary[];
+}
+
+export function clusterSessionMatches(
+  session: ClusterSessionListing,
+  baselineFingerprint: string | null | undefined,
+  engineVersion: string | null | undefined,
+): boolean {
+  if (!baselineFingerprint || !engineVersion) return false;
+  const config = session.manifest?.config;
+  return (
+    config?.baselineFingerprint === baselineFingerprint &&
+    config?.engineVersion === engineVersion
+  );
+}
+
 /**
  * Convert a WebSocket dispatcher URL (`ws://host:port` or
  * `wss://host:port/path`) into the matching HTTP origin
@@ -201,6 +230,20 @@ export async function loadClusterEvaluations(
   return fetchJson<ClusterEvaluationsPayload>(
     dispatcherUrl,
     `/sessions/${encodeURIComponent(sessionId)}/evaluations${qs}`,
+  );
+}
+
+export async function loadClusterSpendTiers(
+  dispatcherUrl: string,
+  sessionId: string,
+  feasibilityThreshold: number,
+): Promise<ClusterSpendTiersPayload> {
+  const threshold = Number.isFinite(feasibilityThreshold)
+    ? feasibilityThreshold
+    : 0.85;
+  return fetchJson<ClusterSpendTiersPayload>(
+    dispatcherUrl,
+    `/sessions/${encodeURIComponent(sessionId)}/spend-tiers?threshold=${encodeURIComponent(String(threshold))}`,
   );
 }
 

@@ -21,6 +21,8 @@
  *   SESSION_LEGACY_TARGET   bequest target in today's dollars. Default 1_000_000.
  *   SESSION_FEASIBILITY     attainment threshold (0..1). Default 0.70.
  *   SESSION_MAX_POLICIES    cap on enumerated policies. Default = full corpus.
+ *   SESSION_SPEND_AXIS      comma-separated annual spend axis override.
+ *                           Example pass-2 cliff: 110000,111000,...,115000.
  *   SESSION_BASELINE_FILE   path to a SeedData JSON. Default = built-in initialSeedData.
  *   SESSION_ASSUMPTIONS_FILE  path to MarketAssumptions JSON. Default = built-in.
  *   SESSION_COARSE_TRIALS   Phase 2.C: trials for the coarse pre-screening
@@ -245,6 +247,17 @@ async function main(): Promise<void> {
 
   const baselineFingerprint = computeBaselineFingerprint(cfg.seed);
   const axes = buildDefaultPolicyAxes(cfg.seed);
+  const spendAxisEnv = process.env.SESSION_SPEND_AXIS;
+  if (spendAxisEnv) {
+    const spendAxis = spendAxisEnv
+      .split(',')
+      .map((v) => Number.parseInt(v.trim(), 10))
+      .filter((v) => Number.isFinite(v) && v > 0);
+    if (spendAxis.length === 0) {
+      throw new Error(`invalid SESSION_SPEND_AXIS=${spendAxisEnv}`);
+    }
+    axes.annualSpendTodayDollars = spendAxis;
+  }
   const totalCandidates = countPolicyCandidates(axes);
   const cap = cfg.maxPolicies ?? totalCandidates;
 

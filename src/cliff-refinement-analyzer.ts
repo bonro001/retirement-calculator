@@ -40,16 +40,18 @@ export interface CliffRefinementRecommendation {
   feasibilityThreshold: number;
   /** Diagnostic counts so the UI can say "12 of 432 records at $115k
    *  cleared 85%" — the household sees WHY pass-2 is recommended. */
-  spendTierFeasibility: Array<{
-    spend: number;
-    totalRecords: number;
-    feasibleRecords: number;
-    maxFeasibility: number;
-  }>;
+  spendTierFeasibility: SpendTierFeasibility[];
   /** Plain-English reason: "Cliff between $115k (52% feasible) and
    *  $120k (0%) — refining at $1k resolution will pin the precise
    *  max-spend at the threshold." */
   rationale: string;
+}
+
+export interface SpendTierFeasibility {
+  spend: number;
+  totalRecords: number;
+  feasibleRecords: number;
+  maxFeasibility: number;
 }
 
 /**
@@ -90,12 +92,8 @@ function findCliffBracket(
  */
 function summarizePerSpendTier(
   evaluations: PolicyEvaluation[],
-): Array<{
-  spend: number;
-  totalRecords: number;
-  feasibleRecords: number;
-  maxFeasibility: number;
-}> {
+  feasibilityThreshold: number,
+): SpendTierFeasibility[] {
   const byTier = new Map<
     number,
     { total: number; feasible: number; maxF: number }
@@ -105,7 +103,7 @@ function summarizePerSpendTier(
     const f = e.outcome.bequestAttainmentRate;
     const t = byTier.get(spend) ?? { total: 0, feasible: 0, maxF: 0 };
     t.total += 1;
-    if (f >= 0.85) t.feasible += 1;
+    if (f >= feasibilityThreshold) t.feasible += 1;
     if (f > t.maxF) t.maxF = f;
     byTier.set(spend, t);
   }
@@ -134,8 +132,20 @@ export function recommendCliffRefinement(
   seedData: SeedData,
   feasibilityThreshold = 0.85,
 ): CliffRefinementRecommendation {
+  return recommendCliffRefinementFromSpendTiers(
+    summarizePerSpendTier(evaluations, feasibilityThreshold),
+    seedData,
+    feasibilityThreshold,
+  );
+}
+
+export function recommendCliffRefinementFromSpendTiers(
+  spendTiers: SpendTierFeasibility[],
+  seedData: SeedData,
+  feasibilityThreshold = 0.85,
+): CliffRefinementRecommendation {
   const baseAxes = buildDefaultPolicyAxes(seedData);
-  const perTier = summarizePerSpendTier(evaluations);
+  const perTier = [...spendTiers].sort((a, b) => a.spend - b.spend);
 
   if (perTier.length < 2) {
     return {

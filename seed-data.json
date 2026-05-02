@@ -11,7 +11,7 @@
     "salaryEndDate": "2027-07-01",
     "socialSecurity": [
       { "person": "rob", "fraMonthly": 4100 },
-      { "person": "debbie", "fraMonthly": 1444 }
+      { "person": "debbie", "fraMonthly": 1100 }
     ],
     "windfalls": [
       { "name": "inheritance", "year": 2028, "amount": 500000, "taxTreatment": "cash_non_taxable" },

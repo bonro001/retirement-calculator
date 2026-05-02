@@ -12,15 +12,29 @@
  */
 
 import { useEffect, useState } from 'react';
-import { recommendCliffRefinement, type CliffRefinementRecommendation } from './cliff-refinement-analyzer';
+import {
+  recommendCliffRefinement,
+  recommendCliffRefinementFromSpendTiers,
+  type CliffRefinementRecommendation,
+} from './cliff-refinement-analyzer';
 import { loadEvaluationsForBaseline } from './policy-mining-corpus';
+import {
+  clusterSessionMatches,
+  loadClusterSpendTiers,
+  loadClusterSessions,
+} from './policy-mining-cluster';
 import type { SeedData } from './types';
 import type { PolicyAxes } from './policy-miner-types';
+
+const POLL_INTERVAL_MS = 5_000;
 
 interface Props {
   seedData: SeedData;
   baselineFingerprint: string | null;
   engineVersion: string;
+  /** When present, prefer the dispatcher's on-disk cluster corpus over
+   *  legacy browser IndexedDB so pass-2 can refine the farm's pass-1 run. */
+  dispatcherUrl?: string | null;
   /** Threshold to use for cliff detection. Defaults to 0.85, matching
    *  the canonical legacy attainment gate. The slider's live value
    *  could be passed in to refine relative to whatever the user's
@@ -30,6 +44,14 @@ interface Props {
    *  recommended pass-2 axes. Wired to MiningScreen's `axesOverride`
    *  state, which threads through the cluster-client. */
   onApplyAxesOverride?: (axes: PolicyAxes | null) => void;
+  /** Starts a pass-2 mine immediately after loading the recommended
+   *  axes. The original card only armed the override, which made the
+   *  copy promise a run that never happened. */
+  onRunPass2?: (axes: PolicyAxes) => void;
+  /** Disable the run button while the cluster is busy with another
+   *  session, keeping pass 1 -> pass 2 from looking like competing
+   *  controls. */
+  pass2Disabled?: boolean;
   /** Current override (so we can show "Currently mining narrower
    *  band · Reset" once pass-2 has been applied). */
   axesOverride?: PolicyAxes | null;
@@ -39,8 +61,11 @@ export function CliffRefinementCard({
   seedData,
   baselineFingerprint,
   engineVersion,
+  dispatcherUrl,
   feasibilityThreshold = 0.85,
   onApplyAxesOverride,
+  onRunPass2,
+  pass2Disabled = false,
   axesOverride,
 }: Props) {
   const [recommendation, setRecommendation] = useState<CliffRefinementRecommendation | null>(
@@ -55,23 +80,64 @@ export function CliffRefinementCard({
     setError(null);
     if (!baselineFingerprint) return;
     let cancelled = false;
-    loadEvaluationsForBaseline(baselineFingerprint, engineVersion)
-      .then((evals) => {
+    const loadRecommendation =
+      async (): Promise<{ count: number; recommendation: CliffRefinementRecommendation | null }> => {
+      if (dispatcherUrl) {
+        const sessions = await loadClusterSessions(dispatcherUrl);
+        const session = sessions
+          .filter((candidate) =>
+            clusterSessionMatches(candidate, baselineFingerprint, engineVersion),
+          )
+          .sort((a, b) => {
+            if (a.evaluationCount !== b.evaluationCount) {
+              return b.evaluationCount - a.evaluationCount;
+            }
+            return b.lastActivityMs - a.lastActivityMs;
+          })[0];
+        if (session) {
+          const payload = await loadClusterSpendTiers(
+            dispatcherUrl,
+            session.sessionId,
+            feasibilityThreshold,
+          );
+          return {
+            count: payload.evaluationCount,
+            recommendation: recommendCliffRefinementFromSpendTiers(
+              payload.spendTiers,
+              seedData,
+              feasibilityThreshold,
+            ),
+          };
+        }
+      }
+      const evals = await loadEvaluationsForBaseline(baselineFingerprint, engineVersion);
+      return {
+        count: evals.length,
+        recommendation:
+          evals.length === 0
+            ? null
+            : recommendCliffRefinement(evals, seedData, feasibilityThreshold),
+      };
+    };
+    const tick = () => {
+      loadRecommendation().then((result) => {
         if (cancelled) return;
-        setEvalCount(evals.length);
-        if (evals.length === 0) return;
-        setRecommendation(
-          recommendCliffRefinement(evals, seedData, feasibilityThreshold),
-        );
+        setError(null);
+        setEvalCount(result.count);
+        setRecommendation(result.recommendation);
       })
       .catch((err: unknown) => {
         if (cancelled) return;
         setError(err instanceof Error ? err.message : 'unknown corpus error');
       });
+    };
+    tick();
+    const handle = setInterval(tick, POLL_INTERVAL_MS);
     return () => {
       cancelled = true;
+      clearInterval(handle);
     };
-  }, [seedData, baselineFingerprint, engineVersion, feasibilityThreshold]);
+  }, [seedData, baselineFingerprint, engineVersion, dispatcherUrl, feasibilityThreshold]);
 
   // Don't surface for tiny corpora — analyzer would over-fit MC noise.
   if (evalCount < 50) return null;
@@ -96,6 +162,10 @@ export function CliffRefinementCard({
       JSON.stringify(recommendation.axes.annualSpendTodayDollars);
 
   const handleApply = () => {
+    if (onRunPass2) {
+      onRunPass2(recommendation.axes);
+      return;
+    }
     if (onApplyAxesOverride) onApplyAxesOverride(recommendation.axes);
   };
   const handleReset = () => {
@@ -126,12 +196,18 @@ export function CliffRefinementCard({
               <button
                 type="button"
                 onClick={handleApply}
-                disabled={isOverrideActive}
+                disabled={pass2Disabled || (!onRunPass2 && isOverrideActive)}
                 className="rounded-md bg-emerald-600 px-3 py-1 text-[11px] font-semibold text-white shadow-sm hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-emerald-300"
               >
-                {isOverrideActive
-                  ? 'Pass 2 axes loaded · run a mine'
-                  : 'Use pass 2 axes →'}
+                {pass2Disabled
+                  ? 'Mining in progress'
+                  : onRunPass2
+                  ? isOverrideActive
+                    ? 'Run pass 2 again'
+                    : 'Run pass 2 mine'
+                  : isOverrideActive
+                    ? 'Pass 2 axes loaded'
+                    : 'Use pass 2 axes ->'}
               </button>
               {isOverrideActive && (
                 <button

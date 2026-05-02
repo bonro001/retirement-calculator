@@ -65,6 +65,8 @@ export interface PeerView {
   capabilities: HostCapabilities | null;
   buildInfo?: ClusterBuildInfo;
   buildStatus?: ClusterBuildStatus;
+  engineCompatibility?: SnapshotPeer['engineCompatibility'];
+  disabledReason?: string | null;
   status: PeerStatus;
   /** ms-since-epoch — last heartbeat for live/stale peers, last snapshot
    *  presence for ghosts. Used to render "X ago". */
@@ -208,6 +210,8 @@ export function buildPeerView(
     capabilities: peer.capabilities,
     buildInfo: peer.buildInfo,
     buildStatus: peer.buildStatus,
+    engineCompatibility: peer.engineCompatibility,
+    disabledReason: peer.disabledReason,
     status,
     lastSeenAt: peer.lastHeartbeatTs ?? nowMs,
     lastHeartbeatTs: peer.lastHeartbeatTs,
@@ -239,6 +243,8 @@ export function buildGhostView(ghost: PeerGhost): PeerView {
     capabilities: peer.capabilities,
     buildInfo: peer.buildInfo,
     buildStatus: peer.buildStatus,
+    engineCompatibility: peer.engineCompatibility,
+    disabledReason: peer.disabledReason,
     status: 'offline',
     lastSeenAt: ghost.disappearedAt,
     lastHeartbeatTs: peer.lastHeartbeatTs,

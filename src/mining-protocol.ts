@@ -127,6 +127,12 @@ export interface HostCapabilities {
    * older hosts can still join; UI treats missing as "unknown".
    */
   engineRuntime?: string;
+  /**
+   * Policy-miner engine contract this host was built with. The
+   * dispatcher uses this to avoid sending current-session batches to
+   * stale hosts after a local engine-version bump.
+   */
+  policyMinerEngineVersion?: string;
 }
 
 /**
@@ -357,6 +363,11 @@ export interface ClusterRuntimeMetrics {
   hostUtilizationRate: number | null;
 }
 
+export type ClusterEngineCompatibility =
+  | 'current'
+  | 'legacy-same-build'
+  | 'blocked';
+
 /**
  * Snapshot of the entire cluster — peers, current session, per-host
  * throughput. Sent on `welcome` and re-broadcast every
@@ -376,6 +387,8 @@ export interface ClusterSnapshot {
     capabilities: HostCapabilities | null;
     buildInfo?: ClusterBuildInfo;
     buildStatus?: ClusterBuildStatus;
+    engineCompatibility?: ClusterEngineCompatibility;
+    disabledReason?: string | null;
     /** Last heartbeat received, ms-since-epoch. Used to render "stale" indicators. */
     lastHeartbeatTs: number | null;
     /** Rolling mean wall-clock ms per policy on this host. */

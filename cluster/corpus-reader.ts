@@ -16,12 +16,17 @@
  */
 
 import {
+  createReadStream,
+  closeSync,
   existsSync,
+  openSync,
+  readSync,
   readFileSync,
   readdirSync,
   statSync,
 } from 'node:fs';
 import { join } from 'node:path';
+import { createInterface } from 'node:readline';
 import type { PolicyEvaluation } from '../src/policy-miner-types';
 import { DEFAULT_DATA_DIR, type SessionManifest, type SessionSummary } from './corpus-writer';
 
@@ -142,6 +147,53 @@ export function readEvaluations(
   return out;
 }
 
+export interface SpendTierSummary {
+  spend: number;
+  totalRecords: number;
+  feasibleRecords: number;
+  maxFeasibility: number;
+}
+
+export async function readSpendTierSummaries(
+  sessionId: string,
+  feasibilityThreshold: number,
+  rootDir: string = DEFAULT_DATA_DIR,
+): Promise<SpendTierSummary[]> {
+  const evaluationsPath = join(rootDir, 'sessions', sessionId, 'evaluations.jsonl');
+  if (!existsSync(evaluationsPath)) return [];
+  const byTier = new Map<
+    number,
+    { totalRecords: number; feasibleRecords: number; maxFeasibility: number }
+  >();
+  const lines = createInterface({
+    input: createReadStream(evaluationsPath, { encoding: 'utf-8' }),
+    crlfDelay: Infinity,
+  });
+  for await (const line of lines) {
+    if (line.length === 0) continue;
+    let ev: PolicyEvaluation;
+    try {
+      ev = JSON.parse(line) as PolicyEvaluation;
+    } catch {
+      continue;
+    }
+    const spend = ev.policy.annualSpendTodayDollars;
+    const feasibility = ev.outcome.bequestAttainmentRate;
+    const tier = byTier.get(spend) ?? {
+      totalRecords: 0,
+      feasibleRecords: 0,
+      maxFeasibility: 0,
+    };
+    tier.totalRecords += 1;
+    if (feasibility >= feasibilityThreshold) tier.feasibleRecords += 1;
+    if (feasibility > tier.maxFeasibility) tier.maxFeasibility = feasibility;
+    byTier.set(spend, tier);
+  }
+  return Array.from(byTier.entries())
+    .map(([spend, tier]) => ({ spend, ...tier }))
+    .sort((a, b) => a.spend - b.spend);
+}
+
 /**
  * Read just the manifest for a single session — used by the dispatcher's
  * `GET /sessions/:id` endpoint when the caller doesn't want the full
@@ -184,14 +236,23 @@ export function readSessionMetadata(
  * append uses (each record is followed by a newline).
  */
 function countJsonlLines(path: string): number {
-  // Newline-only count is fine for our purposes — we don't need to
-  // validate JSON here. The reader endpoints that return the parsed
-  // records do their own tolerance check (see readEvaluations).
-  const text = readFileSync(path, 'utf-8');
-  if (text.length === 0) return 0;
+  // Newline-only count is fine for our purposes, but do not turn large
+  // JSONL corpora into JS strings just to count line breaks. The Mining
+  // UI polls `/sessions`; string-loading every historical session can
+  // pin the dispatcher and make the browser think it disconnected.
+  const fd = openSync(path, 'r');
+  const buffer = Buffer.allocUnsafe(1024 * 1024);
   let count = 0;
-  for (let i = 0; i < text.length; i += 1) {
-    if (text.charCodeAt(i) === 10 /* \n */) count += 1;
+  try {
+    for (;;) {
+      const bytesRead = readSync(fd, buffer, 0, buffer.length, null);
+      if (bytesRead === 0) break;
+      for (let i = 0; i < bytesRead; i += 1) {
+        if (buffer[i] === 10 /* \n */) count += 1;
+      }
+    }
+  } finally {
+    closeSync(fd);
   }
   return count;
 }

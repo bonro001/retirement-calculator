@@ -378,6 +378,13 @@ export class WorkQueue {
     return batch;
   }
 
+  /** Read an outstanding batch without mutating queue state. Used by the
+   * dispatcher to validate a host result before deciding whether to append
+   * it to the corpus or requeue it. */
+  inFlightBatch(batchId: string): InFlightBatch | null {
+    return this.inFlight.get(batchId) ?? null;
+  }
+
   /**
    * Put a batch back at the FRONT of the queue. Used for `batch_nack`
    * (host couldn't take the work) and for disconnect-driven reassignment.

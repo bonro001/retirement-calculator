@@ -46,6 +46,8 @@
 import { Worker } from 'node:worker_threads';
 import { hostname, cpus, platform, arch } from 'node:os';
 import { fileURLToPath } from 'node:url';
+import { existsSync } from 'node:fs';
+import { resolve } from 'node:path';
 import WebSocket from 'ws';
 import {
   DEFAULT_DISPATCHER_PORT,
@@ -74,6 +76,7 @@ import type {
   PolicyEvaluation,
   PolicyMinerShadowStats,
 } from '../src/policy-miner-types';
+import { POLICY_MINER_ENGINE_VERSION } from '../src/policy-miner-types';
 import type {
   PolicyMinerWorkerRequest,
   PolicyMinerWorkerResponse,
@@ -129,8 +132,34 @@ const PLATFORM_DESCRIPTOR =
   process.env.HOST_PLATFORM_DESCRIPTOR ??
   `${platform()}-${arch()}-${cpus().length}cpu`;
 
-const HOST_ENGINE_RUNTIME =
+const requestedHostEngineRuntime =
   process.env.ENGINE_RUNTIME ?? process.env.ENGINE_RUNTIME_DEFAULT ?? 'ts';
+const DEFAULT_RUST_NATIVE_ADDON_PATH =
+  'flight-engine-rs/target/release/flight_engine_napi.node';
+
+function resolveHostEngineRuntime(requested: string): string {
+  if (
+    requested !== 'rust-native-compact' &&
+    requested !== 'rust-native-compact-shadow' &&
+    requested !== 'rust-native-shadow'
+  ) {
+    return requested;
+  }
+  const addonPath = resolve(
+    process.env.FLIGHT_ENGINE_NATIVE_ADDON ?? DEFAULT_RUST_NATIVE_ADDON_PATH,
+  );
+  if (existsSync(addonPath)) return requested;
+  // Logging helpers are declared after config initialization; keep this
+  // startup warning direct so runtime fallback is visible immediately.
+  console.warn(
+    `[host@${hostname()}] [warn] native Rust addon missing — falling back to TypeScript runtime ` +
+      JSON.stringify({ requestedRuntime: requested, addonPath }),
+  );
+  return 'ts';
+}
+
+const HOST_ENGINE_RUNTIME = resolveHostEngineRuntime(requestedHostEngineRuntime);
+process.env.ENGINE_RUNTIME_DEFAULT = HOST_ENGINE_RUNTIME;
 const HOST_BUILD_INFO = getLocalBuildInfo();
 const HOST_AUTO_UPDATE =
   process.env.HOST_AUTO_UPDATE === '1' ||
@@ -883,6 +912,7 @@ function connect(): void {
         perfClass: HOST_PERF_CLASS,
         platformDescriptor: PLATFORM_DESCRIPTOR,
         engineRuntime: HOST_ENGINE_RUNTIME,
+        policyMinerEngineVersion: POLICY_MINER_ENGINE_VERSION,
       },
     };
     ws.send(encodeMessage(register));
@@ -891,6 +921,7 @@ function connect(): void {
       perf: HOST_PERF_CLASS,
       platform: PLATFORM_DESCRIPTOR,
       runtime: HOST_ENGINE_RUNTIME,
+      policyMinerEngineVersion: POLICY_MINER_ENGINE_VERSION,
       build: formatBuildInfo(HOST_BUILD_INFO),
       autoUpdate: HOST_AUTO_UPDATE,
     });
