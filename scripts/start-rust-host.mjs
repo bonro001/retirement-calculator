@@ -35,6 +35,15 @@ function git(args, options = {}) {
   return res.stdout.trim() || null;
 }
 
+function gitOk(args) {
+  const res = spawnSync('git', args, {
+    cwd: REPO_ROOT,
+    stdio: 'ignore',
+    env: process.env,
+  });
+  return res.status === 0;
+}
+
 function runStep(command, args) {
   const bin = process.platform === 'win32' && command === 'npm' ? 'npm.cmd' : command;
   console.log(`[start-rust-host] ${[command, ...args].join(' ')}`);
@@ -82,34 +91,94 @@ function buildInfo() {
   };
 }
 
-function updateIfBehind() {
+function stashDirtyTrackedFiles(reason) {
+  const info = buildInfo();
+  if (!info.gitDirty) return false;
+  runStep('git', [
+    'stash',
+    'push',
+    '-m',
+    `start-rust-host autostash: ${reason}`,
+  ]);
+  return true;
+}
+
+function restoreAutostash(didStash) {
+  if (!didStash) return;
+  runStep('git', ['stash', 'pop']);
+}
+
+function switchToBranch(targetBranch, remote, autostash) {
+  if (!targetBranch) return;
+  const current = git(['rev-parse', '--abbrev-ref', 'HEAD']);
+  if (current === targetBranch) return;
+
+  const before = buildInfo();
+  if (before.gitDirty && !autostash) {
+    console.log(
+      `[start-rust-host] auto-update skipped: cannot switch to ${targetBranch}; ` +
+        `local tracked files are dirty (${(before.gitDirtyFiles ?? []).join(', ') || 'unknown files'})`,
+    );
+    return;
+  }
+
+  const didStash = stashDirtyTrackedFiles(`switch ${current ?? 'unknown'} -> ${targetBranch}`);
+  try {
+    const localExists = gitOk(['show-ref', '--verify', `refs/heads/${targetBranch}`]);
+    const remoteRef = `${remote}/${targetBranch}`;
+    if (localExists) {
+      runStep('git', ['switch', targetBranch]);
+    } else if (gitOk(['show-ref', '--verify', `refs/remotes/${remoteRef}`])) {
+      runStep('git', ['switch', '--track', '-c', targetBranch, remoteRef]);
+    } else {
+      console.log(`[start-rust-host] auto-update skipped: ${remoteRef} not found`);
+    }
+  } finally {
+    restoreAutostash(didStash);
+  }
+}
+
+function updateIfBehind({ targetBranch, remote, autostash }) {
+  if (targetBranch) {
+    runStep('git', ['fetch', '--prune', remote]);
+    switchToBranch(targetBranch, remote, autostash);
+  }
+
   const before = buildInfo();
   if (!before.gitUpstream) {
     console.log('[start-rust-host] auto-update skipped: no upstream branch');
     return;
   }
   if (before.gitDirty) {
-    console.log(
-      `[start-rust-host] auto-update skipped: local tracked files are dirty ` +
-        `(${(before.gitDirtyFiles ?? []).join(', ') || 'unknown files'})`,
-    );
-    return;
+    if (!autostash) {
+      console.log(
+        `[start-rust-host] auto-update skipped: local tracked files are dirty ` +
+          `(${(before.gitDirtyFiles ?? []).join(', ') || 'unknown files'})`,
+      );
+      return;
+    }
   }
-  runStep('git', ['fetch', '--prune']);
-  const local = git(['rev-parse', 'HEAD']);
-  const upstream = git(['rev-parse', '@{u}']);
-  if (!local || !upstream || local === upstream) {
-    console.log('[start-rust-host] auto-update: already current');
-    return;
+
+  const didStash = stashDirtyTrackedFiles('pull');
+  try {
+    runStep('git', ['fetch', '--prune']);
+    const local = git(['rev-parse', 'HEAD']);
+    const upstream = git(['rev-parse', '@{u}']);
+    if (!local || !upstream || local === upstream) {
+      console.log('[start-rust-host] auto-update: already current');
+      return;
+    }
+    const base = git(['merge-base', 'HEAD', '@{u}']);
+    if (base !== local) {
+      console.log('[start-rust-host] auto-update skipped: branch is not fast-forwardable');
+      return;
+    }
+    runStep('git', ['pull', '--ff-only']);
+    runStep('npm', ['install']);
+    runStep('npm', ['run', 'engine:rust:build:napi']);
+  } finally {
+    restoreAutostash(didStash);
   }
-  const base = git(['merge-base', 'HEAD', '@{u}']);
-  if (base !== local) {
-    console.log('[start-rust-host] auto-update skipped: branch is not fast-forwardable');
-    return;
-  }
-  runStep('git', ['pull', '--ff-only']);
-  runStep('npm', ['install']);
-  runStep('npm', ['run', 'engine:rust:build:napi']);
 }
 
 function normalize(value) {
@@ -160,6 +229,12 @@ const dispatcher = readArg('dispatcher');
 const workers = readArg('workers');
 const name = readArg('name');
 const runtime = readArg('runtime') ?? 'rust-native-compact';
+const updateBranch = readArg('branch') ?? process.env.HOST_AUTO_UPDATE_BRANCH;
+const updateRemote = readArg('remote') ?? process.env.HOST_AUTO_UPDATE_REMOTE ?? 'origin';
+const autostash =
+  hasFlag('autostash') ||
+  process.env.HOST_AUTO_UPDATE_AUTOSTASH === '1' ||
+  process.env.HOST_AUTO_UPDATE_AUTOSTASH === 'true';
 const autoUpdate =
   hasFlag('auto-update') ||
   process.env.HOST_AUTO_UPDATE === '1' ||
@@ -172,12 +247,17 @@ process.env.HOST_WORKERS = workers ?? String(profile.workers);
 process.env.HOST_DISPLAY_NAME = name ?? profile.name;
 process.env.ENGINE_RUNTIME_DEFAULT = runtime;
 process.env.HOST_AUTO_UPDATE = autoUpdate ? '1' : '0';
+if (updateBranch) process.env.HOST_AUTO_UPDATE_BRANCH = updateBranch;
+process.env.HOST_AUTO_UPDATE_REMOTE = updateRemote;
+process.env.HOST_AUTO_UPDATE_AUTOSTASH = autostash ? '1' : '0';
 
 console.log(
   `[start-rust-host] ${process.env.HOST_DISPLAY_NAME} ` +
     `workers=${process.env.HOST_WORKERS} runtime=${runtime} ` +
     `dispatcher=${process.env.DISPATCHER_URL ?? 'ws://localhost:8765'} ` +
-    `profile=${profile.source} autoUpdate=${autoUpdate ? 'on' : 'off'}`,
+    `profile=${profile.source} autoUpdate=${autoUpdate ? 'on' : 'off'} ` +
+    `branch=${updateBranch ?? '(current)'} remote=${updateRemote} ` +
+    `autostash=${autostash ? 'on' : 'off'}`,
 );
 
 if (dryRun) {
@@ -206,7 +286,7 @@ function startChild() {
     }
     if (autoUpdate && code === AUTO_UPDATE_EXIT_CODE) {
       try {
-        updateIfBehind();
+        updateIfBehind({ targetBranch: updateBranch, remote: updateRemote, autostash });
       } catch (err) {
         console.error('[start-rust-host] auto-update failed', err);
       }
@@ -227,7 +307,7 @@ for (const signal of ['SIGINT', 'SIGTERM']) {
 
 if (autoUpdate) {
   try {
-    updateIfBehind();
+    updateIfBehind({ targetBranch: updateBranch, remote: updateRemote, autostash });
   } catch (err) {
     console.error('[start-rust-host] initial auto-update failed', err);
   }
