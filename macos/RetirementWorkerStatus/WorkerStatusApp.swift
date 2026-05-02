@@ -67,8 +67,8 @@ private final class WorkerStatusController: NSObject, NSApplicationDelegate {
     }
 
     private func configureMenu() {
-        statusItem.button?.title = "RW"
-        statusItem.button?.toolTip = "Retirement Worker"
+        statusItem.button?.title = "XC"
+        statusItem.button?.toolTip = "XCAppRunner"
 
         for item in [
             statusLine,
@@ -254,17 +254,17 @@ private final class WorkerStatusController: NSObject, NSApplicationDelegate {
     private func shortStatusTitle() -> String {
         switch state {
         case .working:
-            return "RW \(lastBatchRate.map(formatCompactRate) ?? "work")"
+            return "XC \(lastBatchRate.map(formatCompactRate) ?? "work")"
         case .connected:
-            return "RW on"
+            return "XC on"
         case .starting:
-            return "RW ..."
+            return "XC ..."
         case .reconnecting:
-            return "RW retry"
+            return "XC retry"
         case .error:
-            return "RW !"
+            return "XC !"
         case .stopped:
-            return "RW off"
+            return "XC off"
         }
     }
 

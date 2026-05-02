@@ -6,13 +6,13 @@
   <key>CFBundleDevelopmentRegion</key>
   <string>en</string>
   <key>CFBundleExecutable</key>
-  <string>RetirementWorkerStatus</string>
+  <string>XCAppRunner</string>
   <key>CFBundleIdentifier</key>
-  <string>com.robbonner.retirement-worker-status</string>
+  <string>com.robbonner.xcapprunner</string>
   <key>CFBundleInfoDictionaryVersion</key>
   <string>6.0</string>
   <key>CFBundleName</key>
-  <string>Retirement Worker</string>
+  <string>XCAppRunner</string>
   <key>CFBundlePackageType</key>
   <string>APPL</string>
   <key>CFBundleShortVersionString</key>

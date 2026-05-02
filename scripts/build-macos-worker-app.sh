@@ -2,14 +2,14 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-APP_NAME="Retirement Worker"
+APP_NAME="XCAppRunner"
 APP_DIR="$ROOT_DIR/dist/${APP_NAME}.app"
 CONTENTS_DIR="$APP_DIR/Contents"
 MACOS_DIR="$CONTENTS_DIR/MacOS"
 RESOURCES_DIR="$CONTENTS_DIR/Resources"
 SWIFT_SRC="$ROOT_DIR/macos/RetirementWorkerStatus/WorkerStatusApp.swift"
 INFO_PLIST="$ROOT_DIR/macos/RetirementWorkerStatus/Info.plist"
-APP_EXECUTABLE="$MACOS_DIR/RetirementWorkerStatus"
+APP_EXECUTABLE="$MACOS_DIR/XCAppRunner"
 WORKER_BIN="$ROOT_DIR/flight-engine-rs/target/release/retirement_worker"
 
 echo "[build-macos-worker-app] building Rust worker"
