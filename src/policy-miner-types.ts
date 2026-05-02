@@ -29,7 +29,7 @@
  * Format: `policy-miner-vN-engineYYYY-MM` so a glance tells you when a
  * given record's lineage was minted.
  */
-export const POLICY_MINER_ENGINE_VERSION = 'policy-miner-v2-2026-05-01';
+export const POLICY_MINER_ENGINE_VERSION = 'policy-miner-v3-2026-05-01';
 
 /**
  * The four axes the V1 miner sweeps. Adding a new axis means: (1) extend

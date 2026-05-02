@@ -253,6 +253,7 @@ export function createClusterClient(config: ClusterClientConfig): ClusterClient 
       perfClass,
       platformDescriptor: `browser-${ua.slice(0, 60).replace(/\s+/g, '_')}-hc${sizing.hardwareConcurrency}`,
       engineRuntime: 'ts-browser',
+      policyMinerEngineVersion: POLICY_MINER_ENGINE_VERSION,
     };
   }
 
