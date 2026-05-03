@@ -81,12 +81,19 @@ export interface PeerView {
   perWorkerPolPerMin: number | null;
   /** Batches in flight at last snapshot. Always 0 for ghosts. */
   inFlightBatchCount: number;
+  /** Policies currently assigned to this host and not yet acknowledged. */
+  inFlightPolicies: number;
+  /** Age of the oldest in-flight batch, in milliseconds. */
+  oldestInFlightMs: number | null;
   /** Workers this host advertised. Null when capabilities is missing
    *  (controllers that aren't also hosts). */
   workerCount: number | null;
   reservedWorkerSlots: number;
   utilizationRate: number | null;
   capacityNacks: number;
+  nackedBatches: number;
+  lastFailureReason: string | null;
+  lastFailureAgeMs: number | null;
   avgDispatchToResultMs: number | null;
 }
 
@@ -215,10 +222,15 @@ export function buildPeerView(
     totalPolPerMin: isHost ? totalPolPerMinute(peer.meanMsPerPolicy) : null,
     perWorkerPolPerMin: isHost ? perWorkerPolPerMinute(peer.meanMsPerPolicy) : null,
     inFlightBatchCount: peer.inFlightBatchCount,
+    inFlightPolicies: peer.metrics?.inFlightPolicies ?? 0,
+    oldestInFlightMs: peer.metrics?.oldestInFlightMs ?? null,
     workerCount,
     reservedWorkerSlots: peer.metrics?.reservedWorkerSlots ?? peer.inFlightBatchCount,
     utilizationRate: peer.metrics?.utilizationRate ?? null,
     capacityNacks: peer.metrics?.capacityNacks ?? 0,
+    nackedBatches: peer.metrics?.nackedBatches ?? 0,
+    lastFailureReason: peer.metrics?.lastFailureReason ?? null,
+    lastFailureAgeMs: peer.metrics?.lastFailureAgeMs ?? null,
     avgDispatchToResultMs: peer.metrics?.avgDispatchToResultMs ?? null,
   };
 }
@@ -246,10 +258,15 @@ export function buildGhostView(ghost: PeerGhost): PeerView {
     totalPolPerMin: isHost ? totalPolPerMinute(peer.meanMsPerPolicy) : null,
     perWorkerPolPerMin: isHost ? perWorkerPolPerMinute(peer.meanMsPerPolicy) : null,
     inFlightBatchCount: 0,
+    inFlightPolicies: 0,
+    oldestInFlightMs: null,
     workerCount,
     reservedWorkerSlots: 0,
     utilizationRate: peer.metrics?.utilizationRate ?? null,
     capacityNacks: peer.metrics?.capacityNacks ?? 0,
+    nackedBatches: peer.metrics?.nackedBatches ?? 0,
+    lastFailureReason: peer.metrics?.lastFailureReason ?? null,
+    lastFailureAgeMs: peer.metrics?.lastFailureAgeMs ?? null,
     avgDispatchToResultMs: peer.metrics?.avgDispatchToResultMs ?? null,
   };
 }
@@ -355,6 +372,11 @@ export function formatPeerActivity(view: Pick<
   | 'totalPolPerMin'
   | 'reservedWorkerSlots'
   | 'inFlightBatchCount'
+  | 'inFlightPolicies'
+  | 'oldestInFlightMs'
+  | 'nackedBatches'
+  | 'lastFailureReason'
+  | 'lastFailureAgeMs'
 >): string {
   if (!view.roles.includes('host')) {
     return view.roles.join('+');
@@ -363,9 +385,47 @@ export function formatPeerActivity(view: Pick<
     return formatThroughput(view.totalPolPerMin);
   }
   if (view.reservedWorkerSlots > 0 || view.inFlightBatchCount > 0) {
-    return 'working first batch';
+    const parts = ['first batch'];
+    if (view.inFlightPolicies > 0) {
+      parts.push(`${view.inFlightPolicies.toLocaleString()} pol`);
+    }
+    if (view.oldestInFlightMs !== null) {
+      parts.push(formatDuration(view.oldestInFlightMs));
+    }
+    return parts.join(' · ');
+  }
+  if (view.nackedBatches > 0) {
+    const parts = ['failed probe'];
+    const reason = formatFailureReason(view.lastFailureReason);
+    if (reason) parts.push(reason);
+    if (view.lastFailureAgeMs !== null) parts.push(`${formatDuration(view.lastFailureAgeMs)} ago`);
+    return parts.join(' · ');
   }
   return 'awaiting first batch';
+}
+
+function formatFailureReason(reason: string | null): string | null {
+  if (!reason) return null;
+  if (/flight_engine_napi\\.node|Rust addon|Cannot find module/i.test(reason)) {
+    return 'Rust addon missing';
+  }
+  if (/engine_version_mismatch/i.test(reason)) {
+    return 'engine mismatch';
+  }
+  if (/host_no_free_slots/i.test(reason)) {
+    return 'no free slots';
+  }
+  if (/zero evaluations/i.test(reason)) {
+    return 'zero results';
+  }
+  return 'worker error';
+}
+
+function formatDuration(durationMs: number): string {
+  const seconds = Math.max(0, Math.round(durationMs / 1000));
+  if (seconds < 60) return `${seconds}s`;
+  if (seconds < 3600) return `${Math.round(seconds / 60)}m`;
+  return `${Math.round(seconds / 3600)}h`;
 }
 
 /**

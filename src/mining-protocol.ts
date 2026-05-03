@@ -330,9 +330,13 @@ export interface ClusterPeerMetrics {
   completedBatches: number;
   nackedBatches: number;
   capacityNacks: number;
+  lastFailureReason?: string | null;
+  lastFailureAgeMs?: number | null;
   assignedPolicies: number;
   completedPolicies: number;
   reservedWorkerSlots: number;
+  inFlightPolicies?: number;
+  oldestInFlightMs?: number | null;
   busySlotMs: number;
   idleWhilePendingSlotMs: number;
   utilizationRate: number | null;

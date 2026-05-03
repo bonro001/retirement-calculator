@@ -133,6 +133,8 @@ describe('buildPeerView', () => {
     expect(view.workerCount).toBe(8);
     expect(view.perWorkerPolPerMin).toBeCloseTo(60_000 / 200);
     expect(view.totalPolPerMin).toBeCloseTo(60_000 / 200);
+    expect(view.inFlightPolicies).toBe(0);
+    expect(view.oldestInFlightMs).toBeNull();
     expect(view.lastSeenAt).toBe(NOW - 1_000);
   });
 
@@ -329,7 +331,7 @@ describe('formatPeerActivity', () => {
     expect(formatPeerActivity(view)).toBe('600 pol/min');
   });
 
-  it('shows working first batch when slots are reserved but no throughput exists yet', () => {
+  it('shows first-batch work details when slots are reserved but no throughput exists yet', () => {
     const view = buildPeerView(
       makePeer({
         meanMsPerPolicy: null,
@@ -342,6 +344,8 @@ describe('formatPeerActivity', () => {
           assignedPolicies: 12,
           completedPolicies: 0,
           reservedWorkerSlots: 12,
+          inFlightPolicies: 48,
+          oldestInFlightMs: 43_000,
           busySlotMs: 0,
           idleWhilePendingSlotMs: 0,
           utilizationRate: null,
@@ -350,7 +354,7 @@ describe('formatPeerActivity', () => {
       }),
       NOW,
     );
-    expect(formatPeerActivity(view)).toBe('working first batch');
+    expect(formatPeerActivity(view)).toBe('first batch · 48 pol · 43s');
   });
 
   it('shows awaiting first batch only when a host has no work and no throughput', () => {
@@ -375,6 +379,34 @@ describe('formatPeerActivity', () => {
       NOW,
     );
     expect(formatPeerActivity(view)).toBe('awaiting first batch');
+  });
+
+  it('shows failed probe details when a cold host returns an incomplete batch', () => {
+    const view = buildPeerView(
+      makePeer({
+        meanMsPerPolicy: null,
+        inFlightBatchCount: 0,
+        metrics: {
+          assignedBatches: 1,
+          completedBatches: 0,
+          nackedBatches: 1,
+          capacityNacks: 0,
+          lastFailureReason: "Cannot find module 'flight_engine_napi.node'",
+          lastFailureAgeMs: 12_000,
+          assignedPolicies: 4,
+          completedPolicies: 0,
+          reservedWorkerSlots: 0,
+          inFlightPolicies: 0,
+          oldestInFlightMs: null,
+          busySlotMs: 0,
+          idleWhilePendingSlotMs: 0,
+          utilizationRate: null,
+          avgDispatchToResultMs: null,
+        },
+      }),
+      NOW,
+    );
+    expect(formatPeerActivity(view)).toBe('failed probe · Rust addon missing · 12s ago');
   });
 
   it('uses roles for controller-only peers', () => {

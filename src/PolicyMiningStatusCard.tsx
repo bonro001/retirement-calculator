@@ -411,6 +411,25 @@ export function PolicyMiningStatusCard({
     const perMin = (stats.policiesEvaluated / elapsedMs) * 60_000;
     return `${perMin.toFixed(0)}/min`;
   })();
+  const throughputDetailLabel = (() => {
+    if (stats && stats.meanMsPerPolicy > 0) {
+      return `cluster mean ${(stats.meanMsPerPolicy / 1000).toFixed(1)}s/policy`;
+    }
+    if (sessionRunning && session?.metrics) {
+      const inFlightPolicies = Math.max(
+        0,
+        session.metrics.policiesAssigned -
+          session.metrics.policiesCompleted -
+          session.metrics.policiesRequeued -
+          session.metrics.policiesDropped,
+      );
+      if (inFlightPolicies > 0 || session.metrics.inFlightBatches > 0) {
+        return `warming · ${inFlightPolicies.toLocaleString()} pol in flight`;
+      }
+      return 'warming hosts';
+    }
+    return '';
+  })();
 
   const progressPct =
     stats && stats.totalPolicies > 0
@@ -1024,11 +1043,7 @@ export function PolicyMiningStatusCard({
             {throughputLabel}
           </p>
           <p className="mt-1 text-[11px] text-stone-500">
-            {stats && stats.meanMsPerPolicy > 0
-              ? `cluster mean ${(stats.meanMsPerPolicy / 1000).toFixed(1)}s/policy`
-              : sessionRunning
-                ? 'awaiting first batch'
-                : ''}
+            {throughputDetailLabel}
           </p>
         </div>
         <div>
