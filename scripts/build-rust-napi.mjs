@@ -11,7 +11,13 @@ if (profile === 'release') {
 }
 
 const cargo = spawnSync('cargo', cargoArgs, { stdio: 'inherit' });
+if (cargo.error) {
+  console.error(`Failed to run cargo: ${cargo.error.message}`);
+  console.error('Install Rust/Cargo or make sure cargo is on PATH, then retry.');
+  process.exit(1);
+}
 if (cargo.status !== 0) {
+  console.error(`Cargo build failed with exit code ${cargo.status ?? 'unknown'}.`);
   process.exit(cargo.status ?? 1);
 }
 
