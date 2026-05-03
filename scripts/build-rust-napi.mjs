@@ -34,7 +34,9 @@ if (!libExt) {
 }
 
 const targetDir = join(crateDir, 'target', profile);
-const source = join(targetDir, `${libPrefix}flight_engine.${libExt}`);
+const directSource = join(targetDir, 'deps', `${libPrefix}flight_engine.${libExt}`);
+const fallbackSource = join(targetDir, `${libPrefix}flight_engine.${libExt}`);
+const source = existsSync(directSource) ? directSource : fallbackSource;
 const output = join(targetDir, 'flight_engine_napi.node');
 
 if (!existsSync(source)) {
@@ -43,4 +45,21 @@ if (!existsSync(source)) {
 
 mkdirSync(dirname(output), { recursive: true });
 copyFileSync(source, output);
+if (process.platform === 'darwin') {
+  const installName = spawnSync('install_name_tool', [
+    '-id',
+    '@loader_path/flight_engine_napi.node',
+    output,
+  ], { stdio: 'inherit' });
+  if (installName.error) {
+    console.error(`Failed to run install_name_tool: ${installName.error.message}`);
+    process.exit(1);
+  }
+  if (installName.status !== 0) {
+    console.error(
+      `install_name_tool failed with exit code ${installName.status ?? 'unknown'}.`,
+    );
+    process.exit(installName.status ?? 1);
+  }
+}
 console.log(`Built ${basename(output)} from ${source}`);
