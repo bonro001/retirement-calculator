@@ -77,9 +77,14 @@ if ($LASTEXITCODE -ne 0) {
 }
 git reset --hard origin/main
 
-# `npm ci` installs strictly from the lockfile and never modifies it,
-# so the cluster panel won't show "modified · package-lock.json".
+# Prefer `npm ci` (strict, never modifies lockfile). Fall back to
+# `npm install` if the lockfile drifted out of sync with package.json
+# on main — `npm ci` would otherwise refuse and wedge the worker.
 npm ci
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "[start-host] npm ci failed (likely lockfile drift); falling back to npm install"
+    npm install
+}
 
 # Rebuild the Rust napi. On first run, the build script downloads
 # node.lib (~700 KB) for delay-loading and caches it in

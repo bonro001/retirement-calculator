@@ -753,10 +753,9 @@ let stopReconnecting = false;
 let autoUpdateRequested = false;
 // Throttling for the auto-update path: maybeRequestAutoUpdate is called
 // on every cluster_state broadcast (~1/sec from the dispatcher), so the
-// "skipped: dirty" / "waiting for idle host" warnings would fire 60×/min
-// without throttling. Track the last-warned expected build hash so we
-// only log on transitions, not on every poll.
-let lastDirtyWarnExpected: string | null = null;
+// "waiting for idle host" warning would fire 60×/min without throttling.
+// Track the last-warned expected build hash so we only log on
+// transitions, not on every poll.
 let lastWaitingWarnExpected: string | null = null;
 
 function maybeRequestAutoUpdate(
@@ -765,26 +764,15 @@ function maybeRequestAutoUpdate(
 ): void {
   if (!HOST_AUTO_UPDATE || autoUpdateRequested) return;
   const status = compareBuildInfo(expectedBuildInfo, HOST_BUILD_INFO);
-  if (status !== 'mismatch') {
-    // Reset throttling state when match restores so a future regression
-    // logs again on first detection.
-    lastDirtyWarnExpected = null;
+  if (status === 'match') {
     lastWaitingWarnExpected = null;
     return;
   }
+  // Workers are ephemeral: a dirty tree (typically package-lock.json drift
+  // from a prior `npm install`) shouldn't block the auto-update. The
+  // launcher's start-host script hard-resets to origin/main on relaunch,
+  // so blowing away local edits is the intended behavior.
   const expectedKey = formatBuildInfo(expectedBuildInfo);
-  if (HOST_BUILD_INFO.gitDirty) {
-    if (lastDirtyWarnExpected !== expectedKey) {
-      log('warn', 'auto-update skipped: local tracked files are dirty', {
-        local: formatBuildInfo(HOST_BUILD_INFO),
-        expected: expectedKey,
-        dirtyFiles: HOST_BUILD_INFO.gitDirtyFiles,
-        source,
-      });
-      lastDirtyWarnExpected = expectedKey;
-    }
-    return;
-  }
   if (activeSession || inFlightBatchIds.size > 0 || pendingRuns.size > 0) {
     if (lastWaitingWarnExpected !== expectedKey) {
       log('info', 'auto-update waiting for idle host', {

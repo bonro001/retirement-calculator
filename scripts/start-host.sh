@@ -57,10 +57,10 @@ git fetch origin
 git checkout main 2>/dev/null || git checkout -b main origin/main
 git reset --hard origin/main
 
-# `npm ci` installs strictly from the lockfile and never modifies it,
-# so the cluster panel won't show "modified · package-lock.json" after
-# this script runs.
-npm ci
+# Prefer `npm ci` (strict, never modifies lockfile). Fall back to
+# `npm install` if the lockfile drifted out of sync with package.json
+# on main — `npm ci` would otherwise refuse and wedge the worker.
+npm ci || npm install
 
 # Rebuild the Rust napi. This is fast incremental on second-and-later
 # runs. First-run cold compile takes 5-10 minutes.

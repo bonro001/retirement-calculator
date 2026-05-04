@@ -143,13 +143,6 @@ function updateIfBehind() {
     console.log('[start-rust-host] auto-update skipped: no upstream branch');
     return false;
   }
-  if (before.gitDirty) {
-    console.log(
-      `[start-rust-host] auto-update skipped: local tracked files are dirty ` +
-        `(${(before.gitDirtyFiles ?? []).join(', ') || 'unknown files'})`,
-    );
-    return false;
-  }
 
   runStep('git', ['fetch', '--prune']);
 
@@ -177,31 +170,38 @@ function updateIfBehind() {
     console.log(
       `[start-rust-host] switching ${currentBranch} → ${dispatcherBranch} to follow dispatcher`,
     );
-    // `-B` creates or resets the local branch to origin's tip. Safe on
-    // a worker box (working tree mirrors upstream by design).
-    runStep('git', ['checkout', '-B', dispatcherBranch, `origin/${dispatcherBranch}`]);
+    // `-f -B` force-creates-or-resets the branch and discards any
+    // local modifications. Workers are ephemeral; the dispatcher is
+    // authoritative.
+    runStep('git', ['checkout', '-f', '-B', dispatcherBranch, `origin/${dispatcherBranch}`]);
   } else {
-    // Same branch — fast-forward path.
+    // Same branch — hard reset to upstream. This handles three cases
+    // that used to wedge the worker (dirty tree, non-fast-forwardable,
+    // commits diverged from main) by trusting upstream as authoritative.
     const local = git(['rev-parse', 'HEAD']);
     const upstream = git(['rev-parse', '@{u}']);
-    if (!local || !upstream || local === upstream) {
+    if (!local || !upstream) {
+      console.log('[start-rust-host] auto-update: no HEAD/upstream to compare');
+      return false;
+    }
+    if (local === upstream && !before.gitDirty) {
       console.log('[start-rust-host] auto-update: already current');
       return false;
     }
-    const base = git(['merge-base', 'HEAD', '@{u}']);
-    if (base !== local) {
-      console.log('[start-rust-host] auto-update skipped: branch is not fast-forwardable');
-      return false;
-    }
-    runStep('git', ['pull', '--ff-only']);
+    runStep('git', ['reset', '--hard', '@{u}']);
   }
 
-  // Use `npm ci` not `npm install` so the lockfile stays byte-clean.
-  // Otherwise `npm install` re-resolves and tends to bump
-  // package-lock.json by a few entries — the cluster panel then
-  // surfaces "modified · package-lock.json" on every host that ran
-  // auto-update, even though no real change happened.
-  runStep('npm', ['ci']);
+  // Prefer `npm ci` (strict, never modifies lockfile). Fall back to
+  // `npm install` if the lockfile drifted out of sync with package.json
+  // — `npm ci` would otherwise refuse and wedge the worker.
+  try {
+    runStep('npm', ['ci']);
+  } catch (err) {
+    console.warn(
+      `[start-rust-host] npm ci failed (${err.message}); falling back to npm install`,
+    );
+    runStep('npm', ['install']);
+  }
   runStep('npm', ['run', 'engine:rust:build:napi']);
   return true;
 }
