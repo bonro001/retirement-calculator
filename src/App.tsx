@@ -1461,14 +1461,24 @@ export function App() {
   const isPlanHomeScreen = currentScreen === 'overview' || currentScreen === 'insights';
 
   return (
-    <div className="min-h-screen bg-[#F7F5F2] text-stone-900">
+    <div className="min-h-screen bg-[#F7F5F2] text-stone-900 lg:h-screen lg:overflow-hidden">
       {/* Single unified layout: left sidebar with Cockpit + Accounts +
           Social Security + Taxes + Export. The room-pill nav and
           AdvisorRoom / SandboxRoom shells are intentionally not
           rendered here — code remains in this file for reference but
           is unreachable. Cleanup pass to delete unused components is
-          a separate task. */}
-      <div className="mx-auto flex min-h-screen max-w-[1700px] flex-col lg:flex-row">
+          a separate task.
+
+          On `lg` we clamp the document to exactly viewport height
+          (`h-screen overflow-hidden`) so the page never scrolls — all
+          vertical scroll happens inside the inner content area
+          (`lg:overflow-y-auto` below). Without this, browsers in
+          "always show scrollbars" mode (macOS default for trackpad
+          users with explicit accessibility setting) render TWO
+          vertical bars side-by-side: the unused document bar AND
+          the inner bar. On smaller viewports we keep `min-h-screen`
+          so natural page scrolling works. */}
+      <div className="mx-auto flex min-h-screen max-w-[1700px] flex-col lg:h-screen lg:flex-row">
         <aside className="bg-transparent px-4 py-6 lg:min-h-screen lg:w-[210px] lg:shrink-0">
           <div className="mb-8 flex items-center justify-between lg:block">
             <div>
