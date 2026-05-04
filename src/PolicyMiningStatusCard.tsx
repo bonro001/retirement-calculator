@@ -247,23 +247,46 @@ export function PolicyMiningStatusCard({
   // gate the auto-fire in the session-ended watcher so cancelled or
   // manual sessions don't accidentally trigger pass-2.
   const pipelineActiveRef = useRef<boolean>(false);
-  // Pass-2 is fired from inside the session-end useEffect; we capture
-  // its sessionId to distinguish "pass-1 just ended" from "pass-2 just
-  // ended" inside the same effect.
-  const pipelinePass2SessionIdRef = useRef<string | null>(null);
+  // 0 = expecting pass-1, 1 = pass-1 has ended, expecting pass-2, 2 =
+  // pass-2 has ended (pipeline done). The watcher uses this to decide
+  // what "session just ended" means without depending on session-id
+  // identity (which is racy because cluster.session updates separately
+  // from snapshot ticks).
+  const pipelineCompletionsRef = useRef<number>(0);
+  // Track the last seen sessionId across renders so we only act on
+  // actual session transitions (X → null), not on every snapshot
+  // tick where session is incidentally null. Without this, the effect
+  // fires the "pass-1 ended" branch as soon as Start is clicked,
+  // before the dispatcher's session ack arrives.
+  const pipelineLastSessionIdRef = useRef<string | null>(null);
+  const currentSessionId = cluster.session?.sessionId ?? null;
   // Watch session transitions: pass-1 end → fire pass-2; pass-2 end →
   // mark done. Reads the corpus from the cluster's HTTP API (or local
-  // IDB fallback) to compute combined pass-2 axes — same source the
-  // pass-2 analyzer cards use.
+  // IDB fallback) to compute combined pass-2 axes.
   useEffect(() => {
-    if (cluster.session) return; // only act on session-cleared transitions
+    const lastSessionId = pipelineLastSessionIdRef.current;
+    // Session is active: just track the id and bail. The effect re-runs
+    // when the id changes (start of a session OR end of a session).
+    if (currentSessionId) {
+      pipelineLastSessionIdRef.current = currentSessionId;
+      return;
+    }
+    // Session id is null. Was it null before? Then this is just the
+    // initial mount — no transition to act on.
+    if (lastSessionId === null) return;
+    // A session just ended. Clear the last-seen id so subsequent null
+    // ticks don't keep re-firing this branch.
+    pipelineLastSessionIdRef.current = null;
     if (!pipelineActiveRef.current) return;
     if (!baselineFingerprint || !controls) return;
 
+    const completionsBefore = pipelineCompletionsRef.current;
+    pipelineCompletionsRef.current = completionsBefore + 1;
+
     // Pass-2 just ended: pipeline is done.
-    if (pipelinePass2SessionIdRef.current !== null) {
+    if (completionsBefore >= 1) {
       pipelineActiveRef.current = false;
-      pipelinePass2SessionIdRef.current = null;
+      pipelineCompletionsRef.current = 0;
       setPipelinePhase('done');
       return;
     }
@@ -282,6 +305,7 @@ export function PolicyMiningStatusCard({
         const recommendation = recommendCombinedPass2(evals, controls.baseline);
         if (!recommendation.hasRecommendation) {
           pipelineActiveRef.current = false;
+          pipelineCompletionsRef.current = 0;
           setPipelinePhase('done');
           return;
         }
@@ -298,12 +322,9 @@ export function PolicyMiningStatusCard({
             trialCount: controls.trialCount,
             axesOverride: recommendation.axes,
           });
-          // Capture the pass-2 sessionId on the next snapshot tick.
-          // Marker to distinguish "pass-2 ended" later. We'll set it
-          // when the session appears.
-          pipelinePass2SessionIdRef.current = 'pending';
         } catch (e) {
           pipelineActiveRef.current = false;
+          pipelineCompletionsRef.current = 0;
           setPipelinePhase('done');
           setStartError(e instanceof Error ? e.message : String(e));
         }
@@ -311,6 +332,7 @@ export function PolicyMiningStatusCard({
       .catch((err: unknown) => {
         if (cancelled) return;
         pipelineActiveRef.current = false;
+        pipelineCompletionsRef.current = 0;
         setPipelinePhase('done');
         setStartError(err instanceof Error ? err.message : 'pipeline corpus load failed');
       });
@@ -318,23 +340,12 @@ export function PolicyMiningStatusCard({
       cancelled = true;
     };
   }, [
-    cluster.session,
-    cluster,
+    currentSessionId,
     baselineFingerprint,
     engineVersion,
     controls,
+    cluster,
   ]);
-  // When pass-2 is dispatched from inside the prior effect, capture its
-  // sessionId once the snapshot reflects it. The 'pending' sentinel from
-  // the dispatch path becomes the real id here.
-  useEffect(() => {
-    if (
-      pipelinePass2SessionIdRef.current === 'pending' &&
-      cluster.session?.sessionId
-    ) {
-      pipelinePass2SessionIdRef.current = cluster.session.sessionId;
-    }
-  }, [cluster.session]);
   // Best-policy display in the 'done' segment — surface whatever the
   // corpus's top record is at the time the pipeline ends.
   useEffect(() => {
@@ -476,14 +487,16 @@ export function PolicyMiningStatusCard({
       sessionSize === 'full' && !axesOverride;
     if (enablePipeline) {
       pipelineActiveRef.current = true;
-      pipelinePass2SessionIdRef.current = null;
+      pipelineCompletionsRef.current = 0;
+      pipelineLastSessionIdRef.current = null;
       setPipelinePhase('exploring');
       setPipelinePass1Total(totalCandidates);
       setPipelinePass2Total(null);
       setPipelineBestPolicyId(null);
     } else {
       pipelineActiveRef.current = false;
-      pipelinePass2SessionIdRef.current = null;
+      pipelineCompletionsRef.current = 0;
+      pipelineLastSessionIdRef.current = null;
       setPipelinePhase('idle');
     }
     try {
@@ -517,7 +530,8 @@ export function PolicyMiningStatusCard({
     // auto-fire pass-2. Pass-1 records that already landed stay in the
     // corpus.
     pipelineActiveRef.current = false;
-    pipelinePass2SessionIdRef.current = null;
+    pipelineCompletionsRef.current = 0;
+    pipelineLastSessionIdRef.current = null;
     setPipelinePhase('idle');
     cluster.cancelSession('user clicked cancel');
   };
