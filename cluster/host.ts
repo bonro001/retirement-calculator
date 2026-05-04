@@ -751,6 +751,22 @@ let reconnectTimer: NodeJS.Timeout | null = null;
 let reconnectAttempt = 0;
 let stopReconnecting = false;
 let autoUpdateRequested = false;
+// Latest dispatcher build info we've seen on the wire, captured from
+// `welcome` and refreshed on `cluster_state`. Used at session_start
+// time to check whether we're behind right before accepting work.
+// We deliberately don't trigger auto-update from cluster_state itself
+// — that fires every second and would re-evaluate on every tick.
+// Auto-update runs at meaningful boundaries: connect (welcome) and
+// start of a session (start_session).
+let lastKnownDispatcherBuild:
+  | Parameters<typeof compareBuildInfo>[0]
+  | undefined;
+// Throttling state — defensive, in case maybeRequestAutoUpdate ever
+// gets called multiple times in quick succession from a future call
+// site. Without the cluster_state caller, the warnings should fire
+// at most once per connect/session-start anyway.
+let lastDirtyWarnExpected: string | null = null;
+let lastWaitingWarnExpected: string | null = null;
 
 function maybeRequestAutoUpdate(
   expectedBuildInfo: Parameters<typeof compareBuildInfo>[0],
@@ -758,24 +774,37 @@ function maybeRequestAutoUpdate(
 ): void {
   if (!HOST_AUTO_UPDATE || autoUpdateRequested) return;
   const status = compareBuildInfo(expectedBuildInfo, HOST_BUILD_INFO);
-  if (status !== 'mismatch') return;
+  if (status !== 'mismatch') {
+    // Reset throttling state when match restores so a future regression
+    // logs again on first detection.
+    lastDirtyWarnExpected = null;
+    lastWaitingWarnExpected = null;
+    return;
+  }
+  const expectedKey = formatBuildInfo(expectedBuildInfo);
   if (HOST_BUILD_INFO.gitDirty) {
-    log('warn', 'auto-update skipped: local tracked files are dirty', {
-      local: formatBuildInfo(HOST_BUILD_INFO),
-      expected: formatBuildInfo(expectedBuildInfo),
-      dirtyFiles: HOST_BUILD_INFO.gitDirtyFiles,
-      source,
-    });
+    if (lastDirtyWarnExpected !== expectedKey) {
+      log('warn', 'auto-update skipped: local tracked files are dirty', {
+        local: formatBuildInfo(HOST_BUILD_INFO),
+        expected: expectedKey,
+        dirtyFiles: HOST_BUILD_INFO.gitDirtyFiles,
+        source,
+      });
+      lastDirtyWarnExpected = expectedKey;
+    }
     return;
   }
   if (activeSession || inFlightBatchIds.size > 0 || pendingRuns.size > 0) {
-    log('info', 'auto-update waiting for idle host', {
-      local: formatBuildInfo(HOST_BUILD_INFO),
-      expected: formatBuildInfo(expectedBuildInfo),
-      source,
-      activeSession: activeSession?.sessionId ?? null,
-      inFlightBatches: inFlightBatchIds.size,
-    });
+    if (lastWaitingWarnExpected !== expectedKey) {
+      log('info', 'auto-update waiting for idle host', {
+        local: formatBuildInfo(HOST_BUILD_INFO),
+        expected: expectedKey,
+        source,
+        activeSession: activeSession?.sessionId ?? null,
+        inFlightBatches: inFlightBatchIds.size,
+      });
+      lastWaitingWarnExpected = expectedKey;
+    }
     return;
   }
   autoUpdateRequested = true;
@@ -954,6 +983,7 @@ async function handleDispatcherMessage(message: ClusterMessage): Promise<void> {
         ),
         ...(wasReconnect ? { afterReconnect: true } : {}),
       });
+      lastKnownDispatcherBuild = message.clusterSnapshot.dispatcherBuildInfo;
       maybeRequestAutoUpdate(message.clusterSnapshot.dispatcherBuildInfo, 'welcome');
       startHeartbeat();
       return;
@@ -989,7 +1019,11 @@ async function handleDispatcherMessage(message: ClusterMessage): Promise<void> {
       return;
     }
     case 'cluster_state':
-      maybeRequestAutoUpdate(message.snapshot.dispatcherBuildInfo, 'cluster_state');
+      // cluster_state fires ~once per second. Don't trigger auto-update
+      // here — only refresh the latest-known dispatcher build so that
+      // session_start can pick it up. Auto-update runs at meaningful
+      // boundaries: connect (welcome) and session start.
+      lastKnownDispatcherBuild = message.snapshot.dispatcherBuildInfo;
       return;
     case 'evaluations_ingested':
       // Hosts don't act on these; observers do. Ignore.
@@ -1025,6 +1059,17 @@ function startHeartbeat(): void {
 }
 
 function handleStartSession(message: StartSessionMessage): void {
+  // Auto-update gate. If we're behind the dispatcher, this is the right
+  // moment to bail and update — we're idle (just got asked for work),
+  // and the dispatcher will requeue this session once we're back. If
+  // we don't bail now, we'd run a stale-binary mine and fall further
+  // behind. Returns early after triggering update; the launcher
+  // restarts us on the new build.
+  if (HOST_AUTO_UPDATE && lastKnownDispatcherBuild) {
+    const before = autoUpdateRequested;
+    maybeRequestAutoUpdate(lastKnownDispatcherBuild, 'start_session');
+    if (autoUpdateRequested && !before) return;
+  }
   // If a session was already active, drop it. The dispatcher promises one
   // session at a time, but be defensive — overlapping sessions would
   // cross-pollute the worker prime cache.
