@@ -40,14 +40,27 @@ Panel label. Defaults to node-host-$env:COMPUTERNAME.
 param(
     [string]$RepoDir = "$HOME\retirement-calculator",
     [string]$DispatcherUrl = "ws://192.168.68.101:8765",
+    [string]$RepoGitUrl = "",
     [string]$DisplayName = "node-host-$env:COMPUTERNAME"
 )
 
 $ErrorActionPreference = "Stop"
 
+# Derive LAN git URL from DispatcherUrl host. Pass -RepoGitUrl to
+# override (e.g., point back at GitHub if the dispatcher's git-daemon
+# is down).
+if (-not $RepoGitUrl) {
+    if ($DispatcherUrl -match '^wss?://([^:/]+)') {
+        $RepoGitUrl = "git://$($Matches[1])/retirement-calculator"
+    } else {
+        $RepoGitUrl = "https://github.com/bonro001/retirement-calculator.git"
+    }
+}
+
 Write-Host "[start-host] dispatcher: $DispatcherUrl"
 Write-Host "[start-host] display name: $DisplayName"
 Write-Host "[start-host] repo: $RepoDir"
+Write-Host "[start-host] git source: $RepoGitUrl"
 
 # Stop anything currently running so the relaunch lands cleanly.
 Stop-Process -Name node -Force -ErrorAction SilentlyContinue
@@ -55,16 +68,21 @@ Start-Sleep -Seconds 1
 
 # Clone if the repo isn't already there.
 if (-not (Test-Path $RepoDir)) {
-    Write-Host "[start-host] cloning repo into $RepoDir"
-    git clone https://github.com/bonro001/retirement-calculator.git $RepoDir
+    Write-Host "[start-host] cloning repo into $RepoDir from $RepoGitUrl"
+    git clone $RepoGitUrl $RepoDir
 }
 
 Set-Location $RepoDir
 
-# Idempotent Git Credential Manager setup. After the first git pull
-# prompts (browser-based GitHub sign-in), the credential is stored in
-# Windows Credential Manager and never re-prompts.
+# Idempotent Git Credential Manager setup. Only matters if RepoGitUrl
+# is overridden back to https://github.com/...; the LAN git:// protocol
+# is unauthenticated.
 git config --global credential.helper manager
+
+# Point origin at the LAN git source. Cheap to do every run; survives
+# the case where a worker was originally cloned from GitHub and now
+# needs to follow the dispatcher's git-daemon.
+git remote set-url origin $RepoGitUrl
 
 git fetch origin
 
