@@ -1461,7 +1461,7 @@ export function App() {
   const isPlanHomeScreen = currentScreen === 'overview' || currentScreen === 'insights';
 
   return (
-    <div className="min-h-screen bg-[#F7F5F2] text-stone-900 lg:h-screen lg:overflow-hidden">
+    <div className="min-h-screen bg-[#F7F5F2] text-stone-900">
       {/* Single unified layout: left sidebar with Cockpit + Accounts +
           Social Security + Taxes + Export. The room-pill nav and
           AdvisorRoom / SandboxRoom shells are intentionally not
@@ -1469,16 +1469,17 @@ export function App() {
           is unreachable. Cleanup pass to delete unused components is
           a separate task.
 
-          On `lg` we clamp the document to exactly viewport height
-          (`h-screen overflow-hidden`) so the page never scrolls — all
-          vertical scroll happens inside the inner content area
-          (`lg:overflow-y-auto` below). Without this, browsers in
-          "always show scrollbars" mode (macOS default for trackpad
-          users with explicit accessibility setting) render TWO
-          vertical bars side-by-side: the unused document bar AND
-          the inner bar. On smaller viewports we keep `min-h-screen`
-          so natural page scrolling works. */}
-      <div className="mx-auto flex min-h-screen max-w-[1700px] flex-col lg:h-screen lg:flex-row">
+          Layout intentionally uses natural page scroll: the document
+          scrolls when content exceeds viewport, no nested
+          `overflow-y` containers. This means the sidebar scrolls away
+          with the rest of the page (no sticky-on-scroll sidebar),
+          which we accept in exchange for a single, unambiguous
+          scrollbar at the right edge of the window. The earlier
+          app-shell pattern with `lg:max-h-screen lg:overflow-hidden`
+          on `<main>` plus `lg:overflow-y-auto` on the content div
+          rendered TWO scrollbars in macOS "always show" mode and
+          one inner-bar in "auto" mode that read as out-of-place. */}
+      <div className="mx-auto flex min-h-screen max-w-[1700px] flex-col lg:flex-row">
         <aside className="bg-transparent px-4 py-6 lg:min-h-screen lg:w-[210px] lg:shrink-0">
           <div className="mb-8 flex items-center justify-between lg:block">
             <div>
@@ -1541,7 +1542,7 @@ export function App() {
 
         </aside>
 
-        <main className="flex-1 min-w-0 px-4 py-4 sm:px-6 lg:px-8 lg:flex lg:max-h-screen lg:flex-col lg:overflow-hidden">
+        <main className="flex-1 min-w-0 px-4 py-4 sm:px-6 lg:px-8">
           <div className="mb-4 overflow-x-auto lg:hidden">
             <div className="flex min-w-max gap-2 pb-2">
               {navigation.map((item) => (
@@ -1705,7 +1706,7 @@ export function App() {
             </section>
           ) : null}
 
-          <div className="lg:min-h-0 lg:flex-1 lg:overflow-y-auto lg:pr-1">
+          <div>
             {isInitialLoad || simCacheCheckPending ? (
               <div className="flex min-h-[60vh] flex-col items-center justify-center gap-4 text-center">
                 <div className="h-10 w-10 animate-spin rounded-full border-4 border-stone-200 border-t-blue-600" />
