@@ -13,7 +13,7 @@
 
 import { useEffect, useState } from 'react';
 import { recommendCliffRefinement, type CliffRefinementRecommendation } from './cliff-refinement-analyzer';
-import { loadEvaluationsForBaseline } from './policy-mining-corpus';
+import { loadCorpusEvaluations } from './policy-mining-corpus-source';
 import type { SeedData } from './types';
 import type { PolicyAxes } from './policy-miner-types';
 
@@ -21,6 +21,10 @@ interface Props {
   seedData: SeedData;
   baselineFingerprint: string | null;
   engineVersion: string;
+  /** Cluster dispatcher URL when the user is mining via the cluster.
+   *  When set, the card prefers the cluster's HTTP corpus over the
+   *  local IndexedDB (cluster mines don't mirror to local). */
+  dispatcherUrl?: string | null;
   /** Threshold to use for cliff detection. Defaults to 0.85, matching
    *  the canonical legacy attainment gate. The slider's live value
    *  could be passed in to refine relative to whatever the user's
@@ -39,6 +43,7 @@ export function CliffRefinementCard({
   seedData,
   baselineFingerprint,
   engineVersion,
+  dispatcherUrl,
   feasibilityThreshold = 0.85,
   onApplyAxesOverride,
   axesOverride,
@@ -55,7 +60,11 @@ export function CliffRefinementCard({
     setError(null);
     if (!baselineFingerprint) return;
     let cancelled = false;
-    loadEvaluationsForBaseline(baselineFingerprint, engineVersion)
+    loadCorpusEvaluations(
+      baselineFingerprint,
+      engineVersion,
+      dispatcherUrl ?? null,
+    )
       .then((evals) => {
         if (cancelled) return;
         setEvalCount(evals.length);
@@ -71,7 +80,7 @@ export function CliffRefinementCard({
     return () => {
       cancelled = true;
     };
-  }, [seedData, baselineFingerprint, engineVersion, feasibilityThreshold]);
+  }, [seedData, baselineFingerprint, engineVersion, dispatcherUrl, feasibilityThreshold]);
 
   // Don't surface for tiny corpora — analyzer would over-fit MC noise.
   if (evalCount < 50) return null;

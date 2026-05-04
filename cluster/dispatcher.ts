@@ -236,7 +236,11 @@ function maxBatchSizeForPeer(
   if (runtime === 'rust-native-compact-shadow') {
     return Math.max(1, Math.min(100, slots * 8));
   }
-  return Math.max(1, Math.min(25, slots));
+  // JS engine: per-policy compute is large, so keep batches big enough
+  // to amortize websocket round-trip. Idle peer (slots == workers) gets
+  // ~3 rounds of work (25 / 8 ≈ 3); fully-saturated peer was already
+  // skipped above by the freeSlots <= 0 check in pumpDispatch.
+  return Math.max(1, Math.min(25, slots * 4));
 }
 
 function accountPeerUtilization(nowMs: number): void {

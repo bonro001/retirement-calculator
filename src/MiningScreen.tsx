@@ -29,6 +29,7 @@ import type { MarketAssumptions } from './types';
 import type { PolicyAxes } from './policy-miner-types';
 import { AxisPruningCard } from './AxisPruningCard';
 import { CliffRefinementCard } from './CliffRefinementCard';
+import { RuleSweepCard } from './RuleSweepCard';
 
 const POLICY_MINING_TRIAL_COUNT = 2000;
 
@@ -215,6 +216,22 @@ export function MiningScreen() {
         seedData={data}
         baselineFingerprint={policyMiningFingerprint || null}
         engineVersion={POLICY_MINER_ENGINE_VERSION}
+        dispatcherUrl={dispatcherUrl}
+        axesOverride={axesOverride}
+        onApplyAxesOverride={setAxesOverride}
+      />
+
+      {/* Rule-sweep card. Pairs with V2.1's single-rule pass-1: when the
+       *  pass-1 corpus has contenders, this card offers a one-click
+       *  pass-2 that re-mines them under the three non-default
+       *  withdrawal rules (proportional, reverse waterfall,
+       *  Guyton-Klinger). Same axesOverride plumbing as cliff
+       *  refinement; the two pass-2 modes can run in either order. */}
+      <RuleSweepCard
+        seedData={data}
+        baselineFingerprint={policyMiningFingerprint || null}
+        engineVersion={POLICY_MINER_ENGINE_VERSION}
+        dispatcherUrl={dispatcherUrl}
         axesOverride={axesOverride}
         onApplyAxesOverride={setAxesOverride}
       />

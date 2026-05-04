@@ -62,18 +62,31 @@ export function buildDefaultPolicyAxes(seedData: SeedData): PolicyAxes {
     primarySocialSecurityClaimAge: ssAges,
     spouseSocialSecurityClaimAge: hasSpouseSs ? ssAges : null,
     rothConversionAnnualCeiling: [0, 40_000, 80_000, 120_000, 160_000, 200_000],
-    // V2: withdrawal-rule axis. Four named strategies the ranker
-    // sweeps. tax_bracket_waterfall (the historical default) is first
-    // so any backward-compat caller that grabs `axes.withdrawalRule[0]`
-    // gets the safe choice.
-    withdrawalRule: [
-      'tax_bracket_waterfall',
-      'proportional',
-      'reverse_waterfall',
-      'guyton_klinger',
-    ],
+    // V2.1: pass-1 mines a single withdrawal rule (`tax_bracket_waterfall`,
+    // the historical default and a strong baseline for most households).
+    // The other three rules are evaluated in pass-2 by `rule-sweep-analyzer.ts`,
+    // which takes the top survivors of pass-1 and re-mines them across all
+    // four rules — so the household sees a full rule-comparison on the
+    // policies that actually contend for the recommendation, without
+    // paying the 4× cost on candidates that would lose anyway.
+    //
+    // Restore the four-rule sweep with `axesOverride` if needed (e.g.
+    // calibration runs that intentionally compare rules over the full
+    // grid).
+    withdrawalRule: ['tax_bracket_waterfall'],
   };
 }
+
+/**
+ * The full set of withdrawal rules the engine knows how to evaluate.
+ * Used by `rule-sweep-analyzer.ts` to construct the pass-2 sweep axes.
+ */
+export const ALL_WITHDRAWAL_RULES = [
+  'tax_bracket_waterfall',
+  'proportional',
+  'reverse_waterfall',
+  'guyton_klinger',
+] as const;
 
 /**
  * The lowest annual spend the default axes will consider for a given
