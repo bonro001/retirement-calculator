@@ -188,7 +188,7 @@ const CAPACITY_NACK_COOLDOWN_MS = 100;
  * fast — past 2 the extra batches just sit in the host's pendingRuns
  * map, holding seedDataPayload references in memory.
  */
-const IN_FLIGHT_PER_PEER = 2;
+const IN_FLIGHT_PER_PEER = 3;
 
 /**
  * Authoritative free-slot count for a peer. The peer's heartbeat-reported
