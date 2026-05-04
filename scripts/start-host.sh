@@ -62,14 +62,24 @@ git reset --hard origin/main
 # on main — `npm ci` would otherwise refuse and wedge the worker.
 npm ci || npm install
 
-# Rebuild the Rust napi. This is fast incremental on second-and-later
-# runs. First-run cold compile takes 5-10 minutes.
-npm run engine:rust:build:napi
+# Detect Rust toolchain. The Rust napi is ~3-5x faster than the TS
+# engine, so we prefer it. But locked-down workers (no rights to
+# install rustup) fall back to TS so the host can still join the
+# cluster. First-run cold Rust compile is 5-10 minutes; incremental
+# is fast.
+if command -v cargo >/dev/null 2>&1; then
+  echo "[start-host] cargo present — building Rust napi"
+  npm run engine:rust:build:napi
+  RUNTIME="rust-native-compact"
+else
+  echo "[start-host] cargo not found — falling back to TS engine"
+  RUNTIME="ts"
+fi
 
 # Start the host with auto-update enabled. The launcher will check
 # main on every welcome / start_session and self-update if behind.
-echo "[start-host] launching with auto-update enabled"
+echo "[start-host] launching with auto-update enabled (runtime=$RUNTIME)"
 DISPATCHER_URL="$DISPATCHER_URL" \
 HOST_DISPLAY_NAME="$HOST_DISPLAY_NAME" \
 HOST_AUTO_UPDATE=1 \
-exec npm run cluster:host:rust-auto
+exec node --import tsx scripts/start-rust-host.mjs --auto-update --runtime="$RUNTIME"

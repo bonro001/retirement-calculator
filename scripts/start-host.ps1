@@ -86,16 +86,26 @@ if ($LASTEXITCODE -ne 0) {
     npm install
 }
 
-# Rebuild the Rust napi. On first run, the build script downloads
-# node.lib (~700 KB) for delay-loading and caches it in
-# %USERPROFILE%\.flight-engine-rs\node-lib\. Cold compile takes
-# 5-10 minutes; subsequent runs are fast incremental.
-npm run engine:rust:build:napi
+# Detect Rust toolchain. The Rust napi is ~3-5x faster than the TS
+# engine, so we prefer it. But locked-down workers (no rights to
+# install rustup) fall back to TS so the host can still join the
+# cluster. First-run cold Rust compile downloads node.lib (~700 KB)
+# and takes 5-10 minutes; incremental is fast.
+$cargo = Get-Command cargo -ErrorAction SilentlyContinue
+if ($cargo) {
+    Write-Host "[start-host] cargo present — building Rust napi"
+    npm run engine:rust:build:napi
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    $Runtime = "rust-native-compact"
+} else {
+    Write-Host "[start-host] cargo not found — falling back to TS engine"
+    $Runtime = "ts"
+}
 
 # Start the host with auto-update enabled. The launcher will check
 # main on every welcome / start_session and self-update if behind.
-Write-Host "[start-host] launching with auto-update enabled"
+Write-Host "[start-host] launching with auto-update enabled (runtime=$Runtime)"
 $env:DISPATCHER_URL = $DispatcherUrl
 $env:HOST_DISPLAY_NAME = $DisplayName
 $env:HOST_AUTO_UPDATE = "1"
-npm run cluster:host:rust-auto
+node --import tsx scripts/start-rust-host.mjs --auto-update --runtime=$Runtime

@@ -27,6 +27,14 @@ if (process.platform === 'win32') {
 }
 
 const cargo = spawnSync('cargo', cargoArgs, { stdio: 'inherit', env: cargoEnv });
+if (cargo.error?.code === 'ENOENT') {
+  console.error(
+    '[build-rust-napi] cargo not found on PATH. Install rustup ' +
+      '(https://sh.rustup.rs) or run the host script which falls back ' +
+      'to the TS engine when cargo is missing.',
+  );
+  process.exit(1);
+}
 if (cargo.status !== 0) {
   process.exit(cargo.status ?? 1);
 }
