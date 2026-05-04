@@ -153,6 +153,85 @@ function log(
   (level === 'error' ? console.error : console.log)(line);
 }
 
+// ── MINE_PERF instrumentation ──────────────────────────────────────────────
+// Lightweight diagnostic emitter, on when MINE_PERF=1. Aggregates a 10s
+// rolling window of per-policy napi timings (from the shadowStats already
+// flowing back from worker_threads) and per-worker idle gaps, and logs one
+// summary line per window. Removable in one diff.
+const MINE_PERF = process.env.MINE_PERF === '1';
+const PERF_WINDOW_MS = 10_000;
+const perfIdleGapsMs: number[] = [];
+let perfBatches = 0;
+let perfPolicies = 0;
+let perfRustSummaryTotal = 0;
+let perfIpcWriteTotal = 0;
+let perfResponseWaitTotal = 0;
+let perfResponseParseTotal = 0;
+let perfWindowStartMs = Date.now();
+
+function recordWorkerIdleGap(gapMs: number): void {
+  if (!MINE_PERF) return;
+  perfIdleGapsMs.push(gapMs);
+}
+
+function recordBatchPerf(stats: PolicyMinerShadowStats | undefined): void {
+  if (!MINE_PERF) return;
+  if (!stats || !stats.timings || stats.evaluated <= 0) return;
+  perfBatches += 1;
+  perfPolicies += stats.evaluated;
+  perfRustSummaryTotal += Number(stats.timings.rustSummaryDurationMsTotal ?? 0);
+  perfIpcWriteTotal += Number(stats.timings.rustIpcWriteDurationMsTotal ?? 0);
+  perfResponseWaitTotal += Number(stats.timings.rustResponseWaitDurationMsTotal ?? 0);
+  perfResponseParseTotal += Number(stats.timings.rustResponseParseDurationMsTotal ?? 0);
+}
+
+function flushPerfSummary(): void {
+  if (!MINE_PERF) return;
+  const elapsedMs = Date.now() - perfWindowStartMs;
+  if (perfPolicies === 0 && perfIdleGapsMs.length === 0) {
+    perfWindowStartMs = Date.now();
+    return;
+  }
+  const napiOverheadMs = perfIpcWriteTotal + perfResponseParseTotal;
+  const napiOverheadPct = perfRustSummaryTotal > 0
+    ? (napiOverheadMs / perfRustSummaryTotal) * 100
+    : 0;
+  const idleSorted = perfIdleGapsMs.slice().sort((a, b) => a - b);
+  const idleP50 = idleSorted.length > 0
+    ? idleSorted[Math.floor(idleSorted.length * 0.5)]
+    : 0;
+  const idleP95 = idleSorted.length > 0
+    ? idleSorted[Math.min(idleSorted.length - 1, Math.floor(idleSorted.length * 0.95))]
+    : 0;
+  const round2 = (n: number) => Math.round(n * 100) / 100;
+  log('info', 'mine_perf', {
+    windowMs: elapsedMs,
+    batches: perfBatches,
+    policies: perfPolicies,
+    msPerPolicy: perfPolicies > 0 ? round2(perfRustSummaryTotal / perfPolicies) : 0,
+    rustWaitMsAvg: perfPolicies > 0 ? round2(perfResponseWaitTotal / perfPolicies) : 0,
+    napiOverheadMsAvg: perfPolicies > 0 ? round2(napiOverheadMs / perfPolicies) : 0,
+    napiOverheadPct: Math.round(napiOverheadPct * 10) / 10,
+    workerIdleP50Ms: Math.round(idleP50),
+    workerIdleP95Ms: Math.round(idleP95),
+    idleSamples: perfIdleGapsMs.length,
+  });
+  perfIdleGapsMs.length = 0;
+  perfBatches = 0;
+  perfPolicies = 0;
+  perfRustSummaryTotal = 0;
+  perfIpcWriteTotal = 0;
+  perfResponseWaitTotal = 0;
+  perfResponseParseTotal = 0;
+  perfWindowStartMs = Date.now();
+}
+
+if (MINE_PERF) {
+  setInterval(flushPerfSummary, PERF_WINDOW_MS).unref();
+  log('info', 'mine_perf enabled', { windowMs: PERF_WINDOW_MS });
+}
+// ───────────────────────────────────────────────────────────────────────────
+
 // Max batches the host will queue locally when all workers are busy.
 // Should be ≥ dispatcher's IN_FLIGHT_PER_PEER. Beyond this, host nacks for
 // requeue rather than holding payloads in memory.
@@ -173,6 +252,9 @@ interface WorkerSlot {
   index: number;
   busy: boolean;
   primedSessionIds: Set<string>;
+  // MINE_PERF: timestamp the slot last became free; used to measure the gap
+  // from "result back" to "next batch dispatched" — a starvation signal.
+  lastResultMs?: number;
 }
 
 interface PendingRun {
@@ -248,6 +330,7 @@ function handleWorkerMessage(
   }
   pendingRuns.delete(msg.requestId);
   slot.busy = false;
+  slot.lastResultMs = Date.now();
   if (msg.type === 'result') {
     pending.resolve({
       evaluations: msg.evaluations,
@@ -577,6 +660,9 @@ function runSingleSubBatch(
       resolve,
       reject: reject as PendingRun['reject'],
     });
+    if (slot.lastResultMs != null) {
+      recordWorkerIdleGap(Date.now() - slot.lastResultMs);
+    }
     slot.busy = true;
     const run: PolicyMinerWorkerRequest = {
       type: 'run',
@@ -679,6 +765,9 @@ function runFanOutBatch(
           finalize();
         },
       });
+      if (slot.lastResultMs != null) {
+        recordWorkerIdleGap(Date.now() - slot.lastResultMs);
+      }
       slot.busy = true;
       const run: PolicyMinerWorkerRequest = {
         type: 'run',
@@ -1201,6 +1290,7 @@ async function handleBatchAssign(message: BatchAssignMessage): Promise<void> {
     shadowStats,
     partialFailure,
   };
+  recordBatchPerf(shadowStats);
   sendBatchResult(sessionId, result);
 
   // Per-batch heartbeat on the host terminal. The dispatcher and the
