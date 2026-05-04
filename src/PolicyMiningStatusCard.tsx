@@ -151,14 +151,12 @@ function formatMetricMs(ms: number | null | undefined): string {
   return `${(ms / 1000).toFixed(1)}s`;
 }
 
-function formatBuildLabel(view: PeerView): string {
+function formatBuildLabel(view: PeerView): string | null {
+  // Auto-update handles mismatch/dirty silently — workers self-heal on the
+  // next idle window. Don't surface those transient states in the UI.
+  if (view.buildStatus !== 'match') return null;
   const commit = view.buildInfo?.gitCommit;
-  const shortCommit = commit ? commit.slice(0, 7) : null;
-  const dirtyFile = view.buildInfo?.gitDirtyFiles?.[0] ?? null;
-  if (view.buildStatus === 'mismatch') return `update needed${shortCommit ? ` · ${shortCommit}` : ''}`;
-  if (view.buildStatus === 'dirty') return `dirty${dirtyFile ? ` · ${dirtyFile}` : shortCommit ? ` · ${shortCommit}` : ''}`;
-  if (view.buildStatus === 'match') return shortCommit ?? 'current';
-  return 'unknown build';
+  return commit ? commit.slice(0, 7) : 'current';
 }
 
 export function PolicyMiningStatusCard({
@@ -971,16 +969,8 @@ export function PolicyMiningStatusCard({
                     : v.roles.includes('controller')
                       ? 'controller'
                       : '—'}
-                  {v.workerCount !== null && (
-                    <span
-                      className={`ml-1 ${
-                        v.buildStatus === 'mismatch'
-                          ? 'font-semibold text-rose-600'
-                          : v.buildStatus === 'dirty'
-                            ? 'font-semibold text-amber-600'
-                            : 'text-stone-400'
-                      }`}
-                    >
+                  {v.workerCount !== null && formatBuildLabel(v) !== null && (
+                    <span className="ml-1 text-stone-400">
                       · {formatBuildLabel(v)}
                     </span>
                   )}
@@ -1030,9 +1020,6 @@ export function PolicyMiningStatusCard({
     const nonRustHosts = liveHosts.filter(
       (v) => v.capabilities?.engineRuntime !== 'rust-native-compact',
     );
-    const staleBuildHosts = liveHosts.filter(
-      (v) => v.buildStatus === 'mismatch' || v.buildStatus === 'dirty',
-    );
     const idleRatio =
       metrics.hostBusySlotMs + metrics.hostIdleWhilePendingSlotMs > 0
         ? metrics.hostIdleWhilePendingSlotMs /
@@ -1043,8 +1030,6 @@ export function PolicyMiningStatusCard({
     const hint =
       nonRustHosts.length > 0
         ? `${nonRustHosts.length} live host${nonRustHosts.length === 1 ? '' : 's'} not on Rust compact`
-        : staleBuildHosts.length > 0
-          ? `${staleBuildHosts.length} live host${staleBuildHosts.length === 1 ? '' : 's'} need code attention`
         : metrics.policiesDropped > 0
         ? 'dropped policies need investigation'
         : capacityNackRate > 0.1
