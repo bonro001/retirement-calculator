@@ -19,6 +19,9 @@
 # Env overrides:
 #   REPO_DIR           where the repo lives (default ~/retirement-calculator)
 #   DISPATCHER_URL     ws://host:port (default ws://192.168.68.101:8765)
+#   REPO_GIT_URL       git source for clone/fetch (default git://<dispatcher-host>/retirement-calculator,
+#                      so workers pull from the dispatcher's git-daemon over LAN
+#                      instead of GitHub — see scripts/start-dispatcher-git-daemon.sh)
 #   HOST_DISPLAY_NAME  panel label (default node-host-<hostname>)
 
 set -euo pipefail
@@ -27,9 +30,15 @@ REPO_DIR="${REPO_DIR:-$HOME/retirement-calculator}"
 DISPATCHER_URL="${DISPATCHER_URL:-ws://192.168.68.101:8765}"
 HOST_DISPLAY_NAME="${HOST_DISPLAY_NAME:-node-host-$(hostname -s)}"
 
+# Derive LAN git URL from DISPATCHER_URL host. Override via REPO_GIT_URL
+# (e.g. point back at GitHub if the dispatcher's git-daemon is down).
+DISPATCHER_HOST=$(echo "$DISPATCHER_URL" | sed -E 's|^wss?://([^:/]+).*|\1|')
+REPO_GIT_URL="${REPO_GIT_URL:-git://$DISPATCHER_HOST/retirement-calculator}"
+
 echo "[start-host] dispatcher: $DISPATCHER_URL"
 echo "[start-host] display name: $HOST_DISPLAY_NAME"
 echo "[start-host] repo: $REPO_DIR"
+echo "[start-host] git source: $REPO_GIT_URL"
 
 # Stop anything currently running so the relaunch lands cleanly.
 pkill -f "start-rust-host.mjs" 2>/dev/null || true
@@ -38,16 +47,22 @@ sleep 1
 
 # Clone if the repo isn't already there.
 if [ ! -d "$REPO_DIR" ]; then
-  echo "[start-host] cloning repo into $REPO_DIR"
-  git clone https://github.com/bonro001/retirement-calculator.git "$REPO_DIR"
+  echo "[start-host] cloning repo into $REPO_DIR from $REPO_GIT_URL"
+  git clone "$REPO_GIT_URL" "$REPO_DIR"
 fi
 
 cd "$REPO_DIR"
 
-# Idempotent credential helper setup. After the first git pull prompts
-# for username + Personal Access Token, the keychain remembers it.
+# Idempotent credential helper setup. Only matters if REPO_GIT_URL is
+# overridden back to https://github.com/...; the LAN git:// protocol
+# is unauthenticated.
 git config --global credential.helper osxkeychain 2>/dev/null || \
   git config --global credential.helper store
+
+# Point origin at the LAN git source. Cheap to do every run; survives
+# the case where a worker was originally cloned from GitHub and now
+# needs to follow the dispatcher's git-daemon.
+git remote set-url origin "$REPO_GIT_URL"
 
 git fetch origin
 
