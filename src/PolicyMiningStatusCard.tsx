@@ -451,13 +451,25 @@ export function PolicyMiningStatusCard({
     if (elapsedMs <= 0 || stats.policiesEvaluated === 0) return null;
     return (stats.policiesEvaluated / elapsedMs) * 60_000;
   })();
+  const activeThroughputPerMin =
+    rollingThroughputPerMin ?? sessionThroughputPerMin;
+  const estimatedRemainingMs = (() => {
+    if (!stats) return null;
+    const remainingPolicies = Math.max(
+      0,
+      stats.totalPolicies - stats.policiesEvaluated,
+    );
+    if (activeThroughputPerMin !== null && activeThroughputPerMin > 0) {
+      return (remainingPolicies / activeThroughputPerMin) * 60_000;
+    }
+    return stats.estimatedRemainingMs;
+  })();
 
   // Throughput: show a short rolling window so recovery/restarts are
   // reflected quickly. Keep the session average in the detail line.
   const throughputLabel = (() => {
-    const perMin = rollingThroughputPerMin ?? sessionThroughputPerMin;
-    if (perMin === null) return '—';
-    return `${perMin.toFixed(0)}/min`;
+    if (activeThroughputPerMin === null) return '—';
+    return `${activeThroughputPerMin.toFixed(0)}/min`;
   })();
   const throughputDetailLabel = (() => {
     const parts: string[] = [];
@@ -560,23 +572,16 @@ export function PolicyMiningStatusCard({
     </div>
   );
 
-  // Per-policy cost across the cluster. Prefer the live session's mean
-  // (most accurate); fall back to the last completed session's mean if
-  // the dispatcher exposes it; null if we have no data yet.
-  const meanMsPerPolicy =
-    stats && stats.meanMsPerPolicy > 0 ? stats.meanMsPerPolicy : null;
-
   // Estimate wall-clock for a session of `policyCount` policies given
-  // the observed cluster throughput. Returns null when we have nothing
-  // to extrapolate from — UI shows '~?' rather than a fake number.
+  // the observed cluster throughput. `stats.meanMsPerPolicy` is NOT used
+  // here because the dispatcher's value is already a host-batch wall
+  // average; dividing it by worker count double-counts parallelism and
+  // makes the Full-mine control wildly optimistic.
   const estimateSessionMs = (policyCount: number): number | null => {
-    if (meanMsPerPolicy === null) return null;
-    // Sum of in-flight worker counts across all peers (host role only).
-    const totalWorkers = cluster.peers
-      .filter((p) => p.roles.includes('host'))
-      .reduce((s, p) => s + (p.capabilities?.workerCount ?? 0), 0);
-    if (totalWorkers === 0) return null;
-    return (policyCount * meanMsPerPolicy) / totalWorkers;
+    if (activeThroughputPerMin === null || activeThroughputPerMin <= 0) {
+      return null;
+    }
+    return (policyCount / activeThroughputPerMin) * 60_000;
   };
 
   const quickEtaMs = estimateSessionMs(QUICK_MINE_POLICY_COUNT);
@@ -1116,8 +1121,8 @@ export function PolicyMiningStatusCard({
                 {formatWallTime(runningElapsedMs)}
               </p>
               <p className="mt-1 text-[11px] text-stone-500">
-                {stats
-                  ? `~${formatDuration(stats.estimatedRemainingMs)} remaining · browser host: ${poolHint.mode}`
+                {stats && estimatedRemainingMs !== null
+                  ? `~${formatDuration(estimatedRemainingMs)} remaining · browser host: ${poolHint.mode}`
                   : `browser host: ${poolHint.mode}`}
               </p>
             </>
