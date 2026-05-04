@@ -216,6 +216,7 @@ export function MiningScreen() {
         seedData={data}
         baselineFingerprint={policyMiningFingerprint || null}
         engineVersion={POLICY_MINER_ENGINE_VERSION}
+        dispatcherUrl={dispatcherUrl}
         axesOverride={axesOverride}
         onApplyAxesOverride={setAxesOverride}
       />
@@ -230,6 +231,7 @@ export function MiningScreen() {
         seedData={data}
         baselineFingerprint={policyMiningFingerprint || null}
         engineVersion={POLICY_MINER_ENGINE_VERSION}
+        dispatcherUrl={dispatcherUrl}
         axesOverride={axesOverride}
         onApplyAxesOverride={setAxesOverride}
       />

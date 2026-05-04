@@ -17,7 +17,7 @@ import {
   recommendRuleSweep,
   type RuleSweepRecommendation,
 } from './rule-sweep-analyzer';
-import { loadEvaluationsForBaseline } from './policy-mining-corpus';
+import { loadCorpusEvaluations } from './policy-mining-corpus-source';
 import type { SeedData } from './types';
 import type { PolicyAxes } from './policy-miner-types';
 
@@ -25,6 +25,10 @@ interface Props {
   seedData: SeedData;
   baselineFingerprint: string | null;
   engineVersion: string;
+  /** Cluster dispatcher URL when the user is mining via the cluster.
+   *  When set, the card prefers the cluster's HTTP corpus over the
+   *  local IndexedDB (cluster mines don't mirror to local). */
+  dispatcherUrl?: string | null;
   /** Wired to MiningScreen's `axesOverride` state which threads into
    *  `cluster.startSession({ axesOverride })`. */
   onApplyAxesOverride?: (axes: PolicyAxes | null) => void;
@@ -37,6 +41,7 @@ export function RuleSweepCard({
   seedData,
   baselineFingerprint,
   engineVersion,
+  dispatcherUrl,
   onApplyAxesOverride,
   axesOverride,
 }: Props) {
@@ -51,7 +56,11 @@ export function RuleSweepCard({
     setError(null);
     if (!baselineFingerprint) return;
     let cancelled = false;
-    loadEvaluationsForBaseline(baselineFingerprint, engineVersion)
+    loadCorpusEvaluations(
+      baselineFingerprint,
+      engineVersion,
+      dispatcherUrl ?? null,
+    )
       .then((evals) => {
         if (cancelled) return;
         setEvalCount(evals.length);
@@ -65,7 +74,7 @@ export function RuleSweepCard({
     return () => {
       cancelled = true;
     };
-  }, [seedData, baselineFingerprint, engineVersion]);
+  }, [seedData, baselineFingerprint, engineVersion, dispatcherUrl]);
 
   if (evalCount < 50) return null;
   if (error) {
