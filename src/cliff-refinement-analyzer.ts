@@ -185,6 +185,33 @@ export function recommendCliffRefinement(
     };
   }
 
+  // Skip the recommendation when refinement has already happened — i.e.,
+  // the corpus already has spend records *between* the cliff endpoints
+  // at finer-than-$5k resolution. Pass-1 mines $5k-spaced; pass-2 adds
+  // $1k-spaced. Any spend record strictly inside the cliff bracket
+  // whose value isn't a multiple of $5,000 means refinement landed.
+  // Without this check the card keeps surfacing "PASS 2 RECOMMENDED"
+  // after the auto-pipeline has run it.
+  const refinementAlreadyDone = evaluations.some((e) => {
+    const s = e.policy.annualSpendTodayDollars;
+    return (
+      s > cliff.lowerSpend &&
+      s < cliff.upperSpend &&
+      s % 5_000 !== 0
+    );
+  });
+  if (refinementAlreadyDone) {
+    return {
+      hasRecommendation: false,
+      axes: baseAxes,
+      cliffLowerSpend: cliff.lowerSpend,
+      cliffUpperSpend: cliff.upperSpend,
+      feasibilityThreshold,
+      spendTierFeasibility: perTier,
+      rationale: `Cliff already refined — corpus has $1k-resolution spend records inside the $${cliff.lowerSpend.toLocaleString()}–$${cliff.upperSpend.toLocaleString()} band.`,
+    };
+  }
+
   const refinedSpend: number[] = [];
   for (
     let v = cliff.lowerSpend;
