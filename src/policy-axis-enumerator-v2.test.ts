@@ -3,13 +3,16 @@
  * step 13's e2e check, narrowed to what we can verify without a
  * fresh cluster mine).
  *
- * Asserts the V2 axis grid produces the expected candidate count
- * (49,368) and that withdrawalRule + 6-month SS resolution are wired
- * end-to-end (Policy.withdrawalRule populated, fractional ages emitted).
+ * Asserts the V2.1 axis grid produces the expected pass-1 candidate
+ * count (12,342 = 17 × 11 × 11 × 6 × 1, single-rule pass-1) and that
+ * 6-month SS resolution + withdrawal-rule plumbing are wired
+ * end-to-end (Policy.withdrawalRule populated, fractional ages emitted,
+ * ALL_WITHDRAWAL_RULES exported for the pass-2 sweep).
  */
 
 import { describe, it, expect } from 'vitest';
 import {
+  ALL_WITHDRAWAL_RULES,
   buildDefaultPolicyAxes,
   enumeratePolicies,
   countPolicyCandidates,
@@ -18,15 +21,15 @@ import {
 import type { SeedData } from './types';
 import seedFixture from '../seed-data.json';
 
-describe('policy axis V2 (workplan step 13)', () => {
-  it('default coarse axes produce expected V2 candidate count: 17 × 11 × 11 × 6 × 4 = 49,368', () => {
+describe('policy axis V2.1 (single-rule pass-1)', () => {
+  it('default pass-1 axes produce expected candidate count: 17 × 11 × 11 × 6 × 1 = 12,342', () => {
     const axes = buildDefaultPolicyAxes(seedFixture as SeedData);
     expect(axes.annualSpendTodayDollars).toHaveLength(17);
     expect(axes.primarySocialSecurityClaimAge).toHaveLength(11);
     expect(axes.spouseSocialSecurityClaimAge).toHaveLength(11);
     expect(axes.rothConversionAnnualCeiling).toHaveLength(6);
-    expect(axes.withdrawalRule).toHaveLength(4);
-    expect(countPolicyCandidates(axes)).toBe(49_368);
+    expect(axes.withdrawalRule).toHaveLength(1);
+    expect(countPolicyCandidates(axes)).toBe(12_342);
   });
 
   it('spend axis covers $80k-$160k in $5k steps (coarse pass)', () => {
@@ -43,9 +46,13 @@ describe('policy axis V2 (workplan step 13)', () => {
     ]);
   });
 
-  it('emits all four named withdrawal rules', () => {
+  it('pass-1 default rule is tax_bracket_waterfall (the safe historical baseline)', () => {
     const axes = buildDefaultPolicyAxes(seedFixture as SeedData);
-    expect(axes.withdrawalRule).toEqual([
+    expect(axes.withdrawalRule).toEqual(['tax_bracket_waterfall']);
+  });
+
+  it('exports the full rule list for pass-2 sweep', () => {
+    expect(ALL_WITHDRAWAL_RULES).toEqual([
       'tax_bracket_waterfall',
       'proportional',
       'reverse_waterfall',
@@ -53,11 +60,11 @@ describe('policy axis V2 (workplan step 13)', () => {
     ]);
   });
 
-  it('every enumerated policy carries a withdrawalRule', () => {
+  it('every enumerated pass-1 policy carries a withdrawalRule', () => {
     const axes = buildDefaultPolicyAxes(seedFixture as SeedData);
     const policies = enumeratePolicies(axes);
-    expect(policies).toHaveLength(49_368);
-    expect(policies.every((p) => p.withdrawalRule != null)).toBe(true);
+    expect(policies).toHaveLength(12_342);
+    expect(policies.every((p) => p.withdrawalRule === 'tax_bracket_waterfall')).toBe(true);
   });
 
   it('policy id includes withdrawalRule — same (spend, SS, Roth) but different rule produce different ids', () => {
