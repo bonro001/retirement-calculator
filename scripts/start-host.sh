@@ -49,13 +49,20 @@ cd "$REPO_DIR"
 git config --global credential.helper osxkeychain 2>/dev/null || \
   git config --global credential.helper store
 
-# Hard-reset to origin/main so we survive any prior divergence:
-#   - dirty working tree (npm install bumped package-lock.json)
-#   - host stuck on a feature branch
-#   - partial state from an earlier failed run
 git fetch origin
-git checkout main 2>/dev/null || git checkout -b main origin/main
-git reset --hard origin/main
+
+# Follow the dispatcher's branch instead of hardcoding main, so a
+# feature branch (with its own prebuilt napi binary, for example)
+# can be tested without merging first. Falls back to main if the
+# dispatcher is unreachable or doesn't report a valid branch.
+TARGET_BRANCH=$(DISPATCHER_URL="$DISPATCHER_URL" node scripts/dispatcher-branch.mjs 2>/dev/null || echo main)
+echo "[start-host] target branch: $TARGET_BRANCH"
+
+# Force-create-or-reset the local branch to origin's tip. `-f`
+# discards any local modifications; `-B` recreates the branch from
+# origin if it doesn't exist locally. Workers are ephemeral; the
+# dispatcher is authoritative.
+git checkout -f -B "$TARGET_BRANCH" "origin/$TARGET_BRANCH"
 
 # Prefer `npm ci` (strict, never modifies lockfile). Fall back to
 # `npm install` if the lockfile drifted out of sync with package.json

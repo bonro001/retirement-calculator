@@ -66,16 +66,22 @@ Set-Location $RepoDir
 # Windows Credential Manager and never re-prompts.
 git config --global credential.helper manager
 
-# Hard-reset to origin/main so we survive any prior divergence:
-#   - dirty working tree (npm install bumped package-lock.json)
-#   - host stuck on a feature branch
-#   - partial state from an earlier failed run
 git fetch origin
-git checkout main 2>$null
-if ($LASTEXITCODE -ne 0) {
-    git checkout -b main origin/main
-}
-git reset --hard origin/main
+
+# Follow the dispatcher's branch instead of hardcoding main, so a
+# feature branch (with its own prebuilt napi binary, for example)
+# can be tested without merging first. Falls back to main if the
+# dispatcher is unreachable or doesn't report a valid branch.
+$env:DISPATCHER_URL = $DispatcherUrl
+$TargetBranch = (node scripts/dispatcher-branch.mjs 2>$null)
+if (-not $TargetBranch) { $TargetBranch = "main" }
+Write-Host "[start-host] target branch: $TargetBranch"
+
+# Force-create-or-reset the local branch to origin's tip. `-f`
+# discards any local modifications; `-B` recreates the branch from
+# origin if it doesn't exist locally. Workers are ephemeral; the
+# dispatcher is authoritative.
+git checkout -f -B $TargetBranch "origin/$TargetBranch"
 
 # Prefer `npm ci` (strict, never modifies lockfile). Fall back to
 # `npm install` if the lockfile drifted out of sync with package.json
