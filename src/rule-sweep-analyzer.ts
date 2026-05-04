@@ -151,6 +151,33 @@ export function recommendRuleSweep(
     };
   }
 
+  // Skip the recommendation when the corpus already covers the rule
+  // sweep — i.e., the auto-pipeline (or a prior manual pass-2) has
+  // already re-mined contenders under the non-default rules. Without
+  // this check the card keeps surfacing "PASS 2 RECOMMENDED" even
+  // after the work has been done, which confuses the household.
+  //
+  // Heuristic: examine the contender set's withdrawal-rule coverage.
+  // If contenders include records under all four named rules, the
+  // sweep has already happened.
+  const contenderRules = new Set<string>();
+  for (const c of contenders) {
+    if (c.policy.withdrawalRule) contenderRules.add(c.policy.withdrawalRule);
+  }
+  if (
+    ALL_WITHDRAWAL_RULES.every((rule) => contenderRules.has(rule))
+  ) {
+    return {
+      hasRecommendation: false,
+      axes: baseAxes,
+      contenderCount: contenders.length,
+      estimatedPass2Candidates: 0,
+      legacyAttainmentFloor: floor,
+      rationale:
+        'Rule sweep already covered — corpus has contender records under all four withdrawal rules.',
+    };
+  }
+
   // Bounding box across the contenders' (spend, SS, Roth) values. The
   // cartesian box may include combos that weren't in the contender set,
   // but the over-mining is small relative to a full grid sweep — and

@@ -155,4 +155,55 @@ describe('rule-sweep-analyzer', () => {
     expect(result.rationale).toContain('reverse waterfall');
     expect(result.rationale).toContain('guyton klinger');
   });
+
+  it('skips recommendation when corpus already covers all 4 withdrawal rules', () => {
+    // Simulates the auto-pipeline state: pass-1 default rule + pass-2
+    // has already added the other 3 rules on contenders. Card should
+    // bow out instead of recommending redundant work.
+    const evaluations: PolicyEvaluation[] = [];
+    const rules = [
+      'tax_bracket_waterfall',
+      'proportional',
+      'reverse_waterfall',
+      'guyton_klinger',
+    ] as const;
+    for (const rule of rules) {
+      evaluations.push(
+        makeEval(
+          {
+            annualSpendTodayDollars: 130_000,
+            withdrawalRule: rule,
+          },
+          0.90,
+        ),
+      );
+    }
+    const result = recommendRuleSweep(evaluations, seedFixture as SeedData);
+    expect(result.hasRecommendation).toBe(false);
+    expect(result.rationale).toMatch(/already covered/);
+  });
+
+  it('still recommends when corpus has only 3 of 4 rules on contenders', () => {
+    // Edge case: pass-2 didn't fully complete (e.g., cancelled). Card
+    // should still surface so the household can re-trigger the sweep.
+    const evaluations: PolicyEvaluation[] = [];
+    const partial = [
+      'tax_bracket_waterfall',
+      'proportional',
+      'reverse_waterfall',
+    ] as const;
+    for (const rule of partial) {
+      evaluations.push(
+        makeEval(
+          {
+            annualSpendTodayDollars: 130_000,
+            withdrawalRule: rule,
+          },
+          0.90,
+        ),
+      );
+    }
+    const result = recommendRuleSweep(evaluations, seedFixture as SeedData);
+    expect(result.hasRecommendation).toBe(true);
+  });
 });

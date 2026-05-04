@@ -155,4 +155,31 @@ describe('cliff refinement analyzer', () => {
     expect(result.cliffLowerSpend).toBe(115_000);
     expect(result.cliffUpperSpend).toBe(120_000);
   });
+
+  it('skips recommendation when corpus already has $1k records inside the cliff bracket', () => {
+    // Simulates the auto-pipeline post-pass-2 state: pass-1's $5k tiers
+    // PLUS pass-2's $1k records inside the cliff band ($116k, $117k,
+    // $118k — non-multiples of $5k between $115k and $120k). Card
+    // should bow out instead of re-recommending refinement.
+    const evaluations = [
+      ev(110_000, 0.99),
+      ev(115_000, 0.88),
+      ev(116_000, 0.86, '-r'),
+      ev(117_000, 0.85, '-r'),
+      ev(118_000, 0.84, '-r'),
+      ev(119_000, 0.82, '-r'),
+      ev(120_000, 0.81),
+    ];
+    const result = recommendCliffRefinement(
+      evaluations,
+      seedFixture as SeedData,
+      0.85,
+    );
+    expect(result.hasRecommendation).toBe(false);
+    // Either "already pinned" (the bracket collapsed to ≤$1k once the
+    // $1k records were taken into account) or "already refined" (the
+    // explicit no-redundant-refinement gate) is acceptable — both
+    // surface as "no card shown" for the household.
+    expect(result.rationale).toMatch(/already (refined|pinned)/);
+  });
 });
