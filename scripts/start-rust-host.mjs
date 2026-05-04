@@ -105,7 +105,7 @@ function fetchDispatcherBranch() {
   try {
     const res = spawnSync(
       'curl',
-      ['-s', '--max-time', '5', `${httpUrl}/`],
+      ['-s', '--max-time', '5', `${httpUrl}/health`],
       { encoding: 'utf8' },
     );
     if (res.status !== 0) return null;

@@ -26,7 +26,7 @@ const httpUrl = dispatcherUrl
   .replace(/^wss:\/\//, 'https://')
   .replace(/\/$/, '');
 
-const res = spawnSync('curl', ['-s', '--max-time', '5', `${httpUrl}/`], { encoding: 'utf8' });
+const res = spawnSync('curl', ['-s', '--max-time', '5', `${httpUrl}/health`], { encoding: 'utf8' });
 if (res.status !== 0) emit(FALLBACK);
 
 try {
