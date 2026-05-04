@@ -96,6 +96,14 @@ const QUICK_MINE_POLICY_COUNT = 200;
 
 type SessionSize = 'quick' | 'full';
 
+const THROUGHPUT_WINDOW_MS = 10_000;
+
+interface ThroughputSample {
+  sessionId: string;
+  ts: number;
+  policiesEvaluated: number;
+}
+
 function formatDuration(ms: number): string {
   if (!Number.isFinite(ms) || ms <= 0) return '—';
   const totalMinutes = Math.round(ms / 60_000);
@@ -195,6 +203,9 @@ export function PolicyMiningStatusCard({
   const runningStartMsRef = useRef<number | null>(null);
   const [lastRunWallMs, setLastRunWallMs] = useState<number | null>(null);
   const [lastRunMetrics, setLastRunMetrics] = useState<ClusterRuntimeMetrics | null>(null);
+  const [throughputSamples, setThroughputSamples] = useState<
+    ThroughputSample[]
+  >([]);
   useEffect(() => {
     if (cluster.session) {
       if (cluster.session.metrics) setLastRunMetrics(cluster.session.metrics);
@@ -221,6 +232,29 @@ export function PolicyMiningStatusCard({
     runningStartMsRef.current !== null
       ? nowMs - runningStartMsRef.current
       : null;
+  useEffect(() => {
+    const active = cluster.session;
+    const activeStats = active?.stats;
+    if (!active || !activeStats) {
+      setThroughputSamples([]);
+      return;
+    }
+    const now = nowMs;
+    setThroughputSamples((prev) => {
+      const next = prev
+        .filter(
+          (sample) =>
+            sample.sessionId === active.sessionId &&
+            now - sample.ts <= THROUGHPUT_WINDOW_MS,
+        )
+        .concat({
+          sessionId: active.sessionId,
+          ts: now,
+          policiesEvaluated: activeStats.policiesEvaluated,
+        });
+      return next.length > 30 ? next.slice(next.length - 30) : next;
+    });
+  }, [cluster.session?.sessionId, cluster.session?.stats.policiesEvaluated, nowMs]);
   // Phase 2.C two-stage screening — UI toggle removed 2026-04-27.
   // End-to-end cluster testing showed two-stage doesn't deliver a
   // wall-time win on the cluster path at tested workloads (correctness
@@ -401,20 +435,40 @@ export function PolicyMiningStatusCard({
     ? computeMinimumSpendFloor(controls.baseline)
     : 0;
 
-  // Throughput: prefer cluster snapshot value (it includes ALL hosts);
-  // fallback to "?" until the first batch lands.
+  const rollingThroughputPerMin = (() => {
+    if (throughputSamples.length < 2) return null;
+    const first = throughputSamples[0];
+    const last = throughputSamples[throughputSamples.length - 1];
+    const elapsedMs = last.ts - first.ts;
+    const delta = last.policiesEvaluated - first.policiesEvaluated;
+    if (elapsedMs <= 0 || delta < 0) return null;
+    return (delta / elapsedMs) * 60_000;
+  })();
+  const sessionThroughputPerMin = (() => {
+    if (!stats || !sessionRunning) return null;
+    if (!stats.sessionStartedAtIso) return null;
+    const elapsedMs = nowMs - new Date(stats.sessionStartedAtIso).getTime();
+    if (elapsedMs <= 0 || stats.policiesEvaluated === 0) return null;
+    return (stats.policiesEvaluated / elapsedMs) * 60_000;
+  })();
+
+  // Throughput: show a short rolling window so recovery/restarts are
+  // reflected quickly. Keep the session average in the detail line.
   const throughputLabel = (() => {
-    if (!stats || !sessionRunning) return '—';
-    if (!stats.sessionStartedAtIso) return '—';
-    const elapsedMs = Date.now() - new Date(stats.sessionStartedAtIso).getTime();
-    if (elapsedMs <= 0 || stats.policiesEvaluated === 0) return '—';
-    const perMin = (stats.policiesEvaluated / elapsedMs) * 60_000;
+    const perMin = rollingThroughputPerMin ?? sessionThroughputPerMin;
+    if (perMin === null) return '—';
     return `${perMin.toFixed(0)}/min`;
   })();
   const throughputDetailLabel = (() => {
-    if (stats && stats.meanMsPerPolicy > 0) {
-      return `cluster mean ${(stats.meanMsPerPolicy / 1000).toFixed(1)}s/policy`;
+    const parts: string[] = [];
+    if (rollingThroughputPerMin !== null) parts.push('last 10s');
+    if (sessionThroughputPerMin !== null) {
+      parts.push(`session avg ${formatThroughput(sessionThroughputPerMin)}`);
     }
+    if (stats && stats.meanMsPerPolicy > 0) {
+      parts.push(`cluster mean ${formatMetricMs(stats.meanMsPerPolicy)}/policy`);
+    }
+    if (parts.length > 0) return parts.join(' · ');
     if (sessionRunning && session?.metrics) {
       const inFlightPolicies = Math.max(
         0,
