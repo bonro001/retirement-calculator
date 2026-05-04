@@ -12,10 +12,14 @@ import {
 } from './policy-axis-enumerator';
 import type {
   PolicyEvaluation,
+  PolicyAxes,
 } from './policy-miner-types';
 import type { MarketAssumptions, SeedData } from './types';
 import { useClusterSession } from './useClusterSession';
 import { browserPoolHint, setBrowserHostMode } from './cluster-client';
+import { MiningPhaseSegments, type PipelinePhase } from './MiningPhaseSegments';
+import { recommendCombinedPass2 } from './combined-pass2-analyzer';
+import { loadCorpusEvaluations } from './policy-mining-corpus-source';
 import {
   buildPeerViewList,
   formatAgo,
@@ -220,6 +224,144 @@ export function PolicyMiningStatusCard({
     runningStartMsRef.current !== null
       ? nowMs - runningStartMsRef.current
       : null;
+
+  // -------------------------------------------------------------------------
+  // Auto-pipeline: pass-1 (default rule, full grid) → combined pass-2 (cliff
+  // refine + rule sweep on contenders) → done. Replaces the household's
+  // need to manually click cliff and rule-sweep cards. Activated only on
+  // Start Full Mine with no axesOverride; Quick mines and manual overrides
+  // skip the pipeline (single-pass, segmented control hidden).
+  // -------------------------------------------------------------------------
+  const [pipelinePhase, setPipelinePhase] = useState<PipelinePhase>('idle');
+  const [pipelinePass1Total, setPipelinePass1Total] = useState<number | null>(
+    null,
+  );
+  const [pipelinePass2Total, setPipelinePass2Total] = useState<number | null>(
+    null,
+  );
+  const [pipelineBestPolicyId, setPipelineBestPolicyId] = useState<string | null>(
+    null,
+  );
+  // True for the duration of a pipeline run — set when Start fires the
+  // pass-1 session, cleared on completion, error, or cancel. Used to
+  // gate the auto-fire in the session-ended watcher so cancelled or
+  // manual sessions don't accidentally trigger pass-2.
+  const pipelineActiveRef = useRef<boolean>(false);
+  // Pass-2 is fired from inside the session-end useEffect; we capture
+  // its sessionId to distinguish "pass-1 just ended" from "pass-2 just
+  // ended" inside the same effect.
+  const pipelinePass2SessionIdRef = useRef<string | null>(null);
+  // Watch session transitions: pass-1 end → fire pass-2; pass-2 end →
+  // mark done. Reads the corpus from the cluster's HTTP API (or local
+  // IDB fallback) to compute combined pass-2 axes — same source the
+  // pass-2 analyzer cards use.
+  useEffect(() => {
+    if (cluster.session) return; // only act on session-cleared transitions
+    if (!pipelineActiveRef.current) return;
+    if (!baselineFingerprint || !controls) return;
+
+    // Pass-2 just ended: pipeline is done.
+    if (pipelinePass2SessionIdRef.current !== null) {
+      pipelineActiveRef.current = false;
+      pipelinePass2SessionIdRef.current = null;
+      setPipelinePhase('done');
+      return;
+    }
+
+    // Pass-1 just ended: load corpus, compute combined pass-2 axes,
+    // fire pass-2. If no contenders, jump to 'done' without a pass-2.
+    let cancelled = false;
+    const dispatcherUrl = cluster.snapshot.dispatcherUrl ?? null;
+    void loadCorpusEvaluations(
+      baselineFingerprint,
+      engineVersion,
+      dispatcherUrl,
+    )
+      .then((evals) => {
+        if (cancelled) return;
+        const recommendation = recommendCombinedPass2(evals, controls.baseline);
+        if (!recommendation.hasRecommendation) {
+          pipelineActiveRef.current = false;
+          setPipelinePhase('done');
+          return;
+        }
+        setPipelinePass2Total(recommendation.estimatedPass2Candidates);
+        setPipelinePhase('refining');
+        try {
+          cluster.startSession({
+            baseline: controls.baseline,
+            assumptions: controls.assumptions,
+            baselineFingerprint,
+            legacyTargetTodayDollars: controls.legacyTargetTodayDollars,
+            feasibilityThreshold: controls.feasibilityThreshold ?? 0.7,
+            maxPoliciesPerSession: recommendation.estimatedPass2Candidates,
+            trialCount: controls.trialCount,
+            axesOverride: recommendation.axes,
+          });
+          // Capture the pass-2 sessionId on the next snapshot tick.
+          // Marker to distinguish "pass-2 ended" later. We'll set it
+          // when the session appears.
+          pipelinePass2SessionIdRef.current = 'pending';
+        } catch (e) {
+          pipelineActiveRef.current = false;
+          setPipelinePhase('done');
+          setStartError(e instanceof Error ? e.message : String(e));
+        }
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        pipelineActiveRef.current = false;
+        setPipelinePhase('done');
+        setStartError(err instanceof Error ? err.message : 'pipeline corpus load failed');
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    cluster.session,
+    cluster,
+    baselineFingerprint,
+    engineVersion,
+    controls,
+  ]);
+  // When pass-2 is dispatched from inside the prior effect, capture its
+  // sessionId once the snapshot reflects it. The 'pending' sentinel from
+  // the dispatch path becomes the real id here.
+  useEffect(() => {
+    if (
+      pipelinePass2SessionIdRef.current === 'pending' &&
+      cluster.session?.sessionId
+    ) {
+      pipelinePass2SessionIdRef.current = cluster.session.sessionId;
+    }
+  }, [cluster.session]);
+  // Best-policy display in the 'done' segment — surface whatever the
+  // corpus's top record is at the time the pipeline ends.
+  useEffect(() => {
+    if (pipelinePhase !== 'done') return;
+    if (!baselineFingerprint) return;
+    let cancelled = false;
+    const dispatcherUrl = cluster.snapshot.dispatcherUrl ?? null;
+    void loadCorpusEvaluations(
+      baselineFingerprint,
+      engineVersion,
+      dispatcherUrl,
+    ).then((evals) => {
+      if (cancelled) return;
+      let best: PolicyEvaluation | null = null;
+      let bestAttainment = -1;
+      for (const e of evals) {
+        if (e.outcome.bequestAttainmentRate > bestAttainment) {
+          bestAttainment = e.outcome.bequestAttainmentRate;
+          best = e;
+        }
+      }
+      setPipelineBestPolicyId(best?.id ?? null);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [pipelinePhase, baselineFingerprint, engineVersion, cluster.snapshot.dispatcherUrl]);
   // Phase 2.C two-stage screening — UI toggle removed 2026-04-27.
   // End-to-end cluster testing showed two-stage doesn't deliver a
   // wall-time win on the cluster path at tested workloads (correctness
@@ -327,6 +469,23 @@ export function PolicyMiningStatusCard({
       sessionSize === 'quick'
         ? QUICK_MINE_POLICY_COUNT
         : controls.maxPoliciesPerSession;
+    // Auto-pipeline activation: a Full mine with no manual axesOverride
+    // gets the pass-1 → combined pass-2 pipeline. Quick mines and
+    // manual override paths skip the pipeline (single-pass behavior).
+    const enablePipeline =
+      sessionSize === 'full' && !axesOverride;
+    if (enablePipeline) {
+      pipelineActiveRef.current = true;
+      pipelinePass2SessionIdRef.current = null;
+      setPipelinePhase('exploring');
+      setPipelinePass1Total(totalCandidates);
+      setPipelinePass2Total(null);
+      setPipelineBestPolicyId(null);
+    } else {
+      pipelineActiveRef.current = false;
+      pipelinePass2SessionIdRef.current = null;
+      setPipelinePhase('idle');
+    }
     try {
       cluster.startSession({
         baseline: controls.baseline,
@@ -348,10 +507,20 @@ export function PolicyMiningStatusCard({
         // paths can populate `coarseStage` here to opt in.
       });
     } catch (e) {
+      pipelineActiveRef.current = false;
+      setPipelinePhase('idle');
       setStartError(e instanceof Error ? e.message : String(e));
     }
   };
-  const cancelMining = () => cluster.cancelSession('user clicked cancel');
+  const cancelMining = () => {
+    // Cancel aborts the pipeline so the session-ended watcher doesn't
+    // auto-fire pass-2. Pass-1 records that already landed stay in the
+    // corpus.
+    pipelineActiveRef.current = false;
+    pipelinePass2SessionIdRef.current = null;
+    setPipelinePhase('idle');
+    cluster.cancelSession('user clicked cancel');
+  };
 
   if (!baselineFingerprint) return null;
 
@@ -509,9 +678,20 @@ export function PolicyMiningStatusCard({
   const fullEtaMs =
     totalCandidates !== null ? estimateSessionMs(totalCandidates) : null;
 
+  // Live evaluated count for the active pass — feeds the segmented
+  // progress control's per-segment subtitle.
+  const liveEvaluatedCount = stats?.policiesEvaluated ?? null;
   const renderControls = () =>
     !controls ? null : (
       <div className="mt-3 space-y-2">
+        <MiningPhaseSegments
+          phase={pipelinePhase}
+          pass1Total={pipelinePass1Total}
+          pass1Evaluated={pipelinePhase === 'exploring' ? liveEvaluatedCount : null}
+          pass2Total={pipelinePass2Total}
+          pass2Evaluated={pipelinePhase === 'refining' ? liveEvaluatedCount : null}
+          bestPolicyId={pipelineBestPolicyId}
+        />
         <div className="flex flex-wrap items-center gap-2">
           {/* Session size picker — the iteration-vs-exploration choice.
               Disabled while a session runs so the picker can't drift
