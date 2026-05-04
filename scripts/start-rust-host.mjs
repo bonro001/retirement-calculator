@@ -202,20 +202,11 @@ function updateIfBehind() {
     );
     runStep('npm', ['install']);
   }
-  // Skip the Rust napi build on workers without a toolchain (locked-down
-  // boxes that can't install rustup). They run with the TS engine; the
-  // host script falls back accordingly.
-  if (hasCargo()) {
-    runStep('npm', ['run', 'engine:rust:build:napi']);
-  } else {
-    console.log('[start-rust-host] cargo not found — skipping Rust napi rebuild');
-  }
+  // The build script handles the cargo-vs-prebuilt fallback internally:
+  // workers with cargo compile from source and publish to prebuilt/;
+  // workers without cargo copy the committed prebuilt binary into target/.
+  runStep('npm', ['run', 'engine:rust:build:napi']);
   return true;
-}
-
-function hasCargo() {
-  const res = spawnSync('cargo', ['--version'], { stdio: 'ignore' });
-  return res.status === 0;
 }
 
 function normalize(value) {

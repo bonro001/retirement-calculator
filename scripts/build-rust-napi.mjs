@@ -12,33 +12,6 @@ if (profile === 'release') {
   cargoArgs.splice(1, 0, '--release');
 }
 
-// Per-platform pre-step. Windows is the only platform that needs one:
-// flight-engine-rs/build.rs links against `node.lib`, which is an
-// import library for the running Node binary's exported symbols.
-// Node ships it under https://nodejs.org/dist/v<VERSION>/<arch>/node.lib
-// — we download it once per (version, arch), cache in the user's home
-// dir, and tell cargo where to find it via RUSTFLAGS.
-const cargoEnv = { ...process.env };
-if (process.platform === 'win32') {
-  const nodeLibDir = await ensureNodeLib();
-  const existingFlags = cargoEnv.RUSTFLAGS ? `${cargoEnv.RUSTFLAGS} ` : '';
-  cargoEnv.RUSTFLAGS = `${existingFlags}-L native=${nodeLibDir}`;
-  console.log(`[build-rust-napi] using node.lib from ${nodeLibDir}`);
-}
-
-const cargo = spawnSync('cargo', cargoArgs, { stdio: 'inherit', env: cargoEnv });
-if (cargo.error?.code === 'ENOENT') {
-  console.error(
-    '[build-rust-napi] cargo not found on PATH. Install rustup ' +
-      '(https://sh.rustup.rs) or run the host script which falls back ' +
-      'to the TS engine when cargo is missing.',
-  );
-  process.exit(1);
-}
-if (cargo.status !== 0) {
-  process.exit(cargo.status ?? 1);
-}
-
 const extByPlatform = {
   darwin: 'dylib',
   linux: 'so',
@@ -46,22 +19,80 @@ const extByPlatform = {
 };
 const libPrefix = process.platform === 'win32' ? '' : 'lib';
 const libExt = extByPlatform[process.platform];
-
 if (!libExt) {
   throw new Error(`Unsupported native addon platform: ${process.platform}`);
 }
 
 const targetDir = join(crateDir, 'target', profile);
-const source = join(targetDir, `${libPrefix}flight_engine.${libExt}`);
 const output = join(targetDir, 'flight_engine_napi.node');
+const platArchDir = `${process.platform}-${process.arch}`;
+const prebuiltDir = join(crateDir, 'prebuilt', platArchDir);
+const prebuiltPath = join(prebuiltDir, 'flight_engine_napi.node');
 
-if (!existsSync(source)) {
-  throw new Error(`Rust native library was not produced: ${source}`);
+const cargoCheck = spawnSync('cargo', ['--version'], { stdio: 'ignore' });
+const hasCargo = cargoCheck.status === 0;
+
+if (hasCargo) {
+  await buildFromSource();
+  publishPrebuilt();
+} else if (existsSync(prebuiltPath)) {
+  usePrebuilt();
+} else {
+  console.error(
+    `[build-rust-napi] cargo not found on PATH and no prebuilt binary at ${prebuiltPath}. ` +
+      `Either install rustup (https://sh.rustup.rs) or commit a prebuilt binary for ${platArchDir} ` +
+      `from a worker that has cargo (it auto-publishes to ${prebuiltDir} on every build).`,
+  );
+  process.exit(1);
 }
 
-mkdirSync(dirname(output), { recursive: true });
-copyFileSync(source, output);
-console.log(`Built ${basename(output)} from ${source}`);
+async function buildFromSource() {
+  // Per-platform pre-step. Windows is the only platform that needs one:
+  // flight-engine-rs/build.rs links against `node.lib`, which is an
+  // import library for the running Node binary's exported symbols.
+  // Node ships it under https://nodejs.org/dist/v<VERSION>/<arch>/node.lib
+  // — we download it once per (version, arch), cache in the user's home
+  // dir, and tell cargo where to find it via RUSTFLAGS.
+  const cargoEnv = { ...process.env };
+  if (process.platform === 'win32') {
+    const nodeLibDir = await ensureNodeLib();
+    const existingFlags = cargoEnv.RUSTFLAGS ? `${cargoEnv.RUSTFLAGS} ` : '';
+    cargoEnv.RUSTFLAGS = `${existingFlags}-L native=${nodeLibDir}`;
+    console.log(`[build-rust-napi] using node.lib from ${nodeLibDir}`);
+  }
+
+  const cargo = spawnSync('cargo', cargoArgs, { stdio: 'inherit', env: cargoEnv });
+  if (cargo.status !== 0) process.exit(cargo.status ?? 1);
+
+  const source = join(targetDir, `${libPrefix}flight_engine.${libExt}`);
+  if (!existsSync(source)) {
+    throw new Error(`Rust native library was not produced: ${source}`);
+  }
+  mkdirSync(dirname(output), { recursive: true });
+  copyFileSync(source, output);
+  console.log(`Built ${basename(output)} from ${source}`);
+}
+
+function publishPrebuilt() {
+  // After every successful local build, refresh the committed prebuilt
+  // binary for this (platform, arch) so cargo-less workers (locked-down
+  // boxes) pick it up on their next git pull. Operator must `git add` +
+  // commit the result; release-build outputs aren't byte-deterministic
+  // so a no-op commit may appear when two cargo-equipped workers both
+  // rebuild — that's fine, just discard the diff if you didn't intend
+  // to publish.
+  mkdirSync(prebuiltDir, { recursive: true });
+  copyFileSync(output, prebuiltPath);
+  console.log(`[build-rust-napi] published prebuilt → ${prebuiltPath}`);
+}
+
+function usePrebuilt() {
+  // Cargo-less worker (e.g. locked-down Mac): copy the committed
+  // prebuilt binary into the path the loader expects.
+  mkdirSync(dirname(output), { recursive: true });
+  copyFileSync(prebuiltPath, output);
+  console.log(`[build-rust-napi] using prebuilt ${prebuiltPath} → ${output}`);
+}
 
 // ---------------------------------------------------------------------------
 // Windows-only helpers
