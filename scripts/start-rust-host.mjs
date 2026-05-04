@@ -117,7 +117,12 @@ function updateIfBehind() {
     return false;
   }
   runStep('git', ['pull', '--ff-only']);
-  runStep('npm', ['install']);
+  // Use `npm ci` not `npm install` so the lockfile stays byte-clean.
+  // Otherwise `npm install` re-resolves and tends to bump
+  // package-lock.json by a few entries — the cluster panel then
+  // surfaces "modified · package-lock.json" on every host that ran
+  // auto-update, even though no real change happened.
+  runStep('npm', ['ci']);
   runStep('npm', ['run', 'engine:rust:build:napi']);
   return true;
 }
