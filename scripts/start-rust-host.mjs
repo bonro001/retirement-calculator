@@ -82,34 +82,49 @@ function buildInfo() {
   };
 }
 
+/**
+ * Try to fast-forward the local branch to its upstream and rebuild.
+ * Returns true when the working tree actually advanced; false when
+ * there was nothing to update OR the branch can't be fast-forwarded
+ * (different branch from what the dispatcher expects, dirty tree,
+ * no upstream, etc.). The caller uses the false return to bail out
+ * of the auto-update loop instead of restarting the host on the
+ * same code and triggering another update request immediately.
+ */
 function updateIfBehind() {
   const before = buildInfo();
   if (!before.gitUpstream) {
     console.log('[start-rust-host] auto-update skipped: no upstream branch');
-    return;
+    return false;
   }
   if (before.gitDirty) {
     console.log(
       `[start-rust-host] auto-update skipped: local tracked files are dirty ` +
         `(${(before.gitDirtyFiles ?? []).join(', ') || 'unknown files'})`,
     );
-    return;
+    return false;
   }
   runStep('git', ['fetch', '--prune']);
   const local = git(['rev-parse', 'HEAD']);
   const upstream = git(['rev-parse', '@{u}']);
   if (!local || !upstream || local === upstream) {
     console.log('[start-rust-host] auto-update: already current');
-    return;
+    return false;
   }
   const base = git(['merge-base', 'HEAD', '@{u}']);
   if (base !== local) {
     console.log('[start-rust-host] auto-update skipped: branch is not fast-forwardable');
-    return;
+    return false;
   }
   runStep('git', ['pull', '--ff-only']);
-  runStep('npm', ['install']);
+  // Use `npm ci` not `npm install` so the lockfile stays byte-clean.
+  // Otherwise `npm install` re-resolves and tends to bump
+  // package-lock.json by a few entries — the cluster panel then
+  // surfaces "modified · package-lock.json" on every host that ran
+  // auto-update, even though no real change happened.
+  runStep('npm', ['ci']);
   runStep('npm', ['run', 'engine:rust:build:napi']);
+  return true;
 }
 
 function normalize(value) {
@@ -188,6 +203,14 @@ if (dryRun) {
 
 let child = null;
 let shuttingDown = false;
+// Set when an auto-update attempt couldn't actually move the branch
+// forward (already current, not fast-forwardable, dirty tree). Without
+// this, the launcher would catch each AUTO_UPDATE_EXIT_CODE, no-op the
+// pull, restart the host, the host would re-detect the same mismatch
+// against the dispatcher, exit again, and we'd loop forever — observed
+// 200+ rapid reconnects when a Windows host on a feature branch tried
+// to auto-update against a `main`-expecting dispatcher.
+let autoUpdateExhausted = false;
 
 function refreshBuildEnv() {
   process.env.HOST_BUILD_INFO_JSON = JSON.stringify(buildInfo());
@@ -195,6 +218,14 @@ function refreshBuildEnv() {
 
 function startChild() {
   refreshBuildEnv();
+  // Tell the host process to skip its own auto-update path once we
+  // know the launcher can't fast-forward it. The host will keep
+  // running (logging a one-time "needs update" warning to the panel)
+  // and the operator can manually checkout the right branch when
+  // they're ready.
+  if (autoUpdateExhausted) {
+    process.env.HOST_AUTO_UPDATE = '0';
+  }
   child = spawn(process.execPath, ['--import', 'tsx', HOST_ENTRY], {
     cwd: REPO_ROOT,
     stdio: 'inherit',
@@ -204,11 +235,20 @@ function startChild() {
     if (shuttingDown) {
       process.exit(code ?? (signal ? 1 : 0));
     }
-    if (autoUpdate && code === AUTO_UPDATE_EXIT_CODE) {
+    if (autoUpdate && !autoUpdateExhausted && code === AUTO_UPDATE_EXIT_CODE) {
+      let advanced = false;
       try {
-        updateIfBehind();
+        advanced = updateIfBehind();
       } catch (err) {
         console.error('[start-rust-host] auto-update failed', err);
+      }
+      if (!advanced) {
+        autoUpdateExhausted = true;
+        console.warn(
+          "[start-rust-host] auto-update can't catch up with the dispatcher — " +
+            'local branch is not fast-forwardable to upstream. Continuing ' +
+            'without auto-update; restart manually after switching branches.',
+        );
       }
       startChild();
       return;
@@ -227,6 +267,11 @@ for (const signal of ['SIGINT', 'SIGTERM']) {
 
 if (autoUpdate) {
   try {
+    // Initial check before the first child spawn. Don't mark exhausted
+    // here — the host might still be at-or-ahead of the dispatcher,
+    // in which case mismatch is benign and never triggers an
+    // auto-update request. The exhausted flag flips lazily, only
+    // after the host actually requests an update we can't fulfill.
     updateIfBehind();
   } catch (err) {
     console.error('[start-rust-host] initial auto-update failed', err);
