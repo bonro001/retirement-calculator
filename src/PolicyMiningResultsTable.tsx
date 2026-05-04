@@ -758,8 +758,8 @@ export function PolicyMiningResultsTable({
             defaultFeasibilityThreshold={feasibilityThreshold}
             onAdoptPolicy={(policy) => setAdoptingPolicy(policy)}
           />
-        <div className="mt-4 overflow-x-auto">
-          <table className="w-full min-w-[800px] text-left text-[12px] tabular-nums">
+        <div className="mt-4 -mx-4 overflow-x-auto px-4">
+          <table className="w-full text-left text-[12px] tabular-nums">
             <thead>
               <tr className="border-b border-stone-200 text-[11px] font-medium uppercase tracking-wider text-stone-500">
                 <th
