@@ -83,13 +83,59 @@ function buildInfo() {
 }
 
 /**
- * Try to fast-forward the local branch to its upstream and rebuild.
- * Returns true when the working tree actually advanced; false when
- * there was nothing to update OR the branch can't be fast-forwarded
- * (different branch from what the dispatcher expects, dirty tree,
- * no upstream, etc.). The caller uses the false return to bail out
- * of the auto-update loop instead of restarting the host on the
- * same code and triggering another update request immediately.
+ * Query the dispatcher's HTTP status endpoint for its current build
+ * info, including which branch it's running. Lets the launcher follow
+ * the dispatcher across branches (e.g., dispatcher running on a
+ * feature branch for testing — workers auto-checkout that branch
+ * instead of getting stuck "needs update" forever). Returns null if
+ * the dispatcher is unreachable, doesn't expose buildInfo, or the
+ * URL isn't configured — the caller falls back to plain fast-forward
+ * on the current branch.
+ *
+ * Uses curl (universally available on macOS, Linux, and Windows 10+)
+ * so we don't need an async fetch in this otherwise-sync flow.
+ */
+function fetchDispatcherBranch() {
+  const dispatcherUrl = process.env.DISPATCHER_URL;
+  if (!dispatcherUrl) return null;
+  const httpUrl = dispatcherUrl
+    .replace(/^ws:\/\//, 'http://')
+    .replace(/^wss:\/\//, 'https://')
+    .replace(/\/$/, '');
+  try {
+    const res = spawnSync(
+      'curl',
+      ['-s', '--max-time', '5', `${httpUrl}/`],
+      { encoding: 'utf8' },
+    );
+    if (res.status !== 0) return null;
+    const body = JSON.parse(res.stdout);
+    const branch = body?.buildInfo?.gitBranch;
+    return typeof branch === 'string' && branch.length > 0 ? branch : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Try to bring the local checkout in sync with the dispatcher and
+ * rebuild. Returns true when the working tree actually advanced.
+ *
+ * Two paths:
+ *
+ *   1. Same branch as dispatcher (or dispatcher unreachable / not
+ *      reporting branch): plain `git pull --ff-only`. False return
+ *      when already current or not fast-forwardable.
+ *
+ *   2. Different branch from dispatcher: `git checkout -B <branch>
+ *      origin/<branch>` to follow the dispatcher across branches.
+ *      Useful when the dispatcher is on a feature branch for testing
+ *      — without this, hosts get stuck "needs update" forever because
+ *      `git pull` works within the current branch only.
+ *
+ * Branch names are validated against a strict regex before being
+ * passed to git, so a malicious dispatcher (compromised or spoofed)
+ * can't inject shell args.
  */
 function updateIfBehind() {
   const before = buildInfo();
@@ -104,19 +150,52 @@ function updateIfBehind() {
     );
     return false;
   }
+
   runStep('git', ['fetch', '--prune']);
-  const local = git(['rev-parse', 'HEAD']);
-  const upstream = git(['rev-parse', '@{u}']);
-  if (!local || !upstream || local === upstream) {
-    console.log('[start-rust-host] auto-update: already current');
-    return false;
+
+  // Determine target branch: prefer dispatcher's, fall back to current.
+  const dispatcherBranch = fetchDispatcherBranch();
+  const currentBranch = git(['rev-parse', '--abbrev-ref', 'HEAD']);
+
+  if (dispatcherBranch && dispatcherBranch !== currentBranch) {
+    // Cross-branch update path. Validate the branch name strictly so
+    // we don't pass adversarial input to shell-invoked git commands.
+    if (!/^[A-Za-z0-9._/-]+$/.test(dispatcherBranch)) {
+      console.log(
+        `[start-rust-host] auto-update skipped: dispatcher reports invalid branch '${dispatcherBranch}'`,
+      );
+      return false;
+    }
+    // origin/<branch> must exist; otherwise we can't checkout.
+    const originRef = git(['rev-parse', '--verify', `origin/${dispatcherBranch}`]);
+    if (!originRef) {
+      console.log(
+        `[start-rust-host] auto-update skipped: origin/${dispatcherBranch} doesn't exist`,
+      );
+      return false;
+    }
+    console.log(
+      `[start-rust-host] switching ${currentBranch} → ${dispatcherBranch} to follow dispatcher`,
+    );
+    // `-B` creates or resets the local branch to origin's tip. Safe on
+    // a worker box (working tree mirrors upstream by design).
+    runStep('git', ['checkout', '-B', dispatcherBranch, `origin/${dispatcherBranch}`]);
+  } else {
+    // Same branch — fast-forward path.
+    const local = git(['rev-parse', 'HEAD']);
+    const upstream = git(['rev-parse', '@{u}']);
+    if (!local || !upstream || local === upstream) {
+      console.log('[start-rust-host] auto-update: already current');
+      return false;
+    }
+    const base = git(['merge-base', 'HEAD', '@{u}']);
+    if (base !== local) {
+      console.log('[start-rust-host] auto-update skipped: branch is not fast-forwardable');
+      return false;
+    }
+    runStep('git', ['pull', '--ff-only']);
   }
-  const base = git(['merge-base', 'HEAD', '@{u}']);
-  if (base !== local) {
-    console.log('[start-rust-host] auto-update skipped: branch is not fast-forwardable');
-    return false;
-  }
-  runStep('git', ['pull', '--ff-only']);
+
   // Use `npm ci` not `npm install` so the lockfile stays byte-clean.
   // Otherwise `npm install` re-resolves and tends to bump
   // package-lock.json by a few entries — the cluster panel then
