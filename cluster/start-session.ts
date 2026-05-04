@@ -315,11 +315,25 @@ async function main(): Promise<void> {
         startHeartbeat(message.peerId);
         // Now send the session start. The dispatcher generates and assigns
         // the sessionId; we'll learn it from the next cluster_state.
-        // Phase 2.C: optional coarseStage from SESSION_COARSE_TRIALS env.
+        //
+        // Coarse-stage screening: env-driven first, with an automatic
+        // default for V2-scale grids. The original Phase 2.C testing
+        // (no wall-time win) was at 1,728 candidates; the V2 grid is
+        // ~28× larger (49,368), so the trial-cost component grew enough
+        // that coarse screening pays off again. Threshold tuned to keep
+        // pre-V2-sized mines on the legacy single-pass path. Override
+        // via SESSION_COARSE_TRIALS=0 to force-disable.
+        const COARSE_AUTO_THRESHOLD = 5000;
         const coarseTrialsEnv = process.env.SESSION_COARSE_TRIALS;
-        const coarseStage = coarseTrialsEnv
+        const coarseTrialsExplicit = coarseTrialsEnv !== undefined;
+        const coarseTrials = coarseTrialsExplicit
+          ? Number.parseInt(coarseTrialsEnv!, 10)
+          : totalCandidates >= COARSE_AUTO_THRESHOLD
+            ? 200
+            : 0;
+        const coarseStage = coarseTrials > 0
           ? {
-              trialCount: Number.parseInt(coarseTrialsEnv, 10),
+              trialCount: coarseTrials,
               feasibilityBuffer: Number.parseFloat(
                 process.env.SESSION_COARSE_BUFFER ?? '0.10',
               ),
@@ -340,7 +354,11 @@ async function main(): Promise<void> {
           Number.isFinite(coarseStage.feasibilityBuffer) && coarseStage.feasibilityBuffer >= 0
           ? coarseStage : undefined;
         if (validCoarseStage) {
-          log('two-stage screening enabled', validCoarseStage);
+          log('two-stage screening enabled', {
+            ...validCoarseStage,
+            source: coarseTrialsExplicit ? 'env' : 'auto:totalCandidates',
+            totalCandidates,
+          });
         }
         const config: PolicyMiningSessionConfig = {
           baselineFingerprint,
