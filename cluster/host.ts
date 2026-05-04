@@ -167,6 +167,10 @@ let perfRustSummaryTotal = 0;
 let perfIpcWriteTotal = 0;
 let perfResponseWaitTotal = 0;
 let perfResponseParseTotal = 0;
+let perfTapeHits = 0;
+let perfTapeMisses = 0;
+let perfCompactTapeHits = 0;
+let perfCompactTapeMisses = 0;
 let perfWindowStartMs = Date.now();
 
 function recordWorkerIdleGap(gapMs: number): void {
@@ -183,6 +187,10 @@ function recordBatchPerf(stats: PolicyMinerShadowStats | undefined): void {
   perfIpcWriteTotal += Number(stats.timings.rustIpcWriteDurationMsTotal ?? 0);
   perfResponseWaitTotal += Number(stats.timings.rustResponseWaitDurationMsTotal ?? 0);
   perfResponseParseTotal += Number(stats.timings.rustResponseParseDurationMsTotal ?? 0);
+  perfTapeHits += Number(stats.timings.tapeCacheHitsTotal ?? 0);
+  perfTapeMisses += Number(stats.timings.tapeCacheMissesTotal ?? 0);
+  perfCompactTapeHits += Number(stats.timings.compactTapeCacheHitsTotal ?? 0);
+  perfCompactTapeMisses += Number(stats.timings.compactTapeCacheMissesTotal ?? 0);
 }
 
 function flushPerfSummary(): void {
@@ -204,6 +212,14 @@ function flushPerfSummary(): void {
     ? idleSorted[Math.min(idleSorted.length - 1, Math.floor(idleSorted.length * 0.95))]
     : 0;
   const round2 = (n: number) => Math.round(n * 100) / 100;
+  const tapeLookups = perfTapeHits + perfTapeMisses;
+  const tapeHitPct = tapeLookups > 0
+    ? (perfTapeHits / tapeLookups) * 100
+    : 0;
+  const compactTapeLookups = perfCompactTapeHits + perfCompactTapeMisses;
+  const compactTapeHitPct = compactTapeLookups > 0
+    ? (perfCompactTapeHits / compactTapeLookups) * 100
+    : 0;
   log('info', 'mine_perf', {
     windowMs: elapsedMs,
     batches: perfBatches,
@@ -215,6 +231,10 @@ function flushPerfSummary(): void {
     workerIdleP50Ms: Math.round(idleP50),
     workerIdleP95Ms: Math.round(idleP95),
     idleSamples: perfIdleGapsMs.length,
+    tapeHitPct: Math.round(tapeHitPct * 10) / 10,
+    tapeLookups,
+    compactTapeHitPct: Math.round(compactTapeHitPct * 10) / 10,
+    compactTapeLookups,
   });
   perfIdleGapsMs.length = 0;
   perfBatches = 0;
@@ -223,6 +243,10 @@ function flushPerfSummary(): void {
   perfIpcWriteTotal = 0;
   perfResponseWaitTotal = 0;
   perfResponseParseTotal = 0;
+  perfTapeHits = 0;
+  perfTapeMisses = 0;
+  perfCompactTapeHits = 0;
+  perfCompactTapeMisses = 0;
   perfWindowStartMs = Date.now();
 }
 

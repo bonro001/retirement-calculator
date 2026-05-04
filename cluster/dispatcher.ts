@@ -454,6 +454,14 @@ interface PerfPeerSamples {
   bytes: number;
   rttSumMs: number;
   rttSamples: number[];
+  tapeHits: number;
+  tapeMisses: number;
+  compactTapeHits: number;
+  compactTapeMisses: number;
+  rustSummaryMsTotal: number;
+  ipcWriteMsTotal: number;
+  responseParseMsTotal: number;
+  shadowEvaluated: number;
 }
 const perfSent = new Map<
   string,
@@ -465,10 +473,41 @@ let perfWindowStartMs = Date.now();
 function getPerfPeer(peerId: string): PerfPeerSamples {
   let p = perfPeers.get(peerId);
   if (!p) {
-    p = { batches: 0, policies: 0, bytes: 0, rttSumMs: 0, rttSamples: [] };
+    p = {
+      batches: 0,
+      policies: 0,
+      bytes: 0,
+      rttSumMs: 0,
+      rttSamples: [],
+      tapeHits: 0,
+      tapeMisses: 0,
+      compactTapeHits: 0,
+      compactTapeMisses: 0,
+      rustSummaryMsTotal: 0,
+      ipcWriteMsTotal: 0,
+      responseParseMsTotal: 0,
+      shadowEvaluated: 0,
+    };
     perfPeers.set(peerId, p);
   }
   return p;
+}
+
+function recordPerfShadow(
+  peerId: string,
+  shadow: import('../src/policy-miner-types').PolicyMinerShadowStats | undefined,
+): void {
+  if (!MINE_PERF) return;
+  if (!shadow || !shadow.timings || shadow.evaluated <= 0) return;
+  const p = getPerfPeer(peerId);
+  p.tapeHits += Number(shadow.timings.tapeCacheHitsTotal ?? 0);
+  p.tapeMisses += Number(shadow.timings.tapeCacheMissesTotal ?? 0);
+  p.compactTapeHits += Number(shadow.timings.compactTapeCacheHitsTotal ?? 0);
+  p.compactTapeMisses += Number(shadow.timings.compactTapeCacheMissesTotal ?? 0);
+  p.rustSummaryMsTotal += Number(shadow.timings.rustSummaryDurationMsTotal ?? 0);
+  p.ipcWriteMsTotal += Number(shadow.timings.rustIpcWriteDurationMsTotal ?? 0);
+  p.responseParseMsTotal += Number(shadow.timings.rustResponseParseDurationMsTotal ?? 0);
+  p.shadowEvaluated += shadow.evaluated;
 }
 
 function recordPerfSend(
@@ -503,6 +542,9 @@ function flushPerfSummary(): void {
     const sorted = p.rttSamples.slice().sort((a, b) => a - b);
     const p50 = sorted[Math.floor(sorted.length * 0.5)] ?? 0;
     const p95 = sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * 0.95))] ?? 0;
+    const tapeLookups = p.tapeHits + p.tapeMisses;
+    const compactTapeLookups = p.compactTapeHits + p.compactTapeMisses;
+    const napiOverheadMs = p.ipcWriteMsTotal + p.responseParseMsTotal;
     log('info', 'mine_perf_dispatch', {
       peerId,
       windowMs: elapsedMs,
@@ -513,6 +555,20 @@ function flushPerfSummary(): void {
       rttAvgMs: Math.round(p.rttSumMs / p.batches),
       rttP50Ms: p50,
       rttP95Ms: p95,
+      msPerPolicy: p.shadowEvaluated > 0
+        ? Math.round((p.rustSummaryMsTotal / p.shadowEvaluated) * 100) / 100
+        : 0,
+      napiOverheadPct: p.rustSummaryMsTotal > 0
+        ? Math.round((napiOverheadMs / p.rustSummaryMsTotal) * 1000) / 10
+        : 0,
+      tapeHitPct: tapeLookups > 0
+        ? Math.round((p.tapeHits / tapeLookups) * 1000) / 10
+        : 0,
+      tapeLookups,
+      compactTapeHitPct: compactTapeLookups > 0
+        ? Math.round((p.compactTapeHits / compactTapeLookups) * 1000) / 10
+        : 0,
+      compactTapeLookups,
     });
   }
   perfPeers.clear();
@@ -1352,6 +1408,7 @@ function transitionToFineStage(session: ActiveSession): void {
  */
 function handleBatchResult(peer: Peer, message: Extract<ClusterMessage, { kind: 'batch_result' }>): void {
   recordPerfResult(message.result.batchId);
+  recordPerfShadow(peer.peerId, message.result.shadowStats);
   if (!activeSession || message.sessionId !== activeSession.sessionId) {
     log('warn', 'batch_result for unknown/old session, ignored', {
       from: peer.peerId,
