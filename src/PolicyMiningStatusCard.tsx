@@ -155,8 +155,17 @@ function formatBuildLabel(view: PeerView): string {
   const commit = view.buildInfo?.gitCommit;
   const shortCommit = commit ? commit.slice(0, 7) : null;
   const dirtyFile = view.buildInfo?.gitDirtyFiles?.[0] ?? null;
-  if (view.buildStatus === 'mismatch') return `update needed${shortCommit ? ` · ${shortCommit}` : ''}`;
-  if (view.buildStatus === 'dirty') return `dirty${dirtyFile ? ` · ${dirtyFile}` : shortCommit ? ` · ${shortCommit}` : ''}`;
+  const dirtyCount = view.buildInfo?.gitDirtyFiles?.length ?? 0;
+  if (view.buildStatus === 'mismatch') return `needs update${shortCommit ? ` · ${shortCommit}` : ''}`;
+  if (view.buildStatus === 'dirty') {
+    // "dirty" is git jargon — household-readable: "modified files".
+    // Prefer showing the offending filename; fall back to a count when
+    // multiple files differ; fall back to the commit when buildInfo
+    // didn't include the file list.
+    if (dirtyFile && dirtyCount === 1) return `modified · ${dirtyFile}`;
+    if (dirtyCount > 1) return `modified · ${dirtyCount} files`;
+    return shortCommit ? `modified · ${shortCommit}` : 'modified';
+  }
   if (view.buildStatus === 'match') return shortCommit ?? 'current';
   return 'unknown build';
 }
@@ -953,7 +962,7 @@ export function PolicyMiningStatusCard({
             return (
               <div
                 key={v.peerId}
-                className={`grid grid-cols-12 items-center gap-2 text-[11px] ${
+                className={`grid grid-cols-12 items-start gap-2 py-1 text-[11px] ${
                   isGhost ? 'opacity-60' : ''
                 }`}
               >
@@ -965,23 +974,30 @@ export function PolicyMiningStatusCard({
                     {v.displayName}
                   </span>
                 </span>
-                <span className="col-span-3 truncate text-stone-500">
-                  {v.workerCount !== null
-                    ? `${v.workerCount}w · ${formatPerfClass(v.capabilities?.perfClass)} · ${formatEngineRuntime(v.capabilities?.engineRuntime)}`
-                    : v.roles.includes('controller')
-                      ? 'controller'
-                      : '—'}
+                <span className="col-span-3 text-stone-500">
+                  <span className="block truncate">
+                    {v.workerCount !== null
+                      ? `${v.workerCount}w · ${formatPerfClass(v.capabilities?.perfClass)} · ${formatEngineRuntime(v.capabilities?.engineRuntime)}`
+                      : v.roles.includes('controller')
+                        ? 'controller'
+                        : '—'}
+                  </span>
                   {v.workerCount !== null && (
                     <span
-                      className={`ml-1 ${
+                      className={`block truncate text-[10px] ${
                         v.buildStatus === 'mismatch'
                           ? 'font-semibold text-rose-600'
                           : v.buildStatus === 'dirty'
                             ? 'font-semibold text-amber-600'
                             : 'text-stone-400'
                       }`}
+                      title={
+                        v.buildInfo?.gitDirtyFiles?.length
+                          ? v.buildInfo.gitDirtyFiles.join('\n')
+                          : undefined
+                      }
                     >
-                      · {formatBuildLabel(v)}
+                      {formatBuildLabel(v)}
                     </span>
                   )}
                 </span>
