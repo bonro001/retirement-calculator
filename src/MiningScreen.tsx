@@ -31,7 +31,12 @@ import { AxisPruningCard } from './AxisPruningCard';
 import { CliffRefinementCard } from './CliffRefinementCard';
 import { RuleSweepCard } from './RuleSweepCard';
 
-const POLICY_MINING_TRIAL_COUNT = 2000;
+// Lowered from 2000 → 1000 after the ranking-stability validator
+// (see policy-miner.ranking-stability.test.ts) showed top-20 perfectly
+// preserved and Spearman 0.9997 across a 90-policy grid at 1000 vs 2000
+// trials. Halves fine-pass cost on the cluster (~37% total mine speedup).
+// Bumping this constant invalidates the corpus — see comment below.
+const POLICY_MINING_TRIAL_COUNT = 1000;
 
 /**
  * Pin the miner to its own trial count so the corpus key (which
