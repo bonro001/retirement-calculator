@@ -396,6 +396,7 @@ export function PolicyMiningStatusCard({
   const session = cluster.session;
   const stats = session?.stats ?? null;
   const sessionRunning = !!session;
+  const peerViews = buildPeerViewList(cluster.peers, cluster.ghosts, nowMs);
   const canStart = !!controls && cluster.state === 'connected' && !sessionRunning;
   const canCancel = !!controls && cluster.state === 'connected' && sessionRunning;
 
@@ -451,16 +452,34 @@ export function PolicyMiningStatusCard({
     if (elapsedMs <= 0 || stats.policiesEvaluated === 0) return null;
     return (stats.policiesEvaluated / elapsedMs) * 60_000;
   })();
+  const peerThroughputPerMin = (() => {
+    let total = 0;
+    for (const view of peerViews) {
+      if (view.status !== 'live') continue;
+      if (!view.roles.includes('host')) continue;
+      if (view.totalPolPerMin === null) continue;
+      if (
+        poolHint.mode === 'off' &&
+        view.capabilities?.engineRuntime === 'ts-browser'
+      ) {
+        continue;
+      }
+      total += view.totalPolPerMin;
+    }
+    return total > 0 ? total : null;
+  })();
   const activeThroughputPerMin =
     rollingThroughputPerMin ?? sessionThroughputPerMin;
+  const estimateThroughputPerMin =
+    activeThroughputPerMin ?? peerThroughputPerMin;
   const estimatedRemainingMs = (() => {
     if (!stats) return null;
     const remainingPolicies = Math.max(
       0,
       stats.totalPolicies - stats.policiesEvaluated,
     );
-    if (activeThroughputPerMin !== null && activeThroughputPerMin > 0) {
-      return (remainingPolicies / activeThroughputPerMin) * 60_000;
+    if (estimateThroughputPerMin !== null && estimateThroughputPerMin > 0) {
+      return (remainingPolicies / estimateThroughputPerMin) * 60_000;
     }
     return stats.estimatedRemainingMs;
   })();
@@ -578,10 +597,10 @@ export function PolicyMiningStatusCard({
   // average; dividing it by worker count double-counts parallelism and
   // makes the Full-mine control wildly optimistic.
   const estimateSessionMs = (policyCount: number): number | null => {
-    if (activeThroughputPerMin === null || activeThroughputPerMin <= 0) {
+    if (estimateThroughputPerMin === null || estimateThroughputPerMin <= 0) {
       return null;
     }
-    return (policyCount / activeThroughputPerMin) * 60_000;
+    return (policyCount / estimateThroughputPerMin) * 60_000;
   };
 
   const quickEtaMs = estimateSessionMs(QUICK_MINE_POLICY_COUNT);
@@ -745,7 +764,7 @@ export function PolicyMiningStatusCard({
     );
 
   const renderHostPanel = () => {
-    const views = buildPeerViewList(cluster.peers, cluster.ghosts, nowMs);
+    const views = peerViews;
     if (views.length === 0) return null;
 
     const statusPill = (view: PeerView) => {
@@ -869,7 +888,7 @@ export function PolicyMiningStatusCard({
     const metrics = cluster.session?.metrics ?? lastRunMetrics;
     if (!metrics) return null;
     const isLive = !!cluster.session?.metrics;
-    const views = buildPeerViewList(cluster.peers, cluster.ghosts, nowMs);
+    const views = peerViews;
     const liveHosts = views.filter((v) => v.status === 'live' && v.roles.includes('host'));
     const rustHosts = liveHosts.filter(
       (v) => v.capabilities?.engineRuntime === 'rust-native-compact',
