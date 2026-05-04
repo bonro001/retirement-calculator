@@ -261,6 +261,14 @@ export function PolicyMiningStatusCard({
   // before the dispatcher's session ack arrives.
   const pipelineLastSessionIdRef = useRef<string | null>(null);
   const currentSessionId = cluster.session?.sessionId ?? null;
+  // Stable refs for things we read inside the effect but don't want as
+  // deps (because they get fresh references every render and would
+  // spuriously re-run the watcher). The pipeline only needs to react
+  // to session-id transitions; other dep changes are noise.
+  const controlsRef = useRef(controls);
+  controlsRef.current = controls;
+  const clusterRef = useRef(cluster);
+  clusterRef.current = cluster;
   // Watch session transitions: pass-1 end → fire pass-2; pass-2 end →
   // mark done. Reads the corpus from the cluster's HTTP API (or local
   // IDB fallback) to compute combined pass-2 axes.
@@ -279,7 +287,8 @@ export function PolicyMiningStatusCard({
     // ticks don't keep re-firing this branch.
     pipelineLastSessionIdRef.current = null;
     if (!pipelineActiveRef.current) return;
-    if (!baselineFingerprint || !controls) return;
+    const ctrls = controlsRef.current;
+    if (!baselineFingerprint || !ctrls) return;
 
     const completionsBefore = pipelineCompletionsRef.current;
     pipelineCompletionsRef.current = completionsBefore + 1;
@@ -298,8 +307,15 @@ export function PolicyMiningStatusCard({
     // race window where the dispatcher has broadcast session_ended
     // but hasn't yet listed the session in `/sessions`. Retries
     // briefly to absorb the disk-persistence lag.
-    let cancelled = false;
-    const dispatcherUrl = cluster.snapshot.dispatcherUrl ?? null;
+    //
+    // No effect-cleanup-based cancellation — the watcher's deps are
+    // narrow enough now that re-runs are rare, and a cleanup-cancel
+    // pattern would race against the async fetch (the cleanup fires
+    // before .then resolves, leaving pipelinePhase stuck on
+    // 'exploring' forever). Instead, we gate post-fetch work on
+    // `pipelineActiveRef.current` — that's a ref, so a Cancel click
+    // synchronously flips it without depending on effect lifecycle.
+    const dispatcherUrl = clusterRef.current.snapshot.dispatcherUrl ?? null;
     const justEndedSessionId = lastSessionId;
     const fetchPass1Evaluations = async () => {
       if (dispatcherUrl) {
@@ -326,8 +342,10 @@ export function PolicyMiningStatusCard({
     };
     void fetchPass1Evaluations()
       .then((evals) => {
-        if (cancelled) return;
-        const recommendation = recommendCombinedPass2(evals, controls.baseline);
+        if (!pipelineActiveRef.current) return; // user cancelled mid-fetch
+        const ctrls2 = controlsRef.current;
+        if (!ctrls2) return;
+        const recommendation = recommendCombinedPass2(evals, ctrls2.baseline);
         if (!recommendation.hasRecommendation) {
           pipelineActiveRef.current = false;
           pipelineCompletionsRef.current = 0;
@@ -337,14 +355,14 @@ export function PolicyMiningStatusCard({
         setPipelinePass2Total(recommendation.estimatedPass2Candidates);
         setPipelinePhase('refining');
         try {
-          cluster.startSession({
-            baseline: controls.baseline,
-            assumptions: controls.assumptions,
+          clusterRef.current.startSession({
+            baseline: ctrls2.baseline,
+            assumptions: ctrls2.assumptions,
             baselineFingerprint,
-            legacyTargetTodayDollars: controls.legacyTargetTodayDollars,
-            feasibilityThreshold: controls.feasibilityThreshold ?? 0.7,
+            legacyTargetTodayDollars: ctrls2.legacyTargetTodayDollars,
+            feasibilityThreshold: ctrls2.feasibilityThreshold ?? 0.7,
             maxPoliciesPerSession: recommendation.estimatedPass2Candidates,
-            trialCount: controls.trialCount,
+            trialCount: ctrls2.trialCount,
             axesOverride: recommendation.axes,
           });
         } catch (e) {
@@ -355,22 +373,13 @@ export function PolicyMiningStatusCard({
         }
       })
       .catch((err: unknown) => {
-        if (cancelled) return;
+        if (!pipelineActiveRef.current) return;
         pipelineActiveRef.current = false;
         pipelineCompletionsRef.current = 0;
         setPipelinePhase('done');
         setStartError(err instanceof Error ? err.message : 'pipeline corpus load failed');
       });
-    return () => {
-      cancelled = true;
-    };
-  }, [
-    currentSessionId,
-    baselineFingerprint,
-    engineVersion,
-    controls,
-    cluster,
-  ]);
+  }, [currentSessionId, baselineFingerprint, engineVersion]);
   // Best-policy display in the 'done' segment — surface whatever the
   // corpus's top record is at the time the pipeline ends.
   useEffect(() => {
