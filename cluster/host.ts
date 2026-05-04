@@ -751,6 +751,13 @@ let reconnectTimer: NodeJS.Timeout | null = null;
 let reconnectAttempt = 0;
 let stopReconnecting = false;
 let autoUpdateRequested = false;
+// Throttling for the auto-update path: maybeRequestAutoUpdate is called
+// on every cluster_state broadcast (~1/sec from the dispatcher), so the
+// "skipped: dirty" / "waiting for idle host" warnings would fire 60×/min
+// without throttling. Track the last-warned expected build hash so we
+// only log on transitions, not on every poll.
+let lastDirtyWarnExpected: string | null = null;
+let lastWaitingWarnExpected: string | null = null;
 
 function maybeRequestAutoUpdate(
   expectedBuildInfo: Parameters<typeof compareBuildInfo>[0],
@@ -758,24 +765,37 @@ function maybeRequestAutoUpdate(
 ): void {
   if (!HOST_AUTO_UPDATE || autoUpdateRequested) return;
   const status = compareBuildInfo(expectedBuildInfo, HOST_BUILD_INFO);
-  if (status !== 'mismatch') return;
+  if (status !== 'mismatch') {
+    // Reset throttling state when match restores so a future regression
+    // logs again on first detection.
+    lastDirtyWarnExpected = null;
+    lastWaitingWarnExpected = null;
+    return;
+  }
+  const expectedKey = formatBuildInfo(expectedBuildInfo);
   if (HOST_BUILD_INFO.gitDirty) {
-    log('warn', 'auto-update skipped: local tracked files are dirty', {
-      local: formatBuildInfo(HOST_BUILD_INFO),
-      expected: formatBuildInfo(expectedBuildInfo),
-      dirtyFiles: HOST_BUILD_INFO.gitDirtyFiles,
-      source,
-    });
+    if (lastDirtyWarnExpected !== expectedKey) {
+      log('warn', 'auto-update skipped: local tracked files are dirty', {
+        local: formatBuildInfo(HOST_BUILD_INFO),
+        expected: expectedKey,
+        dirtyFiles: HOST_BUILD_INFO.gitDirtyFiles,
+        source,
+      });
+      lastDirtyWarnExpected = expectedKey;
+    }
     return;
   }
   if (activeSession || inFlightBatchIds.size > 0 || pendingRuns.size > 0) {
-    log('info', 'auto-update waiting for idle host', {
-      local: formatBuildInfo(HOST_BUILD_INFO),
-      expected: formatBuildInfo(expectedBuildInfo),
-      source,
-      activeSession: activeSession?.sessionId ?? null,
-      inFlightBatches: inFlightBatchIds.size,
-    });
+    if (lastWaitingWarnExpected !== expectedKey) {
+      log('info', 'auto-update waiting for idle host', {
+        local: formatBuildInfo(HOST_BUILD_INFO),
+        expected: expectedKey,
+        source,
+        activeSession: activeSession?.sessionId ?? null,
+        inFlightBatches: inFlightBatchIds.size,
+      });
+      lastWaitingWarnExpected = expectedKey;
+    }
     return;
   }
   autoUpdateRequested = true;
