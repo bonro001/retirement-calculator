@@ -188,7 +188,7 @@ const CAPACITY_NACK_COOLDOWN_MS = 100;
  * fast — past 2 the extra batches just sit in the host's pendingRuns
  * map, holding seedDataPayload references in memory.
  */
-const IN_FLIGHT_PER_PEER = 1;
+const IN_FLIGHT_PER_PEER = 2;
 
 /**
  * Authoritative free-slot count for a peer. The peer's heartbeat-reported
@@ -247,7 +247,7 @@ function maxBatchSizeForPeer(
   const workers = peer.capabilities?.workerCount ?? 1;
   const slots = Math.max(1, Math.min(workers, freeSlots));
   if (runtime === 'rust-native-compact') {
-    return Math.max(1, Math.min(800, slots * 64));
+    return Math.max(1, Math.min(400, slots * 32));
   }
   if (runtime === 'rust-native-compact-shadow') {
     return Math.max(1, Math.min(100, slots * 8));
