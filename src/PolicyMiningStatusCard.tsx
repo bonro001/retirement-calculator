@@ -20,6 +20,7 @@ import { browserPoolHint, setBrowserHostMode } from './cluster-client';
 import { MiningPhaseSegments, type PipelinePhase } from './MiningPhaseSegments';
 import { recommendCombinedPass2 } from './combined-pass2-analyzer';
 import { loadCorpusEvaluations } from './policy-mining-corpus-source';
+import { loadClusterEvaluations } from './policy-mining-cluster';
 import {
   buildPeerViewList,
   formatAgo,
@@ -291,15 +292,39 @@ export function PolicyMiningStatusCard({
       return;
     }
 
-    // Pass-1 just ended: load corpus, compute combined pass-2 axes,
-    // fire pass-2. If no contenders, jump to 'done' without a pass-2.
+    // Pass-1 just ended: fetch the just-ended session's evaluations
+    // directly via its sessionId (which we captured before clearing
+    // lastSessionId). Using `/sessions/<id>/evaluations` skips the
+    // race window where the dispatcher has broadcast session_ended
+    // but hasn't yet listed the session in `/sessions`. Retries
+    // briefly to absorb the disk-persistence lag.
     let cancelled = false;
     const dispatcherUrl = cluster.snapshot.dispatcherUrl ?? null;
-    void loadCorpusEvaluations(
-      baselineFingerprint,
-      engineVersion,
-      dispatcherUrl,
-    )
+    const justEndedSessionId = lastSessionId;
+    const fetchPass1Evaluations = async () => {
+      if (dispatcherUrl) {
+        for (let attempt = 0; attempt < 4; attempt += 1) {
+          try {
+            const payload = await loadClusterEvaluations(
+              dispatcherUrl,
+              justEndedSessionId,
+            );
+            if (payload.evaluations.length > 0) return payload.evaluations;
+          } catch {
+            // 404 / network blip — wait and retry.
+          }
+          await new Promise((resolve) => setTimeout(resolve, 300 + attempt * 300));
+        }
+      }
+      // Last-resort fallback: corpus-source helper (cluster session list
+      // OR local IDB). Empty result → pipeline gives up gracefully.
+      return loadCorpusEvaluations(
+        baselineFingerprint,
+        engineVersion,
+        dispatcherUrl,
+      );
+    };
+    void fetchPass1Evaluations()
       .then((evals) => {
         if (cancelled) return;
         const recommendation = recommendCombinedPass2(evals, controls.baseline);
