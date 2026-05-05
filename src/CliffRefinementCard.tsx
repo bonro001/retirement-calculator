@@ -15,7 +15,6 @@ import { useEffect, useState } from 'react';
 import { recommendCliffRefinement, type CliffRefinementRecommendation } from './cliff-refinement-analyzer';
 import { loadCorpusEvaluations } from './policy-mining-corpus-source';
 import type { SeedData } from './types';
-import type { PolicyAxes } from './policy-miner-types';
 
 interface Props {
   seedData: SeedData;
@@ -30,13 +29,6 @@ interface Props {
    *  could be passed in to refine relative to whatever the user's
    *  currently filtering at. */
   feasibilityThreshold?: number;
-  /** When provided, the "Refine cliff" button calls this with the
-   *  recommended pass-2 axes. Wired to MiningScreen's `axesOverride`
-   *  state, which threads through the cluster-client. */
-  onApplyAxesOverride?: (axes: PolicyAxes | null) => void;
-  /** Current override (so we can show "Currently mining narrower
-   *  band · Reset" once pass-2 has been applied). */
-  axesOverride?: PolicyAxes | null;
 }
 
 export function CliffRefinementCard({
@@ -45,8 +37,6 @@ export function CliffRefinementCard({
   engineVersion,
   dispatcherUrl,
   feasibilityThreshold = 0.85,
-  onApplyAxesOverride,
-  axesOverride,
 }: Props) {
   const [recommendation, setRecommendation] = useState<CliffRefinementRecommendation | null>(
     null,
@@ -99,24 +89,12 @@ export function CliffRefinementCard({
     return null;
   }
 
-  const isOverrideActive =
-    axesOverride != null &&
-    JSON.stringify(axesOverride.annualSpendTodayDollars) ===
-      JSON.stringify(recommendation.axes.annualSpendTodayDollars);
-
-  const handleApply = () => {
-    if (onApplyAxesOverride) onApplyAxesOverride(recommendation.axes);
-  };
-  const handleReset = () => {
-    if (onApplyAxesOverride) onApplyAxesOverride(null);
-  };
-
   return (
     <div className="rounded-2xl border border-emerald-200 bg-emerald-50/40 p-4 shadow-sm">
       <div className="flex items-start justify-between gap-3">
         <div className="flex-1">
           <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-emerald-700">
-            Refine the cliff · pass 2 recommended
+            Cliff refinement · auto-applied in next Full mine
           </p>
           <p className="mt-1 text-[13px] text-stone-800">
             {recommendation.rationale}
@@ -128,31 +106,6 @@ export function CliffRefinementCard({
               .join(' · ')}{' '}
             · same SS, Roth, and withdrawal-rule grid as pass 1.
           </p>
-        </div>
-        <div className="flex shrink-0 flex-col gap-1.5">
-          {onApplyAxesOverride ? (
-            <>
-              <button
-                type="button"
-                onClick={handleApply}
-                disabled={isOverrideActive}
-                className="rounded-md bg-emerald-600 px-3 py-1 text-[11px] font-semibold text-white shadow-sm hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-emerald-300"
-              >
-                {isOverrideActive
-                  ? 'Pass 2 axes loaded · run a mine'
-                  : 'Use pass 2 axes →'}
-              </button>
-              {isOverrideActive && (
-                <button
-                  type="button"
-                  onClick={handleReset}
-                  className="rounded-md border border-stone-300 bg-white px-3 py-1 text-[11px] font-medium text-stone-700 shadow-sm hover:bg-stone-100"
-                >
-                  Back to default grid
-                </button>
-              )}
-            </>
-          ) : null}
         </div>
       </div>
 

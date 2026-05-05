@@ -30,33 +30,19 @@ export function AxisPruningCard({
   seedData,
   baselineFingerprint,
   engineVersion,
-  onApplyAxesOverride,
-  axesOverride,
 }: {
   seedData: SeedData;
   baselineFingerprint: string | null;
   engineVersion: string;
-  /** When provided, replaces the copy-to-clipboard fallback with a
-   *  one-click "Apply" that sets the parent's axes-override state.
-   *  The next mine pass will then run on the narrowed grid via
-   *  cluster-client's `axesOverride` option. */
-  onApplyAxesOverride?: (axes: PolicyAxes | null) => void;
-  /** Current override (so we can show "Currently active: narrowed
-   *  grid · Reset" when one is in effect). */
-  axesOverride?: PolicyAxes | null;
 }) {
   const [analysis, setAnalysis] = useState<AxisPruningAnalysis | null>(null);
   const [evalCount, setEvalCount] = useState<number>(0);
   const [error, setError] = useState<string | null>(null);
-  const [copyState, setCopyState] = useState<'idle' | 'copied' | 'failed'>(
-    'idle',
-  );
 
   useEffect(() => {
     setAnalysis(null);
     setEvalCount(0);
     setError(null);
-    setCopyState('idle');
     if (!baselineFingerprint) return;
     let cancelled = false;
     loadEvaluationsForBaseline(baselineFingerprint, engineVersion)
@@ -93,28 +79,6 @@ export function AxisPruningCard({
     return null;
   }
 
-  const handleCopy = async () => {
-    try {
-      await navigator.clipboard.writeText(
-        JSON.stringify(analysis.recommendedAxes, null, 2),
-      );
-      setCopyState('copied');
-      setTimeout(() => setCopyState('idle'), 2000);
-    } catch {
-      setCopyState('failed');
-    }
-  };
-
-  const handleApply = () => {
-    if (onApplyAxesOverride) {
-      onApplyAxesOverride(analysis.recommendedAxes);
-    }
-  };
-  const handleReset = () => {
-    if (onApplyAxesOverride) onApplyAxesOverride(null);
-  };
-  const isOverrideActive = axesOverride != null;
-
   const summary = summarizeAxisPruning(analysis);
   const isInfeasible = !analysis.corpusHasFeasibleCandidates;
 
@@ -135,47 +99,10 @@ export function AxisPruningCard({
           >
             {isInfeasible
               ? 'Axis-pruning · corpus is fully infeasible'
-              : 'Axis-pruning · narrow the search range'}
+              : 'Axis-pruning · auto-applied in next Full mine'}
           </p>
           <p className="mt-1 text-[12px] text-stone-700">{summary}</p>
         </div>
-        {!isInfeasible && (
-          <div className="flex shrink-0 flex-col gap-1.5">
-            {onApplyAxesOverride ? (
-              <>
-                <button
-                  type="button"
-                  onClick={handleApply}
-                  disabled={isOverrideActive}
-                  className="rounded-md bg-violet-600 px-3 py-1 text-[11px] font-semibold text-white shadow-sm hover:bg-violet-700 disabled:cursor-not-allowed disabled:bg-violet-300"
-                >
-                  {isOverrideActive ? 'Applied · running on narrowed grid' : 'Apply narrower range'}
-                </button>
-                {isOverrideActive && (
-                  <button
-                    type="button"
-                    onClick={handleReset}
-                    className="rounded-md border border-stone-300 bg-white px-3 py-1 text-[11px] font-medium text-stone-700 shadow-sm hover:bg-stone-100"
-                  >
-                    Reset to default grid
-                  </button>
-                )}
-              </>
-            ) : (
-              <button
-                type="button"
-                onClick={handleCopy}
-                className="rounded-md border border-violet-300 bg-white px-2 py-1 text-[11px] font-semibold text-violet-700 shadow-sm hover:bg-violet-100"
-              >
-                {copyState === 'copied'
-                  ? 'Copied!'
-                  : copyState === 'failed'
-                    ? 'Copy failed'
-                    : 'Copy narrowed axes'}
-              </button>
-            )}
-          </div>
-        )}
       </div>
 
       {!isInfeasible && (
@@ -220,16 +147,8 @@ export function AxisPruningCard({
 
       <p className="mt-3 text-[11px] text-stone-400">
         Based on {evalCount} corpus evaluations. Analyzer is pure (no
-        engine calls).{' '}
-        {onApplyAxesOverride
-          ? 'Apply will narrow the next mine pass to these axes; Reset returns to the default grid.'
-          : (
-            <>
-              Apply by copying these axes into your seed&apos;s policy-axis
-              override or pasting into the cluster-client&apos;s{' '}
-              <code className="text-stone-500">axesOverride</code> option.
-            </>
-          )}
+        engine calls). Narrowed grid is composed into the next Full
+        mine&apos;s pass-2 automatically.
       </p>
     </div>
   );

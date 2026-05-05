@@ -19,7 +19,6 @@ import {
 } from './rule-sweep-analyzer';
 import { loadCorpusEvaluations } from './policy-mining-corpus-source';
 import type { SeedData } from './types';
-import type { PolicyAxes } from './policy-miner-types';
 
 interface Props {
   seedData: SeedData;
@@ -29,12 +28,6 @@ interface Props {
    *  When set, the card prefers the cluster's HTTP corpus over the
    *  local IndexedDB (cluster mines don't mirror to local). */
   dispatcherUrl?: string | null;
-  /** Wired to MiningScreen's `axesOverride` state which threads into
-   *  `cluster.startSession({ axesOverride })`. */
-  onApplyAxesOverride?: (axes: PolicyAxes | null) => void;
-  /** Current override (so we can show "Currently mining sweep · Reset"
-   *  once pass-2 has been applied). */
-  axesOverride?: PolicyAxes | null;
 }
 
 export function RuleSweepCard({
@@ -42,8 +35,6 @@ export function RuleSweepCard({
   baselineFingerprint,
   engineVersion,
   dispatcherUrl,
-  onApplyAxesOverride,
-  axesOverride,
 }: Props) {
   const [recommendation, setRecommendation] =
     useState<RuleSweepRecommendation | null>(null);
@@ -86,20 +77,6 @@ export function RuleSweepCard({
   }
   if (!recommendation || !recommendation.hasRecommendation) return null;
 
-  const isOverrideActive =
-    axesOverride != null &&
-    JSON.stringify(axesOverride.withdrawalRule) ===
-      JSON.stringify(recommendation.axes.withdrawalRule) &&
-    JSON.stringify(axesOverride.annualSpendTodayDollars) ===
-      JSON.stringify(recommendation.axes.annualSpendTodayDollars);
-
-  const handleApply = () => {
-    if (onApplyAxesOverride) onApplyAxesOverride(recommendation.axes);
-  };
-  const handleReset = () => {
-    if (onApplyAxesOverride) onApplyAxesOverride(null);
-  };
-
   const ruleNames = (recommendation.axes.withdrawalRule ?? []).map((r) =>
     r.replace(/_/g, ' '),
   );
@@ -109,42 +86,18 @@ export function RuleSweepCard({
       <div className="flex items-start justify-between gap-3">
         <div className="flex-1">
           <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-indigo-700">
-            Compare withdrawal rules · pass 2 recommended
+            Withdrawal-rule sweep · auto-applied in next Full mine
           </p>
           <p className="mt-1 text-[13px] text-stone-800">
             {recommendation.rationale}
           </p>
           <p className="mt-2 text-[11px] text-stone-500">
-            Pass 2 will mine the contenders' (spend, SS, Roth) bounding
-            box under {ruleNames.join(', ')}. Pass-1 records (under
-            tax_bracket_waterfall) stay in the corpus — the rule sweep
-            adds new records, it doesn't replace anything.
+            On the next Full mine, pass 2 will re-mine the contenders'
+            (spend, SS, Roth) bounding box under {ruleNames.join(', ')}.
+            Pass-1 records (under tax_bracket_waterfall) stay in the
+            corpus — the rule sweep adds new records, it doesn't
+            replace anything.
           </p>
-        </div>
-        <div className="flex shrink-0 flex-col gap-1.5">
-          {onApplyAxesOverride ? (
-            <>
-              <button
-                type="button"
-                onClick={handleApply}
-                disabled={isOverrideActive}
-                className="rounded-md bg-indigo-600 px-3 py-1 text-[11px] font-semibold text-white shadow-sm hover:bg-indigo-700 disabled:cursor-not-allowed disabled:bg-indigo-300"
-              >
-                {isOverrideActive
-                  ? 'Sweep axes loaded · run a mine'
-                  : 'Use sweep axes →'}
-              </button>
-              {isOverrideActive && (
-                <button
-                  type="button"
-                  onClick={handleReset}
-                  className="rounded-md border border-stone-300 bg-white px-3 py-1 text-[11px] font-medium text-stone-700 shadow-sm hover:bg-stone-100"
-                >
-                  Back to default grid
-                </button>
-              )}
-            </>
-          ) : null}
         </div>
       </div>
 

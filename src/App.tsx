@@ -205,6 +205,15 @@ const navigation: {
     iconPath: 'M13 2 4.09 12.97a.5.5 0 0 0 .39.81H11l-1 8.22 8.91-10.97a.5.5 0 0 0-.39-.81H13l0-7.22Z',
   },
   {
+    id: 'simulation',
+    label: 'Simulation',
+    shortLabel: 'Sim',
+    section: 'analyze',
+    // Beaker / flask — "experiment / what-if"
+    iconPath:
+      'M9 3h6v4l4.5 9.75A2.25 2.25 0 0 1 17.45 20H6.55a2.25 2.25 0 0 1-2.05-3.25L9 7V3Zm0 0h6M7 14h10',
+  },
+  {
     id: 'history',
     label: 'History',
     shortLabel: 'History',

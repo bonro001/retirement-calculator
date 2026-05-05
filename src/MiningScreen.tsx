@@ -17,7 +17,7 @@
  * household actually uses"; UnifiedPlanScreen and friends remain in
  * the codebase for reference but aren't on the household's path.
  */
-import { useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import { useAppStore } from './store';
 import { useClusterSession } from './useClusterSession';
 import { buildEvaluationFingerprint } from './evaluation-fingerprint';
@@ -26,7 +26,6 @@ import { PolicyMiningStatusCard } from './PolicyMiningStatusCard';
 import { PolicyMiningResultsTable } from './PolicyMiningResultsTable';
 import { POLICY_MINER_ENGINE_VERSION } from './policy-miner-types';
 import type { MarketAssumptions } from './types';
-import type { PolicyAxes } from './policy-miner-types';
 import { AxisPruningCard } from './AxisPruningCard';
 import { CliffRefinementCard } from './CliffRefinementCard';
 import { RuleSweepCard } from './RuleSweepCard';
@@ -77,14 +76,13 @@ export function MiningScreen() {
   const cluster = useClusterSession();
   const dispatcherUrl = cluster.snapshot.dispatcherUrl ?? null;
 
-  // Axis-pruning Apply-and-rerun state. When the household clicks
-  // "Apply narrower range" on the AxisPruningCard, the recommended
-  // narrowed grid lands here and is forwarded to PolicyMiningStatusCard,
-  // which threads it to `cluster.startSession({ axesOverride })`. The
-  // override is volatile (component-local) — closing the screen
-  // resets to the default grid. To persist across visits, lift to
-  // zustand store; tonight's scope kept it local for simplicity.
-  const [axesOverride, setAxesOverride] = useState<PolicyAxes | null>(null);
+  // Manual axesOverride is retired — the Full mine pipeline now composes
+  // axis-pruning + cliff-refinement + rule-sweep into a single pass-2
+  // automatically. The 3 cards (AxisPruning / Cliff / RuleSweep) remain
+  // visible as informational previews of what pass-2 will do. Hard-null
+  // here keeps PolicyMiningStatusCard's pipeline-enabling condition
+  // (`!axesOverride`) always true for Full mines.
+  const axesOverride = null;
 
   // Build the evaluation fingerprint that scopes mining results to
   // the current baseline. Keeps the corpus on disk segregated by
@@ -208,45 +206,37 @@ export function MiningScreen() {
         }
       />
 
-      {/* Adaptive axis-pruning insight. Surfaces only when the corpus
+      {/* Adaptive axis-pruning preview. Surfaces only when the corpus
           for the current baseline has ≥ 50 evaluations AND at least
           one axis value contributed zero feasible candidates. Pure
-          analyzer; no engine calls. */}
+          analyzer; no engine calls. The narrowed grid is composed
+          into the next Full mine's pass-2 automatically. */}
       <AxisPruningCard
         seedData={data}
         baselineFingerprint={policyMiningFingerprint || null}
         engineVersion={POLICY_MINER_ENGINE_VERSION}
-        axesOverride={axesOverride}
-        onApplyAxesOverride={setAxesOverride}
       />
 
-      {/* Cliff-refinement card. Watches the corpus, detects the spend
-       *  tier where feasibility crosses 85%, and offers a one-click
-       *  pass-2 axis at $1k resolution across the cliff band. Dynamic:
-       *  recomputes whenever the corpus changes, so a fresh mine on
-       *  a different plan picks up the new cliff automatically. */}
+      {/* Cliff-refinement preview. Watches the corpus, detects the
+       *  spend tier where feasibility crosses 85%, and previews the
+       *  pass-2 axis at $1k resolution across the cliff band.
+       *  Auto-applied by the next Full mine's pipeline. */}
       <CliffRefinementCard
         seedData={data}
         baselineFingerprint={policyMiningFingerprint || null}
         engineVersion={POLICY_MINER_ENGINE_VERSION}
         dispatcherUrl={dispatcherUrl}
-        axesOverride={axesOverride}
-        onApplyAxesOverride={setAxesOverride}
       />
 
-      {/* Rule-sweep card. Pairs with V2.1's single-rule pass-1: when the
-       *  pass-1 corpus has contenders, this card offers a one-click
-       *  pass-2 that re-mines them under the three non-default
-       *  withdrawal rules (proportional, reverse waterfall,
-       *  Guyton-Klinger). Same axesOverride plumbing as cliff
-       *  refinement; the two pass-2 modes can run in either order. */}
+      {/* Rule-sweep preview. When pass-1 corpus has contenders,
+       *  previews the pass-2 sweep across non-default withdrawal
+       *  rules (proportional, reverse waterfall, Guyton-Klinger).
+       *  Auto-applied by the next Full mine's pipeline. */}
       <RuleSweepCard
         seedData={data}
         baselineFingerprint={policyMiningFingerprint || null}
         engineVersion={POLICY_MINER_ENGINE_VERSION}
         dispatcherUrl={dispatcherUrl}
-        axesOverride={axesOverride}
-        onApplyAxesOverride={setAxesOverride}
       />
     </div>
   );
