@@ -117,17 +117,35 @@ function scaleSpendingProportional(
   const currentTotal = totalAnnualSpendFromCategories(spending);
   if (!Number.isFinite(currentTotal) || currentTotal <= 0) return spending;
   const multiplier = targetAnnual / currentTotal;
-  // Round to whole dollars on the unit each category is stored in (monthly
-  // for monthlies, annual for annuals). Avoids fractional-cent drift in the
-  // UI; the engine doesn't care about $1 rounding.
+  // Round to whole dollars on the unit each category is stored in
+  // (monthly for monthlies, annual for annuals). Then absorb the
+  // accumulated rounding error into `essentialMonthly` so the sum
+  // matches `targetAnnual` EXACTLY. Without this last step the four
+  // categories drifted up to ~$13 from the policy's stated total,
+  // and the cockpit's "Stale projection" check (≤$1 tolerance) flagged
+  // the gap as if the household had unsaved edits.
+  const essentialMonthly = Math.round(spending.essentialMonthly * multiplier);
+  const optionalMonthly = Math.round(spending.optionalMonthly * multiplier);
+  const annualTaxesInsurance = Math.round(spending.annualTaxesInsurance * multiplier);
+  const travelEarlyRetirementAnnual = Math.round(
+    spending.travelEarlyRetirementAnnual * multiplier,
+  );
+  const sum =
+    essentialMonthly * 12 +
+    optionalMonthly * 12 +
+    annualTaxesInsurance +
+    travelEarlyRetirementAnnual;
+  // Distribute the residual through essentialMonthly (the largest
+  // category). The adjustment is at most a handful of dollars per
+  // month; rounded for cleanliness.
+  const residualAnnual = targetAnnual - sum;
+  const essentialAdjustment = Math.round(residualAnnual / 12);
   return {
     ...spending,
-    essentialMonthly: Math.round(spending.essentialMonthly * multiplier),
-    optionalMonthly: Math.round(spending.optionalMonthly * multiplier),
-    annualTaxesInsurance: Math.round(spending.annualTaxesInsurance * multiplier),
-    travelEarlyRetirementAnnual: Math.round(
-      spending.travelEarlyRetirementAnnual * multiplier,
-    ),
+    essentialMonthly: essentialMonthly + essentialAdjustment,
+    optionalMonthly,
+    annualTaxesInsurance,
+    travelEarlyRetirementAnnual,
   };
 }
 
