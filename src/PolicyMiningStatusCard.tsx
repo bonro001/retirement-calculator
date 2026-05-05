@@ -391,6 +391,7 @@ export function PolicyMiningStatusCard({
   // re-adopting; reset on any non-'done' phase to allow re-adopt on
   // the next completion.
   const adoptMinedPolicy = useAppStore((s) => s.adoptMinedPolicy);
+  const commitDraftToApplied = useAppStore((s) => s.commitDraftToApplied);
   const setCurrentScreen = useAppStore((s) => s.setCurrentScreen);
   const pipelineAutoAdoptedRef = useRef<string | null>(null);
   useEffect(() => {
@@ -415,6 +416,13 @@ export function PolicyMiningStatusCard({
       const top = bestPolicy(evals, LEGACY_FIRST_LEXICOGRAPHIC);
       if (!top) return;
       adoptMinedPolicy(top.policy);
+      // adoptMinedPolicy only updates `data` (the draft). The cockpit
+      // reads `appliedData` for its projection, so without committing
+      // the draft, the household lands on the cockpit with a "Stale
+      // projection" banner: adopted spend = $115k but projection ran
+      // against the pre-adoption $140k. Auto-commit so the engine
+      // re-runs against the adopted plan immediately.
+      commitDraftToApplied();
       setCurrentScreen('cockpit');
     });
     return () => {
@@ -425,6 +433,7 @@ export function PolicyMiningStatusCard({
     baselineFingerprint,
     engineVersion,
     adoptMinedPolicy,
+    commitDraftToApplied,
     setCurrentScreen,
   ]);
 
