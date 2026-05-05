@@ -30,6 +30,8 @@ import {
   type PeerView,
 } from './cluster-peer-view';
 import type { ClusterRuntimeMetrics } from './mining-protocol';
+import { bestPolicy, LEGACY_FIRST_LEXICOGRAPHIC } from './policy-ranker';
+import { useAppStore } from './store';
 
 /**
  * Read+control card for the Policy Miner running across the cluster.
@@ -378,6 +380,54 @@ export function PolicyMiningStatusCard({
         setStartError(err instanceof Error ? err.message : 'pipeline corpus load failed');
       });
   }, [currentSessionId, baselineFingerprint, engineVersion]);
+  // Auto-adopt + auto-nav: when a Full-mine pipeline finishes, pick
+  // the top-1 candidate from the corpus (per LEGACY_FIRST_LEXICOGRAPHIC,
+  // the same ranker the cockpit's TRUST card uses), auto-adopt it, and
+  // navigate to the cockpit so the household sees the new projection
+  // without an extra click. Goal: collapse Mine→Adopt→Cockpit to a
+  // single "Run Full mine" action.
+  //
+  // Tracked per fingerprint so re-runs on the same plan don't keep
+  // re-adopting; reset on any non-'done' phase to allow re-adopt on
+  // the next completion.
+  const adoptMinedPolicy = useAppStore((s) => s.adoptMinedPolicy);
+  const setCurrentScreen = useAppStore((s) => s.setCurrentScreen);
+  const pipelineAutoAdoptedRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (pipelinePhase !== 'done') {
+      pipelineAutoAdoptedRef.current = null;
+      return;
+    }
+    if (!baselineFingerprint) return;
+    if (pipelineAutoAdoptedRef.current === baselineFingerprint) return;
+    // Capture the fingerprint BEFORE the async fetch so a fast re-mine
+    // on a different plan doesn't double-adopt.
+    pipelineAutoAdoptedRef.current = baselineFingerprint;
+    const dispatcherUrl = clusterRef.current.snapshot.dispatcherUrl ?? null;
+    let cancelled = false;
+    void loadCorpusEvaluations(
+      baselineFingerprint,
+      engineVersion,
+      dispatcherUrl,
+    ).then((evals) => {
+      if (cancelled) return;
+      if (evals.length === 0) return;
+      const top = bestPolicy(evals, LEGACY_FIRST_LEXICOGRAPHIC);
+      if (!top) return;
+      adoptMinedPolicy(top.policy);
+      setCurrentScreen('cockpit');
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    pipelinePhase,
+    baselineFingerprint,
+    engineVersion,
+    adoptMinedPolicy,
+    setCurrentScreen,
+  ]);
+
   // Best-policy display in the 'done' segment — surface whatever the
   // corpus's top record is at the time the pipeline ends.
   useEffect(() => {
