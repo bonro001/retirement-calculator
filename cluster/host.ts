@@ -222,7 +222,16 @@ function recordBatchPerf(stats: PolicyMinerShadowStats | undefined): void {
   }
 }
 
-const TUNING_TARGET_BATCH_WALL_MS = 1500;
+// Target wall-time per batch: smaller is better for pipelining because
+// the dispatcher can ship the next batch while workers are still mid-
+// batch on the current one (with inFlight=2 there's always a next batch
+// queued). Larger batches synchronize all workers at the batch boundary
+// — the next batch can't start until the slowest worker's last policy
+// finishes. Empirically the prior dispatcher default (~200-pol batches,
+// ~300-500ms wall time on Apple Silicon) hit the sweet spot; tuning at
+// ~400ms preserves that while still letting hosts of different speeds
+// pick batch sizes that match their per-policy compute.
+const TUNING_TARGET_BATCH_WALL_MS = 400;
 const TUNING_MIN_SAMPLES = 5;
 
 /**
