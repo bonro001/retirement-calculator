@@ -88,30 +88,40 @@ export function recommendCombinedPass2(
   );
   const sweep = recommendRuleSweep(evaluations, seedData);
 
-  if (!sweep.hasRecommendation) {
+  // Pass-2 fires whenever EITHER refinement is available. Originally
+  // we gated on sweep.hasRecommendation, which meant: once rule-sweep
+  // had run on a corpus (all 4 rules already covered), the combined
+  // analyzer returned hasRecommendation: false even when cliff had a
+  // fresh $1k spend refinement to apply. The auto-pipeline saw "no
+  // recommendation" and skipped pass-2 — leaving the cliff card
+  // showing "pending" forever.
+  if (!sweep.hasRecommendation && !cliff.hasRecommendation) {
     return {
       hasRecommendation: false,
       axes: baseAxes,
-      hasCliff: cliff.hasRecommendation,
+      hasCliff: false,
       contenderCount: sweep.contenderCount,
       estimatedPass2Candidates: 0,
       spendLowerDollars: 0,
       spendUpperDollars: 0,
       rationale:
-        'Pass-1 produced no contenders within striking distance of the leader — no pass-2 refinement to do.',
+        'Pass-1 produced no contenders worth refining and no spend-cliff to bracket — no pass-2 work to do.',
     };
   }
 
-  // Spend axis: prefer the $1k cliff bracket when present, fall back to
-  // the contenders' bounding box. Either way, it's a tight band of the
-  // spend levels that matter for the recommendation.
+  // Spend axis: prefer the $1k cliff bracket when present; fall back to
+  // the contenders' bounding box from rule-sweep when cliff has nothing
+  // but sweep does.
   const spends = cliff.hasRecommendation
     ? cliff.axes.annualSpendTodayDollars
     : sweep.axes.annualSpendTodayDollars;
 
-  // SS / Roth: always use the contender bounding box. Non-contender
-  // combinations aren't candidates for the recommendation under any
-  // rule, so refining them at the cliff would be waste.
+  // SS / Roth: prefer the contender bounding box from sweep (tight,
+  // focused on actual contenders). When sweep is fully covered (all 4
+  // rules already in the corpus), sweep.axes degenerates to baseAxes
+  // — wider, but still correct. A future improvement could thread the
+  // contender list out of rule-sweep-analyzer separately so we can
+  // narrow even when sweep itself doesn't have a recommendation.
   const primarySS = sweep.axes.primarySocialSecurityClaimAge;
   const spouseSS = sweep.axes.spouseSocialSecurityClaimAge;
   const roth = sweep.axes.rothConversionAnnualCeiling;
