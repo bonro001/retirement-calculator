@@ -3704,9 +3704,18 @@ export function CockpitScreen() {
               </div>
             </div>
           ) : (
-            <p className="text-stone-400 text-sm">
-              No adopted policy yet. Open Re-run Model and pick one.
-            </p>
+            <div className="space-y-2">
+              <p className="text-stone-400 text-sm">
+                No adopted policy yet. Run a Full mine — top result auto-adopts.
+              </p>
+              <button
+                type="button"
+                onClick={() => setCurrentScreen('mining')}
+                className="rounded-md bg-blue-600 px-3 py-1.5 text-[12px] font-semibold text-white shadow-sm hover:bg-blue-700"
+              >
+                Run mine →
+              </button>
+            </div>
           )}
         </CockpitTile>
 
