@@ -313,7 +313,7 @@ interface AppState {
    * are presentation-only today and don't trigger a pending-changes flag.
    */
   setLegacyTarget: (value: number | undefined) => void;
-  updateIncome: <K extends 'salaryAnnual' | 'salaryEndDate'>(
+  updateIncome: <K extends 'salaryAnnual' | 'salaryEndDate' | 'windfalls'>(
     key: K,
     value: IncomeData[K],
   ) => void;
