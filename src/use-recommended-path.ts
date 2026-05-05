@@ -154,7 +154,14 @@ export function useRecommendedPath(
         };
 
         const forwardLooking = buildOne(false);
-        const historical = buildOne(true);
+        // Historical-bootstrap path was being computed eagerly but is
+        // never consumed anywhere in the cockpit (or anywhere else in
+        // the codebase as of 2026-05-05). Computing it doubled the
+        // useRecommendedPath wall time — 5-15s of main-thread work
+        // that triggered the browser's "page unresponsive" dialog on
+        // first cockpit paint. If a future card needs it, recompute on
+        // demand or move to a Web Worker.
+        const historical = null;
 
         if (cancelled) return;
         const entry: CachedEntry = {
