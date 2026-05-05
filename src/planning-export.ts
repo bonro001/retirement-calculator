@@ -2239,9 +2239,11 @@ function buildSimulationProfile({
     activeStressors: [...stressorIds],
     activeResponses: [...responseIds],
     withdrawalPolicy: {
-      order: plannerLogicActive
-        ? ['cash', 'taxable', 'pretax', 'roth (conditional)']
-        : ['cash', 'taxable', 'pretax', 'roth'],
+      // Match the engine's `withdrawalOrderLabelFor` (utils.ts:2012) which
+      // always emits 'roth (conditional)' for the default tax_bracket_waterfall
+      // rule regardless of planner mode — the "(conditional)" annotation
+      // describes the rule's behavior, not the planner's enhancement layer.
+      order: ['cash', 'taxable', 'pretax', 'roth (conditional)'],
       dynamicDefenseOrdering: plannerLogicActive,
       irmaaAware: plannerLogicActive,
       acaAware: plannerLogicActive,

@@ -500,8 +500,14 @@ describe('decision-engine layer', () => {
   });
 
   it('includes excluded high-impact insights when constraints block strong levers', async () => {
+    // simulationRunsOverride bumped 80 → 500: at 80 trials the standard
+    // error on deltaSuccessRate is ~11%, large enough that whether the
+    // blocked retirement-delay lever clears the >0 threshold becomes
+    // dependent on engine-update-induced drift rather than the property
+    // we want to test. 500 trials brings SE to ~4.5%, comfortably below
+    // the magnitude of a real positive lever effect.
     const report = await evaluateDecisionLevers(buildInput(), {
-      simulationRunsOverride: 80,
+      simulationRunsOverride: 500,
       constraints: {
         rules: {
           allowRetirementDelay: false,
@@ -522,7 +528,7 @@ describe('decision-engine layer', () => {
     expect(
       report.excludedHighImpactLevers.every((item) => item.deltaSuccessRate > 0),
     ).toBe(true);
-  });
+  }, 30_000);
 
   it('returns no excluded high-impact insights when no constraints are active', async () => {
     const report = await evaluateDecisionLevers(buildInput(), {
