@@ -45,8 +45,26 @@ export function MountWhenVisible({
       setVisible(true);
       return;
     }
+    // Bug fix 2026-05-05: on large displays, the entire cockpit fits
+    // in viewport, so EVERY lazy card was "intersecting" on initial
+    // paint and immediately mounting + running its sync MC compute.
+    // The cockpit hung because UncertaintyRangeTile (6 perturbations
+    // × MC) + MortalitySensitivityCard (3 paths) all fired in parallel
+    // on the main thread.
+    //
+    // Fix: ignore the *initial* intersection. Only mount when the user
+    // actually scrolls past the element (or after the eager timer).
+    let firstObservation = true;
     const observer = new IntersectionObserver(
       (entries) => {
+        if (firstObservation) {
+          firstObservation = false;
+          // Skip the initial firing — IntersectionObserver always
+          // delivers a "current state" entry on connect, even if
+          // nothing has scrolled yet. We only want to react to actual
+          // scroll-driven visibility changes.
+          return;
+        }
         for (const entry of entries) {
           if (entry.isIntersecting) {
             setVisible(true);
