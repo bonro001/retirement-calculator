@@ -276,12 +276,15 @@ function computeTuningHints(): import('../src/mining-protocol').HostTuningHints 
   const recommendedBatchSize = Math.round(
     Math.max(12, Math.min(HOST_WORKER_COUNT * 200, HOST_WORKER_COUNT * targetPerWorker)),
   );
-  // Recommended in-flight: deeper queue when workers idle a lot
-  // between batches (RTT/network dominates). Conservative when
-  // workers stay busy (compute-bound).
+  // Recommended in-flight: deeper queue when workers idle between
+  // batches (RTT/network dominates per-batch wall time). Tuned 2026-
+  // 05-05 against observed ATH behavior — at 87-142ms idle (RTT ~2s,
+  // batch wall ~270ms with inFlight=2), workers were pulsing at every
+  // batch boundary. inFlight=3 lets 3 batches overlap so the host
+  // always has the next one queued before workers finish the current.
   let recommendedInFlight = 2;
-  if (workerIdleP50Ms > 500) recommendedInFlight = 4;
-  else if (workerIdleP50Ms > 200) recommendedInFlight = 3;
+  if (workerIdleP50Ms > 300) recommendedInFlight = 4;
+  else if (workerIdleP50Ms > 75) recommendedInFlight = 3;
   return {
     workerIdleP50Ms: Math.round(workerIdleP50Ms),
     workerIdleP95Ms: Math.round(workerIdleP95Ms),
