@@ -1255,8 +1255,15 @@ function pumpDispatch(): void {
     // a tuning hint with a recommendedBatchSize, prefer it over the
     // perf-class heuristic. The host knows its actual ms/policy and
     // worker idle pattern; the dispatcher's hint is a cold-start
-    // approximation. Still bounded by maxBatchSizeForPeer to respect
-    // the per-host capacity reservation math.
+    // approximation.
+    //
+    // When the hint is present we DON'T apply maxBatchSizeForPeer
+    // (which caps at `slots*32`, ~192 with the reservation halving
+    // free slots) because that cap was sized assuming the host couldn't
+    // tune itself. The host's hint already accounts for its observed
+    // ms/policy and target wall time per batch. We still bound by a
+    // safety ceiling (HOST_HINT_BATCH_CEILING) to prevent a runaway
+    // hint and by pendingCount to not over-assign at end of mine.
     const baseRecommendation = recommendedBatchSize(
       peer.capabilities?.perfClass ?? 'unknown',
       peer.completedBatchCount >= 3 ? peer.meanMsPerPolicy : null,
@@ -1264,13 +1271,14 @@ function pumpDispatch(): void {
       batchTrialCount,
       { maxBatchSize: maxBatchSizeForPeer(peer, freeSlots) },
     );
+    const HOST_HINT_BATCH_CEILING = 2000;
     const hostHintBatch = peer.tuningHints?.recommendedBatchSize;
     const size =
       typeof hostHintBatch === 'number' && Number.isFinite(hostHintBatch) && hostHintBatch > 0
         ? Math.min(
             hostHintBatch,
             session.queue.pendingCount(),
-            maxBatchSizeForPeer(peer, freeSlots),
+            HOST_HINT_BATCH_CEILING,
           )
         : baseRecommendation;
     const assigned = session.queue.assignBatch(peer.peerId, size);
