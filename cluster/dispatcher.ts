@@ -1251,37 +1251,26 @@ function pumpDispatch(): void {
     // this, the cold-start hint is calibrated at 2000 trials and ships
     // batches 10× too small for a 200-trial coarse pass.
     //
-    // Per-host adaptive override (2026-05-05): when the host has sent
-    // a tuning hint with a recommendedBatchSize, the dispatcher uses
-    // the LARGER of the host hint and the perf-class default. The hint
-    // can RAISE batch size above the slots*32 cap (so a fast host can
-    // pull bigger batches once it has measured itself), but it never
-    // SHRINKS below the conservative dispatcher baseline. Empirically
-    // the perf-class default is well-calibrated for the cluster's
-    // hardware; letting the hint go below it cost m2 ~60% throughput
-    // in the 2026-05-05 tests.
+    // Reverted 2026-05-05 to perf-class-only sizing. The host-hint
+    // override experiment cost throughput (~50% on m2 and ATH) and
+    // raised RTT p95 to 8-10 seconds because inFlight=3 just queued
+    // batches deeper at the host instead of pipelining — and
+    // bigger batches widened the synchronization window when all 12
+    // workers finished a batch simultaneously.
     //
-    // The hint is bounded by a safety ceiling (HOST_HINT_BATCH_CEILING)
-    // to prevent a runaway recommendation and by pendingCount to not
-    // over-assign at end of mine.
-    const baseRecommendation = recommendedBatchSize(
+    // Hosts still GATHER and REPORT tuning hints (cheap, used by
+    // logs to diagnose future perf issues) but the dispatcher's
+    // original perf-class heuristic + maxBatchSizeForPeer cap is the
+    // path that ships work. Future smarter-tuning ideas should be
+    // proven against the pre-adaptive baseline (24k pol/min on ATH)
+    // rather than incrementally tuning down from a regressed state.
+    const size = recommendedBatchSize(
       peer.capabilities?.perfClass ?? 'unknown',
       peer.completedBatchCount >= 3 ? peer.meanMsPerPolicy : null,
       session.queue.pendingCount(),
       batchTrialCount,
       { maxBatchSize: maxBatchSizeForPeer(peer, freeSlots) },
     );
-    const HOST_HINT_BATCH_CEILING = 2000;
-    const hostHintBatch = peer.tuningHints?.recommendedBatchSize;
-    const hintAdjusted =
-      typeof hostHintBatch === 'number' && Number.isFinite(hostHintBatch) && hostHintBatch > 0
-        ? Math.min(
-            Math.max(hostHintBatch, baseRecommendation),
-            session.queue.pendingCount(),
-            HOST_HINT_BATCH_CEILING,
-          )
-        : null;
-    const size = hintAdjusted ?? baseRecommendation;
     const assigned = session.queue.assignBatch(peer.peerId, size);
     if (!assigned) continue;
     const batch: MiningJobBatch = {
@@ -1318,14 +1307,12 @@ function pumpDispatch(): void {
     // batch_result trigger pick up the second batch as soon as the
     // first releases its reservation.
     //
-    // Per-host adaptive override (2026-05-05): when the host has sent
-    // a `recommendedInFlight` hint, use it instead of the global
-    // IN_FLIGHT_PER_PEER constant. Hosts with high RTT/work ratio
-    // (Windows in our cluster) want a deeper queue; M-series hosts
-    // are happy with shallow because their compute dominates RTT.
-    // The original IN_FLIGHT_PER_PEER 2→3 experiment regressed the
-    // fastest host because batches got smaller; per-host hints make
-    // the trade-off correctly per machine.
+    // Reverted 2026-05-05: per-host inFlight from host hints didn't
+    // pipeline as expected. Going from 2→3 just made the host queue
+    // batches deeper, growing RTT p95 from ~2s to 8-10s without
+    // reducing the visual CPU pulse (which is structural — all
+    // workers finish a batch at the same time, sync waiting for next).
+    // Back to the global constant.
     //
     // The reservation is informational, not the actual worker
     // constraint — the host has its own internal worker pool and
@@ -1334,9 +1321,7 @@ function pumpDispatch(): void {
     // reservation lets dispatcher think enough slots are free to
     // ship a follow-up batch.
     const workers = peer.capabilities?.workerCount ?? 1;
-    const inFlightPerPeer =
-      peer.tuningHints?.recommendedInFlight ?? IN_FLIGHT_PER_PEER;
-    const reservationCap = Math.max(1, Math.ceil(workers / inFlightPerPeer));
+    const reservationCap = Math.max(1, Math.ceil(workers / IN_FLIGHT_PER_PEER));
     const reservedSlots = Math.max(
       1,
       Math.min(assigned.policies.length, reservationCap),
