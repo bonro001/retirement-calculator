@@ -3784,33 +3784,25 @@ export function CockpitScreen() {
           mounting them after a fixed timer triggers the same
           page-unresponsive hang the IntersectionObserver fix was
           meant to prevent. */}
-      <MountWhenVisible minHeight="120px" eagerAfterMs={Infinity}>
-        <MortalitySensitivityCard
-          data={data}
-          assumptions={assumptions}
-          baselinePath={planPath}
-        />
-      </MountWhenVisible>
-
-      {/* Decision-grade calibration signals — UncertaintyRange,
-          TaxEfficiency, PreRetirementOptimizer tiles in a 2-column
-          grid. Plus the DeltaDashboardTile when both prediction +
-          actuals stores are passed (shipped 2026-04-30).
-          Scroll-only mount: UncertaintyRangeTile runs its OWN
-          sensitivity sweep (~5s, sync); auto-mounting on a timer
-          would block the main thread. */}
-      {planPath && assumptions && data && (
-        <MountWhenVisible minHeight="240px" eagerAfterMs={Infinity}>
-          <CalibrationDashboard
-            seedData={data}
-            assumptions={assumptions}
-            baselinePath={planPath}
-            predictionStore={getPredictionStore()}
-            actualsStore={getActualsStore()}
-            title="Plan calibration signals"
-          />
-        </MountWhenVisible>
-      )}
+      {/* DISABLED 2026-05-05: MortalitySensitivityCard runs 3 sync MC
+          passes on mount, and CalibrationDashboard's UncertaintyRange-
+          Tile runs 6 perturbation MC passes — both block the main
+          thread for 5-15s when the household scrolls past them and
+          locks the browser. Hidden behind a flag until the compute
+          is moved to simulation.worker.ts (backlog item). Cockpit
+          headline numbers still render from the corpus — they don't
+          depend on these cards. */}
+      <div className="rounded-2xl border border-stone-200 bg-stone-50/40 p-4 text-sm text-stone-600">
+        <p className="font-medium text-stone-700">Calibration signals temporarily hidden</p>
+        <p className="mt-1 text-xs text-stone-500">
+          The mortality sensitivity card and the uncertainty / tax-
+          efficiency tiles each run synchronous Monte Carlo on mount
+          and block the main thread for 5–15s on a real plan. Hidden
+          until the compute is moved to a Web Worker (tracked in the
+          backlog). Cockpit headline numbers still render from the
+          corpus — they don&apos;t depend on these cards.
+        </p>
+      </div>
 
       {/* Log actuals — household enters real balances / spending /
           taxes; engine writes them to the actuals log; reconciliation
