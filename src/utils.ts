@@ -724,7 +724,27 @@ function buildPlan(
     travelAnnual: rawTravelAnnual * spendMultiplier,
     travelPhaseYears: assumptions.travelPhaseYears,
     socialSecurity: data.income.socialSecurity.map((entry) => ({ ...entry })),
-    windfalls: data.income.windfalls.map((item) => ({ ...item })),
+    windfalls: data.income.windfalls.map((item) => {
+      // When `presentValueGrowthRate` is set, the entered amount is in
+      // today's dollars and the source account is assumed to compound at
+      // this real rate until `year`. Apply the growth once at ingestion
+      // so downstream engine code sees a single year-of-arrival amount.
+      const growthRate = item.presentValueGrowthRate;
+      if (typeof growthRate !== 'number' || !Number.isFinite(growthRate)) {
+        return { ...item };
+      }
+      const yearsUntil = Math.max(0, item.year - CURRENT_YEAR);
+      const factor = (1 + growthRate) ** yearsUntil;
+      return {
+        ...item,
+        amount: item.amount * factor,
+        liquidityAmount:
+          item.liquidityAmount != null ? item.liquidityAmount * factor : undefined,
+        costBasis: item.costBasis != null ? item.costBasis * factor : undefined,
+        // Drop the field on the sim copy so no caller can re-apply it.
+        presentValueGrowthRate: undefined,
+      };
+    }),
     assetClassMappingAssumptions,
     accounts: {
       pretax: {

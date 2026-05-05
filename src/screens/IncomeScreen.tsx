@@ -1,6 +1,7 @@
 import { useAppStore } from '../store';
-import { InsightCard, Panel } from '../ui-primitives';
+import { Panel } from '../ui-primitives';
 import { formatCurrency, formatDate } from '../utils';
+import { WindfallEditor } from './WindfallEditor';
 
 export function IncomeScreen() {
   const data = useAppStore((state) => state.data);
@@ -41,15 +42,8 @@ export function IncomeScreen() {
         </article>
       </div>
 
-      <div className="mt-6 grid gap-4 md:grid-cols-2">
-        {data.income.windfalls.map((item) => (
-          <InsightCard
-            key={item.name}
-            eyebrow={`Windfall ${item.year}`}
-            title={`${item.name.replaceAll('_', ' ')}: ${formatCurrency(item.amount)}`}
-            body="Windfalls are modeled as explicit decision support levers rather than assumed guarantees, so delayed-arrival stress tests can be layered on later."
-          />
-        ))}
+      <div className="mt-6">
+        <WindfallEditor />
       </div>
     </Panel>
   );
