@@ -3779,9 +3779,12 @@ export function CockpitScreen() {
           below the optimizer cards because it's a sensitivity, not the
           baseline; the baseline projects to 95 for both.
           Lazy-mounted: 3 extra engine runs (~6s) start ONLY when the
-          user scrolls within 300px of this card or 2.5s after first
-          paint, whichever first. */}
-      <MountWhenVisible minHeight="120px">
+          user scrolls within 300px of this card. eagerAfterMs disabled
+          because each of these cards runs sync MC on mount — auto-
+          mounting them after a fixed timer triggers the same
+          page-unresponsive hang the IntersectionObserver fix was
+          meant to prevent. */}
+      <MountWhenVisible minHeight="120px" eagerAfterMs={Infinity}>
         <MortalitySensitivityCard
           data={data}
           assumptions={assumptions}
@@ -3793,10 +3796,11 @@ export function CockpitScreen() {
           TaxEfficiency, PreRetirementOptimizer tiles in a 2-column
           grid. Plus the DeltaDashboardTile when both prediction +
           actuals stores are passed (shipped 2026-04-30).
-          Lazy-mounted: UncertaintyRangeTile runs its OWN sensitivity
-          sweep (~5s); deferring it lets the Trust card paint first. */}
+          Scroll-only mount: UncertaintyRangeTile runs its OWN
+          sensitivity sweep (~5s, sync); auto-mounting on a timer
+          would block the main thread. */}
       {planPath && assumptions && data && (
-        <MountWhenVisible minHeight="240px">
+        <MountWhenVisible minHeight="240px" eagerAfterMs={Infinity}>
           <CalibrationDashboard
             seedData={data}
             assumptions={assumptions}
@@ -3810,8 +3814,9 @@ export function CockpitScreen() {
 
       {/* Log actuals — household enters real balances / spending /
           taxes; engine writes them to the actuals log; reconciliation
-          surfaces drift in the DeltaDashboardTile above. Lazy: form
-          state isn't needed until the user scrolls there. */}
+          surfaces drift in the DeltaDashboardTile above. Form-only
+          (no MC), so eager mount is harmless — keep the default
+          2.5s fallback. */}
       <MountWhenVisible minHeight="200px">
         <LogActualsCard data={data} assumptions={assumptions} />
       </MountWhenVisible>
