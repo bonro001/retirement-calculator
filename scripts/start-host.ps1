@@ -44,7 +44,11 @@ param(
     [string]$DisplayName = "node-host-$env:COMPUTERNAME"
 )
 
-$ErrorActionPreference = "Stop"
+# Native commands like `git` write progress to stderr; under "Stop" PowerShell
+# escalates that into a terminating NativeCommandError on success. Keep
+# preference at "Continue" and check $LASTEXITCODE explicitly after each
+# native call.
+$ErrorActionPreference = "Continue"
 
 # Derive LAN git URL from DispatcherUrl host. Pass -RepoGitUrl to
 # override (e.g., point back at GitHub if the dispatcher's git-daemon
@@ -85,6 +89,7 @@ git config --global credential.helper manager
 git remote set-url origin $RepoGitUrl
 
 git fetch origin
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 # Follow the dispatcher's branch instead of hardcoding main, so a
 # feature branch (with its own prebuilt napi binary, for example)
@@ -100,6 +105,7 @@ Write-Host "[start-host] target branch: $TargetBranch"
 # origin if it doesn't exist locally. Workers are ephemeral; the
 # dispatcher is authoritative.
 git checkout -f -B $TargetBranch "origin/$TargetBranch"
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 # Prefer `npm ci` (strict, never modifies lockfile). Fall back to
 # `npm install` if the lockfile drifted out of sync with package.json

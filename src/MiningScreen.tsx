@@ -31,7 +31,20 @@ import { AxisPruningCard } from './AxisPruningCard';
 import { CliffRefinementCard } from './CliffRefinementCard';
 import { RuleSweepCard } from './RuleSweepCard';
 
-const POLICY_MINING_TRIAL_COUNT = 2000;
+// Lowered from 2000 → 1000 after the ranking-stability validator
+// (see policy-miner.ranking-stability.test.ts) showed top-20 perfectly
+// preserved and Spearman 0.9997 across a 90-policy grid. Halves
+// fine-pass cost on the cluster (~37% total mine speedup).
+//
+// Tried 500 briefly: extra ~25% speedup but the run *feels* janky —
+// coarse stage (still at 200 trials) becomes the relative bottleneck,
+// the coarse → fine transition is visible, and the fine tail starves
+// more (RTT/work ratio rises with smaller per-batch work). 1000 is
+// the sweet spot for steady throughput. To go faster from here, attack
+// the coarse stage (SESSION_COARSE_TRIALS or SESSION_COARSE_BUFFER).
+//
+// Bumping this constant invalidates the corpus.
+const POLICY_MINING_TRIAL_COUNT = 1000;
 
 /**
  * Pin the miner to its own trial count so the corpus key (which

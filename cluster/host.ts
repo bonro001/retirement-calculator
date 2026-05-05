@@ -153,6 +153,114 @@ function log(
   (level === 'error' ? console.error : console.log)(line);
 }
 
+// ── MINE_PERF instrumentation ──────────────────────────────────────────────
+// Lightweight diagnostic emitter, on when MINE_PERF=1. Aggregates a 10s
+// rolling window of per-policy napi timings (from the shadowStats already
+// flowing back from worker_threads) and per-worker idle gaps, and logs one
+// summary line per window. Removable in one diff.
+const MINE_PERF = process.env.MINE_PERF === '1';
+const PERF_WINDOW_MS = 10_000;
+const perfIdleGapsMs: number[] = [];
+let perfBatches = 0;
+let perfPolicies = 0;
+let perfRustSummaryTotal = 0;
+let perfIpcWriteTotal = 0;
+let perfResponseWaitTotal = 0;
+let perfResponseParseTotal = 0;
+let perfTapeHits = 0;
+let perfTapeMisses = 0;
+let perfCompactTapeHits = 0;
+let perfCompactTapeMisses = 0;
+let perfWindowStartMs = Date.now();
+
+function recordWorkerIdleGap(gapMs: number): void {
+  if (!MINE_PERF) return;
+  perfIdleGapsMs.push(gapMs);
+}
+
+function recordBatchPerf(stats: PolicyMinerShadowStats | undefined): void {
+  if (!MINE_PERF) return;
+  if (!stats || !stats.timings || stats.evaluated <= 0) return;
+  perfBatches += 1;
+  perfPolicies += stats.evaluated;
+  perfRustSummaryTotal += Number(stats.timings.rustSummaryDurationMsTotal ?? 0);
+  perfIpcWriteTotal += Number(stats.timings.rustIpcWriteDurationMsTotal ?? 0);
+  perfResponseWaitTotal += Number(stats.timings.rustResponseWaitDurationMsTotal ?? 0);
+  perfResponseParseTotal += Number(stats.timings.rustResponseParseDurationMsTotal ?? 0);
+  perfTapeHits += Number(stats.timings.tapeCacheHitsTotal ?? 0);
+  perfTapeMisses += Number(stats.timings.tapeCacheMissesTotal ?? 0);
+  perfCompactTapeHits += Number(stats.timings.compactTapeCacheHitsTotal ?? 0);
+  perfCompactTapeMisses += Number(stats.timings.compactTapeCacheMissesTotal ?? 0);
+}
+
+function flushPerfSummary(): void {
+  if (!MINE_PERF) return;
+  const elapsedMs = Date.now() - perfWindowStartMs;
+  if (perfPolicies === 0 && perfIdleGapsMs.length === 0) {
+    perfWindowStartMs = Date.now();
+    return;
+  }
+  const napiOverheadMs = perfIpcWriteTotal + perfResponseParseTotal;
+  const napiOverheadPct = perfRustSummaryTotal > 0
+    ? (napiOverheadMs / perfRustSummaryTotal) * 100
+    : 0;
+  const idleSorted = perfIdleGapsMs.slice().sort((a, b) => a - b);
+  const idleP50 = idleSorted.length > 0
+    ? idleSorted[Math.floor(idleSorted.length * 0.5)]
+    : 0;
+  const idleP95 = idleSorted.length > 0
+    ? idleSorted[Math.min(idleSorted.length - 1, Math.floor(idleSorted.length * 0.95))]
+    : 0;
+  const round2 = (n: number) => Math.round(n * 100) / 100;
+  const tapeLookups = perfTapeHits + perfTapeMisses;
+  const tapeHitPct = tapeLookups > 0
+    ? (perfTapeHits / tapeLookups) * 100
+    : 0;
+  const compactTapeLookups = perfCompactTapeHits + perfCompactTapeMisses;
+  const compactTapeHitPct = compactTapeLookups > 0
+    ? (perfCompactTapeHits / compactTapeLookups) * 100
+    : 0;
+  log('info', 'mine_perf', {
+    windowMs: elapsedMs,
+    batches: perfBatches,
+    policies: perfPolicies,
+    msPerPolicy: perfPolicies > 0 ? round2(perfRustSummaryTotal / perfPolicies) : 0,
+    rustWaitMsAvg: perfPolicies > 0 ? round2(perfResponseWaitTotal / perfPolicies) : 0,
+    napiOverheadMsAvg: perfPolicies > 0 ? round2(napiOverheadMs / perfPolicies) : 0,
+    napiOverheadPct: Math.round(napiOverheadPct * 10) / 10,
+    workerIdleP50Ms: Math.round(idleP50),
+    workerIdleP95Ms: Math.round(idleP95),
+    idleSamples: perfIdleGapsMs.length,
+    tapeHitPct: Math.round(tapeHitPct * 10) / 10,
+    tapeLookups,
+    compactTapeHitPct: Math.round(compactTapeHitPct * 10) / 10,
+    compactTapeLookups,
+  });
+  perfIdleGapsMs.length = 0;
+  perfBatches = 0;
+  perfPolicies = 0;
+  perfRustSummaryTotal = 0;
+  perfIpcWriteTotal = 0;
+  perfResponseWaitTotal = 0;
+  perfResponseParseTotal = 0;
+  perfTapeHits = 0;
+  perfTapeMisses = 0;
+  perfCompactTapeHits = 0;
+  perfCompactTapeMisses = 0;
+  perfWindowStartMs = Date.now();
+}
+
+if (MINE_PERF) {
+  setInterval(flushPerfSummary, PERF_WINDOW_MS).unref();
+  log('info', 'mine_perf enabled', { windowMs: PERF_WINDOW_MS });
+}
+// ───────────────────────────────────────────────────────────────────────────
+
+// Max batches the host will queue locally when all workers are busy.
+// Should be ≥ dispatcher's IN_FLIGHT_PER_PEER. Beyond this, host nacks for
+// requeue rather than holding payloads in memory.
+const MAX_QUEUE_DEPTH = 4;
+
 // ---------------------------------------------------------------------------
 // Worker pool
 // ---------------------------------------------------------------------------
@@ -168,6 +276,9 @@ interface WorkerSlot {
   index: number;
   busy: boolean;
   primedSessionIds: Set<string>;
+  // MINE_PERF: timestamp the slot last became free; used to measure the gap
+  // from "result back" to "next batch dispatched" — a starvation signal.
+  lastResultMs?: number;
 }
 
 interface PendingRun {
@@ -243,6 +354,7 @@ function handleWorkerMessage(
   }
   pendingRuns.delete(msg.requestId);
   slot.busy = false;
+  slot.lastResultMs = Date.now();
   if (msg.type === 'result') {
     pending.resolve({
       evaluations: msg.evaluations,
@@ -572,6 +684,9 @@ function runSingleSubBatch(
       resolve,
       reject: reject as PendingRun['reject'],
     });
+    if (slot.lastResultMs != null) {
+      recordWorkerIdleGap(Date.now() - slot.lastResultMs);
+    }
     slot.busy = true;
     const run: PolicyMinerWorkerRequest = {
       type: 'run',
@@ -674,6 +789,9 @@ function runFanOutBatch(
           finalize();
         },
       });
+      if (slot.lastResultMs != null) {
+        recordWorkerIdleGap(Date.now() - slot.lastResultMs);
+      }
       slot.busy = true;
       const run: PolicyMinerWorkerRequest = {
         type: 'run',
@@ -724,6 +842,13 @@ interface ActiveSession {
 
 let activeSession: ActiveSession | null = null;
 const inFlightBatchIds = new Set<string>();
+// Batches the host has accepted but can't run yet because every worker
+// slot is busy. Drained after each batch completes (in handleBatchAssign,
+// after sendBatchResult). Holding the payload locally lets the dispatcher
+// pre-load the next batch while the current one runs — eliminating the
+// round-trip idle time that previously caused CPU to pulse on multi-worker
+// hosts.
+const pendingBatchQueue: BatchAssignMessage[] = [];
 
 // Per-session counters used solely for the host-terminal `batch done`
 // log line. Reset whenever the active session changes so the numbers
@@ -839,6 +964,7 @@ function resetPeerScopedState(): void {
     activeSession = null;
   }
   inFlightBatchIds.clear();
+  pendingBatchQueue.length = 0;
   sessionBatchesCompleted = 0;
   sessionPoliciesCompleted = 0;
   myPeerId = null;
@@ -1075,6 +1201,9 @@ function handleCancelSession(message: CancelSessionMessage): void {
   });
   cancelAllInFlight();
   unprimeAllSlots(activeSession.sessionId);
+  // Drop any batches that haven't started yet — they belong to the
+  // session being cancelled and would fail validation in the run path.
+  pendingBatchQueue.length = 0;
   activeSession = null;
 }
 
@@ -1098,22 +1227,33 @@ async function handleBatchAssign(message: BatchAssignMessage): Promise<void> {
     sendNack(sessionId, batch.batchId, 'engine_version_mismatch');
     return;
   }
-  // Pre-flight slot check. The dispatcher MAY overpack — its heartbeat
-  // bookkeeping can lag behind in-flight work — so a batch can land
-  // when every worker is busy. Nack instead of running through
-  // runBatchOnPool's `reject` path: an error there would surface as a
-  // batch_result with 0 evaluations + partialFailure, which the
-  // dispatcher currently treats as a (zero-policy) completion and
-  // silently drops the work. A nack hits the dispatcher's existing
-  // requeue-with-cooldown + per-policy retry-cap path, so the policies
-  // stay alive in the queue and a healthier host (or this one a moment
-  // later) picks them up.
+  // Pre-flight slot check. With multi-batch-in-flight (IN_FLIGHT_PER_PEER>1
+  // on the dispatcher), a 2nd batch can arrive while the 1st is fanned
+  // out across all workers. Queue it locally instead of nacking — when
+  // the 1st batch's result is sent, drainPendingBatchQueue() picks the
+  // 2nd up immediately, eliminating the round-trip idle time that caused
+  // the CPU "pulse" pattern.
+  //
+  // MAX_QUEUE_DEPTH guards against runaway memory if dispatcher misbehaves
+  // (or IN_FLIGHT_PER_PEER is raised beyond the host's expectations). Set
+  // to 2 to match the dispatcher's IN_FLIGHT_PER_PEER plus a small buffer.
   if (freeSlotCount() <= 0) {
-    log('warn', 'no free worker slots — nacking for requeue', {
+    if (pendingBatchQueue.length >= MAX_QUEUE_DEPTH) {
+      log('warn', 'pending queue full — nacking for requeue', {
+        batchId: batch.batchId,
+        policies: batch.policies.length,
+        queueDepth: pendingBatchQueue.length,
+      });
+      sendNack(sessionId, batch.batchId, 'host_no_free_slots');
+      return;
+    }
+    pendingBatchQueue.push(message);
+    inFlightBatchIds.add(batch.batchId);
+    log('info', 'queued batch — workers busy', {
       batchId: batch.batchId,
       policies: batch.policies.length,
+      queueDepth: pendingBatchQueue.length,
     });
-    sendNack(sessionId, batch.batchId, 'host_no_free_slots');
     return;
   }
 
@@ -1174,6 +1314,7 @@ async function handleBatchAssign(message: BatchAssignMessage): Promise<void> {
     shadowStats,
     partialFailure,
   };
+  recordBatchPerf(shadowStats);
   sendBatchResult(sessionId, result);
 
   // Per-batch heartbeat on the host terminal. The dispatcher and the
@@ -1194,6 +1335,29 @@ async function handleBatchAssign(message: BatchAssignMessage): Promise<void> {
       sessionBatches: sessionBatchesCompleted,
       sessionPolicies: sessionPoliciesCompleted,
       shadowStats,
+    });
+  }
+
+  // Drain any batches that arrived while workers were saturated.
+  // Re-entrant: each drained call awaits its own batch and then drains
+  // again, so the queue cascades through whatever depth has accumulated.
+  drainPendingBatchQueue();
+}
+
+function drainPendingBatchQueue(): void {
+  while (pendingBatchQueue.length > 0 && freeSlotCount() > 0) {
+    const next = pendingBatchQueue.shift();
+    if (!next) break;
+    // The queued batch is already counted in inFlightBatchIds. Remove it
+    // so handleBatchAssign re-adds it on the run path (keeping the set
+    // consistent if the batch ends up nacked due to session/version drift
+    // detected on the second pass).
+    inFlightBatchIds.delete(next.batch.batchId);
+    handleBatchAssign(next).catch((err) => {
+      log('error', 'queued batch failed during drain', {
+        batchId: next.batch.batchId,
+        err: String(err),
+      });
     });
   }
 }

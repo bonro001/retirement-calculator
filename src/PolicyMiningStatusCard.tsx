@@ -1097,9 +1097,7 @@ export function PolicyMiningStatusCard({
               {rustHosts.length}/{liveHosts.length} Rust compact
             </p>
             <p className="text-stone-500">
-              {staleBuildHosts.length > 0
-                ? staleBuildHosts.map((v) => v.displayName).join(', ')
-                : nonRustHosts.length === 0
+              {nonRustHosts.length === 0
                 ? 'all live hosts on compiled path'
                 : nonRustHosts.map((v) => v.displayName).join(', ')}
             </p>

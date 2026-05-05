@@ -6,7 +6,7 @@ use serde_json::Value;
 use std::collections::HashMap;
 use std::ffi::{c_char, c_void, CString};
 use std::ptr;
-use std::sync::{Mutex, OnceLock};
+use std::sync::{OnceLock, RwLock};
 
 type NapiEnv = *mut c_void;
 type NapiValue = *mut c_void;
@@ -45,11 +45,19 @@ impl OwnedCompactSummaryTape {
     }
 }
 
-static COMPACT_TAPE_SESSIONS: OnceLock<Mutex<HashMap<String, OwnedCompactSummaryTape>>> =
+// RwLock so concurrent worker_threads can run mining policies in parallel.
+// The hot path (run_candidate_summary_compact_session_json) only reads, so
+// multiple readers can hold .read() guards simultaneously. Write-locking
+// only happens at session boundaries (register / clear), which fire once.
+//
+// Previously a Mutex held across the entire compute serialized all worker
+// threads through one core regardless of HOST_WORKERS — observed as ~12-25%
+// CPU on a 12-worker host instead of saturating.
+static COMPACT_TAPE_SESSIONS: OnceLock<RwLock<HashMap<String, OwnedCompactSummaryTape>>> =
     OnceLock::new();
 
-fn compact_tape_sessions() -> &'static Mutex<HashMap<String, OwnedCompactSummaryTape>> {
-    COMPACT_TAPE_SESSIONS.get_or_init(|| Mutex::new(HashMap::new()))
+fn compact_tape_sessions() -> &'static RwLock<HashMap<String, OwnedCompactSummaryTape>> {
+    COMPACT_TAPE_SESSIONS.get_or_init(|| RwLock::new(HashMap::new()))
 }
 
 #[repr(C)]
@@ -448,7 +456,7 @@ unsafe extern "C" fn register_candidate_summary_compact_tape_json(
     if let Err(message) = owned.as_input().dimensions() {
         return throw_error(env, message);
     }
-    match compact_tape_sessions().lock() {
+    match compact_tape_sessions().write() {
         Ok(mut sessions) => {
             sessions.insert(session_id.clone(), owned);
         }
@@ -473,7 +481,7 @@ unsafe extern "C" fn run_candidate_summary_compact_session_json(
         .map_err(|err| format!("parse request JSON: {err}"))
         .and_then(|request| {
             let sessions = compact_tape_sessions()
-                .lock()
+                .read()
                 .map_err(|_| "compact tape session cache lock poisoned".to_string())?;
             let tape = sessions
                 .get(&session_id)
@@ -506,7 +514,7 @@ unsafe extern "C" fn clear_candidate_summary_compact_tape_json(
         Ok(value) => value,
         Err(thrown) => return thrown,
     };
-    match compact_tape_sessions().lock() {
+    match compact_tape_sessions().write() {
         Ok(mut sessions) => {
             sessions.remove(&session_id);
         }

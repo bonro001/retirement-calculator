@@ -34,14 +34,22 @@ const hasCargo = cargoCheck.status === 0;
 
 if (hasCargo) {
   await buildFromSource();
-  publishPrebuilt();
+  // Only publish prebuilt to the committed location when explicitly
+  // requested (PUBLISH_PREBUILT=1). Auto-publishing on every build
+  // dirtied the worker's tree (release builds aren't byte-deterministic),
+  // and that dirty status caused workers to loop through auto-update.
+  // After a Rust change, the operator runs `PUBLISH_PREBUILT=1 npm run
+  // engine:rust:build:napi` once on a cargo Mac, then commits + pushes.
+  if (process.env.PUBLISH_PREBUILT === '1') {
+    publishPrebuilt();
+  }
 } else if (existsSync(prebuiltPath)) {
   usePrebuilt();
 } else {
   console.error(
     `[build-rust-napi] cargo not found on PATH and no prebuilt binary at ${prebuiltPath}. ` +
       `Either install rustup (https://sh.rustup.rs) or commit a prebuilt binary for ${platArchDir} ` +
-      `from a worker that has cargo (it auto-publishes to ${prebuiltDir} on every build).`,
+      `from a cargo-equipped worker: PUBLISH_PREBUILT=1 npm run engine:rust:build:napi, then commit ${prebuiltDir}.`,
   );
   process.exit(1);
 }
