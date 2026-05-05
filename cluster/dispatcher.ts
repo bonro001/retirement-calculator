@@ -1252,18 +1252,18 @@ function pumpDispatch(): void {
     // batches 10× too small for a 200-trial coarse pass.
     //
     // Per-host adaptive override (2026-05-05): when the host has sent
-    // a tuning hint with a recommendedBatchSize, prefer it over the
-    // perf-class heuristic. The host knows its actual ms/policy and
-    // worker idle pattern; the dispatcher's hint is a cold-start
-    // approximation.
+    // a tuning hint with a recommendedBatchSize, the dispatcher uses
+    // the LARGER of the host hint and the perf-class default. The hint
+    // can RAISE batch size above the slots*32 cap (so a fast host can
+    // pull bigger batches once it has measured itself), but it never
+    // SHRINKS below the conservative dispatcher baseline. Empirically
+    // the perf-class default is well-calibrated for the cluster's
+    // hardware; letting the hint go below it cost m2 ~60% throughput
+    // in the 2026-05-05 tests.
     //
-    // When the hint is present we DON'T apply maxBatchSizeForPeer
-    // (which caps at `slots*32`, ~192 with the reservation halving
-    // free slots) because that cap was sized assuming the host couldn't
-    // tune itself. The host's hint already accounts for its observed
-    // ms/policy and target wall time per batch. We still bound by a
-    // safety ceiling (HOST_HINT_BATCH_CEILING) to prevent a runaway
-    // hint and by pendingCount to not over-assign at end of mine.
+    // The hint is bounded by a safety ceiling (HOST_HINT_BATCH_CEILING)
+    // to prevent a runaway recommendation and by pendingCount to not
+    // over-assign at end of mine.
     const baseRecommendation = recommendedBatchSize(
       peer.capabilities?.perfClass ?? 'unknown',
       peer.completedBatchCount >= 3 ? peer.meanMsPerPolicy : null,
@@ -1273,14 +1273,15 @@ function pumpDispatch(): void {
     );
     const HOST_HINT_BATCH_CEILING = 2000;
     const hostHintBatch = peer.tuningHints?.recommendedBatchSize;
-    const size =
+    const hintAdjusted =
       typeof hostHintBatch === 'number' && Number.isFinite(hostHintBatch) && hostHintBatch > 0
         ? Math.min(
-            hostHintBatch,
+            Math.max(hostHintBatch, baseRecommendation),
             session.queue.pendingCount(),
             HOST_HINT_BATCH_CEILING,
           )
-        : baseRecommendation;
+        : null;
+    const size = hintAdjusted ?? baseRecommendation;
     const assigned = session.queue.assignBatch(peer.peerId, size);
     if (!assigned) continue;
     const batch: MiningJobBatch = {
