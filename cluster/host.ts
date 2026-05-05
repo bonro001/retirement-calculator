@@ -173,24 +173,114 @@ let perfCompactTapeHits = 0;
 let perfCompactTapeMisses = 0;
 let perfWindowStartMs = Date.now();
 
+// ── Tuning hints (always-on; feeds dispatcher's per-host adaptive logic) ─
+// Sliding sample of the most recent N batches' timings, kept regardless of
+// MINE_PERF so the dispatcher's adaptive batch sizer always has data. The
+// MINE_PERF aggregator above is a separate concern (verbose log emitter).
+interface TuningBatchSample {
+  policies: number;
+  rustSummaryMs: number;
+  ipcWriteMs: number;
+  responseParseMs: number;
+  idleGapsMs: number[];
+}
+const TUNING_SAMPLE_CAP = 30;
+const tuningSamples: TuningBatchSample[] = [];
+let tuningPendingIdleGapsMs: number[] = [];
+
 function recordWorkerIdleGap(gapMs: number): void {
-  if (!MINE_PERF) return;
-  perfIdleGapsMs.push(gapMs);
+  // Always record — used by both MINE_PERF logging and tuning hints.
+  if (MINE_PERF) perfIdleGapsMs.push(gapMs);
+  tuningPendingIdleGapsMs.push(gapMs);
 }
 
 function recordBatchPerf(stats: PolicyMinerShadowStats | undefined): void {
-  if (!MINE_PERF) return;
   if (!stats || !stats.timings || stats.evaluated <= 0) return;
-  perfBatches += 1;
-  perfPolicies += stats.evaluated;
-  perfRustSummaryTotal += Number(stats.timings.rustSummaryDurationMsTotal ?? 0);
-  perfIpcWriteTotal += Number(stats.timings.rustIpcWriteDurationMsTotal ?? 0);
-  perfResponseWaitTotal += Number(stats.timings.rustResponseWaitDurationMsTotal ?? 0);
-  perfResponseParseTotal += Number(stats.timings.rustResponseParseDurationMsTotal ?? 0);
-  perfTapeHits += Number(stats.timings.tapeCacheHitsTotal ?? 0);
-  perfTapeMisses += Number(stats.timings.tapeCacheMissesTotal ?? 0);
-  perfCompactTapeHits += Number(stats.timings.compactTapeCacheHitsTotal ?? 0);
-  perfCompactTapeMisses += Number(stats.timings.compactTapeCacheMissesTotal ?? 0);
+  if (MINE_PERF) {
+    perfBatches += 1;
+    perfPolicies += stats.evaluated;
+    perfRustSummaryTotal += Number(stats.timings.rustSummaryDurationMsTotal ?? 0);
+    perfIpcWriteTotal += Number(stats.timings.rustIpcWriteDurationMsTotal ?? 0);
+    perfResponseWaitTotal += Number(stats.timings.rustResponseWaitDurationMsTotal ?? 0);
+    perfResponseParseTotal += Number(stats.timings.rustResponseParseDurationMsTotal ?? 0);
+    perfTapeHits += Number(stats.timings.tapeCacheHitsTotal ?? 0);
+    perfTapeMisses += Number(stats.timings.tapeCacheMissesTotal ?? 0);
+    perfCompactTapeHits += Number(stats.timings.compactTapeCacheHitsTotal ?? 0);
+    perfCompactTapeMisses += Number(stats.timings.compactTapeCacheMissesTotal ?? 0);
+  }
+  // Always-on tuning sample.
+  tuningSamples.push({
+    policies: stats.evaluated,
+    rustSummaryMs: Number(stats.timings.rustSummaryDurationMsTotal ?? 0),
+    ipcWriteMs: Number(stats.timings.rustIpcWriteDurationMsTotal ?? 0),
+    responseParseMs: Number(stats.timings.rustResponseParseDurationMsTotal ?? 0),
+    idleGapsMs: tuningPendingIdleGapsMs,
+  });
+  tuningPendingIdleGapsMs = [];
+  if (tuningSamples.length > TUNING_SAMPLE_CAP) {
+    tuningSamples.shift();
+  }
+}
+
+const TUNING_TARGET_BATCH_WALL_MS = 1500;
+const TUNING_MIN_SAMPLES = 5;
+
+/**
+ * Synthesize a per-host tuning hint snapshot from the recent batch
+ * samples. Returns undefined when there isn't enough data yet so the
+ * dispatcher falls back to its default sizing.
+ */
+function computeTuningHints(): import('../src/mining-protocol').HostTuningHints | undefined {
+  if (tuningSamples.length < TUNING_MIN_SAMPLES) return undefined;
+  let totalPolicies = 0;
+  let totalRustSummaryMs = 0;
+  let totalIpcWriteMs = 0;
+  let totalResponseParseMs = 0;
+  const allIdleGaps: number[] = [];
+  for (const s of tuningSamples) {
+    totalPolicies += s.policies;
+    totalRustSummaryMs += s.rustSummaryMs;
+    totalIpcWriteMs += s.ipcWriteMs;
+    totalResponseParseMs += s.responseParseMs;
+    for (const g of s.idleGapsMs) allIdleGaps.push(g);
+  }
+  if (totalPolicies <= 0 || totalRustSummaryMs <= 0) return undefined;
+  const msPerPolicy = totalRustSummaryMs / totalPolicies;
+  const napiOverheadMs = totalIpcWriteMs + totalResponseParseMs;
+  const napiOverheadFraction = napiOverheadMs / totalRustSummaryMs;
+  const idleSorted = allIdleGaps.slice().sort((a, b) => a - b);
+  const workerIdleP50Ms =
+    idleSorted.length > 0
+      ? idleSorted[Math.floor(idleSorted.length * 0.5)]
+      : 0;
+  const workerIdleP95Ms =
+    idleSorted.length > 0
+      ? idleSorted[
+          Math.min(idleSorted.length - 1, Math.floor(idleSorted.length * 0.95))
+        ]
+      : 0;
+  // Recommended batch size: aim for ~1500ms wall time per batch given
+  // the host's actual workers and per-policy compute. Floor at 12 to
+  // amortize per-batch coordination overhead even on fast hosts;
+  // ceiling at workerCount*200 to keep tail risk bounded.
+  const targetPerWorker = TUNING_TARGET_BATCH_WALL_MS / Math.max(1, msPerPolicy);
+  const recommendedBatchSize = Math.round(
+    Math.max(12, Math.min(HOST_WORKER_COUNT * 200, HOST_WORKER_COUNT * targetPerWorker)),
+  );
+  // Recommended in-flight: deeper queue when workers idle a lot
+  // between batches (RTT/network dominates). Conservative when
+  // workers stay busy (compute-bound).
+  let recommendedInFlight = 2;
+  if (workerIdleP50Ms > 500) recommendedInFlight = 4;
+  else if (workerIdleP50Ms > 200) recommendedInFlight = 3;
+  return {
+    workerIdleP50Ms: Math.round(workerIdleP50Ms),
+    workerIdleP95Ms: Math.round(workerIdleP95Ms),
+    recommendedInFlight,
+    recommendedBatchSize,
+    napiOverheadFraction:
+      Math.round(Math.max(0, napiOverheadFraction) * 10000) / 10000,
+  };
 }
 
 function flushPerfSummary(): void {
@@ -1148,11 +1238,13 @@ function startHeartbeat(): void {
   if (heartbeatTimer) clearInterval(heartbeatTimer);
   heartbeatTimer = setInterval(() => {
     if (!myPeerId || !socket || socket.readyState !== WebSocket.OPEN) return;
+    const tuningHints = computeTuningHints();
     const hb: HeartbeatMessage = {
       kind: 'heartbeat',
       from: myPeerId,
       inFlightBatchIds: Array.from(inFlightBatchIds),
       freeWorkerSlots: freeSlotCount(),
+      ...(tuningHints ? { tuningHints } : {}),
     };
     socket.send(encodeMessage(hb));
   }, HEARTBEAT_INTERVAL_MS);

@@ -222,6 +222,61 @@ export interface HeartbeatMessage extends BaseMessage {
   inFlightBatchIds: string[];
   /** Currently free worker slots — capacity hint for the next batch_assign. */
   freeWorkerSlots: number;
+  /**
+   * Optional per-host tuning hints derived from the host's own observed
+   * behavior — only the host can measure these cheaply (e.g., how often
+   * its workers wait for the next batch). Dispatcher uses them to size
+   * batches and the in-flight queue per-host instead of using a global
+   * constant. Absent on hosts that haven't gathered enough data yet
+   * (typically the first ~5 batches of a session).
+   */
+  tuningHints?: HostTuningHints;
+}
+
+/**
+ * Per-host tuning hints. Each field is a host's *own* recommendation
+ * based on local-only signals; the dispatcher reads them as advisory
+ * input to its batch sizing and in-flight queue logic. The host doesn't
+ * see other peers' state, so a host can't recommend cluster-wide knobs
+ * like worker pool topology.
+ */
+export interface HostTuningHints {
+  /**
+   * Median worker idle gap (ms) between finishing one batch and being
+   * assigned the next. High values (>200ms with sub-second per-batch
+   * compute) indicate the dispatcher should ship more in-flight batches
+   * to keep the worker pool fed.
+   */
+  workerIdleP50Ms?: number;
+  /**
+   * 95th-percentile worker idle gap (ms). Tail starvation signal —
+   * even when median looks fine, sustained high p95 means the host
+   * regularly empties its local queue waiting for work.
+   */
+  workerIdleP95Ms?: number;
+  /**
+   * Host's own opinion of `IN_FLIGHT_PER_PEER`. Computed from the
+   * idle/thrash trade-off the host can observe locally — at 1 the
+   * worker pool starves on every batch boundary; at too-high values
+   * batches pile up in pendingBatchQueue, holding seedDataPayload
+   * memory references with no throughput gain.
+   */
+  recommendedInFlight?: number;
+  /**
+   * Host's own opinion of the batch size that maximizes throughput
+   * given its worker count and per-policy compute time. Bigger batches
+   * amortize per-batch coordination overhead (websocket frame, JSON
+   * parse, host main → worker_thread postMessage) but also delay the
+   * first result and risk one slow worker tail-blocking the batch.
+   */
+  recommendedBatchSize?: number;
+  /**
+   * napi crossing time as a fraction of total per-policy compute (0..1).
+   * High values (>0.20) mean the host is paying serialization overhead
+   * disproportionate to actual rust compute — a multi-policy napi call
+   * would help. Low values mean batch-size knobs dominate.
+   */
+  napiOverheadFraction?: number;
 }
 
 // ============================================================================

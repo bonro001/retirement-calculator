@@ -152,6 +152,10 @@ interface Peer {
    *  nack handler to break tight nack loops; the failsafe pump tick
    *  retries after the cooldown elapses. */
   pumpCooldownUntilMs: number;
+  /** Latest tuning hints received from this host's heartbeat. Drives
+   *  per-host adaptive batch sizing and in-flight queue depth. Null
+   *  until the host has gathered enough samples (~5 batches). */
+  tuningHints: import('../src/mining-protocol').HostTuningHints | null;
 }
 
 interface SessionRuntimeCounters {
@@ -545,6 +549,8 @@ function flushPerfSummary(): void {
     const tapeLookups = p.tapeHits + p.tapeMisses;
     const compactTapeLookups = p.compactTapeHits + p.compactTapeMisses;
     const napiOverheadMs = p.ipcWriteMsTotal + p.responseParseMsTotal;
+    const peerLive = peers.get(peerId);
+    const hints = peerLive?.tuningHints ?? null;
     log('info', 'mine_perf_dispatch', {
       peerId,
       windowMs: elapsedMs,
@@ -569,6 +575,11 @@ function flushPerfSummary(): void {
         ? Math.round((p.compactTapeHits / compactTapeLookups) * 1000) / 10
         : 0,
       compactTapeLookups,
+      // Per-host adaptive tuning: surface what the host is recommending
+      // so we can verify the dispatcher is honoring it.
+      hostHintInFlight: hints?.recommendedInFlight ?? null,
+      hostHintBatchSize: hints?.recommendedBatchSize ?? null,
+      hostIdleP50Ms: hints?.workerIdleP50Ms ?? null,
     });
   }
   perfPeers.clear();
@@ -789,6 +800,7 @@ function handleRegister(socket: WebSocket, registration: RegisterMessage, remote
     connectedAtMs: Date.now(),
     completedBatchCount: 0,
     pumpCooldownUntilMs: 0,
+    tuningHints: null,
   };
   peers.set(peerId, peer);
 
@@ -1238,13 +1250,29 @@ function pumpDispatch(): void {
     // the perf-class hint scaling kicks in for coarse phase. Without
     // this, the cold-start hint is calibrated at 2000 trials and ships
     // batches 10× too small for a 200-trial coarse pass.
-    const size = recommendedBatchSize(
+    //
+    // Per-host adaptive override (2026-05-05): when the host has sent
+    // a tuning hint with a recommendedBatchSize, prefer it over the
+    // perf-class heuristic. The host knows its actual ms/policy and
+    // worker idle pattern; the dispatcher's hint is a cold-start
+    // approximation. Still bounded by maxBatchSizeForPeer to respect
+    // the per-host capacity reservation math.
+    const baseRecommendation = recommendedBatchSize(
       peer.capabilities?.perfClass ?? 'unknown',
       peer.completedBatchCount >= 3 ? peer.meanMsPerPolicy : null,
       session.queue.pendingCount(),
       batchTrialCount,
       { maxBatchSize: maxBatchSizeForPeer(peer, freeSlots) },
     );
+    const hostHintBatch = peer.tuningHints?.recommendedBatchSize;
+    const size =
+      typeof hostHintBatch === 'number' && Number.isFinite(hostHintBatch) && hostHintBatch > 0
+        ? Math.min(
+            hostHintBatch,
+            session.queue.pendingCount(),
+            maxBatchSizeForPeer(peer, freeSlots),
+          )
+        : baseRecommendation;
     const assigned = session.queue.assignBatch(peer.peerId, size);
     if (!assigned) continue;
     const batch: MiningJobBatch = {
@@ -1274,12 +1302,21 @@ function pumpDispatch(): void {
     }
     peer.inFlightBatchIds.add(assigned.batchId);
     // Multi-batch-in-flight: cap each batch's slot reservation at
-    // ceil(workerCount / IN_FLIGHT_PER_PEER) instead of all available
-    // slots. With IN_FLIGHT_PER_PEER=2 a host runs the current batch
+    // ceil(workerCount / inFlightPerPeer) instead of all available
+    // slots. With inFlightPerPeer=2 a host runs the current batch
     // while the next is already in its in-host queue, overlapping
     // network round-trip with compute. The 1Hz pump tick + the
     // batch_result trigger pick up the second batch as soon as the
     // first releases its reservation.
+    //
+    // Per-host adaptive override (2026-05-05): when the host has sent
+    // a `recommendedInFlight` hint, use it instead of the global
+    // IN_FLIGHT_PER_PEER constant. Hosts with high RTT/work ratio
+    // (Windows in our cluster) want a deeper queue; M-series hosts
+    // are happy with shallow because their compute dominates RTT.
+    // The original IN_FLIGHT_PER_PEER 2→3 experiment regressed the
+    // fastest host because batches got smaller; per-host hints make
+    // the trade-off correctly per machine.
     //
     // The reservation is informational, not the actual worker
     // constraint — the host has its own internal worker pool and
@@ -1288,7 +1325,9 @@ function pumpDispatch(): void {
     // reservation lets dispatcher think enough slots are free to
     // ship a follow-up batch.
     const workers = peer.capabilities?.workerCount ?? 1;
-    const reservationCap = Math.max(1, Math.ceil(workers / IN_FLIGHT_PER_PEER));
+    const inFlightPerPeer =
+      peer.tuningHints?.recommendedInFlight ?? IN_FLIGHT_PER_PEER;
+    const reservationCap = Math.max(1, Math.ceil(workers / inFlightPerPeer));
     const reservedSlots = Math.max(
       1,
       Math.min(assigned.policies.length, reservationCap),
@@ -1638,6 +1677,14 @@ function handleMessage(peer: Peer, message: ClusterMessage): void {
       // see effectiveFreeSlots for why heartbeat-reported free can lag
       // and lead to overpacking.
       peer.freeWorkerSlots = message.freeWorkerSlots;
+      // Capture per-host tuning hints when present. Hosts gather these
+      // from local-only signals (worker idle gap, napi overhead share,
+      // observed ms/policy) and send them once they have ≥5 batches'
+      // worth of data. The pump's batch sizing + in-flight depth read
+      // these instead of using a global IN_FLIGHT_PER_PEER constant.
+      if (message.tuningHints !== undefined) {
+        peer.tuningHints = message.tuningHints;
+      }
       // Heartbeat is a cheap secondary trigger for the pump (the 1Hz
       // failsafe and the post-result/nack pumps are the primary ones).
       // pumpDispatch is itself early-exit-cheap when there's no work.
