@@ -128,9 +128,16 @@ export function useRecommendedPath(
 
     let cancelled = false;
     setComputing(true);
-    // Defer the synchronous engine work to the next macrotask so React
-    // can paint the "computing..." state first. Without this the
-    // useEffect blocks the main thread before any UI shows.
+    // Defer the synchronous engine work by 1500ms after first paint.
+    // The forward-looking MC pass takes 5-15s on slower plans and will
+    // freeze the main thread once it starts. By delaying, we let the
+    // cockpit fully render and become interactive — and if the
+    // household clicks away within 1.5s, the cleanup function below
+    // cancels the timeout and no MC ever runs.
+    //
+    // Real fix: move evaluatePolicyFullTrace into the existing
+    // simulation.worker so the main thread stays responsive
+    // throughout. Tracked in BACKLOG; this delay is a cheap stop-gap.
     const handle = setTimeout(() => {
       try {
         const buildOne = (useHistoricalBootstrap: boolean): PathResult | null => {
@@ -175,7 +182,7 @@ export function useRecommendedPath(
       } finally {
         if (!cancelled) setComputing(false);
       }
-    }, 0);
+    }, 1500);
 
     return () => {
       cancelled = true;
