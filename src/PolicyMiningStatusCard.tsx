@@ -671,8 +671,16 @@ export function PolicyMiningStatusCard({
     if (!stats || !sessionRunning) return '—';
     if (!stats.sessionStartedAtIso) return '—';
     const elapsedMs = Date.now() - new Date(stats.sessionStartedAtIso).getTime();
-    if (elapsedMs <= 0 || stats.policiesEvaluated === 0) return '—';
-    const perMin = (stats.policiesEvaluated / elapsedMs) * 60_000;
+    // During the dispatcher's coarse stage, policiesEvaluated stays at 0
+    // even though work is happening — the screening evaluations don't
+    // land in the corpus. Use whichever counter is advancing so the
+    // throughput tile doesn't show '—' for the entire screening phase.
+    const evaluated = Math.max(
+      stats.policiesEvaluated,
+      stats.coarseEvaluated ?? 0,
+    );
+    if (elapsedMs <= 0 || evaluated === 0) return '—';
+    const perMin = (evaluated / elapsedMs) * 60_000;
     return `${perMin.toFixed(0)}/min`;
   })();
 
