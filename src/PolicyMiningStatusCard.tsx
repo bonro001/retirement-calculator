@@ -349,6 +349,7 @@ export function PolicyMiningStatusCard({
           ctrls2.baseline,
           ctrls2.feasibilityThreshold ?? LEGACY_ATTAINMENT_FLOOR,
           'legacy',
+          ctrls2.solvencyThreshold ?? SOLVENCY_DEFENSE_FLOOR,
         );
         if (!recommendation.hasRecommendation) {
           pipelineActiveRef.current = false;

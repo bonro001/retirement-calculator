@@ -67,6 +67,7 @@ export function recommendCombinedPass2(
   seedData: SeedData,
   feasibilityThreshold = 0.85,
   metric: FeasibilityMetric = 'legacy',
+  solvencyThreshold = 0.80,
 ): CombinedPass2Recommendation {
   const baseAxes = buildDefaultPolicyAxes(seedData);
 
@@ -85,19 +86,27 @@ export function recommendCombinedPass2(
 
   // Reuse the existing analyzers for their domain logic. We only need
   // their `axes` outputs; ignoring rationale/diagnostics they emit.
-  const cliff = recommendCliffRefinement(
+  const primaryCliff = recommendCliffRefinement(
     [...evaluations],
     seedData,
     feasibilityThreshold,
     metric,
   );
+  const solvencyCliff = metric === 'solvency'
+    ? primaryCliff
+    : recommendCliffRefinement(
+        [...evaluations],
+        seedData,
+        solvencyThreshold,
+        'solvency',
+      );
   const sweep = recommendRuleSweep(evaluations, seedData);
 
   if (!sweep.hasRecommendation) {
     return {
       hasRecommendation: false,
       axes: baseAxes,
-      hasCliff: cliff.hasRecommendation,
+      hasCliff: primaryCliff.hasRecommendation || solvencyCliff.hasRecommendation,
       contenderCount: sweep.contenderCount,
       estimatedPass2Candidates: 0,
       spendLowerDollars: 0,
@@ -110,9 +119,34 @@ export function recommendCombinedPass2(
   // Spend axis: prefer the $1k cliff bracket when present, fall back to
   // the contenders' bounding box. Either way, it's a tight band of the
   // spend levels that matter for the recommendation.
-  const spends = cliff.hasRecommendation
-    ? cliff.axes.annualSpendTodayDollars
-    : sweep.axes.annualSpendTodayDollars;
+  //
+  // Important: the household-facing result table gates by BOTH legacy
+  // and solvency. Earlier versions refined only the legacy cliff, so a
+  // run inspected at a stricter solvency floor could still surface $5k
+  // pass-1 rows as the top choices. Unioning the active risk cliffs keeps
+  // pass-2 aimed at the same question the table answers.
+  const cliffSpendLevels = new Set<number>();
+  if (primaryCliff.hasRecommendation) {
+    for (const spend of primaryCliff.axes.annualSpendTodayDollars) {
+      cliffSpendLevels.add(spend);
+    }
+  }
+  if (solvencyCliff.hasRecommendation) {
+    for (const spend of solvencyCliff.axes.annualSpendTodayDollars) {
+      cliffSpendLevels.add(spend);
+    }
+  }
+  const spends = (() => {
+    if (cliffSpendLevels.size === 0) return sweep.axes.annualSpendTodayDollars;
+    const sortedCliffSpends = Array.from(cliffSpendLevels).sort((a, b) => a - b);
+    const lowerCliffSpend = sortedCliffSpends[0]!;
+    const upperCliffSpend = sortedCliffSpends[sortedCliffSpends.length - 1]!;
+    const refined: number[] = [];
+    for (let spend = lowerCliffSpend; spend <= upperCliffSpend; spend += 1_000) {
+      refined.push(spend);
+    }
+    return refined;
+  })();
 
   // SS / Roth: always use the contender bounding box. Non-contender
   // combinations aren't candidates for the recommendation under any
@@ -142,7 +176,7 @@ export function recommendCombinedPass2(
     return {
       hasRecommendation: false,
       axes: baseAxes,
-      hasCliff: cliff.hasRecommendation,
+      hasCliff: primaryCliff.hasRecommendation || solvencyCliff.hasRecommendation,
       contenderCount: sweep.contenderCount,
       estimatedPass2Candidates: 0,
       spendLowerDollars: 0,
@@ -154,14 +188,19 @@ export function recommendCombinedPass2(
   const lower = spends[0]!;
   const upper = spends[spends.length - 1]!;
 
-  const cliffNote = cliff.hasRecommendation
-    ? `$1k spend resolution across the cliff ($${(lower / 1000).toFixed(0)}k–$${(upper / 1000).toFixed(0)}k)`
+  const hasAnyCliff = cliffSpendLevels.size > 0;
+  const cliffLabels = [
+    primaryCliff.hasRecommendation ? metric : null,
+    solvencyCliff.hasRecommendation && metric !== 'solvency' ? 'solvency' : null,
+  ].filter(Boolean);
+  const cliffNote = hasAnyCliff
+    ? `$1k spend resolution across the ${cliffLabels.join(' + ')} cliff${cliffLabels.length === 1 ? '' : 's'} ($${(lower / 1000).toFixed(0)}k–$${(upper / 1000).toFixed(0)}k)`
     : `the contenders' spend range ($${(lower / 1000).toFixed(0)}k–$${(upper / 1000).toFixed(0)}k)`;
 
   return {
     hasRecommendation: true,
     axes: combinedAxes,
-    hasCliff: cliff.hasRecommendation,
+    hasCliff: hasAnyCliff,
     contenderCount: sweep.contenderCount,
     estimatedPass2Candidates: estimated,
     spendLowerDollars: lower,

@@ -99,6 +99,9 @@ interface Props {
   legacyTargetTodayDollars?: number;
   /** Default feasibility threshold (0..1). Defaults to 0.85. */
   defaultFeasibilityThreshold?: number;
+  /** Current table/mining solvency floor. Controlled by parent when present. */
+  solvencyThreshold?: number;
+  onSolvencyThresholdChange?: (threshold: number) => void;
   /** Max rows to render. Defaults to 25. */
   rowLimit?: number;
   /**
@@ -290,6 +293,8 @@ export function PolicyMiningResultsTable({
   currentPlan,
   legacyTargetTodayDollars,
   defaultFeasibilityThreshold = DEFAULT_FEASIBILITY_THRESHOLD,
+  solvencyThreshold: controlledSolvencyThreshold,
+  onSolvencyThresholdChange,
   rowLimit = DEFAULT_ROW_LIMIT,
   sensitivityControls,
 }: Props): JSX.Element | null {
@@ -303,9 +308,15 @@ export function PolicyMiningResultsTable({
     dispatcherUrl ? 'cluster' : 'local',
   );
   const [evaluations, setEvaluations] = useState<PolicyEvaluation[]>([]);
-  const [solvencyThreshold, setSolvencyThreshold] = useState<number>(
+  const [internalSolvencyThreshold, setInternalSolvencyThreshold] = useState<number>(
     SOLVENCY_DEFENSE_FLOOR,
   );
+  const solvencyThreshold =
+    controlledSolvencyThreshold ?? internalSolvencyThreshold;
+  const setSolvencyThreshold = (next: number) => {
+    setInternalSolvencyThreshold(next);
+    onSolvencyThresholdChange?.(next);
+  };
   const [spendFilter, setSpendFilter] = useState<number | null>(null);
   const [sort, setSort] = useState<SortSpec>({
     key: 'spend',

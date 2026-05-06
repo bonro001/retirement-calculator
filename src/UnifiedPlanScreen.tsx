@@ -1941,6 +1941,8 @@ export function UnifiedPlanScreen({
         : '',
     [currentEvaluationFingerprint],
   );
+  const [policyMiningSolvencyThreshold, setPolicyMiningSolvencyThreshold] =
+    useState(SOLVENCY_DEFENSE_FLOOR);
 
   useEffect(() => {
     if (!pendingPlaybookAutoRunNonce) {
@@ -2617,7 +2619,7 @@ export function UnifiedPlanScreen({
                   assumptions: getPolicyMiningAssumptions(assumptions),
                   evaluatedByNodeId: 'local-browser',
                   legacyTargetTodayDollars,
-                  solvencyThreshold: SOLVENCY_DEFENSE_FLOOR,
+                  solvencyThreshold: policyMiningSolvencyThreshold,
                   trialCount: POLICY_MINING_TRIAL_COUNT,
                 }
               : undefined
@@ -2632,6 +2634,8 @@ export function UnifiedPlanScreen({
           engineVersion={POLICY_MINER_ENGINE_VERSION}
           dispatcherUrl={dispatcherUrl}
           legacyTargetTodayDollars={legacyTargetTodayDollars}
+          solvencyThreshold={policyMiningSolvencyThreshold}
+          onSolvencyThresholdChange={setPolicyMiningSolvencyThreshold}
           currentPlan={
             policyMiningFingerprint
               ? {

@@ -7,6 +7,7 @@ import seedFixture from '../seed-data.json';
 function makeEval(
   policy: Partial<Policy>,
   bequestAttainmentRate: number,
+  solventSuccessRate = 0.95,
 ): PolicyEvaluation {
   return {
     id: `pol_${Math.random().toString(16).slice(2, 10)}`,
@@ -23,7 +24,7 @@ function makeEval(
       ...policy,
     },
     outcome: {
-      solventSuccessRate: 0.95,
+      solventSuccessRate,
       bequestAttainmentRate,
       p10EndingWealthTodayDollars: 0,
       p25EndingWealthTodayDollars: 0,
@@ -75,6 +76,27 @@ describe('combined pass-2 analyzer', () => {
     expect(result.hasCliff).toBe(true);
     expect(result.axes.annualSpendTodayDollars).toEqual([
       115_000, 116_000, 117_000, 118_000, 119_000, 120_000,
+    ]);
+  });
+
+  it('includes the solvency cliff when solvency is the binding table gate', () => {
+    const evaluations: PolicyEvaluation[] = [];
+    for (let spend = 100_000; spend <= 130_000; spend += 5_000) {
+      const legacy = 0.92;
+      const solvency = spend <= 110_000 ? 0.90 : 0.70;
+      evaluations.push(makeEval({ annualSpendTodayDollars: spend }, legacy, solvency));
+    }
+    const result = recommendCombinedPass2(
+      evaluations,
+      seedFixture as SeedData,
+      0.85,
+      'legacy',
+      0.85,
+    );
+    expect(result.hasRecommendation).toBe(true);
+    expect(result.hasCliff).toBe(true);
+    expect(result.axes.annualSpendTodayDollars).toEqual([
+      110_000, 111_000, 112_000, 113_000, 114_000, 115_000,
     ]);
   });
 
