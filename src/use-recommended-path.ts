@@ -71,6 +71,15 @@ export interface RecommendedPath {
   computing: boolean;
 }
 
+export interface RecommendedPathOptions {
+  /**
+   * Run the expensive full-trace projection when no cache exists. Keep this
+   * opt-in: the full trace is synchronous engine work and can freeze the tab
+   * long enough that Cockpit navigation appears dead.
+   */
+  autoCompute?: boolean;
+}
+
 /**
  * Run the engine against the recommended policy and return the
  * resulting forward-looking + historical paths. Cached by the
@@ -83,7 +92,9 @@ export function useRecommendedPath(
   recommendation: PolicyEvaluation | null,
   selectedStressors: string[],
   selectedResponses: string[],
+  options: RecommendedPathOptions = {},
 ): RecommendedPath {
+  const autoCompute = options.autoCompute ?? true;
   const cacheKey =
     data && assumptions && recommendation
       ? JSON.stringify({
@@ -126,6 +137,10 @@ export function useRecommendedPath(
       return;
     }
     if (cached?.key === cacheKey) return;
+    if (!autoCompute) {
+      setComputing(false);
+      return;
+    }
 
     let cancelled = false;
     setComputing(true);
@@ -176,7 +191,16 @@ export function useRecommendedPath(
       clearTimeout(handle);
       setComputing(false);
     };
-  }, [cacheKey, cached?.key, data, assumptions, recommendation, selectedStressors, selectedResponses]);
+  }, [
+    autoCompute,
+    cacheKey,
+    cached?.key,
+    data,
+    assumptions,
+    recommendation,
+    selectedStressors,
+    selectedResponses,
+  ]);
 
   if (!cached || cached.key !== cacheKey) {
     return { forwardLooking: null, historical: null, computing };

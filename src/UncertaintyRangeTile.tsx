@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useEffect, useState } from 'react';
 import type { MarketAssumptions, SeedData } from './types';
 import { buildUncertaintySurface } from './uncertainty-surface';
 
@@ -41,10 +41,47 @@ export function UncertaintyRangeTile({
   title = 'Success rate (range)',
   precomputed,
 }: UncertaintyRangeTileProps) {
-  const surface = useMemo(
-    () => precomputed ?? buildUncertaintySurface(seedData, assumptions),
-    [precomputed, seedData, assumptions],
+  const [surface, setSurface] = useState<ReturnType<typeof buildUncertaintySurface> | null>(
+    precomputed ?? null,
   );
+  const [computing, setComputing] = useState(false);
+
+  useEffect(() => {
+    setSurface(precomputed ?? null);
+    setComputing(false);
+  }, [precomputed, seedData, assumptions]);
+
+  const runSurface = () => {
+    setComputing(true);
+    window.setTimeout(() => {
+      try {
+        setSurface(buildUncertaintySurface(seedData, assumptions));
+      } finally {
+        setComputing(false);
+      }
+    }, 0);
+  };
+
+  if (!surface) {
+    return (
+      <article className="rounded-[24px] bg-stone-100/80 p-5">
+        <header className="flex items-center justify-between gap-3">
+          <p className="text-sm font-medium text-stone-500">{title}</p>
+          <button
+            type="button"
+            onClick={runSurface}
+            disabled={computing}
+            className="rounded-md bg-stone-900 px-3 py-1.5 text-xs font-semibold text-white hover:bg-stone-700 disabled:cursor-not-allowed disabled:bg-stone-300"
+          >
+            {computing ? 'Computing…' : 'Run range'}
+          </button>
+        </header>
+        <p className="mt-3 text-sm text-stone-600">
+          Runs a sensitivity surface across returns, inflation, and spending.
+        </p>
+      </article>
+    );
+  }
 
   const baseline = surface.scenarios.find((s) => s.id === 'baseline');
   const baselinePct = baseline ? Math.round(baseline.successRate * 100) : null;

@@ -123,11 +123,18 @@ function persistPlanCacheToLocalStorage(
   }
 }
 
-// Module-level cache, hydrated from localStorage on module import. A
-// page refresh now restores the optimizer result instantly instead of
-// triggering a fresh ~12s recompute. Survives across the entire session
-// AND across hard refreshes; cleared implicitly when fingerprint changes.
-const planOptimizationCache = loadPlanCacheFromLocalStorage();
+// Module-level cache, hydrated lazily. Cockpit is lazy-loaded and the
+// legacy optimizer is usually skipped now that mining is authoritative;
+// loading/parsing old optimizer payloads during module import can freeze
+// the Cockpit fallback before any buttons are clickable.
+let planOptimizationCache: Map<string, CachedPlanOptimization> | null = null;
+
+function getPlanOptimizationCache(): Map<string, CachedPlanOptimization> {
+  if (!planOptimizationCache) {
+    planOptimizationCache = loadPlanCacheFromLocalStorage();
+  }
+  return planOptimizationCache;
+}
 
 function usePlanOptimization(
   data: SeedData | null,
@@ -198,7 +205,8 @@ function usePlanOptimization(
     // restore the result synchronously and skip the async chain.
     // This is the big perf win — tab swaps used to trigger a fresh
     // ~30-50s optimization; now it's instant.
-    const cached = planOptimizationCache.get(fingerprint);
+    const cache = getPlanOptimizationCache();
+    const cached = cache.get(fingerprint);
     if (cached) {
       lastKeyRef.current = fingerprint;
       setSsResult(cached.ssResult);
@@ -352,7 +360,7 @@ function usePlanOptimization(
         // swap returns to instant load. Keyed on fingerprint; old
         // entries naturally fall out of relevance when the seed
         // changes (the fingerprint becomes a different key).
-        planOptimizationCache.set(fingerprint, {
+        cache.set(fingerprint, {
           ssResult: ss,
           spendResult: spend,
           rothResult: roth,
@@ -362,7 +370,7 @@ function usePlanOptimization(
         // Persist to localStorage so a hard refresh / new browser tab
         // restores the result instantly instead of running another
         // ~12s optimizer chain.
-        persistPlanCacheToLocalStorage(planOptimizationCache);
+        persistPlanCacheToLocalStorage(cache);
         // Auto-log prediction record. Captures (timestamp,
         // planFingerprint, full inputs snapshot, headline outputs,
         // yearly trajectory) so the reconciliation layer can diff
@@ -3210,6 +3218,7 @@ export function CockpitScreen() {
     autoProjectRecommendedPath ? corpusRecommendation : null,
     selectedStressors ?? [],
     selectedResponses ?? [],
+    { autoCompute: false },
   );
 
   // Plan-optimization chain (SS → spend → Roth → optimizedPath).
@@ -3813,7 +3822,11 @@ export function CockpitScreen() {
           Lazy-mounted: UncertaintyRangeTile runs its OWN sensitivity
           sweep (~5s); deferring it lets the Trust card paint first. */}
       {planPath && assumptions && data && (
-        <MountWhenVisible minHeight="240px" eagerAfterMs={Infinity}>
+        <MountWhenVisible
+          minHeight="240px"
+          eagerAfterMs={Infinity}
+          rootMargin="0px"
+        >
           <CalibrationDashboard
             seedData={data}
             assumptions={assumptions}
