@@ -275,8 +275,8 @@ export function PolicyMiningResultsTable({
     dispatcherUrl ? 'cluster' : 'local',
   );
   const [evaluations, setEvaluations] = useState<PolicyEvaluation[]>([]);
-  const [feasibilityThreshold, setFeasibilityThreshold] = useState<number>(
-    defaultFeasibilityThreshold,
+  const [solvencyThreshold, setSolvencyThreshold] = useState<number>(
+    SOLVENCY_DEFENSE_FLOOR,
   );
   const [sort, setSort] = useState<SortSpec>({
     key: 'spend',
@@ -397,18 +397,16 @@ export function PolicyMiningResultsTable({
   // `evaluationCount` in the response is the TRUE total so we still
   // display "X of Y feasible" honestly.
   //
-  // `minFeasibility` is pinned to the user's slider value (rounded down
-  // to 0.05 buckets so dragging the slider doesn't trigger one fetch
-  // per tick). With spend-desc ranking, the topN slice prioritizes the
-  // highest-spend rows that *clear* the slider — which is exactly what
-  // the table is asking. An earlier version pinned this at the slider
-  // minimum (0.5), but at a household floor of 0.85 that filled the
-  // slice with $140k/0.55–0.60 records (all rejected by the client
-  // filter) and showed the user "0 of 100 feasible". Sending the actual
-  // slider keeps the slice on-band.
-  const serverMinFeasibility = Math.max(
+  // Ask the dispatcher for rows already inside the user's risk band so
+  // the bounded top-N response still contains the highest-spend choices
+  // the table can actually show.
+  const serverMinLegacy = Math.max(
     0.5,
-    Math.floor(feasibilityThreshold * 20) / 20,
+    Math.floor(defaultFeasibilityThreshold * 20) / 20,
+  );
+  const serverMinSolvency = Math.max(
+    0.5,
+    Math.floor(solvencyThreshold * 20) / 20,
   );
   const [evaluationCount, setEvaluationCount] = useState<number>(0);
   useEffect(() => {
@@ -429,8 +427,8 @@ export function PolicyMiningResultsTable({
           selectedSessionId,
           {
             topN,
-            minFeasibility: serverMinFeasibility,
-            minSolvency: SOLVENCY_DEFENSE_FLOOR,
+            minFeasibility: serverMinLegacy,
+            minSolvency: serverMinSolvency,
           },
         );
         if (cancelled) return;
@@ -457,18 +455,19 @@ export function PolicyMiningResultsTable({
     selectedSessionId,
     showAll,
     rowLimit,
-    serverMinFeasibility,
+    serverMinLegacy,
+    serverMinSolvency,
   ]);
 
   const filtered = useMemo(() => {
     return evaluations
       .filter(
         (e) =>
-          e.outcome.bequestAttainmentRate >= feasibilityThreshold &&
-          e.outcome.solventSuccessRate >= SOLVENCY_DEFENSE_FLOOR,
+          e.outcome.bequestAttainmentRate >= defaultFeasibilityThreshold &&
+          e.outcome.solventSuccessRate >= solvencyThreshold,
       )
       .sort((a, b) => compareEvals(a, b, sort));
-  }, [evaluations, feasibilityThreshold, sort]);
+  }, [evaluations, defaultFeasibilityThreshold, solvencyThreshold, sort]);
 
   /**
    * Highest-spend evaluation that still clears both policy gates.
@@ -478,8 +477,8 @@ export function PolicyMiningResultsTable({
   const bestByMaxSpend = useMemo(() => {
     let best: PolicyEvaluation | null = null;
     for (const ev of evaluations) {
-      if (ev.outcome.bequestAttainmentRate < feasibilityThreshold) continue;
-      if (ev.outcome.solventSuccessRate < SOLVENCY_DEFENSE_FLOOR) continue;
+      if (ev.outcome.bequestAttainmentRate < defaultFeasibilityThreshold) continue;
+      if (ev.outcome.solventSuccessRate < solvencyThreshold) continue;
       if (!best) {
         best = ev;
         continue;
@@ -514,7 +513,7 @@ export function PolicyMiningResultsTable({
       }
     }
     return best;
-  }, [evaluations, feasibilityThreshold]);
+  }, [evaluations, defaultFeasibilityThreshold, solvencyThreshold]);
 
   const visible = useMemo(() => {
     const base = showAll ? filtered : filtered.slice(0, rowLimit);
@@ -692,7 +691,7 @@ export function PolicyMiningResultsTable({
                 : sort.key === 'bequestP10'
                   ? 'highest worst-case bequest'
                   : sort.key === 'feasibility'
-                    ? 'highest feasibility'
+                    ? 'highest legacy attainment'
                     : sort.key === 'primarySs'
                       ? 'primary SS claim age'
                       : sort.key === 'spouseSs'
@@ -710,24 +709,24 @@ export function PolicyMiningResultsTable({
            *  results. */}
           <div className="flex items-center gap-2">
             <label className="text-[11px] font-medium uppercase tracking-wider text-stone-500">
-              Min legacy
+              Min solvency
             </label>
             <input
               type="range"
               min={0.5}
               max={0.99}
               step={0.01}
-              value={feasibilityThreshold}
+              value={solvencyThreshold}
               onChange={(e) =>
-                setFeasibilityThreshold(Number.parseFloat(e.target.value))
+                setSolvencyThreshold(Number.parseFloat(e.target.value))
               }
               className="h-1 w-32 cursor-pointer accent-emerald-600"
             />
             <span className="w-10 text-right text-[12px] font-semibold tabular-nums text-stone-700">
-              {formatPct(feasibilityThreshold)}
+              {formatPct(solvencyThreshold)}
             </span>
             <span className="text-[11px] font-medium text-stone-500">
-              Solvency floor {formatPct(SOLVENCY_DEFENSE_FLOOR)}
+              Legacy floor {formatPct(defaultFeasibilityThreshold)}
             </span>
           </div>
         </div>
@@ -764,9 +763,9 @@ export function PolicyMiningResultsTable({
         </p>
       ) : totalFeasible === 0 ? (
         <p className="rounded-md bg-amber-50 px-3 py-2 text-[12px] text-amber-800">
-          No candidates clear the {formatPct(feasibilityThreshold)} legacy
-          floor and {formatPct(SOLVENCY_DEFENSE_FLOOR)} solvency defense.
-          Lower the legacy threshold or wait for more policies to be mined.
+          No candidates clear the {formatPct(solvencyThreshold)} solvency
+          floor and {formatPct(defaultFeasibilityThreshold)} legacy floor.
+          Lower the solvency threshold or wait for more policies to be mined.
         </p>
       ) : (
         <>
@@ -787,8 +786,8 @@ export function PolicyMiningResultsTable({
                 : undefined
             }
             adoptedPolicy={lastPolicyAdoption?.policy ?? null}
-            defaultFeasibilityThreshold={feasibilityThreshold}
-            minSolvencyThreshold={SOLVENCY_DEFENSE_FLOOR}
+            defaultFeasibilityThreshold={defaultFeasibilityThreshold}
+            minSolvencyThreshold={solvencyThreshold}
             onAdoptPolicy={(policy) => setAdoptingPolicy(policy)}
           />
         <div className="mt-4 -mx-4 overflow-x-auto px-4">

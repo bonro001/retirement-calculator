@@ -41,11 +41,10 @@ import type { Policy, PolicyEvaluation } from './policy-miner-types';
  * band) when the corpus is dense, and overlay the Pareto front in green
  * with a line connecting points for visual continuity.
  *
- * Why feasibility-filtered: an "infeasible Pareto front" misleads — it
- * shows the best dominated policies. The threshold defaults to the same
- * 0.7 the rest of the mining surface uses, with a slider override below
- * the chart so the household can explore stricter / looser bequest
- * targets without re-mining.
+ * Why gate-filtered: an "infeasible Pareto front" misleads — it shows
+ * the best dominated policies. The chart keeps legacy and solvency
+ * floors visible so the household can explore risk tolerance without
+ * re-mining.
  */
 
 interface Props {
@@ -217,7 +216,7 @@ export function PolicyFrontierChart({
             show dominated cloud
           </label>
           <label className="flex items-center gap-1">
-            feasibility ≥{' '}
+            legacy ≥{' '}
             <span className="tabular-nums font-semibold text-stone-700">
               {Math.round(feasibilityFloor * 100)}%
             </span>

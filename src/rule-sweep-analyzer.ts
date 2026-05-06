@@ -40,6 +40,7 @@ import type {
   PolicyEvaluation,
 } from './policy-miner-types';
 import type { SeedData } from './types';
+import { rankPolicies } from './policy-ranker';
 
 export interface RuleSweepRecommendation {
   /** True if a pass-2 rule sweep would meaningfully expand the
@@ -78,6 +79,10 @@ function pickContenders(
   maxContenders: number,
 ): { contenders: PolicyEvaluation[]; floor: number } {
   if (evaluations.length === 0) return { contenders: [], floor: 0 };
+  const ranked = rankPolicies([...evaluations]);
+  if (ranked.length > 0) {
+    return { contenders: ranked.slice(0, maxContenders), floor: 0 };
+  }
   let topAttainment = 0;
   for (const e of evaluations) {
     if (e.outcome.bequestAttainmentRate > topAttainment) {

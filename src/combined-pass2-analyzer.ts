@@ -28,7 +28,10 @@
  * combined pass-2) lands at ~1m45s end-to-end.
  */
 
-import { recommendCliffRefinement } from './cliff-refinement-analyzer';
+import {
+  recommendCliffRefinement,
+  type FeasibilityMetric,
+} from './cliff-refinement-analyzer';
 import { recommendRuleSweep } from './rule-sweep-analyzer';
 import {
   ALL_WITHDRAWAL_RULES,
@@ -63,6 +66,7 @@ export function recommendCombinedPass2(
   evaluations: readonly PolicyEvaluation[],
   seedData: SeedData,
   feasibilityThreshold = 0.85,
+  metric: FeasibilityMetric = 'legacy',
 ): CombinedPass2Recommendation {
   const baseAxes = buildDefaultPolicyAxes(seedData);
 
@@ -85,6 +89,7 @@ export function recommendCombinedPass2(
     [...evaluations],
     seedData,
     feasibilityThreshold,
+    metric,
   );
   const sweep = recommendRuleSweep(evaluations, seedData);
 

@@ -26,6 +26,7 @@ import { PolicyMiningStatusCard } from './PolicyMiningStatusCard';
 import { PolicyMiningResultsTable } from './PolicyMiningResultsTable';
 import { POLICY_MINER_ENGINE_VERSION } from './policy-miner-types';
 import { POLICY_MINING_TRIAL_COUNT } from './policy-mining-config';
+import { SOLVENCY_DEFENSE_FLOOR } from './policy-ranker';
 import type { MarketAssumptions } from './types';
 import type { PolicyAxes } from './policy-miner-types';
 import { AxisPruningCard } from './AxisPruningCard';
@@ -159,6 +160,7 @@ export function MiningScreen() {
                 assumptions: getPolicyMiningAssumptions(assumptions),
                 evaluatedByNodeId: 'local-browser',
                 legacyTargetTodayDollars,
+                solvencyThreshold: SOLVENCY_DEFENSE_FLOOR,
                 trialCount: POLICY_MINING_TRIAL_COUNT,
               }
             : undefined

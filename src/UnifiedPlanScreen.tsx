@@ -37,6 +37,7 @@ import { PolicyMiningResultsTable } from './PolicyMiningResultsTable';
 import { POLICY_MINER_ENGINE_VERSION } from './policy-miner-types';
 import { useClusterSession } from './useClusterSession';
 import { POLICY_MINING_TRIAL_COUNT } from './policy-mining-config';
+import { SOLVENCY_DEFENSE_FLOOR } from './policy-ranker';
 import { CalibrationDashboard } from './CalibrationDashboard';
 import { AxisPruningCard } from './AxisPruningCard';
 
@@ -2536,6 +2537,7 @@ export function UnifiedPlanScreen({
                   assumptions: getPolicyMiningAssumptions(assumptions),
                   evaluatedByNodeId: 'local-browser',
                   legacyTargetTodayDollars,
+                  solvencyThreshold: SOLVENCY_DEFENSE_FLOOR,
                   trialCount: POLICY_MINING_TRIAL_COUNT,
                 }
               : undefined

@@ -18,6 +18,7 @@ import { loadClusterEvaluations } from './policy-mining-cluster';
 import {
   bestPolicy,
   LEGACY_ATTAINMENT_FLOOR,
+  SOLVENCY_DEFENSE_FLOOR,
 } from './policy-ranker';
 import {
   buildPeerViewList,
@@ -66,6 +67,8 @@ export interface PolicyMiningControls {
   maxPoliciesPerSession?: number;
   /** Min bequest attainment rate to count a policy as feasible (default 0.85). */
   feasibilityThreshold?: number;
+  /** Min lifetime solvency rate for the sleep-at-night risk floor. */
+  solvencyThreshold?: number;
   /** Trials per policy this session. Default is owned by caller. */
   trialCount?: number;
 }
@@ -341,7 +344,12 @@ export function PolicyMiningStatusCard({
         if (!pipelineActiveRef.current) return; // user cancelled mid-fetch
         const ctrls2 = controlsRef.current;
         if (!ctrls2) return;
-        const recommendation = recommendCombinedPass2(evals, ctrls2.baseline);
+        const recommendation = recommendCombinedPass2(
+          evals,
+          ctrls2.baseline,
+          ctrls2.solvencyThreshold ?? SOLVENCY_DEFENSE_FLOOR,
+          'solvency',
+        );
         if (!recommendation.hasRecommendation) {
           pipelineActiveRef.current = false;
           pipelineCompletionsRef.current = 0;

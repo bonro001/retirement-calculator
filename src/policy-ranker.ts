@@ -39,7 +39,7 @@ export interface RankingRule {
 }
 
 export const LEGACY_ATTAINMENT_FLOOR = 0.85;
-export const SOLVENCY_DEFENSE_FLOOR = 0.7;
+export const SOLVENCY_DEFENSE_FLOOR = 0.8;
 
 /**
  * The household's locked-in rule. Legacy attainment is the binding
@@ -67,7 +67,7 @@ export const LEGACY_FIRST_LEXICOGRAPHIC: RankingRule = {
       metric: (e) => e.outcome.bequestAttainmentRate,
     },
     {
-      label: 'solvency ≥ 70%',
+      label: 'solvency ≥ 80%',
       minimum: SOLVENCY_DEFENSE_FLOOR,
       metric: (e) => e.outcome.solventSuccessRate,
     },
