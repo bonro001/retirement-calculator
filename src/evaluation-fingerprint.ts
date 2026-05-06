@@ -12,12 +12,25 @@ type StressorKnobsLike = {
 // Plan 2.0, UnifiedPlanScreen, …) whenever stressor/response toggles change.
 // Stringifying the full SeedData graph is expensive (tens of KB) and was pinning
 // the main thread for several seconds on every checkbox click when combined
-// across subscribers. We cache the heavy data+assumptions hash by object
-// reference — every store mutation creates new references, so reference equality
-// is a sound equality signal here — and only recompute the cheap toggle hash
-// per-call.
+// across subscribers. We hash the heavy data+assumptions payload and cache that
+// digest by object reference — every store mutation creates new references, so
+// reference equality is a sound equality signal here — and only recompute the
+// cheap toggle suffix per-call.
 
 const dataHashCache = new WeakMap<SeedData, Map<MarketAssumptions, string>>();
+
+function hashString(input: string): string {
+  // FNV-1a 64-bit: fast, deterministic, browser-safe, and compact enough
+  // for corpus keys. This is an identity fingerprint, not a security hash.
+  let hash = 0xcbf29ce484222325n;
+  const prime = 0x100000001b3n;
+  const mask = 0xffffffffffffffffn;
+  for (let i = 0; i < input.length; i += 1) {
+    hash ^= BigInt(input.charCodeAt(i));
+    hash = (hash * prime) & mask;
+  }
+  return hash.toString(16).padStart(16, '0');
+}
 
 function getDataHash(data: SeedData, assumptions: MarketAssumptions): string {
   let innerMap = dataHashCache.get(data);
@@ -27,7 +40,7 @@ function getDataHash(data: SeedData, assumptions: MarketAssumptions): string {
   }
   const existing = innerMap.get(assumptions);
   if (existing !== undefined) return existing;
-  const next = JSON.stringify({ data, assumptions });
+  const next = `eval-${hashString(JSON.stringify({ data, assumptions }))}`;
   innerMap.set(assumptions, next);
   return next;
 }
@@ -38,7 +51,7 @@ export function buildEvaluationFingerprint(input: {
   selectedStressors: string[];
   selectedResponses: string[];
   stressorKnobs?: StressorKnobsLike;
-}) {
+}): string {
   const dataHash = getDataHash(input.data, input.assumptions);
   // Sort copies so insertion order doesn't bust cache equality.
   const stressors = [...input.selectedStressors].sort().join(',');

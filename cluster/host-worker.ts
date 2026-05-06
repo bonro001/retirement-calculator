@@ -99,9 +99,13 @@ const explicitRustDryRunOutputPath = process.env.RUST_DRY_RUN_OUTPUT_PATH
   : null;
 const replayTapeCacheEnabled = process.env.ENGINE_REPLAY_TAPE_CACHE !== '0';
 type RustSummaryClient = {
-  runPolicyMiningSummaryWithTiming: RustEngineClient['runPolicyMiningSummaryWithTiming'];
+  runPolicyMiningSummaryWithTiming: (
+    request: EngineCandidateRequest,
+  ) =>
+    | ReturnType<RustEngineClient['runPolicyMiningSummaryWithTiming']>
+    | ReturnType<NativeRustEngineClient['runPolicyMiningSummaryWithTiming']>;
   runPolicyMiningSummaryCompactWithTiming?: NativeRustEngineClient['runPolicyMiningSummaryCompactWithTiming'];
-  close?: () => Promise<void>;
+  close?: () => Promise<void> | void;
 };
 let rustClient: RustSummaryClient | null = null;
 
@@ -167,7 +171,7 @@ function getRustClient(): RustSummaryClient {
 async function closeRustClient() {
   const client = rustClient;
   rustClient = null;
-  await client?.close();
+  await client?.close?.();
 }
 
 function emitJsonl(path: string, event: Record<string, unknown>) {
@@ -579,7 +583,10 @@ async function dryRunWithRust(
       timings?.sessionId,
     );
     const diff = comparison.firstDifference;
-    const result = comparison.pass
+    const result: {
+      status: 'matched' | 'mismatch';
+      firstMismatch: PolicyMinerShadowStats['firstMismatch'];
+    } = comparison.pass
       ? { status: 'matched', firstMismatch: null }
       : {
           status: 'mismatch',

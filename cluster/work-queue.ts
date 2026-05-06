@@ -43,8 +43,8 @@ import type { Policy } from '../src/policy-miner-types';
  * commit 92be1bf): M4 perf-cores ~500ms, Ryzen ~400ms, Apple efficiency
  * cores ~1500ms (no probe data; conservative guess).
  *
- * After 3+ completed batches, `recommendedBatchSize` switches to using
- * the host's measured `meanMsPerPolicy` and ignores these defaults.
+ * Once the dispatcher passes a measured `meanMsPerPolicy`,
+ * `recommendedBatchSize` uses it and ignores these defaults.
  *
  * Phase 2.C tuning (2026-04-27): hints scale linearly with trial count
  * via `recommendedBatchSize(..., trialCount)` so a coarse pass at
@@ -85,6 +85,11 @@ const TARGET_BATCH_WALL_CLOCK_MS = 5_000;
  *  worker pool — separate work item; not in this branch. */
 const MAX_BATCH_SIZE = 25;
 
+const RUST_COMPACT_MAX_BATCH_SIZE = 400;
+const RUST_COMPACT_BATCH_WALL_CLOCK_MS = 15_000;
+const RUST_COMPACT_PREFETCH_DEPTH = 4;
+const DEFAULT_PREFETCH_DEPTH = 2;
+
 /** Tail-stealing threshold. When the queue has fewer than this many
  *  policies left, recommendedBatchSize returns 1 regardless of the
  *  EWMA-driven sizing. This bounds tail latency: the slowest host's
@@ -99,6 +104,9 @@ const MAX_BATCH_SIZE = 25;
  *  overhead at the tail is real (more roundtrips), but bounded — at
  *  most 16 single-policy batches per session. */
 const TAIL_STEAL_THRESHOLD = 16;
+
+const DEFAULT_SLOW_HOST_CUTOFF_MULTIPLIER = 4;
+const DEFAULT_SLOW_HOST_TAIL_WORK_MULTIPLIER = 4;
 
 /**
  * How many times one policy may be assigned (and then nacked or
@@ -174,6 +182,96 @@ export function recommendedBatchSize(
   // tail of a session, fast hosts should still get useful work even if
   // it's small.
   return Math.min(sizeFromTime, maxBatchSize, Math.max(1, remainingPolicies));
+}
+
+export function targetInFlightBatchesForRuntime(
+  runtime: string | undefined,
+  opts: { defaultDepth?: number; rustCompactDepth?: number } = {},
+): number {
+  const defaultDepth = Math.max(1, Math.floor(opts.defaultDepth ?? DEFAULT_PREFETCH_DEPTH));
+  const rustCompactDepth = Math.max(
+    1,
+    Math.floor(opts.rustCompactDepth ?? RUST_COMPACT_PREFETCH_DEPTH),
+  );
+  return runtime === 'rust-native-compact' ? rustCompactDepth : defaultDepth;
+}
+
+export function maxBatchSizeForRuntime(input: {
+  runtime: string | undefined;
+  workers: number;
+  freeSlots: number;
+}): number {
+  const workers = Math.max(1, Math.floor(input.workers));
+  const slots = Math.max(1, Math.min(workers, Math.floor(input.freeSlots)));
+  if (input.runtime === 'rust-native-compact') {
+    return Math.max(1, Math.min(RUST_COMPACT_MAX_BATCH_SIZE, slots * 32));
+  }
+  if (input.runtime === 'rust-native-compact-shadow') {
+    return Math.max(1, Math.min(100, slots * 8));
+  }
+  return Math.max(1, Math.min(MAX_BATCH_SIZE, slots * 4));
+}
+
+export function targetBatchWallClockMsForRuntime(
+  runtime: string | undefined,
+): number {
+  return runtime === 'rust-native-compact'
+    ? RUST_COMPACT_BATCH_WALL_CLOCK_MS
+    : TARGET_BATCH_WALL_CLOCK_MS;
+}
+
+export function reserveWorkerSlotsForBatch(input: {
+  workers: number;
+  targetInFlightBatches: number;
+  policyCount: number;
+}): number {
+  const workers = Math.max(1, Math.floor(input.workers));
+  const target = Math.max(1, Math.floor(input.targetInFlightBatches));
+  const policyCount = Math.max(1, Math.floor(input.policyCount));
+  const reservationCap = Math.max(1, Math.ceil(workers / target));
+  return Math.max(1, Math.min(policyCount, reservationCap));
+}
+
+export function shouldThrottleSlowHostForTail(input: {
+  peerMsPerPolicy: number | null;
+  fastestMsPerPolicy: number | null;
+  pendingPolicies: number;
+  plannedBatchSize: number;
+  targetInFlightBatches: number;
+  cutoffMultiplier?: number;
+  tailWorkMultiplier?: number;
+}): boolean {
+  const peerMs = input.peerMsPerPolicy;
+  const fastestMs = input.fastestMsPerPolicy;
+  if (
+    peerMs === null ||
+    fastestMs === null ||
+    !Number.isFinite(peerMs) ||
+    !Number.isFinite(fastestMs) ||
+    peerMs <= 0 ||
+    fastestMs <= 0
+  ) {
+    return false;
+  }
+
+  const cutoffMultiplier = Math.max(
+    1,
+    input.cutoffMultiplier ?? DEFAULT_SLOW_HOST_CUTOFF_MULTIPLIER,
+  );
+  if (peerMs < fastestMs * cutoffMultiplier) {
+    return false;
+  }
+
+  const plannedBatchSize = Math.max(1, Math.floor(input.plannedBatchSize));
+  const targetInFlightBatches = Math.max(1, Math.floor(input.targetInFlightBatches));
+  const tailWorkMultiplier = Math.max(
+    1,
+    input.tailWorkMultiplier ?? DEFAULT_SLOW_HOST_TAIL_WORK_MULTIPLIER,
+  );
+  const pendingPolicies = Math.max(0, Math.floor(input.pendingPolicies));
+  const slowHostTailBudget =
+    plannedBatchSize * targetInFlightBatches * tailWorkMultiplier;
+  return pendingPolicies <= Math.max(TAIL_STEAL_THRESHOLD, slowHostTailBudget);
 }
 
 /**
@@ -296,6 +394,16 @@ export class WorkQueue {
 
   droppedCountValue(): number {
     return this.deadLetters.length;
+  }
+
+  /**
+   * Return the number of policies currently owned by an in-flight batch.
+   * Used by the dispatcher to validate that a `batch_result` actually
+   * contains one evaluation per assigned policy before marking the batch
+   * complete.
+   */
+  inFlightPolicyCount(batchId: string): number | null {
+    return this.inFlight.get(batchId)?.policies.length ?? null;
   }
 
   /** Read-only view of the dead-letter list for snapshotting / disk

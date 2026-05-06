@@ -88,6 +88,7 @@ export interface PeerView {
   utilizationRate: number | null;
   capacityNacks: number;
   avgDispatchToResultMs: number | null;
+  dispatchBlockedReason: string | null;
 }
 
 /** Ghost entry — a peer that left the snapshot, kept for grace period. */
@@ -220,6 +221,7 @@ export function buildPeerView(
     utilizationRate: peer.metrics?.utilizationRate ?? null,
     capacityNacks: peer.metrics?.capacityNacks ?? 0,
     avgDispatchToResultMs: peer.metrics?.avgDispatchToResultMs ?? null,
+    dispatchBlockedReason: peer.metrics?.dispatchBlockedReason ?? null,
   };
 }
 
@@ -251,6 +253,7 @@ export function buildGhostView(ghost: PeerGhost): PeerView {
     utilizationRate: peer.metrics?.utilizationRate ?? null,
     capacityNacks: peer.metrics?.capacityNacks ?? 0,
     avgDispatchToResultMs: peer.metrics?.avgDispatchToResultMs ?? null,
+    dispatchBlockedReason: peer.metrics?.dispatchBlockedReason ?? null,
   };
 }
 

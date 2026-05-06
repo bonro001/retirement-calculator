@@ -273,6 +273,11 @@ export interface MiningJobResult {
   batchId: string;
   /** Identity of the host that produced this result. Stamped onto each evaluation. */
   evaluatedByNodeId: string;
+  /**
+   * How long this batch sat accepted by the host before local workers
+   * began evaluating it. Populated by Node hosts that prefetch batches.
+   */
+  hostQueueDelayMs?: number;
   /** Wall-clock duration of the entire batch, milliseconds. */
   batchDurationMs: number;
   /** One evaluation per input policy, in input order. */

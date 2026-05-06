@@ -87,10 +87,16 @@ export function listSessions(rootDir: string = DEFAULT_DATA_DIR): SessionListing
       }
     }
     const evaluationsPath = join(sessionDir, 'evaluations.jsonl');
-    let evaluationCount = 0;
+    // Completed sessions already carry the authoritative queue count in
+    // summary.json. Do not re-read large JSONL files just to list the
+    // picker; old oversized corpora can be hundreds of MB and this endpoint
+    // runs on the dispatcher's event loop.
+    let evaluationCount = summary?.evaluatedCount ?? 0;
     let lastActivityMs = st.mtimeMs;
     if (existsSync(evaluationsPath)) {
-      evaluationCount = countJsonlLines(evaluationsPath);
+      if (!summary) {
+        evaluationCount = countJsonlLines(evaluationsPath);
+      }
       try {
         const evalSt = statSync(evaluationsPath);
         if (evalSt.mtimeMs > lastActivityMs) lastActivityMs = evalSt.mtimeMs;
@@ -171,9 +177,8 @@ export function readSessionMetadata(
     }
   }
   const evaluationsPath = join(sessionDir, 'evaluations.jsonl');
-  const evaluationCount = existsSync(evaluationsPath)
-    ? countJsonlLines(evaluationsPath)
-    : 0;
+  const evaluationCount = summary?.evaluatedCount ??
+    (existsSync(evaluationsPath) ? countJsonlLines(evaluationsPath) : 0);
   return { manifest, summary, evaluationCount };
 }
 

@@ -20,8 +20,12 @@
  *
  * Concurrency: the dispatcher is single-threaded so we don't need locks
  * across writers. We DO need to flush after every append so a SIGKILL
- * doesn't strand recent work in the libuv buffer; the cost is one fsync
- * per batch result, which is fine at <1 batch/sec/host.
+ * doesn't strand too much recent work in the libuv buffer. The default
+ * sync cadence is intentionally batched because Rust compact hosts can
+ * now return many batches per second; a per-batch fdatasync becomes the
+ * scheduler throttle instead of the engine. A crash may lose the last
+ * few unsynced batch appends, and D.5 resume will re-evaluate those
+ * missing policy ids from the manifest.
  */
 
 import {
@@ -98,6 +102,8 @@ interface OpenSession {
    *  feasibility-passing annual spend, with p50 bequest as tiebreaker. */
   bestSoFar: PolicyEvaluation | null;
   feasibilityThreshold: number;
+  unsyncedAppends: number;
+  lastSyncMs: number;
 }
 
 /**
@@ -106,6 +112,48 @@ interface OpenSession {
  * means lifting the constraint later (D.5+ multi-session) is trivial.
  */
 const openSessions = new Map<string, OpenSession>();
+
+function readPositiveIntEnv(name: string, fallback: number): number {
+  const raw = process.env[name];
+  if (!raw) return fallback;
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+const CORPUS_FSYNC_EVERY_BATCHES = readPositiveIntEnv(
+  'CLUSTER_CORPUS_FSYNC_EVERY_BATCHES',
+  8,
+);
+const CORPUS_FSYNC_EVERY_MS = readPositiveIntEnv(
+  'CLUSTER_CORPUS_FSYNC_EVERY_MS',
+  2_000,
+);
+
+function syncSessionData(session: OpenSession): void {
+  try {
+    fdatasyncSync(session.fd);
+  } catch {
+    // Some filesystems (tmpfs, fuse) don't implement fdatasync. Not fatal
+    // — the data is still in the OS page cache and will land eventually.
+  }
+  session.unsyncedAppends = 0;
+  session.lastSyncMs = Date.now();
+}
+
+function maybeSyncSessionData(session: OpenSession): void {
+  if (session.unsyncedAppends <= 0) return;
+  if (CORPUS_FSYNC_EVERY_BATCHES <= 1) {
+    syncSessionData(session);
+    return;
+  }
+  const now = Date.now();
+  if (
+    session.unsyncedAppends >= CORPUS_FSYNC_EVERY_BATCHES ||
+    now - session.lastSyncMs >= CORPUS_FSYNC_EVERY_MS
+  ) {
+    syncSessionData(session);
+  }
+}
 
 /**
  * Open a session for writing. Creates the session dir, writes the
@@ -162,6 +210,8 @@ export function openSessionForWrite(
     evaluationCount,
     bestSoFar,
     feasibilityThreshold: manifest.config.feasibilityThreshold,
+    unsyncedAppends: 0,
+    lastSyncMs: Date.now(),
   });
 }
 
@@ -281,8 +331,9 @@ function scanExistingEvaluations(
 
 /**
  * Append a batch of evaluations to the session's JSONL file. Each
- * evaluation becomes one line. fsync's after the write so a SIGKILL
- * doesn't lose in-flight lines.
+ * evaluation becomes one line. Data is synced periodically according to
+ * `CLUSTER_CORPUS_FSYNC_EVERY_BATCHES` / `CLUSTER_CORPUS_FSYNC_EVERY_MS`
+ * and always synced on session close.
  *
  * Returns the running best evaluation (after this batch is applied) — the
  * caller broadcasts it in cluster_state so observers can see the front
@@ -304,15 +355,8 @@ export function appendEvaluations(
   // next append doesn't accidentally concatenate with the prior record.
   const chunk = evaluations.map((ev) => JSON.stringify(ev)).join('\n') + '\n';
   appendFileSync(session.fd, chunk);
-  // fdatasync, not fsync — the file metadata can wait, the data can't.
-  // On macOS fdatasync is a syscall that delegates to F_FULLFSYNC for
-  // safety; on Linux it's the lighter version of fsync. Both correct.
-  try {
-    fdatasyncSync(session.fd);
-  } catch {
-    // Some filesystems (tmpfs, fuse) don't implement fdatasync. Not fatal
-    // — the data is still in the OS page cache and will land eventually.
-  }
+  session.unsyncedAppends += 1;
+  maybeSyncSessionData(session);
 
   let feasibleInBatch = 0;
   for (const ev of evaluations) {
@@ -381,6 +425,7 @@ export function closeSessionWithStats(
     bestPolicyId: session.bestSoFar?.id ?? null,
     ...(reason ? { reason } : {}),
   };
+  syncSessionData(session);
   writeFileSync(join(session.sessionDir, 'summary.json'), JSON.stringify(summary, null, 2));
   try {
     closeSync(session.fd);

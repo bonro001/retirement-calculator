@@ -650,6 +650,24 @@ export function PolicyMiningStatusCard({
       >
         {showUrlEditor ? 'cancel' : 'edit'}
       </button>
+      {(cluster.state === 'idle' || cluster.state === 'disconnected') && (
+        <button
+          type="button"
+          className="rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-700 hover:bg-emerald-100"
+          onClick={cluster.reconnect}
+        >
+          connect
+        </button>
+      )}
+      {(cluster.state === 'connected' || cluster.state === 'connecting') && (
+        <button
+          type="button"
+          className="rounded-full bg-stone-100 px-2 py-0.5 text-[11px] font-semibold text-stone-600 hover:bg-stone-200"
+          onClick={cluster.disconnect}
+        >
+          disconnect
+        </button>
+      )}
       {cluster.state === 'error' && (
         <button
           type="button"
@@ -944,9 +962,11 @@ export function PolicyMiningStatusCard({
                 ? Math.min(1, v.reservedWorkerSlots / v.workerCount)
                 : 0;
             const throughputLabel = isHost
-              ? v.totalPolPerMin !== null
-                ? formatThroughput(v.totalPolPerMin)
-                : 'awaiting first batch'
+              ? v.dispatchBlockedReason
+                ? v.dispatchBlockedReason.replace(/^build_/, 'build ')
+                : v.totalPolPerMin !== null
+                  ? formatThroughput(v.totalPolPerMin)
+                  : 'awaiting first batch'
               : v.roles.join('+');
             return (
               <div
@@ -1060,6 +1080,9 @@ export function PolicyMiningStatusCard({
             </p>
             <p className="text-stone-500">
               idle debt {formatWallTime(metrics.hostIdleWhilePendingSlotMs)}
+              {metrics.quarantinedHostCount ? ` · ${metrics.quarantinedHostCount} quarantined` : ''}
+              {metrics.unavailableHostCount ? ` · ${metrics.unavailableHostCount} unavailable` : ''}
+              {metrics.calibratingHostCount ? ` · ${metrics.calibratingHostCount} calibrating` : ''}
             </p>
           </div>
           <div>
@@ -1070,6 +1093,9 @@ export function PolicyMiningStatusCard({
             <p className="text-stone-500">
               {metrics.pendingPolicies.toLocaleString()} pending ·{' '}
               {metrics.inFlightBatches.toLocaleString()} in flight
+              {metrics.avgBatchesAssignedPerPump == null
+                ? ''
+                : ` · ${metrics.avgBatchesAssignedPerPump.toFixed(1)}/pump`}
             </p>
           </div>
           <div>
@@ -1088,7 +1114,8 @@ export function PolicyMiningStatusCard({
               {formatMetricMs(metrics.avgDispatchToResultMs)}
             </p>
             <p className="text-stone-500">
-              dispatch to result · {metrics.batchResults.toLocaleString()} results
+              queue {formatMetricMs(metrics.avgHostQueueDelayMs ?? null)} · write{' '}
+              {formatMetricMs(metrics.avgCorpusAppendMs ?? null)}
             </p>
           </div>
           <div>

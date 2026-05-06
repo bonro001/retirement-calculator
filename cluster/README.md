@@ -90,6 +90,13 @@ Environment variables:
 | `HOST_DISPLAY_NAME` | `node-host-<hostname>` | Friendly name shown in the per-host stats panel. |
 | `HOST_PERF_CLASS` | auto from arch | One of `apple-silicon-perf`, `apple-silicon-efficiency`, `x86-modern`, `x86-legacy`, `unknown`. The dispatcher uses this to size initial batches before measured throughput is in. |
 | `HOST_PLATFORM_DESCRIPTOR` | auto | Free-form descriptor surfaced in diagnostics. |
+| `HOST_AUTO_UPDATE` | `0` | When `1`, a host that sees a dispatcher build mismatch exits through `scripts/start-rust-host.mjs` so the launcher can pull/build/restart. |
+| `HOST_AUTO_UPDATE_RETRY_MS` | `60000` | Supervisor retry interval after an auto-update attempt cannot catch up. Keeps a worker from permanently ignoring later dispatcher commits while still avoiding a tight restart loop. |
+| `CLUSTER_ALLOW_BUILD_MISMATCH` | `0` | Emergency override. By default, hosts on a different or unknown git/package build stay visible but receive no mining batches. |
+| `CLUSTER_BLOCK_DIRTY_BUILDS` | `0` | When `1`, dirty hosts/dispatcher builds are also withheld from dispatch. Dirty state is otherwise visible but allowed for local development. |
+| `CLUSTER_WARMUP_MAX_BATCH_SIZE` | `16` | Per-host calibration cap. At the start of each stage, the dispatcher sends one small real-work batch to each eligible host before normal scheduling. |
+| `CLUSTER_PREFETCH_DEPTH` | `2` | Dispatcher target for outstanding batches per non-Rust host. |
+| `CLUSTER_RUST_COMPACT_PREFETCH_DEPTH` | `4` | Dispatcher target for outstanding batches per `rust-native-compact` host. Keeps fast hosts prefilled to avoid CPU pulse. |
 | `SMOKE_POLICIES` | `4` | Number of policies the host smoke evaluates. |
 | `SMOKE_TRIALS` | `200` | Trials per policy in the host smoke. |
 | `CLUSTER_DATA_DIR` | `cluster/data` | Where the dispatcher writes session artifacts. Override to a NAS mount if you want corpora to outlive the local disk. |
@@ -99,6 +106,8 @@ Environment variables:
 | `SESSION_MAX_POLICIES` | full corpus | Cap on enumerated policies — useful for first-time dry runs. |
 | `SESSION_BASELINE_FILE` | built-in `initialSeedData` | Path to a `SeedData` JSON to mine against. |
 | `SESSION_ASSUMPTIONS_FILE` | built-in defaults | Path to a `MarketAssumptions` JSON. |
+| `CLUSTER_CORPUS_FSYNC_EVERY_BATCHES` | `8` | Dispatcher JSONL durability cadence. Set to `1` for strict per-batch `fdatasync`. |
+| `CLUSTER_CORPUS_FSYNC_EVERY_MS` | `2000` | Time-based JSONL sync cap; final session close always syncs. |
 
 Health endpoint: `GET http://<dispatcher>:8765/health` returns `{status, protocolVersion, peerCount, uptimeSec}`.
 

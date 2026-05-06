@@ -332,11 +332,16 @@ export interface ClusterPeerMetrics {
   capacityNacks: number;
   assignedPolicies: number;
   completedPolicies: number;
+  targetInFlightBatches?: number;
   reservedWorkerSlots: number;
   busySlotMs: number;
   idleWhilePendingSlotMs: number;
   utilizationRate: number | null;
   avgDispatchToResultMs: number | null;
+  avgHostQueueDelayMs?: number | null;
+  incompleteResultBatches?: number;
+  quarantinedForSessionReason?: string | null;
+  dispatchBlockedReason?: string | null;
 }
 
 export interface ClusterRuntimeMetrics {
@@ -352,6 +357,14 @@ export interface ClusterRuntimeMetrics {
   policiesDropped: number;
   avgBatchSize: number | null;
   avgDispatchToResultMs: number | null;
+  avgHostQueueDelayMs?: number | null;
+  avgCorpusAppendMs?: number | null;
+  pumpCycles?: number;
+  avgBatchesAssignedPerPump?: number | null;
+  activeHostCount?: number;
+  quarantinedHostCount?: number;
+  unavailableHostCount?: number;
+  calibratingHostCount?: number;
   hostBusySlotMs: number;
   hostIdleWhilePendingSlotMs: number;
   hostUtilizationRate: number | null;
