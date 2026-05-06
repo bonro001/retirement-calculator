@@ -167,6 +167,10 @@ interface Peer {
    *  nack handler to break tight nack loops; the failsafe pump tick
    *  retries after the cooldown elapses. */
   pumpCooldownUntilMs: number;
+  /** Last dispatcher build key this host was explicitly told to cycle to. */
+  lastUpdateRequestKey: string | null;
+  /** Last wall-clock ms when we sent the explicit cycle command. */
+  lastUpdateRequestAtMs: number | null;
 }
 
 interface SessionRuntimeCounters {
@@ -234,6 +238,10 @@ const SLOW_HOST_TAIL_CUTOFF_MULTIPLIER = readPositiveIntEnv(
 const SLOW_HOST_TAIL_WORK_MULTIPLIER = readPositiveIntEnv(
   'CLUSTER_SLOW_HOST_TAIL_WORK_MULTIPLIER',
   4,
+);
+const HOST_UPDATE_REQUEST_INTERVAL_MS = readPositiveIntEnv(
+  'CLUSTER_HOST_UPDATE_REQUEST_INTERVAL_MS',
+  30_000,
 );
 const ALLOW_BUILD_MISMATCH =
   process.env.CLUSTER_ALLOW_BUILD_MISMATCH === '1' ||
@@ -820,7 +828,52 @@ function broadcast(message: ClusterMessage, rolesFilter?: PeerRole[]): void {
   }
 }
 
+function requestHostUpdateIfNeeded(peer: Peer, source: string): void {
+  if (!peer.roles.includes('host') || ALLOW_BUILD_MISMATCH) return;
+  if (peer.socket.readyState !== peer.socket.OPEN) return;
+
+  const status = compareBuildInfo(DISPATCHER_BUILD_INFO, peer.buildInfo);
+  if (status === 'match' || status === 'unknown') return;
+  if (status === 'dirty' && !BLOCK_DIRTY_BUILDS) return;
+
+  const expectedKey = formatBuildInfo(DISPATCHER_BUILD_INFO);
+  const nowMs = Date.now();
+  if (
+    peer.lastUpdateRequestKey === expectedKey &&
+    peer.lastUpdateRequestAtMs !== null &&
+    nowMs - peer.lastUpdateRequestAtMs < HOST_UPDATE_REQUEST_INTERVAL_MS
+  ) {
+    return;
+  }
+
+  peer.lastUpdateRequestKey = expectedKey;
+  peer.lastUpdateRequestAtMs = nowMs;
+  sendTo(peer, {
+    kind: 'host_control',
+    action: 'cycle_for_update',
+    expectedBuildInfo: DISPATCHER_BUILD_INFO,
+    reason: `build_${status}`,
+    from: 'dispatcher',
+    to: peer.peerId,
+  });
+  log('warn', 'requested host update cycle', {
+    peerId: peer.peerId,
+    displayName: peer.displayName,
+    source,
+    local: formatBuildInfo(peer.buildInfo),
+    expected: expectedKey,
+    status,
+  });
+}
+
+function requestMismatchedHostUpdates(source: string): void {
+  for (const peer of peers.values()) {
+    requestHostUpdateIfNeeded(peer, source);
+  }
+}
+
 function broadcastClusterState(): void {
+  requestMismatchedHostUpdates('cluster_state');
   broadcast({ kind: 'cluster_state', snapshot: buildClusterSnapshot(), from: 'dispatcher' });
 }
 
@@ -886,6 +939,8 @@ function handleRegister(socket: WebSocket, registration: RegisterMessage, remote
     incompleteResultBatches: 0,
     quarantinedForSessionReason: null,
     pumpCooldownUntilMs: 0,
+    lastUpdateRequestKey: null,
+    lastUpdateRequestAtMs: null,
   };
   peers.set(peerId, peer);
 
@@ -898,6 +953,7 @@ function handleRegister(socket: WebSocket, registration: RegisterMessage, remote
     to: peerId,
   };
   sendTo(peer, welcome);
+  requestHostUpdateIfNeeded(peer, 'register');
 
   log('info', 'peer registered', {
     peerId,
@@ -1885,6 +1941,7 @@ function handleMessage(peer: Peer, message: ClusterMessage): void {
     case 'register_rejected':
     case 'batch_assign':
     case 'batch_ack':
+    case 'host_control':
     case 'cluster_state':
     case 'evaluations_ingested':
       // Server-originated kinds — should never arrive from a peer.

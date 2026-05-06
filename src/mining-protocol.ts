@@ -321,6 +321,18 @@ export interface BatchAckMessage extends BaseMessage {
   batchId: string;
 }
 
+/**
+ * Dispatcher → host control path for administrative actions that should
+ * work even when the host is not currently eligible for mining work.
+ */
+export interface HostControlMessage extends BaseMessage {
+  kind: 'host_control';
+  action: 'cycle_for_update';
+  /** Build identity the host should catch up to before rejoining. */
+  expectedBuildInfo?: ClusterBuildInfo;
+  reason?: string;
+}
+
 // ============================================================================
 // Stats / observability
 // ============================================================================
@@ -444,6 +456,7 @@ export type ClusterMessage =
   | BatchResultMessage
   | BatchNackMessage
   | BatchAckMessage
+  | HostControlMessage
   | ClusterStateMessage
   | EvaluationsIngestedMessage;
 

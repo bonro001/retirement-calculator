@@ -274,6 +274,7 @@ process.env.HOST_WORKERS = workers ?? String(profile.workers);
 process.env.HOST_DISPLAY_NAME = name ?? profile.name;
 process.env.ENGINE_RUNTIME_DEFAULT = runtime;
 process.env.HOST_AUTO_UPDATE = autoUpdate ? '1' : '0';
+process.env.HOST_ACCEPT_UPDATE_CONTROL = autoUpdate ? '1' : '0';
 
 console.log(
   `[start-rust-host] ${process.env.HOST_DISPLAY_NAME} ` +
@@ -331,14 +332,13 @@ function startChild() {
   refreshBuildEnv();
   // Tell the host process to skip its own auto-update path once we
   // know the launcher can't fast-forward it. The host will keep
-  // running (logging a one-time "needs update" warning to the panel)
-  // and the operator can manually checkout the right branch when
-  // they're ready.
+  // running until the dispatcher explicitly tells it to cycle again.
   if (autoUpdateExhausted) {
     process.env.HOST_AUTO_UPDATE = '0';
   } else {
     process.env.HOST_AUTO_UPDATE = autoUpdate ? '1' : '0';
   }
+  process.env.HOST_ACCEPT_UPDATE_CONTROL = autoUpdate ? '1' : '0';
   child = spawn(process.execPath, ['--import', 'tsx', HOST_ENTRY], {
     cwd: REPO_ROOT,
     stdio: 'inherit',
@@ -353,7 +353,15 @@ function startChild() {
       startChild();
       return;
     }
-    if (autoUpdate && !autoUpdateExhausted && code === AUTO_UPDATE_EXIT_CODE) {
+    if (autoUpdate && code === AUTO_UPDATE_EXIT_CODE) {
+      if (autoUpdateExhausted) {
+        console.warn(
+          '[start-rust-host] dispatcher requested update retry after previous exhaustion',
+        );
+        autoUpdateExhausted = false;
+        autoUpdateExhaustedForCommit = null;
+        autoUpdateExhaustedAtMs = 0;
+      }
       let advanced = false;
       try {
         advanced = updateIfBehind();
