@@ -41,6 +41,7 @@
  */
 
 import { createServer, type IncomingMessage } from 'node:http';
+import { createHash } from 'node:crypto';
 import { hostname } from 'node:os';
 import { WebSocketServer, type WebSocket } from 'ws';
 import {
@@ -198,6 +199,14 @@ const CAPACITY_NACK_COOLDOWN_MS = 100;
  *  it for the current session so healthy hosts don't spend the run
  *  reprocessing its empty batches. */
 const INCOMPLETE_RESULT_QUARANTINE_THRESHOLD = 2;
+
+function sessionIdPrefix(fingerprint: string): string {
+  const prefix = fingerprint.slice(0, 24);
+  if (/^[a-zA-Z0-9._-]+$/.test(prefix)) {
+    return prefix.slice(0, 12);
+  }
+  return createHash('sha256').update(fingerprint).digest('hex').slice(0, 12);
+}
 
 function readPositiveIntEnv(name: string, fallback: number): number {
   const raw = process.env[name];
@@ -889,7 +898,7 @@ function handleStartSession(peer: Peer, message: StartSessionMessage): void {
     // Fresh session: stamp id with baseline prefix + time so logs read
     // well and re-running doesn't collide with a stale on-disk session dir.
     const startedAtMs = Date.now();
-    sessionId = `s-${cfg.baselineFingerprint.slice(0, 12)}-${startedAtMs}`;
+    sessionId = `s-${sessionIdPrefix(cfg.baselineFingerprint)}-${startedAtMs}`;
     startedAtIso = new Date(startedAtMs).toISOString();
     queue = new WorkQueue(sessionId, sliced);
   }
