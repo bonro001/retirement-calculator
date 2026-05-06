@@ -38,6 +38,9 @@ export interface RankingRule {
   }>;
 }
 
+export const LEGACY_ATTAINMENT_FLOOR = 0.85;
+export const SOLVENCY_DEFENSE_FLOOR = 0.8;
+
 /**
  * The household's locked-in rule. Legacy attainment is the binding
  * constraint at their wealth level (solvency is ~100% across every
@@ -60,12 +63,12 @@ export const LEGACY_FIRST_LEXICOGRAPHIC: RankingRule = {
   gates: [
     {
       label: 'legacy attainment ≥ 85%',
-      minimum: 0.85,
+      minimum: LEGACY_ATTAINMENT_FLOOR,
       metric: (e) => e.outcome.bequestAttainmentRate,
     },
     {
-      label: 'solvency ≥ 70%',
-      minimum: 0.7,
+      label: 'solvency ≥ 80%',
+      minimum: SOLVENCY_DEFENSE_FLOOR,
       metric: (e) => e.outcome.solventSuccessRate,
     },
   ],
@@ -93,7 +96,10 @@ export const LEGACY_FIRST_LEXICOGRAPHIC: RankingRule = {
   ],
 };
 
-function clearsGates(e: PolicyEvaluation, rule: RankingRule): boolean {
+export function clearsPolicyGates(
+  e: PolicyEvaluation,
+  rule: RankingRule = LEGACY_FIRST_LEXICOGRAPHIC,
+): boolean {
   return rule.gates.every((g) => g.metric(e) >= g.minimum);
 }
 
@@ -122,7 +128,7 @@ export function rankPolicies(
   rule: RankingRule = LEGACY_FIRST_LEXICOGRAPHIC,
 ): PolicyEvaluation[] {
   return evaluations
-    .filter((e) => clearsGates(e, rule))
+    .filter((e) => clearsPolicyGates(e, rule))
     .sort((a, b) => compareByTiebreakers(a, b, rule));
 }
 
@@ -136,7 +142,7 @@ export function bestPolicy(
 ): PolicyEvaluation | null {
   let best: PolicyEvaluation | null = null;
   for (const e of evaluations) {
-    if (!clearsGates(e, rule)) continue;
+    if (!clearsPolicyGates(e, rule)) continue;
     if (!best || compareByTiebreakers(e, best, rule) < 0) {
       best = e;
     }

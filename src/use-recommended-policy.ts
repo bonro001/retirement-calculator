@@ -15,7 +15,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import type { MarketAssumptions, SeedData } from './types';
-import type { PolicyEvaluation } from './policy-miner-types';
+import type { Policy, PolicyEvaluation } from './policy-miner-types';
 import { buildEvaluationFingerprint } from './evaluation-fingerprint';
 import { loadEvaluationsForBaseline } from './policy-mining-corpus';
 import {
@@ -23,7 +23,15 @@ import {
   loadClusterSessions,
 } from './policy-mining-cluster';
 import { POLICY_MINER_ENGINE_VERSION } from './policy-miner-types';
-import { bestPolicy, LEGACY_FIRST_LEXICOGRAPHIC } from './policy-ranker';
+import { POLICY_MINING_TRIAL_COUNT } from './policy-mining-config';
+import {
+  bestPolicy,
+  LEGACY_ATTAINMENT_FLOOR,
+  LEGACY_FIRST_LEXICOGRAPHIC,
+  SOLVENCY_DEFENSE_FLOOR,
+} from './policy-ranker';
+import { adoptedSeedMatchesPolicy } from './policy-adoption';
+import type { PolicyAdoptionUndo } from './store';
 
 export type CorpusState =
   | 'loading'
@@ -83,6 +91,40 @@ function writeCachedEntry(entry: CachedEntry | null): void {
   }
 }
 
+function policiesMatch(a: Policy | null | undefined, b: Policy | null | undefined): boolean {
+  if (!a || !b) return false;
+  return (
+    a.annualSpendTodayDollars === b.annualSpendTodayDollars &&
+    a.primarySocialSecurityClaimAge === b.primarySocialSecurityClaimAge &&
+    a.spouseSocialSecurityClaimAge === b.spouseSocialSecurityClaimAge &&
+    a.rothConversionAnnualCeiling === b.rothConversionAnnualCeiling &&
+    (a.withdrawalRule ?? 'tax_bracket_waterfall') ===
+      (b.withdrawalRule ?? 'tax_bracket_waterfall')
+  );
+}
+
+function cacheMatchesCurrentAdoption(
+  cached: CachedEntry | null,
+  data: SeedData | null,
+  adoption: PolicyAdoptionUndo | null | undefined,
+): boolean {
+  if (!cached || !data || !adoption) return false;
+  if (!policiesMatch(cached.policy.policy, adoption.policy)) return false;
+  return adoptionMatchesCurrentData(data, adoption);
+}
+
+function adoptionMatchesCurrentData(
+  data: SeedData | null,
+  adoption: PolicyAdoptionUndo | null | undefined,
+): boolean {
+  if (!data || !adoption) return false;
+  return adoptedSeedMatchesPolicy(
+    data,
+    adoption.previousAppliedData,
+    adoption.policy,
+  );
+}
+
 /**
  * Fetch the policy corpus from whichever source is available — cluster
  * dispatcher first, falling back to local IDB. Mirrors the source-toggle
@@ -102,7 +144,11 @@ async function fetchCorpus(
         const payload = await loadClusterEvaluations(
           dispatcherUrl,
           match.sessionId,
-          { topN: 0, minFeasibility: 0.5 },
+          {
+            topN: 0,
+            minFeasibility: LEGACY_ATTAINMENT_FLOOR,
+            minSolvency: SOLVENCY_DEFENSE_FLOOR,
+          },
         );
         if (payload?.evaluations?.length) return payload.evaluations;
       }
@@ -127,12 +173,13 @@ export function useRecommendedPolicy(
   selectedStressors: string[],
   selectedResponses: string[],
   dispatcherUrl: string | null,
+  adoption: PolicyAdoptionUndo | null = null,
 ): RecommendedPolicy {
   const fingerprint = useMemo(() => {
     if (!data || !assumptions) return null;
     try {
       // Use the SAME suffixed fingerprint MiningScreen uses to register
-      // sessions (`|trials=2000|fpv1`). Without the suffix, the cockpit
+      // sessions. Without the suffix, the cockpit
       // and the mining screen would look at different cluster sessions
       // for the same household plan and the cockpit would never see
       // the corpus produced by a mine.
@@ -142,7 +189,6 @@ export function useRecommendedPolicy(
         selectedStressors,
         selectedResponses,
       });
-      const POLICY_MINING_TRIAL_COUNT = 2000;
       return `${base}|trials=${POLICY_MINING_TRIAL_COUNT}|fpv1`;
     } catch {
       return null;
@@ -230,17 +276,48 @@ export function useRecommendedPolicy(
   // surface a "your plan changed, re-mine" banner.
   const effectiveState: CorpusState = (() => {
     if (!fingerprint) return 'loading';
+    if (
+      adoption?.evaluation &&
+      policiesMatch(adoption.evaluation.policy, adoption.policy) &&
+      adoptionMatchesCurrentData(data, adoption)
+    ) {
+      return 'fresh';
+    }
+    if (
+      state === 'stale-corpus' &&
+      cacheMatchesCurrentAdoption(cached, data, adoption)
+    ) {
+      return 'fresh';
+    }
     if (state === 'fresh' && cached?.fingerprint !== fingerprint) {
+      if (cacheMatchesCurrentAdoption(cached, data, adoption)) {
+        return 'fresh';
+      }
       return 'stale-corpus';
     }
     return state;
   })();
+  const shouldUseAdoptionCache =
+    effectiveState === 'fresh' &&
+    cached?.fingerprint !== fingerprint &&
+    cacheMatchesCurrentAdoption(cached, data, adoption);
+  const shouldUseAdoptionEvaluation =
+    effectiveState === 'fresh' &&
+    adoption?.evaluation &&
+    policiesMatch(adoption.evaluation.policy, adoption.policy) &&
+    adoptionMatchesCurrentData(data, adoption);
+  const policyFromCache =
+    effectiveState === 'fresh' &&
+    cached &&
+    (cached.fingerprint === fingerprint || shouldUseAdoptionCache)
+      ? cached.policy
+      : null;
 
   return {
     policy:
-      effectiveState === 'fresh' && cached?.fingerprint === fingerprint
-        ? cached.policy
-        : null,
+      shouldUseAdoptionEvaluation
+        ? adoption.evaluation!
+        : policyFromCache,
     state: effectiveState,
     fingerprint,
     evaluationCount,

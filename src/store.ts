@@ -4,6 +4,7 @@ import type { PlanEvaluation } from './plan-evaluation';
 import { buildEvaluationFingerprint } from './evaluation-fingerprint';
 import { loadPlanEvalFromCache, savePlanEvalToCache } from './plan-eval-cache';
 import {
+  DEFAULT_LEGACY_TARGET_TODAY_DOLLARS,
   loadLegacyTargetFromCache,
   saveLegacyTargetToCache,
 } from './legacy-target-cache';
@@ -14,7 +15,7 @@ import {
   type PlanSnapshot,
 } from './plan-snapshots';
 import { buildAdoptedSeedData, diffAdoption } from './policy-adoption';
-import type { Policy } from './policy-miner-types';
+import type { Policy, PolicyEvaluation } from './policy-miner-types';
 import type {
   AccountsData,
   EmployerMatchFormula,
@@ -357,14 +358,13 @@ interface AppState {
    */
   lastPolicyAdoption: PolicyAdoptionUndo | null;
   /**
-   * Stage a mined policy into the draft plan. Scales spending categories
+   * Adopt a mined policy into the draft and applied plan. Scales spending categories
    * proportionally to hit the policy's annual-spend target, writes SS
    * claim ages, and writes the Roth conversion ceiling. Does NOT touch
-   * accounts. Sets `hasPendingSimulationChanges` so the user gets the
-   * usual "Run Plan Analysis" CTA. Stores the previous draft in
+   * accounts. Stores the previous draft/applied snapshots in
    * `lastPolicyAdoption` so the change is undoable.
    */
-  adoptMinedPolicy: (policy: Policy) => void;
+  adoptMinedPolicy: (policy: Policy, evaluation?: PolicyEvaluation | null) => void;
   /** Restore the draft plan to what it was before the last adoption. */
   undoLastPolicyAdoption: () => void;
   /** Forget the last-adoption undo slot without changing the plan. */
@@ -374,8 +374,13 @@ interface AppState {
 export interface PolicyAdoptionUndo {
   /** Snapshot of `data` before the adoption write — restored on undo. */
   previousData: SeedData;
+  /** Snapshot of `appliedData` before adoption — restored on undo. */
+  previousAppliedData: SeedData;
   /** Which policy was adopted. Used to render the undo banner copy. */
   policy: Policy;
+  /** The mined row that was adopted, when available. Lets Cockpit cite
+   *  the exact record after adoption changes the plan fingerprint. */
+  evaluation?: PolicyEvaluation | null;
   /** Pre-formatted summary line ("$130k/yr · SS 70/68 · Roth $40k"). */
   summary: string;
   /** ISO timestamp the adoption happened, for display. */
@@ -428,22 +433,21 @@ const restoredEvalContext = loadPlanEvalFromCache(initialFingerprint);
 // `set()` call so the very first render already shows the right number
 // — no flash of the seed default.
 const restoredLegacyTarget = loadLegacyTargetFromCache();
-const seedDataWithRestoredLegacy: SeedData =
-  restoredLegacyTarget === undefined
-    ? initialSeedData
-    : {
-        ...initialSeedData,
-        goals: {
-          ...(initialSeedData.goals ?? {}),
-          legacyTargetTodayDollars: restoredLegacyTarget,
-        },
-      };
+const initialLegacyTarget =
+  restoredLegacyTarget ?? DEFAULT_LEGACY_TARGET_TODAY_DOLLARS;
+const seedDataWithRestoredLegacy: SeedData = {
+  ...initialSeedData,
+  goals: {
+    ...(initialSeedData.goals ?? {}),
+    legacyTargetTodayDollars: initialLegacyTarget,
+  },
+};
 
 const initialSnapshots: PlanSnapshot[] = (() => {
   const existing = loadSnapshots();
   if (existing.length) return existing;
   const seeded = [
-    buildSnapshot(initialSeedData, {
+    buildSnapshot(seedDataWithRestoredLegacy, {
       capturedAt: new Date().toISOString(),
       label: 'baseline',
       successRate: restoredEvalContext?.evaluation?.summary?.successRate ?? null,
@@ -851,20 +855,25 @@ export const useAppStore = create<AppState>((set) => ({
     return created as unknown as PlanSnapshot;
   },
   lastPolicyAdoption: null,
-  adoptMinedPolicy: (policy) =>
+  adoptMinedPolicy: (policy, evaluation = null) =>
     set((state) => {
       const previousData = cloneSeedData(state.data);
-      const nextData = buildAdoptedSeedData(state.data, policy);
-      const summary = diffAdoption(state.data, policy).summary;
+      const previousAppliedData = cloneSeedData(state.appliedData);
+      const nextData = buildAdoptedSeedData(state.appliedData, policy);
+      const appliedData = cloneSeedData(nextData);
+      const summary = diffAdoption(state.appliedData, policy).summary;
       const undo: PolicyAdoptionUndo = {
         previousData,
+        previousAppliedData,
         policy,
+        evaluation,
         summary,
         adoptedAtIso: new Date().toISOString(),
       };
       const hasPendingSimulationChanges = hasPendingChanges({
         ...state,
         data: nextData,
+        appliedData,
       });
       // Bump the rerun nonce so UnifiedPlanScreen's existing rerun
       // effect kicks off a fresh Plan Analysis with the adopted policy
@@ -875,6 +884,7 @@ export const useAppStore = create<AppState>((set) => ({
       // is the chart not changing?"
       return {
         data: nextData,
+        appliedData,
         hasPendingSimulationChanges,
         lastPolicyAdoption: undo,
         unifiedPlanRerunNonce: state.unifiedPlanRerunNonce + 1,
@@ -884,14 +894,19 @@ export const useAppStore = create<AppState>((set) => ({
     set((state) => {
       if (!state.lastPolicyAdoption) return {};
       const data = cloneSeedData(state.lastPolicyAdoption.previousData);
+      const appliedData = cloneSeedData(
+        state.lastPolicyAdoption.previousAppliedData,
+      );
       const hasPendingSimulationChanges = hasPendingChanges({
         ...state,
         data,
+        appliedData,
       });
       // Symmetric with adoptMinedPolicy: undo also changes the seed
       // data and the household will want the projection to follow.
       return {
         data,
+        appliedData,
         hasPendingSimulationChanges,
         lastPolicyAdoption: null,
         unifiedPlanRerunNonce: state.unifiedPlanRerunNonce + 1,

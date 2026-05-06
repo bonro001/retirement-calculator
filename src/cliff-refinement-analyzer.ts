@@ -25,6 +25,18 @@ import type { PolicyEvaluation, PolicyAxes } from './policy-miner-types';
 import type { SeedData } from './types';
 import { buildDefaultPolicyAxes } from './policy-axis-enumerator';
 
+export type FeasibilityMetric = 'legacy' | 'solvency';
+
+function metricValue(e: PolicyEvaluation, metric: FeasibilityMetric): number {
+  return metric === 'solvency'
+    ? e.outcome.solventSuccessRate
+    : e.outcome.bequestAttainmentRate;
+}
+
+function metricLabel(metric: FeasibilityMetric): string {
+  return metric === 'solvency' ? 'solvency' : 'legacy';
+}
+
 export interface CliffRefinementRecommendation {
   /** True if a refined pass-2 axis would meaningfully improve precision. */
   hasRecommendation: boolean;
@@ -90,6 +102,8 @@ function findCliffBracket(
  */
 function summarizePerSpendTier(
   evaluations: PolicyEvaluation[],
+  metric: FeasibilityMetric,
+  threshold: number,
 ): Array<{
   spend: number;
   totalRecords: number;
@@ -102,10 +116,10 @@ function summarizePerSpendTier(
   >();
   for (const e of evaluations) {
     const spend = e.policy.annualSpendTodayDollars;
-    const f = e.outcome.bequestAttainmentRate;
+    const f = metricValue(e, metric);
     const t = byTier.get(spend) ?? { total: 0, feasible: 0, maxF: 0 };
     t.total += 1;
-    if (f >= 0.85) t.feasible += 1;
+    if (f >= threshold) t.feasible += 1;
     if (f > t.maxF) t.maxF = f;
     byTier.set(spend, t);
   }
@@ -133,9 +147,15 @@ export function recommendCliffRefinement(
   evaluations: PolicyEvaluation[],
   seedData: SeedData,
   feasibilityThreshold = 0.85,
+  metric: FeasibilityMetric = 'legacy',
 ): CliffRefinementRecommendation {
   const baseAxes = buildDefaultPolicyAxes(seedData);
-  const perTier = summarizePerSpendTier(evaluations);
+  const perTier = summarizePerSpendTier(
+    evaluations,
+    metric,
+    feasibilityThreshold,
+  );
+  const label = metricLabel(metric);
 
   if (perTier.length < 2) {
     return {
@@ -145,7 +165,7 @@ export function recommendCliffRefinement(
       cliffUpperSpend: 0,
       feasibilityThreshold,
       spendTierFeasibility: perTier,
-      rationale: 'Pass-1 corpus has fewer than 2 spend tiers — no cliff to refine.',
+      rationale: `Pass-1 corpus has fewer than 2 spend tiers — no ${label} cliff to refine.`,
     };
   }
 
@@ -163,8 +183,8 @@ export function recommendCliffRefinement(
       feasibilityThreshold,
       spendTierFeasibility: perTier,
       rationale: allFeasible
-        ? `Every mined spend tier clears the ${Math.round(feasibilityThreshold * 100)}% feasibility floor — your plan has slack across the entire $${perTier[0].spend.toLocaleString()}–$${perTier.at(-1)!.spend.toLocaleString()} range. Widen the spend axis upward to find the real cliff.`
-        : `No mined spend tier clears the ${Math.round(feasibilityThreshold * 100)}% feasibility floor — your plan can't support the legacy goal at any spend in the mined range. Adjusting boulders (retirement date, allocation) is the next step, not finer mining.`,
+        ? `Every mined spend tier clears the ${Math.round(feasibilityThreshold * 100)}% ${label} floor — your plan has slack across the entire $${perTier[0].spend.toLocaleString()}–$${perTier.at(-1)!.spend.toLocaleString()} range. Widen the spend axis upward to find the real cliff.`
+        : `No mined spend tier clears the ${Math.round(feasibilityThreshold * 100)}% ${label} floor — your plan can't support that risk target at any spend in the mined range. Adjusting boulders (retirement date, allocation) is the next step, not finer mining.`,
     };
   }
 
@@ -245,6 +265,6 @@ export function recommendCliffRefinement(
     cliffUpperSpend: cliff.upperSpend,
     feasibilityThreshold,
     spendTierFeasibility: perTier,
-    rationale: `Feasibility crosses the ${Math.round(feasibilityThreshold * 100)}% floor between $${cliff.lowerSpend.toLocaleString()} (${lowerPct}% feasible) and $${cliff.upperSpend.toLocaleString()} (${upperPct}%). A second mining pass at $1k resolution across this band will pin the precise max-spend at your floor — typically within 1-2 minutes on the cluster.`,
+    rationale: `${label[0].toUpperCase()}${label.slice(1)} crosses the ${Math.round(feasibilityThreshold * 100)}% floor between $${cliff.lowerSpend.toLocaleString()} (${lowerPct}%) and $${cliff.upperSpend.toLocaleString()} (${upperPct}%). A second mining pass at $1k resolution across this band will pin the precise max-spend at your floor — typically within 1-2 minutes on the cluster.`,
   };
 }

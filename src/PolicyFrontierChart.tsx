@@ -41,11 +41,10 @@ import type { Policy, PolicyEvaluation } from './policy-miner-types';
  * band) when the corpus is dense, and overlay the Pareto front in green
  * with a line connecting points for visual continuity.
  *
- * Why feasibility-filtered: an "infeasible Pareto front" misleads — it
- * shows the best dominated policies. The threshold defaults to the same
- * 0.7 the rest of the mining surface uses, with a slider override below
- * the chart so the household can explore stricter / looser bequest
- * targets without re-mining.
+ * Why gate-filtered: an "infeasible Pareto front" misleads — it shows
+ * the best dominated policies. The chart keeps legacy and solvency
+ * floors visible so the household can explore risk tolerance without
+ * re-mining.
  */
 
 interface Props {
@@ -59,6 +58,8 @@ interface Props {
   adoptedPolicy?: Policy | null;
   /** Default feasibility threshold (0..1). Defaults to 0.70. */
   defaultFeasibilityThreshold?: number;
+  /** Fixed solvency floor (0..1). Defaults to no floor. */
+  minSolvencyThreshold?: number;
   /** Click handler — called when the household clicks a point on the chart. */
   onAdoptPolicy?: (policy: Policy) => void;
 }
@@ -117,6 +118,10 @@ function FrontierTooltip({ active, payload }: CustomTooltipProps): JSX.Element |
         Feasibility:{' '}
         <span className="tabular-nums">{Math.round(point.feasibility * 100)}%</span>
       </p>
+      <p>
+        Solvency:{' '}
+        <span className="tabular-nums">{Math.round(point.solvency * 100)}%</span>
+      </p>
       <p className="mt-1 text-stone-500">Click to adopt this policy</p>
     </div>
   );
@@ -127,14 +132,15 @@ export function PolicyFrontierChart({
   currentPlan,
   adoptedPolicy,
   defaultFeasibilityThreshold = 0.7,
+  minSolvencyThreshold = 0,
   onAdoptPolicy,
 }: Props): JSX.Element {
   const [feasibilityFloor, setFeasibilityFloor] = useState(defaultFeasibilityThreshold);
   const [showDominated, setShowDominated] = useState(true);
 
   const projected = useMemo(
-    () => projectEvaluations(evaluations, feasibilityFloor),
-    [evaluations, feasibilityFloor],
+    () => projectEvaluations(evaluations, feasibilityFloor, minSolvencyThreshold),
+    [evaluations, feasibilityFloor, minSolvencyThreshold],
   );
   const front = useMemo(() => computeParetoFront(projected), [projected]);
   const frontIds = useMemo(() => {
@@ -179,8 +185,8 @@ export function PolicyFrontierChart({
   if (projected.length === 0) {
     return (
       <div className="mt-4 rounded-2xl border border-dashed border-stone-300 bg-stone-50 px-4 py-6 text-center text-[13px] text-stone-500">
-        No feasible policies at the current threshold. Lower the
-        feasibility floor or run a wider mine.
+        No policies clear the current legacy and solvency floors. Lower
+        the legacy floor or run a wider mine.
       </div>
     );
   }
@@ -210,7 +216,7 @@ export function PolicyFrontierChart({
             show dominated cloud
           </label>
           <label className="flex items-center gap-1">
-            feasibility ≥{' '}
+            legacy ≥{' '}
             <span className="tabular-nums font-semibold text-stone-700">
               {Math.round(feasibilityFloor * 100)}%
             </span>
@@ -224,6 +230,11 @@ export function PolicyFrontierChart({
               className="ml-1 h-1 w-24"
             />
           </label>
+          {minSolvencyThreshold > 0 && (
+            <span className="font-medium text-stone-500">
+              solvency ≥ {Math.round(minSolvencyThreshold * 100)}%
+            </span>
+          )}
         </div>
       </div>
       <div className="h-72 w-full">

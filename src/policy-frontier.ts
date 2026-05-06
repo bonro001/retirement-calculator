@@ -31,6 +31,8 @@ export interface FrontierPoint {
   bequest: number;
   /** Feasibility = bequestAttainmentRate ∈ [0, 1]. */
   feasibility: number;
+  /** Solvency = solventSuccessRate ∈ [0, 1]. */
+  solvency: number;
 }
 
 /**
@@ -42,16 +44,20 @@ export interface FrontierPoint {
 export function projectEvaluations(
   evaluations: PolicyEvaluation[],
   minFeasibility = 0,
+  minSolvency = 0,
 ): FrontierPoint[] {
   const out: FrontierPoint[] = [];
   for (const e of evaluations) {
     const feasibility = e.outcome.bequestAttainmentRate;
+    const solvency = e.outcome.solventSuccessRate;
     if (feasibility < minFeasibility) continue;
+    if (solvency < minSolvency) continue;
     out.push({
       evaluation: e,
       spend: e.policy.annualSpendTodayDollars,
       bequest: e.outcome.p50EndingWealthTodayDollars,
       feasibility,
+      solvency,
     });
   }
   return out;

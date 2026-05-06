@@ -120,7 +120,7 @@ function scaleSpendingProportional(
   // Round to whole dollars on the unit each category is stored in (monthly
   // for monthlies, annual for annuals). Avoids fractional-cent drift in the
   // UI; the engine doesn't care about $1 rounding.
-  return {
+  const scaled = {
     ...spending,
     essentialMonthly: Math.round(spending.essentialMonthly * multiplier),
     optionalMonthly: Math.round(spending.optionalMonthly * multiplier),
@@ -128,6 +128,29 @@ function scaleSpendingProportional(
     travelEarlyRetirementAnnual: Math.round(
       spending.travelEarlyRetirementAnnual * multiplier,
     ),
+  };
+  const drift = targetAnnual - totalAnnualSpendFromCategories(scaled);
+  if (!Number.isFinite(drift) || Math.abs(drift) < 0.005) return scaled;
+
+  // Monthly buckets annualize in $12 jumps after rounding. Reconcile the
+  // tiny residual into an annual bucket so the adopted plan totals exactly
+  // to the mined policy target instead of surfacing as a false stale-plan
+  // warning in Cockpit.
+  if (scaled.travelEarlyRetirementAnnual + drift >= 0) {
+    return {
+      ...scaled,
+      travelEarlyRetirementAnnual: scaled.travelEarlyRetirementAnnual + drift,
+    };
+  }
+  if (scaled.annualTaxesInsurance + drift >= 0) {
+    return {
+      ...scaled,
+      annualTaxesInsurance: scaled.annualTaxesInsurance + drift,
+    };
+  }
+  return {
+    ...scaled,
+    optionalMonthly: scaled.optionalMonthly + drift / 12,
   };
 }
 
@@ -191,6 +214,22 @@ export function buildAdoptedSeedData(seed: SeedData, policy: Policy): SeedData {
   }
 
   return next;
+}
+
+/**
+ * True when `seed` is exactly the durable plan produced by adopting
+ * `policy` into `previousAppliedData`. This is used by Cockpit to avoid
+ * a false "plan changed since last mine" warning immediately after the
+ * household adopts a mined row: the data fingerprint changes, but only
+ * because the mined policy was written into the plan.
+ */
+export function adoptedSeedMatchesPolicy(
+  seed: SeedData,
+  previousAppliedData: SeedData,
+  policy: Policy,
+): boolean {
+  const expected = buildAdoptedSeedData(previousAppliedData, policy);
+  return JSON.stringify(seed) === JSON.stringify(expected);
 }
 
 function formatCurrency(amount: number): string {

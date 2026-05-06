@@ -163,10 +163,33 @@ describe('store adoptMinedPolicy', () => {
     const after = useAppStore.getState();
     expect(after.unifiedPlanRerunNonce).toBe(before + 1);
     expect(after.lastPolicyAdoption).not.toBeNull();
-    expect(after.hasPendingSimulationChanges).toBe(true);
+    expect(after.hasPendingSimulationChanges).toBe(false);
+  });
+
+  it('applies the adopted policy to the projection baseline immediately', () => {
+    useAppStore.getState().adoptMinedPolicy({
+      annualSpendTodayDollars: 110_000,
+      primarySocialSecurityClaimAge: 70,
+      spouseSocialSecurityClaimAge: 67,
+      rothConversionAnnualCeiling: 120_000,
+    });
+    const after = useAppStore.getState();
+    const draftSpend =
+      after.data.spending.essentialMonthly * 12 +
+      after.data.spending.optionalMonthly * 12 +
+      after.data.spending.travelEarlyRetirementAnnual +
+      after.data.spending.annualTaxesInsurance;
+    const appliedSpend =
+      after.appliedData.spending.essentialMonthly * 12 +
+      after.appliedData.spending.optionalMonthly * 12 +
+      after.appliedData.spending.travelEarlyRetirementAnnual +
+      after.appliedData.spending.annualTaxesInsurance;
+    expect(Math.abs(draftSpend - 110_000)).toBeLessThanOrEqual(12);
+    expect(Math.abs(appliedSpend - 110_000)).toBeLessThanOrEqual(12);
   });
 
   it('bumps the rerun nonce again on undo so the chart catches up', () => {
+    const previousApplied = structuredClone(useAppStore.getState().appliedData);
     useAppStore.getState().adoptMinedPolicy({
       annualSpendTodayDollars: 120_000,
       primarySocialSecurityClaimAge: 67,
@@ -178,5 +201,6 @@ describe('store adoptMinedPolicy', () => {
     const afterUndo = useAppStore.getState();
     expect(afterUndo.unifiedPlanRerunNonce).toBe(afterAdopt + 1);
     expect(afterUndo.lastPolicyAdoption).toBeNull();
+    expect(afterUndo.appliedData).toEqual(previousApplied);
   });
 });

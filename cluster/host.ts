@@ -44,7 +44,9 @@
  */
 
 import { Worker } from 'node:worker_threads';
+import { writeFileSync } from 'node:fs';
 import { hostname, cpus, platform, arch } from 'node:os';
+import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import WebSocket from 'ws';
 import {
@@ -79,6 +81,9 @@ import type {
   PolicyMinerWorkerResponse,
 } from '../src/policy-miner-worker-types';
 import type { MarketAssumptions, SeedData } from '../src/types';
+
+const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+const UPDATE_REQUEST_PATH = resolve(REPO_ROOT, '.cluster-update-request.json');
 
 // ---------------------------------------------------------------------------
 // Config — env-driven so per-machine overrides don't need code changes
@@ -135,6 +140,10 @@ const HOST_BUILD_INFO = getLocalBuildInfo();
 const HOST_AUTO_UPDATE =
   process.env.HOST_AUTO_UPDATE === '1' ||
   process.env.HOST_AUTO_UPDATE === 'true';
+const HOST_ACCEPT_UPDATE_CONTROL =
+  process.env.HOST_ACCEPT_UPDATE_CONTROL === '1' ||
+  process.env.HOST_ACCEPT_UPDATE_CONTROL === 'true' ||
+  (process.env.HOST_ACCEPT_UPDATE_CONTROL === undefined && HOST_AUTO_UPDATE);
 const AUTO_UPDATE_EXIT_CODE = 75;
 
 // ---------------------------------------------------------------------------
@@ -886,11 +895,48 @@ let autoUpdateRequested = false;
 // transitions, not on every poll.
 let lastWaitingWarnExpected: string | null = null;
 
-function maybeRequestAutoUpdate(
+function writeUpdateRequest(
   expectedBuildInfo: Parameters<typeof compareBuildInfo>[0],
   source: string,
 ): void {
-  if (!HOST_AUTO_UPDATE || autoUpdateRequested) return;
+  if (!expectedBuildInfo) return;
+  try {
+    writeFileSync(
+      UPDATE_REQUEST_PATH,
+      `${JSON.stringify(
+        {
+          requestedAtIso: new Date().toISOString(),
+          source,
+          expectedBuildInfo,
+        },
+        null,
+        2,
+      )}\n`,
+      'utf8',
+    );
+  } catch (err) {
+    log('warn', 'failed to write update request', {
+      path: UPDATE_REQUEST_PATH,
+      err: String(err),
+    });
+  }
+}
+
+function maybeRequestAutoUpdate(
+  expectedBuildInfo: Parameters<typeof compareBuildInfo>[0],
+  source: string,
+  options: { force?: boolean } = {},
+): void {
+  const forcedByDispatcher = options.force === true;
+  if (autoUpdateRequested) return;
+  if (!HOST_AUTO_UPDATE && !forcedByDispatcher) return;
+  if (forcedByDispatcher && !HOST_ACCEPT_UPDATE_CONTROL) {
+    log('warn', 'dispatcher update control ignored by host configuration', {
+      source,
+      expected: formatBuildInfo(expectedBuildInfo),
+    });
+    return;
+  }
   const status = compareBuildInfo(expectedBuildInfo, HOST_BUILD_INFO);
   if (status === 'match') {
     lastWaitingWarnExpected = null;
@@ -916,6 +962,7 @@ function maybeRequestAutoUpdate(
   }
   autoUpdateRequested = true;
   stopReconnecting = true;
+  writeUpdateRequest(expectedBuildInfo, source);
   log('warn', 'auto-update requested: host code is behind dispatcher', {
     local: formatBuildInfo(HOST_BUILD_INFO),
     expected: formatBuildInfo(expectedBuildInfo),
@@ -1030,6 +1077,7 @@ function connect(): void {
       runtime: HOST_ENGINE_RUNTIME,
       build: formatBuildInfo(HOST_BUILD_INFO),
       autoUpdate: HOST_AUTO_UPDATE,
+      acceptUpdateControl: HOST_ACCEPT_UPDATE_CONTROL,
     });
     // Don't reset reconnectAttempt here — wait for the dispatcher's
     // 'welcome' to confirm we were actually accepted. A socket can open
@@ -1127,6 +1175,13 @@ async function handleDispatcherMessage(message: ClusterMessage): Promise<void> {
     }
     case 'cluster_state':
       maybeRequestAutoUpdate(message.snapshot.dispatcherBuildInfo, 'cluster_state');
+      return;
+    case 'host_control':
+      if (message.action === 'cycle_for_update') {
+        maybeRequestAutoUpdate(message.expectedBuildInfo, 'host_control', {
+          force: true,
+        });
+      }
       return;
     case 'evaluations_ingested':
       // Hosts don't act on these; observers do. Ignore.

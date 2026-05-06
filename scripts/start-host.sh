@@ -95,6 +95,7 @@ npm run engine:rust:build:napi
 # main on every welcome / start_session and self-update if behind.
 echo "[start-host] launching with auto-update enabled"
 DISPATCHER_URL="$DISPATCHER_URL" \
+REPO_GIT_URL="$REPO_GIT_URL" \
 HOST_DISPLAY_NAME="$HOST_DISPLAY_NAME" \
 HOST_AUTO_UPDATE=1 \
 exec npm run cluster:host:rust-auto

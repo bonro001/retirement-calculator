@@ -467,6 +467,7 @@ export function createClusterClient(config: ClusterClientConfig): ClusterClient 
       case 'heartbeat':
       case 'batch_result':
       case 'batch_nack':
+      case 'host_control':
         return;
       default: {
         // Exhaustiveness guard: if a new kind is added to ClusterMessage,

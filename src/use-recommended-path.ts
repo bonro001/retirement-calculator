@@ -114,6 +114,7 @@ export function useRecommendedPath(
       : null;
 
   const [cached, setCached] = useState<CachedEntry | null>(() => {
+    if (!cacheKey) return null;
     const c = readCache();
     return c && c.key === cacheKey ? c : null;
   });

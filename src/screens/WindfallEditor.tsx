@@ -1,57 +1,80 @@
 import { useState } from 'react';
 import { useAppStore } from '../store';
-import type { WindfallEntry, WindfallTaxTreatment } from '../types';
+import type { WindfallEntry } from '../types';
 import { formatCurrency } from '../utils';
 
-const TAX_TREATMENT_OPTIONS: Array<{ value: WindfallTaxTreatment; label: string }> = [
-  { value: 'cash_non_taxable', label: 'Tax-free (gift / qualified inheritance)' },
-  { value: 'ordinary_income', label: 'Ordinary income (severance, etc.)' },
-  { value: 'ltcg', label: 'Long-term capital gain' },
-  { value: 'primary_home_sale', label: 'Primary home sale' },
-  { value: 'inherited_ira_10y', label: 'Inherited IRA (10-year)' },
-];
-
-const DEFAULT_GROWTH_RATE_PERCENT = 4;
-
 interface DraftState {
-  name: string;
+  label: string;
   year: string;
   amount: string;
-  growthRatePercent: string;
-  taxTreatment: WindfallTaxTreatment;
 }
 
-const EMPTY_DRAFT: DraftState = {
-  name: '',
-  year: String(new Date().getFullYear()),
-  amount: '',
-  growthRatePercent: String(DEFAULT_GROWTH_RATE_PERCENT),
-  taxTreatment: 'cash_non_taxable',
-};
+function currentYear(): number {
+  return new Date().getFullYear();
+}
+
+function emptyDraft(): DraftState {
+  return {
+    label: '',
+    year: String(currentYear()),
+    amount: '',
+  };
+}
+
+function parseCurrencyInput(value: string): number {
+  return Number.parseFloat(value.replace(/[$,]/g, ''));
+}
+
+function buildWindfallName(label: string, year: number, windfalls: WindfallEntry[]) {
+  const stem =
+    label
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '_')
+      .replace(/^_+|_+$/g, '') || `cash_${year}`;
+  const names = new Set(windfalls.map((entry) => entry.name));
+  let candidate = stem;
+  let suffix = 2;
+  while (names.has(candidate)) {
+    candidate = `${stem}_${suffix}`;
+    suffix += 1;
+  }
+  return candidate;
+}
+
+function formatWindfallName(name: string): string {
+  return name
+    .split('_')
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
+}
 
 export function WindfallEditor() {
   const windfalls = useAppStore((state) => state.data.income.windfalls);
   const updateIncome = useAppStore((state) => state.updateIncome);
-  const [draft, setDraft] = useState<DraftState>(EMPTY_DRAFT);
+  const [draft, setDraft] = useState<DraftState>(() => emptyDraft());
+
+  const parsedYear = Number.parseInt(draft.year, 10);
+  const parsedAmount = parseCurrencyInput(draft.amount);
+  const canAdd =
+    Number.isFinite(parsedYear) &&
+    parsedYear >= currentYear() &&
+    Number.isFinite(parsedAmount) &&
+    parsedAmount > 0;
 
   const handleAdd = () => {
-    const year = Number.parseInt(draft.year, 10);
-    const amount = Number.parseFloat(draft.amount.replace(/[$,]/g, ''));
-    const growthRatePercent = Number.parseFloat(draft.growthRatePercent);
-    if (!Number.isFinite(year) || !Number.isFinite(amount) || amount <= 0) return;
-    const trimmedName = draft.name.trim();
+    if (!canAdd) return;
     const entry: WindfallEntry = {
-      name: trimmedName.length > 0 ? trimmedName : `windfall_${windfalls.length + 1}`,
-      year,
-      amount,
-      taxTreatment: draft.taxTreatment,
+      name: buildWindfallName(draft.label, parsedYear, windfalls),
+      year: parsedYear,
+      amount: parsedAmount,
+      liquidityAmount: parsedAmount,
+      taxTreatment: 'cash_non_taxable',
       certainty: 'estimated',
-      ...(Number.isFinite(growthRatePercent) && growthRatePercent !== 0
-        ? { presentValueGrowthRate: growthRatePercent / 100 }
-        : {}),
     };
     updateIncome('windfalls', [...windfalls, entry]);
-    setDraft(EMPTY_DRAFT);
+    setDraft(emptyDraft());
   };
 
   const handleDelete = (index: number) => {
@@ -62,26 +85,27 @@ export function WindfallEditor() {
 
   return (
     <div className="rounded-[28px] bg-stone-100/85 p-5">
-      <header className="mb-4 flex items-center justify-between">
+      <header className="mb-4 flex flex-wrap items-start justify-between gap-3">
         <div>
           <p className="text-sm uppercase tracking-[0.18em] text-stone-500">
             Windfalls
           </p>
           <h3 className="mt-1 text-2xl font-semibold text-stone-900">
-            One-time inflows
+            Simple cash events
           </h3>
         </div>
-        <p className="max-w-[260px] text-xs text-stone-500">
-          Gifts, inheritance, severance, home sale. Amount is in today's
-          dollars. Optional growth rate compounds the amount until the
-          year it lands — useful when the funds are invested elsewhere
-          while waiting.
+        <p className="max-w-[320px] text-xs text-stone-500">
+          Add bonuses, gifts, inheritance, or other incoming cash as net
+          after-tax dollars in today's value. The model treats each entry
+          as cash when it lands.
         </p>
       </header>
 
       <div className="space-y-2">
         {windfalls.length === 0 ? (
-          <p className="text-sm text-stone-500">No windfalls yet. Add one below.</p>
+          <p className="text-sm text-stone-500">
+            No cash events yet. Add one below.
+          </p>
         ) : (
           windfalls.map((entry, index) => (
             <div
@@ -90,15 +114,12 @@ export function WindfallEditor() {
             >
               <div className="flex flex-col">
                 <span className="font-medium text-stone-900">
-                  {entry.name.replaceAll('_', ' ')}
+                  {formatWindfallName(entry.name)}
                 </span>
                 <span className="text-xs text-stone-500">
-                  {entry.year} · {formatCurrency(entry.amount)} (today's $)
-                  {entry.presentValueGrowthRate != null
-                    ? ` · grows ${(entry.presentValueGrowthRate * 100).toFixed(1)}%/yr`
-                    : ''}
-                  {entry.taxTreatment != null && entry.taxTreatment !== 'cash_non_taxable'
-                    ? ` · ${entry.taxTreatment.replaceAll('_', ' ')}`
+                  {entry.year} · {formatCurrency(entry.liquidityAmount ?? entry.amount)} net cash
+                  {entry.amount !== (entry.liquidityAmount ?? entry.amount)
+                    ? ` · ${formatCurrency(entry.amount)} gross seed`
                     : ''}
                 </span>
               </div>
@@ -114,14 +135,16 @@ export function WindfallEditor() {
         )}
       </div>
 
-      <div className="mt-5 grid gap-3 rounded-xl border border-stone-200 bg-white/60 p-4 sm:grid-cols-2 lg:grid-cols-6">
-        <label className="flex flex-col gap-1 text-xs text-stone-600 sm:col-span-2">
-          <span>Name</span>
+      <div className="mt-5 grid gap-3 rounded-xl border border-stone-200 bg-white/60 p-4 sm:grid-cols-3">
+        <label className="flex flex-col gap-1 text-xs text-stone-600">
+          <span>Label</span>
           <input
             type="text"
-            value={draft.name}
-            onChange={(e) => setDraft((prev) => ({ ...prev, name: e.target.value }))}
-            placeholder="Gift from FIL"
+            value={draft.label}
+            onChange={(e) =>
+              setDraft((prev) => ({ ...prev, label: e.target.value }))
+            }
+            placeholder="Bonus"
             className="rounded-md border border-stone-300 bg-white px-2 py-1.5 text-sm text-stone-900"
           />
         </label>
@@ -129,64 +152,36 @@ export function WindfallEditor() {
           <span>Year</span>
           <input
             type="number"
+            min={currentYear()}
+            step={1}
             value={draft.year}
-            onChange={(e) => setDraft((prev) => ({ ...prev, year: e.target.value }))}
+            onChange={(e) =>
+              setDraft((prev) => ({ ...prev, year: e.target.value }))
+            }
             className="rounded-md border border-stone-300 bg-white px-2 py-1.5 text-sm text-stone-900 tabular-nums"
           />
         </label>
         <label className="flex flex-col gap-1 text-xs text-stone-600">
-          <span>Amount (today's $)</span>
+          <span>Net amount</span>
           <input
             type="text"
             inputMode="decimal"
             value={draft.amount}
-            onChange={(e) => setDraft((prev) => ({ ...prev, amount: e.target.value }))}
-            placeholder="20000"
+            onChange={(e) =>
+              setDraft((prev) => ({ ...prev, amount: e.target.value }))
+            }
+            placeholder="25000"
             className="rounded-md border border-stone-300 bg-white px-2 py-1.5 text-sm text-stone-900 tabular-nums"
           />
         </label>
-        <label className="flex flex-col gap-1 text-xs text-stone-600">
-          <span>Growth %/yr</span>
-          <input
-            type="number"
-            step="0.1"
-            value={draft.growthRatePercent}
-            onChange={(e) =>
-              setDraft((prev) => ({ ...prev, growthRatePercent: e.target.value }))
-            }
-            className="rounded-md border border-stone-300 bg-white px-2 py-1.5 text-sm text-stone-900 tabular-nums"
-          />
-        </label>
-        <label className="flex flex-col gap-1 text-xs text-stone-600 sm:col-span-2 lg:col-span-6">
-          <span>Tax treatment</span>
-          <select
-            value={draft.taxTreatment}
-            onChange={(e) =>
-              setDraft((prev) => ({
-                ...prev,
-                taxTreatment: e.target.value as WindfallTaxTreatment,
-              }))
-            }
-            className="rounded-md border border-stone-300 bg-white px-2 py-1.5 text-sm text-stone-900"
-          >
-            {TAX_TREATMENT_OPTIONS.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-        </label>
-        <div className="sm:col-span-2 lg:col-span-6">
+        <div className="sm:col-span-3">
           <button
             type="button"
             onClick={handleAdd}
-            disabled={
-              !Number.isFinite(Number.parseFloat(draft.amount.replace(/[$,]/g, ''))) ||
-              !Number.isFinite(Number.parseInt(draft.year, 10))
-            }
+            disabled={!canAdd}
             className="rounded-md bg-blue-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-blue-700 disabled:bg-stone-300 disabled:text-stone-500"
           >
-            Add windfall
+            Add cash event
           </button>
         </div>
       </div>

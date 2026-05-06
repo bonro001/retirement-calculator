@@ -12,6 +12,10 @@ import { SensitivityPanel } from './SensitivityPanel';
 import { StressTestPanel } from './StressTestPanel';
 import { explainAdoption } from './policy-adoption';
 import { useAppStore } from './store';
+import {
+  LEGACY_ATTAINMENT_FLOOR,
+  SOLVENCY_DEFENSE_FLOOR,
+} from './policy-ranker';
 
 /**
  * Policy Mining — Results Table.
@@ -60,7 +64,7 @@ import { useAppStore } from './store';
 // unboundedly — see the deferred follow-up that pairs with this.
 const POLL_INTERVAL_MS = 30_000;
 const SESSION_LIST_POLL_MS = 10_000;
-const DEFAULT_FEASIBILITY_THRESHOLD = 0.85;
+const DEFAULT_FEASIBILITY_THRESHOLD = LEGACY_ATTAINMENT_FLOOR;
 const DEFAULT_ROW_LIMIT = 25;
 
 interface CurrentPlanReference {
@@ -91,8 +95,13 @@ interface Props {
    * table still works but only shows absolute numbers.
    */
   currentPlan?: CurrentPlanReference;
+  /** Current household legacy target, used to avoid showing stale zero-target mines as decision-grade. */
+  legacyTargetTodayDollars?: number;
   /** Default feasibility threshold (0..1). Defaults to 0.85. */
   defaultFeasibilityThreshold?: number;
+  /** Current table/mining solvency floor. Controlled by parent when present. */
+  solvencyThreshold?: number;
+  onSolvencyThresholdChange?: (threshold: number) => void;
   /** Max rows to render. Defaults to 25. */
   rowLimit?: number;
   /**
@@ -131,6 +140,17 @@ function formatCurrency(amount: number): string {
   if (amount >= 1_000_000) return `$${(amount / 1_000_000).toFixed(1)}M`;
   if (amount >= 1_000) return `$${(amount / 1_000).toFixed(0)}k`;
   return `$${Math.round(amount)}`;
+}
+
+function formatSpendStep(levels: number[]): string | null {
+  if (levels.length < 2) return null;
+  let step: number | null = null;
+  for (let i = 1; i < levels.length; i += 1) {
+    const diff = levels[i]! - levels[i - 1]!;
+    if (diff <= 0) continue;
+    step = step === null ? diff : Math.min(step, diff);
+  }
+  return step !== null ? `${formatCurrency(step)} steps` : null;
 }
 
 function formatPct(rate: number | null): string {
@@ -235,6 +255,20 @@ function policyDiffSummary(
   return parts.length > 0 ? parts.join(' · ') : 'same axes as current';
 }
 
+function policyMatches(
+  a: Policy | null | undefined,
+  b: Policy | null | undefined,
+): boolean {
+  if (!a || !b) return false;
+  return (
+    a.annualSpendTodayDollars === b.annualSpendTodayDollars &&
+    a.primarySocialSecurityClaimAge === b.primarySocialSecurityClaimAge &&
+    a.spouseSocialSecurityClaimAge === b.spouseSocialSecurityClaimAge &&
+    a.rothConversionAnnualCeiling === b.rothConversionAnnualCeiling &&
+    (a.withdrawalRule ?? null) === (b.withdrawalRule ?? null)
+  );
+}
+
 /** Format the picker label so the user can tell sessions apart at a glance. */
 function describeSession(
   s: ClusterSessionListing,
@@ -257,7 +291,10 @@ export function PolicyMiningResultsTable({
   engineVersion,
   dispatcherUrl,
   currentPlan,
+  legacyTargetTodayDollars,
   defaultFeasibilityThreshold = DEFAULT_FEASIBILITY_THRESHOLD,
+  solvencyThreshold: controlledSolvencyThreshold,
+  onSolvencyThresholdChange,
   rowLimit = DEFAULT_ROW_LIMIT,
   sensitivityControls,
 }: Props): JSX.Element | null {
@@ -271,9 +308,16 @@ export function PolicyMiningResultsTable({
     dispatcherUrl ? 'cluster' : 'local',
   );
   const [evaluations, setEvaluations] = useState<PolicyEvaluation[]>([]);
-  const [feasibilityThreshold, setFeasibilityThreshold] = useState<number>(
-    defaultFeasibilityThreshold,
+  const [internalSolvencyThreshold, setInternalSolvencyThreshold] = useState<number>(
+    SOLVENCY_DEFENSE_FLOOR,
   );
+  const solvencyThreshold =
+    controlledSolvencyThreshold ?? internalSolvencyThreshold;
+  const setSolvencyThreshold = (next: number) => {
+    setInternalSolvencyThreshold(next);
+    onSolvencyThresholdChange?.(next);
+  };
+  const [spendFilter, setSpendFilter] = useState<number | null>(null);
   const [sort, setSort] = useState<SortSpec>({
     key: 'spend',
     direction: 'desc',
@@ -295,7 +339,8 @@ export function PolicyMiningResultsTable({
   // values (not a snapshot from when the table mounted) to show the
   // diff accurately — the user might edit Spending while the modal is
   // open, though that's a corner case.
-  const [adoptingPolicy, setAdoptingPolicy] = useState<Policy | null>(null);
+  const [adoptingEvaluation, setAdoptingEvaluation] =
+    useState<PolicyEvaluation | null>(null);
   const currentSeed = useAppStore((s) => s.data);
   const adoptMinedPolicy = useAppStore((s) => s.adoptMinedPolicy);
   const lastPolicyAdoption = useAppStore((s) => s.lastPolicyAdoption);
@@ -303,6 +348,30 @@ export function PolicyMiningResultsTable({
   const clearLastPolicyAdoption = useAppStore((s) => s.clearLastPolicyAdoption);
 
   const clusterEnabled = !!dispatcherUrl;
+  const selectedSession = clusterSessions.find(
+    (s) => s.sessionId === selectedSessionId,
+  );
+  const spendLevels = useMemo(() => {
+    const axis = selectedSession?.manifest?.config?.axes?.annualSpendTodayDollars;
+    const sourceLevels =
+      source === 'cluster' && axis && axis.length > 0
+        ? axis
+        : evaluations.map((e) => e.policy.annualSpendTodayDollars);
+    return Array.from(new Set(sourceLevels)).sort((a, b) => a - b);
+  }, [selectedSession, source, evaluations]);
+  const spendRangeLabel = useMemo(() => {
+    if (spendLevels.length === 0) return null;
+    const min = spendLevels[0]!;
+    const max = spendLevels[spendLevels.length - 1]!;
+    const step = formatSpendStep(spendLevels);
+    if (min === max) return `${formatCurrency(min)}/yr`;
+    return `${formatCurrency(min)}-${formatCurrency(max)}/yr${step ? ` · ${step}` : ''}`;
+  }, [spendLevels]);
+
+  useEffect(() => {
+    if (spendFilter === null || spendLevels.length === 0) return;
+    if (!spendLevels.includes(spendFilter)) setSpendFilter(null);
+  }, [spendFilter, spendLevels]);
 
   // If the dispatcher URL goes away (user cleared it), drop back to local
   // so the empty state isn't confusing.
@@ -353,17 +422,33 @@ export function PolicyMiningResultsTable({
         if (cancelled) return;
         setClusterSessions(sessions);
         setClusterError(null);
-        // Auto-pick: prefer first session matching the current baseline,
-        // otherwise the freshest one. The server already sorted them
-        // most-recent-first.
-        if (selectedSessionId == null && sessions.length > 0) {
-          const match = baselineFingerprint
-            ? sessions.find(
+        // Auto-pick: prefer the freshest session matching the current
+        // baseline, otherwise the freshest session overall. The picker
+        // is intentionally hidden, so a newly completed remine must
+        // replace an older matching session without user intervention.
+        if (sessions.length > 0) {
+          const baselineMatches = baselineFingerprint
+            ? sessions.filter(
                 (s) =>
                   s.manifest?.config?.baselineFingerprint === baselineFingerprint,
               )
-            : null;
-          setSelectedSessionId((match ?? sessions[0]).sessionId);
+            : [];
+          const legacyTargetMatch =
+            legacyTargetTodayDollars && legacyTargetTodayDollars > 0
+              ? baselineMatches.find(
+                  (s) =>
+                    s.manifest?.legacyTargetTodayDollars ===
+                    legacyTargetTodayDollars,
+                )
+              : null;
+          const match = baselineMatches[0] ?? null;
+          const preferred =
+            legacyTargetMatch ??
+            match ??
+            sessions[0];
+          if (preferred.sessionId !== selectedSessionId) {
+            setSelectedSessionId(preferred.sessionId);
+          }
         }
       } catch (e) {
         if (cancelled) return;
@@ -377,7 +462,13 @@ export function PolicyMiningResultsTable({
       cancelled = true;
       clearInterval(handle);
     };
-  }, [source, dispatcherUrl, baselineFingerprint, selectedSessionId]);
+  }, [
+    source,
+    dispatcherUrl,
+    baselineFingerprint,
+    selectedSessionId,
+    legacyTargetTodayDollars,
+  ]);
 
   // Cluster-mode evaluations: poll the selected session.
   // Phase 2.D: ask the dispatcher for only the top N results most of
@@ -389,18 +480,16 @@ export function PolicyMiningResultsTable({
   // `evaluationCount` in the response is the TRUE total so we still
   // display "X of Y feasible" honestly.
   //
-  // `minFeasibility` is pinned to the user's slider value (rounded down
-  // to 0.05 buckets so dragging the slider doesn't trigger one fetch
-  // per tick). With spend-desc ranking, the topN slice prioritizes the
-  // highest-spend rows that *clear* the slider — which is exactly what
-  // the table is asking. An earlier version pinned this at the slider
-  // minimum (0.5), but at a household floor of 0.85 that filled the
-  // slice with $140k/0.55–0.60 records (all rejected by the client
-  // filter) and showed the user "0 of 100 feasible". Sending the actual
-  // slider keeps the slice on-band.
-  const serverMinFeasibility = Math.max(
+  // Ask the dispatcher for rows already inside the user's risk band so
+  // the bounded top-N response still contains the highest-spend choices
+  // the table can actually show.
+  const serverMinLegacy = Math.max(
     0.5,
-    Math.floor(feasibilityThreshold * 20) / 20,
+    Math.floor(defaultFeasibilityThreshold * 20) / 20,
+  );
+  const serverMinSolvency = Math.max(
+    0.5,
+    Math.floor(solvencyThreshold * 20) / 20,
   );
   const [evaluationCount, setEvaluationCount] = useState<number>(0);
   useEffect(() => {
@@ -419,7 +508,12 @@ export function PolicyMiningResultsTable({
         const payload = await loadClusterEvaluations(
           dispatcherUrl,
           selectedSessionId,
-          { topN, minFeasibility: serverMinFeasibility },
+          {
+            topN,
+            minFeasibility: serverMinLegacy,
+            minSolvency: serverMinSolvency,
+            spend: spendFilter ?? undefined,
+          },
         );
         if (cancelled) return;
         setEvaluations(payload.evaluations);
@@ -445,28 +539,33 @@ export function PolicyMiningResultsTable({
     selectedSessionId,
     showAll,
     rowLimit,
-    serverMinFeasibility,
+    serverMinLegacy,
+    serverMinSolvency,
+    spendFilter,
   ]);
 
   const filtered = useMemo(() => {
     return evaluations
-      .filter((e) => e.outcome.bequestAttainmentRate >= feasibilityThreshold)
+      .filter(
+        (e) =>
+          e.outcome.bequestAttainmentRate >= defaultFeasibilityThreshold &&
+          e.outcome.solventSuccessRate >= solvencyThreshold &&
+          (spendFilter === null ||
+            e.policy.annualSpendTodayDollars === spendFilter),
+      )
       .sort((a, b) => compareEvals(a, b, sort));
-  }, [evaluations, feasibilityThreshold, sort]);
+  }, [evaluations, defaultFeasibilityThreshold, solvencyThreshold, spendFilter, sort]);
 
   /**
-   * Highest-spend evaluation that still clears the feasibility floor.
-   * Mirrors the "best so far" criterion the dispatcher uses (max spend
-   * subject to feasibility ≥ threshold). When the user sorts by
-   * feasibility-desc this row is buried below the high-feasibility/
-   * low-spend rows; pinning it surfaces the answer to "what's the
-   * most spend I can take and still hit my legacy?" without making
-   * the household scroll for it.
+   * Highest-spend evaluation that still clears both policy gates.
+   * Mirrors the household-facing ranker: hit the legacy floor, defend
+   * against plans that run out of money, then maximize spend.
    */
   const bestByMaxSpend = useMemo(() => {
     let best: PolicyEvaluation | null = null;
     for (const ev of evaluations) {
-      if (ev.outcome.bequestAttainmentRate < feasibilityThreshold) continue;
+      if (ev.outcome.bequestAttainmentRate < defaultFeasibilityThreshold) continue;
+      if (ev.outcome.solventSuccessRate < solvencyThreshold) continue;
       if (!best) {
         best = ev;
         continue;
@@ -479,6 +578,21 @@ export function PolicyMiningResultsTable({
       } else if (
         ev.policy.annualSpendTodayDollars ===
           best.policy.annualSpendTodayDollars &&
+        ev.outcome.solventSuccessRate > best.outcome.solventSuccessRate
+      ) {
+        best = ev;
+      } else if (
+        ev.policy.annualSpendTodayDollars ===
+          best.policy.annualSpendTodayDollars &&
+        ev.outcome.solventSuccessRate === best.outcome.solventSuccessRate &&
+        ev.outcome.bequestAttainmentRate > best.outcome.bequestAttainmentRate
+      ) {
+        best = ev;
+      } else if (
+        ev.policy.annualSpendTodayDollars ===
+          best.policy.annualSpendTodayDollars &&
+        ev.outcome.solventSuccessRate === best.outcome.solventSuccessRate &&
+        ev.outcome.bequestAttainmentRate === best.outcome.bequestAttainmentRate &&
         ev.outcome.p50EndingWealthTodayDollars >
           best.outcome.p50EndingWealthTodayDollars
       ) {
@@ -486,7 +600,7 @@ export function PolicyMiningResultsTable({
       }
     }
     return best;
-  }, [evaluations, feasibilityThreshold]);
+  }, [evaluations, defaultFeasibilityThreshold, solvencyThreshold]);
 
   const visible = useMemo(() => {
     const base = showAll ? filtered : filtered.slice(0, rowLimit);
@@ -537,14 +651,17 @@ export function PolicyMiningResultsTable({
     return sort.direction === 'desc' ? ' ↓' : ' ↑';
   };
 
-  const selectedSession = clusterSessions.find(
-    (s) => s.sessionId === selectedSessionId,
-  );
   const baselineMismatch =
     source === 'cluster' &&
     selectedSession &&
     baselineFingerprint &&
     selectedSession.manifest?.config?.baselineFingerprint !== baselineFingerprint;
+  const legacyTargetMismatch =
+    source === 'cluster' &&
+    selectedSession &&
+    legacyTargetTodayDollars != null &&
+    legacyTargetTodayDollars > 0 &&
+    selectedSession.manifest?.legacyTargetTodayDollars !== legacyTargetTodayDollars;
 
   // E.7 — plain-English explanation of the most recent adoption. Looks
   // up the adopted policy in the visible evaluations to enrich the
@@ -655,7 +772,7 @@ export function PolicyMiningResultsTable({
             Mined Plan Candidates
           </p>
           <p className="mt-0.5 text-[12px] text-stone-500">
-            {totalFeasible.toLocaleString()} feasible of{' '}
+            {totalFeasible.toLocaleString()} candidates clear gates of{' '}
             {totalEvaluated.toLocaleString()} evaluated · sorted by{' '}
             {sort.key === 'spend'
               ? 'highest annual spend'
@@ -664,7 +781,7 @@ export function PolicyMiningResultsTable({
                 : sort.key === 'bequestP10'
                   ? 'highest worst-case bequest'
                   : sort.key === 'feasibility'
-                    ? 'highest feasibility'
+                    ? 'highest legacy attainment'
                     : sort.key === 'primarySs'
                       ? 'primary SS claim age'
                       : sort.key === 'spouseSs'
@@ -682,21 +799,50 @@ export function PolicyMiningResultsTable({
            *  results. */}
           <div className="flex items-center gap-2">
             <label className="text-[11px] font-medium uppercase tracking-wider text-stone-500">
-              Min feasibility
+              Spend
+            </label>
+            <select
+              value={spendFilter ?? ''}
+              onChange={(e) =>
+                setSpendFilter(
+                  e.target.value ? Number.parseInt(e.target.value, 10) : null,
+                )
+              }
+              className="rounded-md border border-stone-200 bg-white px-2 py-1 text-[12px] font-semibold text-stone-700"
+            >
+              <option value="">All</option>
+              {spendLevels.map((level) => (
+                <option key={level} value={level}>
+                  {formatCurrency(level)}
+                </option>
+              ))}
+            </select>
+            {spendRangeLabel && (
+              <span className="text-[11px] text-stone-500">
+                {spendRangeLabel}
+              </span>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            <label className="text-[11px] font-medium uppercase tracking-wider text-stone-500">
+              Min solvency
             </label>
             <input
               type="range"
               min={0.5}
               max={0.99}
               step={0.01}
-              value={feasibilityThreshold}
+              value={solvencyThreshold}
               onChange={(e) =>
-                setFeasibilityThreshold(Number.parseFloat(e.target.value))
+                setSolvencyThreshold(Number.parseFloat(e.target.value))
               }
               className="h-1 w-32 cursor-pointer accent-emerald-600"
             />
             <span className="w-10 text-right text-[12px] font-semibold tabular-nums text-stone-700">
-              {formatPct(feasibilityThreshold)}
+              {formatPct(solvencyThreshold)}
+            </span>
+            <span className="text-[11px] font-medium text-stone-500">
+              Legacy floor {formatPct(defaultFeasibilityThreshold)}
             </span>
           </div>
         </div>
@@ -709,7 +855,7 @@ export function PolicyMiningResultsTable({
        *  below stays — that's the one piece of session metadata that
        *  matters to the user (when their plan has drifted since the
        *  last mine ran). */}
-      {source === 'cluster' && (clusterError || baselineMismatch) && (
+      {source === 'cluster' && (clusterError || baselineMismatch || legacyTargetMismatch) && (
         <div className="mb-3 flex flex-wrap items-center gap-2">
           {clusterError && (
             <span className="text-[11px] text-rose-600">{clusterError}</span>
@@ -718,6 +864,11 @@ export function PolicyMiningResultsTable({
             <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-800">
               Baseline differs from current plan — diff columns may not be
               meaningful
+            </span>
+          )}
+          {legacyTargetMismatch && (
+            <span className="rounded-full bg-rose-100 px-2 py-0.5 text-[11px] font-medium text-rose-800">
+              Mine used {formatCurrency(selectedSession.manifest?.legacyTargetTodayDollars ?? 0)} legacy target — remine for {formatCurrency(legacyTargetTodayDollars)}
             </span>
           )}
         </div>
@@ -733,8 +884,9 @@ export function PolicyMiningResultsTable({
         </p>
       ) : totalFeasible === 0 ? (
         <p className="rounded-md bg-amber-50 px-3 py-2 text-[12px] text-amber-800">
-          No candidates clear the {formatPct(feasibilityThreshold)} feasibility
-          floor. Lower the threshold or wait for more policies to be mined.
+          No candidates clear the {formatPct(solvencyThreshold)} solvency
+          floor and {formatPct(defaultFeasibilityThreshold)} legacy floor.
+          Lower the solvency threshold or wait for more policies to be mined.
         </p>
       ) : (
         <>
@@ -755,8 +907,14 @@ export function PolicyMiningResultsTable({
                 : undefined
             }
             adoptedPolicy={lastPolicyAdoption?.policy ?? null}
-            defaultFeasibilityThreshold={feasibilityThreshold}
-            onAdoptPolicy={(policy) => setAdoptingPolicy(policy)}
+            defaultFeasibilityThreshold={defaultFeasibilityThreshold}
+            minSolvencyThreshold={solvencyThreshold}
+            onAdoptPolicy={(policy) => {
+              const evaluation = evaluations.find((ev) =>
+                policyMatches(ev.policy, policy),
+              );
+              setAdoptingEvaluation(evaluation ?? null);
+            }}
           />
         <div className="mt-4 -mx-4 overflow-x-auto px-4">
           <table className="w-full text-left text-[12px] tabular-nums">
@@ -843,19 +1001,34 @@ export function PolicyMiningResultsTable({
                     : null;
                 const isHighestSpendPinned =
                   bestByMaxSpend != null && ev.id === bestByMaxSpend.id;
+                const isAdopted = policyMatches(
+                  ev.policy,
+                  lastPolicyAdoption?.policy,
+                );
                 const solventPct = ev.outcome.solventSuccessRate;
+                const rowClassName = isAdopted
+                  ? 'bg-emerald-50/80 hover:bg-emerald-50'
+                  : isHighestSpendPinned
+                  ? 'bg-amber-50/50 hover:bg-amber-50'
+                  : 'hover:bg-stone-50';
                 return (
                   <tr
                     key={ev.id}
-                    className={`border-b border-stone-100 last:border-b-0 hover:bg-stone-50 ${
-                      isHighestSpendPinned ? 'bg-amber-50/50' : ''
-                    }`}
+                    className={`border-b border-stone-100 last:border-b-0 ${rowClassName}`}
                   >
                     <td className="py-2 pr-3 font-semibold text-stone-900">
+                      {isAdopted && (
+                        <span
+                          className="mr-1.5 inline-block rounded bg-emerald-600 px-1 py-0.5 text-[9px] font-bold text-white"
+                          title="Currently adopted policy"
+                        >
+                          ADOPTED
+                        </span>
+                      )}
                       {isHighestSpendPinned && (
                         <span
                           className="mr-1.5 inline-block rounded bg-amber-500 px-1 py-0.5 text-[9px] font-bold text-white"
-                          title="Highest-spend policy that still hits your legacy floor (the 'best so far' answer)"
+                          title="Highest-spend policy that still clears the legacy and solvency floors"
                         >
                           ★ MAX
                         </span>
@@ -917,13 +1090,19 @@ export function PolicyMiningResultsTable({
                       </>
                     ) : null}
                     <td className="py-2 text-right">
-                      <button
-                        type="button"
-                        onClick={() => setAdoptingPolicy(ev.policy)}
-                        className="rounded-full bg-emerald-600 px-3 py-1 text-[11px] font-semibold text-white shadow-sm transition hover:bg-emerald-700"
-                      >
-                        Adopt
-                      </button>
+                      {isAdopted ? (
+                        <span className="inline-flex rounded-full bg-emerald-100 px-3 py-1 text-[11px] font-semibold text-emerald-800">
+                          Adopted
+                        </span>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => setAdoptingEvaluation(ev)}
+                          className="rounded-full bg-emerald-600 px-3 py-1 text-[11px] font-semibold text-white shadow-sm transition hover:bg-emerald-700"
+                        >
+                          Adopt
+                        </button>
+                      )}
                     </td>
                   </tr>
                 );
@@ -949,15 +1128,15 @@ export function PolicyMiningResultsTable({
           </button>
         </div>
       )}
-      {adoptingPolicy && (
+      {adoptingEvaluation && (
         <PolicyAdoptionModal
-          policy={adoptingPolicy}
+          policy={adoptingEvaluation.policy}
           currentData={currentSeed}
           baselineMismatch={!!baselineMismatch}
-          onCancel={() => setAdoptingPolicy(null)}
+          onCancel={() => setAdoptingEvaluation(null)}
           onConfirm={() => {
-            adoptMinedPolicy(adoptingPolicy);
-            setAdoptingPolicy(null);
+            adoptMinedPolicy(adoptingEvaluation.policy, adoptingEvaluation);
+            setAdoptingEvaluation(null);
           }}
         />
       )}

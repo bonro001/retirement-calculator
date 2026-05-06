@@ -11,7 +11,8 @@
 
 set -euo pipefail
 
-REPO_DIR="${REPO_DIR:-$HOME/retirement-calculator}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_DIR="${REPO_DIR:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 PORT="${GIT_DAEMON_PORT:-9418}"
 
 if [ ! -d "$REPO_DIR/.git" ]; then
@@ -24,15 +25,22 @@ fi
 # its own working tree.
 touch "$REPO_DIR/.git/git-daemon-export-ok"
 
-# Stop any previously-running daemon so relaunch is clean.
-pkill -f "git-daemon.*--base-path=$HOME" 2>/dev/null || true
+# Stop any previously-running daemon on this port so relaunch is clean.
+if command -v lsof >/dev/null 2>&1; then
+  PIDS="$(lsof -tiTCP:"$PORT" -sTCP:LISTEN || true)"
+  if [ -n "$PIDS" ]; then
+    kill $PIDS 2>/dev/null || true
+  fi
+fi
+pkill -f "git daemon.*--port=$PORT" 2>/dev/null || true
 sleep 1
 
-# Serve all repos under $HOME. Workers connect to
-# git://<dispatcher-ip>/retirement-calculator. --reuseaddr lets us
-# restart without waiting for socket TIME_WAIT. --detach forks.
+# Serve this repo at the stable worker URL
+# git://<dispatcher-ip>/retirement-calculator, even if the local folder
+# name differs. --reuseaddr lets us restart without waiting for socket
+# TIME_WAIT. --detach forks.
 git daemon \
-  --base-path="$HOME" \
+  --interpolated-path="$REPO_DIR" \
   --export-all \
   --reuseaddr \
   --detach \
@@ -40,4 +48,5 @@ git daemon \
   --port="$PORT"
 
 echo "[start-dispatcher-git-daemon] listening on 0.0.0.0:$PORT"
+echo "[start-dispatcher-git-daemon] serving repo: $REPO_DIR"
 echo "[start-dispatcher-git-daemon] workers can now pull from git://<this-host>/retirement-calculator"

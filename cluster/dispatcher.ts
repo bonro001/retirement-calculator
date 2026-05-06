@@ -167,6 +167,10 @@ interface Peer {
    *  nack handler to break tight nack loops; the failsafe pump tick
    *  retries after the cooldown elapses. */
   pumpCooldownUntilMs: number;
+  /** Last dispatcher build key this host was explicitly told to cycle to. */
+  lastUpdateRequestKey: string | null;
+  /** Last wall-clock ms when we sent the explicit cycle command. */
+  lastUpdateRequestAtMs: number | null;
 }
 
 interface SessionRuntimeCounters {
@@ -199,6 +203,7 @@ const CAPACITY_NACK_COOLDOWN_MS = 100;
  *  it for the current session so healthy hosts don't spend the run
  *  reprocessing its empty batches. */
 const INCOMPLETE_RESULT_QUARANTINE_THRESHOLD = 2;
+const hostUpdateRequestBackoff = new Map<string, number>();
 
 function sessionIdPrefix(fingerprint: string): string {
   const prefix = fingerprint.slice(0, 24);
@@ -234,6 +239,10 @@ const SLOW_HOST_TAIL_CUTOFF_MULTIPLIER = readPositiveIntEnv(
 const SLOW_HOST_TAIL_WORK_MULTIPLIER = readPositiveIntEnv(
   'CLUSTER_SLOW_HOST_TAIL_WORK_MULTIPLIER',
   4,
+);
+const HOST_UPDATE_REQUEST_INTERVAL_MS = readPositiveIntEnv(
+  'CLUSTER_HOST_UPDATE_REQUEST_INTERVAL_MS',
+  30_000,
 );
 const ALLOW_BUILD_MISMATCH =
   process.env.CLUSTER_ALLOW_BUILD_MISMATCH === '1' ||
@@ -820,7 +829,66 @@ function broadcast(message: ClusterMessage, rolesFilter?: PeerRole[]): void {
   }
 }
 
+function requestHostUpdateIfNeeded(peer: Peer, source: string): void {
+  if (!peer.roles.includes('host') || ALLOW_BUILD_MISMATCH) return;
+  if (peer.socket.readyState !== peer.socket.OPEN) return;
+
+  const status = compareBuildInfo(DISPATCHER_BUILD_INFO, peer.buildInfo);
+  if (status === 'match' || status === 'unknown') return;
+  if (status === 'dirty' && !BLOCK_DIRTY_BUILDS) return;
+
+  const expectedKey = formatBuildInfo(DISPATCHER_BUILD_INFO);
+  const requestKey = [
+    peer.displayName,
+    peer.buildInfo?.gitBranch ?? 'unknown-branch',
+    peer.buildInfo?.gitCommit ?? 'unknown-commit',
+    DISPATCHER_BUILD_INFO.gitCommit ?? expectedKey,
+  ].join('|');
+  const nowMs = Date.now();
+  if (
+    peer.lastUpdateRequestKey === expectedKey &&
+    peer.lastUpdateRequestAtMs !== null &&
+    nowMs - peer.lastUpdateRequestAtMs < HOST_UPDATE_REQUEST_INTERVAL_MS
+  ) {
+    return;
+  }
+  const lastRequestAtMs = hostUpdateRequestBackoff.get(requestKey);
+  if (
+    lastRequestAtMs !== undefined &&
+    nowMs - lastRequestAtMs < HOST_UPDATE_REQUEST_INTERVAL_MS
+  ) {
+    return;
+  }
+
+  peer.lastUpdateRequestKey = expectedKey;
+  peer.lastUpdateRequestAtMs = nowMs;
+  hostUpdateRequestBackoff.set(requestKey, nowMs);
+  sendTo(peer, {
+    kind: 'host_control',
+    action: 'cycle_for_update',
+    expectedBuildInfo: DISPATCHER_BUILD_INFO,
+    reason: `build_${status}`,
+    from: 'dispatcher',
+    to: peer.peerId,
+  });
+  log('warn', 'requested host update cycle', {
+    peerId: peer.peerId,
+    displayName: peer.displayName,
+    source,
+    local: formatBuildInfo(peer.buildInfo),
+    expected: expectedKey,
+    status,
+  });
+}
+
+function requestMismatchedHostUpdates(source: string): void {
+  for (const peer of peers.values()) {
+    requestHostUpdateIfNeeded(peer, source);
+  }
+}
+
 function broadcastClusterState(): void {
+  requestMismatchedHostUpdates('cluster_state');
   broadcast({ kind: 'cluster_state', snapshot: buildClusterSnapshot(), from: 'dispatcher' });
 }
 
@@ -886,6 +954,8 @@ function handleRegister(socket: WebSocket, registration: RegisterMessage, remote
     incompleteResultBatches: 0,
     quarantinedForSessionReason: null,
     pumpCooldownUntilMs: 0,
+    lastUpdateRequestKey: null,
+    lastUpdateRequestAtMs: null,
   };
   peers.set(peerId, peer);
 
@@ -898,6 +968,7 @@ function handleRegister(socket: WebSocket, registration: RegisterMessage, remote
     to: peerId,
   };
   sendTo(peer, welcome);
+  requestHostUpdateIfNeeded(peer, 'register');
 
   log('info', 'peer registered', {
     peerId,
@@ -987,6 +1058,16 @@ function handleStartSession(peer: Peer, message: StartSessionMessage): void {
   const cfg = message.config;
   if (!cfg || !cfg.axes || !cfg.baselineFingerprint) {
     log('warn', 'start_session: invalid config', { from: peer.peerId });
+    return;
+  }
+  if (
+    !Number.isFinite(message.legacyTargetTodayDollars) ||
+    message.legacyTargetTodayDollars <= 0
+  ) {
+    log('warn', 'start_session rejected: missing legacy target', {
+      from: peer.peerId,
+      legacyTargetTodayDollars: message.legacyTargetTodayDollars,
+    });
     return;
   }
   const policies = enumeratePolicies(cfg.axes);
@@ -1885,6 +1966,7 @@ function handleMessage(peer: Peer, message: ClusterMessage): void {
     case 'register_rejected':
     case 'batch_assign':
     case 'batch_ack':
+    case 'host_control':
     case 'cluster_state':
     case 'evaluations_ingested':
       // Server-originated kinds — should never arrive from a peer.
@@ -2055,14 +2137,17 @@ function startDispatcher(port: number, host?: string): void {
     //                   Omit (or topN<=0) for the full corpus.
     //   ?minFeasibility=<0..1>
     //                   Filter to records with bequestAttainmentRate ≥
-    //                   this floor BEFORE sort+slice. When set, sort
-    //                   defaults to spend-desc so the top-N reflects
-    //                   "highest spend that still hits the legacy floor"
-    //                   — the answer the household actually wants. Without
-    //                   this, the legacy feasibility-desc sort buries
-    //                   high-spend/just-feasible rows beneath a flood of
-    //                   low-spend/100%-feasible ones, so the user sees a
-    //                   misleadingly low max spend.
+    //                   this floor BEFORE sort+slice.
+    //   ?minSolvency=<0..1>
+    //                   Filter to records with solventSuccessRate ≥ this
+    //                   floor BEFORE sort+slice. When either floor is set,
+    //                   sort defaults to spend-desc so the top-N reflects
+    //                   "highest spend that still clears the household
+    //                   gates" — the answer the household actually wants.
+    //   ?spend=<dollars> / ?minSpend=<dollars> / ?maxSpend=<dollars>
+    //                   Optional spend-axis filters. Used by the UI to
+    //                   jump directly to a $1k refined tier without
+    //                   downloading every record in the session.
     //   ?sort=feasibility  (default when no minFeasibility) Sort
     //                   feasible-first (by bequestAttainmentRate desc),
     //                   then by spend desc among feasibles.
@@ -2094,9 +2179,19 @@ function startDispatcher(port: number, host?: string): void {
         const minFeasibility = minFeasibilityRaw
           ? Number.parseFloat(minFeasibilityRaw)
           : 0;
+        const minSolvencyRaw = params.get('minSolvency');
+        const minSolvency = minSolvencyRaw
+          ? Number.parseFloat(minSolvencyRaw)
+          : 0;
+        const spendRaw = params.get('spend');
+        const spendFilter = spendRaw ? Number.parseInt(spendRaw, 10) : 0;
+        const minSpendRaw = params.get('minSpend');
+        const minSpend = minSpendRaw ? Number.parseInt(minSpendRaw, 10) : 0;
+        const maxSpendRaw = params.get('maxSpend');
+        const maxSpend = maxSpendRaw ? Number.parseInt(maxSpendRaw, 10) : 0;
         const sortMode =
           params.get('sort') ??
-          (minFeasibility > 0 ? 'spend' : 'feasibility');
+          (minFeasibility > 0 || minSolvency > 0 ? 'spend' : 'feasibility');
 
         let evaluations = allEvaluations;
         if (Number.isFinite(minFeasibility) && minFeasibility > 0) {
@@ -2104,16 +2199,44 @@ function startDispatcher(port: number, host?: string): void {
             (e) => (e.outcome?.bequestAttainmentRate ?? 0) >= minFeasibility,
           );
         }
+        if (Number.isFinite(minSolvency) && minSolvency > 0) {
+          evaluations = evaluations.filter(
+            (e) => (e.outcome?.solventSuccessRate ?? 0) >= minSolvency,
+          );
+        }
+        if (Number.isFinite(spendFilter) && spendFilter > 0) {
+          evaluations = evaluations.filter(
+            (e) => e.policy?.annualSpendTodayDollars === spendFilter,
+          );
+        } else {
+          if (Number.isFinite(minSpend) && minSpend > 0) {
+            evaluations = evaluations.filter(
+              (e) => (e.policy?.annualSpendTodayDollars ?? 0) >= minSpend,
+            );
+          }
+          if (Number.isFinite(maxSpend) && maxSpend > 0) {
+            evaluations = evaluations.filter(
+              (e) => (e.policy?.annualSpendTodayDollars ?? 0) <= maxSpend,
+            );
+          }
+        }
         if (sortMode === 'spend') {
-          // Highest-spend feasibles first; feasibility breaks ties so
-          // among same-spend rows the sturdier one wins.
+          // Highest-spend gate-passers first; solvency and legacy
+          // attainment break ties so same-spend rows prefer sturdier
+          // policies before extra ending wealth.
           evaluations = [...evaluations].sort((a, b) => {
             const aspend = a.policy?.annualSpendTodayDollars ?? 0;
             const bspend = b.policy?.annualSpendTodayDollars ?? 0;
             if (aspend !== bspend) return bspend - aspend;
+            const asolv = a.outcome?.solventSuccessRate ?? 0;
+            const bsolv = b.outcome?.solventSuccessRate ?? 0;
+            if (asolv !== bsolv) return bsolv - asolv;
             const ar = a.outcome?.bequestAttainmentRate ?? 0;
             const br = b.outcome?.bequestAttainmentRate ?? 0;
-            return br - ar;
+            if (ar !== br) return br - ar;
+            const aew = a.outcome?.p50EndingWealthTodayDollars ?? 0;
+            const bew = b.outcome?.p50EndingWealthTodayDollars ?? 0;
+            return bew - aew;
           });
         } else if (sortMode === 'feasibility') {
           // Sort feasible-first, then by spend desc — matches the
@@ -2123,6 +2246,9 @@ function startDispatcher(port: number, host?: string): void {
             const ar = a.outcome?.bequestAttainmentRate ?? 0;
             const br = b.outcome?.bequestAttainmentRate ?? 0;
             if (ar !== br) return br - ar;
+            const asolv = a.outcome?.solventSuccessRate ?? 0;
+            const bsolv = b.outcome?.solventSuccessRate ?? 0;
+            if (asolv !== bsolv) return bsolv - asolv;
             const aspend = a.policy?.annualSpendTodayDollars ?? 0;
             const bspend = b.policy?.annualSpendTodayDollars ?? 0;
             return bspend - aspend;
