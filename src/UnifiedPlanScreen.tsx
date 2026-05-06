@@ -4,6 +4,7 @@ import type {
   MarketAssumptions,
   PathResult,
   SeedData,
+  WindfallEntry,
 } from './types';
 import { perfLog, perfStart } from './debug-perf';
 import type { OptimizationObjective } from './optimization-objective';
@@ -962,6 +963,31 @@ function formatWindfallLabel(value: string) {
     .join(' ');
 }
 
+function parseCurrencyText(value: string): number {
+  return Number.parseFloat(value.replace(/[$,]/g, ''));
+}
+
+function buildSimpleWindfallName(
+  label: string,
+  year: number,
+  windfalls: WindfallEntry[],
+): string {
+  const stem =
+    label
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '_')
+      .replace(/^_+|_+$/g, '') || `cash_${year}`;
+  const names = new Set(windfalls.map((entry) => entry.name));
+  let candidate = stem;
+  let suffix = 2;
+  while (names.has(candidate)) {
+    candidate = `${stem}_${suffix}`;
+    suffix += 1;
+  }
+  return candidate;
+}
+
 function formatLegacyPriorityLabel(value: LegacyPriority) {
   if (value === 'nice_to_have') {
     return 'Nice to have';
@@ -1112,7 +1138,6 @@ export function UnifiedPlanScreen({
   );
   const updateSpending = useAppStore((state) => state.updateSpending);
   const updateSocialSecurityClaim = useAppStore((state) => state.updateSocialSecurityClaim);
-  const updateWindfall = useAppStore((state) => state.updateWindfall);
   const updateAssumption = useAppStore((state) => state.updateAssumption);
   const applyAccountTradeInstructions = useAppStore(
     (state) => state.applyAccountTradeInstructions,
@@ -1207,6 +1232,11 @@ export function UnifiedPlanScreen({
     [data.income.salaryEndDate],
   );
   const [salaryEndDateText, setSalaryEndDateText] = useState(salaryEndDateValue);
+  const [simpleWindfallDraft, setSimpleWindfallDraft] = useState({
+    label: '',
+    year: String(new Date().getFullYear()),
+    amount: '',
+  });
 
   useEffect(() => {
     setSalaryEndDateText(salaryEndDateValue);
@@ -1311,6 +1341,53 @@ export function UnifiedPlanScreen({
       [key]: open,
     }));
   };
+
+  const simpleWindfallYear = Number.parseInt(simpleWindfallDraft.year, 10);
+  const simpleWindfallAmount = parseCurrencyText(simpleWindfallDraft.amount);
+  const canAddSimpleWindfall =
+    Number.isFinite(simpleWindfallYear) &&
+    simpleWindfallYear >= new Date().getFullYear() &&
+    Number.isFinite(simpleWindfallAmount) &&
+    simpleWindfallAmount > 0;
+
+  const addSimpleWindfall = useCallback(() => {
+    if (!canAddSimpleWindfall) return;
+    const entry: WindfallEntry = {
+      name: buildSimpleWindfallName(
+        simpleWindfallDraft.label,
+        simpleWindfallYear,
+        data.income.windfalls,
+      ),
+      year: simpleWindfallYear,
+      amount: simpleWindfallAmount,
+      liquidityAmount: simpleWindfallAmount,
+      taxTreatment: 'cash_non_taxable',
+      certainty: 'estimated',
+    };
+    updateIncome('windfalls', [...data.income.windfalls, entry]);
+    setSimpleWindfallDraft({
+      label: '',
+      year: String(new Date().getFullYear()),
+      amount: '',
+    });
+  }, [
+    canAddSimpleWindfall,
+    data.income.windfalls,
+    simpleWindfallAmount,
+    simpleWindfallDraft.label,
+    simpleWindfallYear,
+    updateIncome,
+  ]);
+
+  const deleteWindfall = useCallback(
+    (name: string) => {
+      updateIncome(
+        'windfalls',
+        data.income.windfalls.filter((entry) => entry.name !== name),
+      );
+    },
+    [data.income.windfalls, updateIncome],
+  );
 
   const applySalaryEndDateInput = useCallback(
     (value: string) => {
@@ -4550,97 +4627,100 @@ export function UnifiedPlanScreen({
                 ))}
               </div>
               <div className="space-y-3">
-                {data.income.windfalls.map((windfall) => (
-                  <div key={windfall.name} className="rounded-xl border border-stone-200 bg-stone-50/80 p-3">
-                    <div className="grid gap-3 md:grid-cols-2">
-                      <label className="text-sm text-stone-700">
-                        {formatWindfallLabel(windfall.name)} year
-                        <input
-                          type="number"
-                          min={new Date().getFullYear()}
-                          step={1}
-                          value={windfall.year}
-                          onChange={(event) =>
-                            updateWindfall(
-                              windfall.name,
-                              'year',
-                              Math.max(new Date().getFullYear(), Math.round(Number(event.target.value) || 0)),
-                            )
-                          }
-                          className="mt-1 w-full rounded-xl border border-stone-300 bg-white px-3 py-2"
-                        />
-                      </label>
-                      <label className="text-sm text-stone-700">
-                        {formatWindfallLabel(windfall.name)} amount
-                        <input
-                          type="number"
-                          min={0}
-                          step={10000}
-                          value={windfall.amount}
-                          onChange={(event) =>
-                            updateWindfall(windfall.name, 'amount', Math.max(0, Number(event.target.value) || 0))
-                          }
-                          className="mt-1 w-full rounded-xl border border-stone-300 bg-white px-3 py-2"
-                        />
-                      </label>
-                    </div>
-                    {windfall.name === 'home_sale' ? (
-                      <div className="mt-3 grid gap-3 md:grid-cols-3">
-                        <label className="text-sm text-stone-700">
-                          Home cost basis
-                          <input
-                            type="number"
-                            min={0}
-                            step={10000}
-                            value={windfall.costBasis ?? ''}
-                            onChange={(event) =>
-                              updateWindfall(
-                                windfall.name,
-                                'costBasis',
-                                Math.max(0, Number(event.target.value) || 0),
-                              )
-                            }
-                            className="mt-1 w-full rounded-xl border border-stone-300 bg-white px-3 py-2"
-                          />
-                        </label>
-                        <label className="text-sm text-stone-700">
-                          Capital-gains exclusion
-                          <input
-                            type="number"
-                            min={0}
-                            step={50000}
-                            value={windfall.exclusionAmount ?? ''}
-                            onChange={(event) =>
-                              updateWindfall(
-                                windfall.name,
-                                'exclusionAmount',
-                                Math.max(0, Number(event.target.value) || 0),
-                              )
-                            }
-                            className="mt-1 w-full rounded-xl border border-stone-300 bg-white px-3 py-2"
-                          />
-                        </label>
-                        <label className="text-sm text-stone-700">
-                          Net liquidity from sale
-                          <input
-                            type="number"
-                            min={0}
-                            step={10000}
-                            value={windfall.liquidityAmount ?? ''}
-                            onChange={(event) =>
-                              updateWindfall(
-                                windfall.name,
-                                'liquidityAmount',
-                                Math.max(0, Number(event.target.value) || 0),
-                              )
-                            }
-                            className="mt-1 w-full rounded-xl border border-stone-300 bg-white px-3 py-2"
-                          />
-                        </label>
+                {data.income.windfalls.length === 0 ? (
+                  <p className="rounded-xl border border-stone-200 bg-stone-50/80 p-3 text-sm text-stone-500">
+                    No cash events modeled yet.
+                  </p>
+                ) : (
+                  <div className="space-y-2">
+                    {data.income.windfalls.map((windfall) => (
+                      <div
+                        key={windfall.name}
+                        className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-stone-200 bg-stone-50/80 p-3"
+                      >
+                        <div>
+                          <p className="text-sm font-semibold text-stone-800">
+                            {formatWindfallLabel(windfall.name)}
+                          </p>
+                          <p className="text-xs text-stone-500">
+                            {windfall.year} ·{' '}
+                            {formatCurrency(windfall.liquidityAmount ?? windfall.amount)} net cash
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => deleteWindfall(windfall.name)}
+                          className="rounded-lg border border-stone-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-stone-600 hover:border-red-300 hover:text-red-600"
+                        >
+                          Remove
+                        </button>
                       </div>
-                    ) : null}
+                    ))}
                   </div>
-                ))}
+                )}
+                <div className="grid gap-3 rounded-xl border border-stone-200 bg-white/70 p-3 md:grid-cols-3">
+                  <label className="text-sm text-stone-700">
+                    Cash event label
+                    <input
+                      type="text"
+                      value={simpleWindfallDraft.label}
+                      placeholder="Bonus"
+                      onChange={(event) =>
+                        setSimpleWindfallDraft((previous) => ({
+                          ...previous,
+                          label: event.target.value,
+                        }))
+                      }
+                      className="mt-1 w-full rounded-xl border border-stone-300 bg-white px-3 py-2"
+                    />
+                  </label>
+                  <label className="text-sm text-stone-700">
+                    Year
+                    <input
+                      type="number"
+                      min={new Date().getFullYear()}
+                      step={1}
+                      value={simpleWindfallDraft.year}
+                      onChange={(event) =>
+                        setSimpleWindfallDraft((previous) => ({
+                          ...previous,
+                          year: event.target.value,
+                        }))
+                      }
+                      className="mt-1 w-full rounded-xl border border-stone-300 bg-white px-3 py-2 tabular-nums"
+                    />
+                  </label>
+                  <label className="text-sm text-stone-700">
+                    Net amount
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      value={simpleWindfallDraft.amount}
+                      placeholder="25000"
+                      onChange={(event) =>
+                        setSimpleWindfallDraft((previous) => ({
+                          ...previous,
+                          amount: event.target.value,
+                        }))
+                      }
+                      className="mt-1 w-full rounded-xl border border-stone-300 bg-white px-3 py-2 tabular-nums"
+                    />
+                  </label>
+                  <div className="md:col-span-3">
+                    <button
+                      type="button"
+                      onClick={addSimpleWindfall}
+                      disabled={!canAddSimpleWindfall}
+                      className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-blue-700 disabled:bg-stone-300 disabled:text-stone-500"
+                    >
+                      Add cash event
+                    </button>
+                    <p className="mt-2 text-[11px] text-stone-500">
+                      Enter net after-tax dollars in today's value. The model
+                      treats these as cash when they land.
+                    </p>
+                  </div>
+                </div>
               </div>
             </div>
           </ControlSection>

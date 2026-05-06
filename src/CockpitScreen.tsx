@@ -3794,23 +3794,6 @@ export function CockpitScreen() {
         </>
       )}
 
-      {/* Mortality sensitivity — what if Rob dies at his p10 ("early")
-          or p50 ("median") death age per SSA period life table 2020.
-          Shows the survivor switch in action: Debbie jumps from spousal
-          floor to 100% of Rob's claim amount when he dies. Rendered
-          below the optimizer cards because it's a sensitivity, not the
-          baseline; the baseline projects to 95 for both.
-          Lazy-mounted: 3 extra engine runs (~6s) start ONLY when the
-          user scrolls within 300px of this card or 2.5s after first
-          paint, whichever first. */}
-      <MountWhenVisible minHeight="120px" eagerAfterMs={Infinity}>
-        <MortalitySensitivityCard
-          data={data}
-          assumptions={assumptions}
-          baselinePath={planPath}
-        />
-      </MountWhenVisible>
-
       {/* Decision-grade calibration signals — UncertaintyRange,
           TaxEfficiency, PreRetirementOptimizer tiles in a 2-column
           grid. Plus the DeltaDashboardTile when both prediction +
@@ -3960,6 +3943,17 @@ export function CockpitScreen() {
       />
 
       <YearlyAuditDownload data={data} yearlySeries={yearlySeries} />
+
+      {/* Mortality sensitivity — bottom-of-page sensitivity reading, not
+          part of the main cockpit flow. Lazy-mounted so the extra engine
+          runs only start when the user scrolls down to it. */}
+      <MountWhenVisible minHeight="120px" eagerAfterMs={Infinity}>
+        <MortalitySensitivityCard
+          data={data}
+          assumptions={assumptions}
+          baselinePath={planPath}
+        />
+      </MountWhenVisible>
 
       <p className="text-[11px] text-stone-400">
         Prototype scaffold · feedback welcome before iteration. The "this
