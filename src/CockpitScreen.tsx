@@ -3195,14 +3195,14 @@ export function CockpitScreen() {
   // bisection fallback automatically; it can monopolize the main thread
   // long enough that the user cannot click into the mining screen.
   //
-  // Stale-corpus is treated as no-corpus for the path-MC step. Even for a
-  // fresh corpus, do not auto-build the full recommended trajectory here:
-  // the mined record already carries the Trust-card metrics, while the
-  // full trace is synchronous browser CPU and can freeze first paint.
+  // Stale-corpus is treated as no-corpus for the path-MC step. For a fresh
+  // corpus, build exactly one full trace for the selected/adopted policy so
+  // Cockpit's Trust/details panels have a projection. This is much cheaper
+  // than the old bisection optimizer and is cached by plan+policy.
   const corpusRecommendation =
     recommendation.state === 'fresh' ? recommendation.policy : null;
   const useCorpusPick = corpusRecommendation != null;
-  const autoProjectRecommendedPath = false;
+  const autoProjectRecommendedPath = useCorpusPick;
 
   const recommendedPath = useRecommendedPath(
     data ?? null,
@@ -3228,17 +3228,22 @@ export function CockpitScreen() {
   const currentSeedRothCeiling =
     data?.rules?.rothConversionPolicy?.magiBufferDollars ?? null;
 
-  // Drive every panel below the Trust card off the optimized path
-  // when it's ready. Falls back to the seed-based baselinePath while
-  // the optimization is still running so the UI doesn't blank out.
-  const planPath: PathResult | null = optimizedPath ?? baselinePath;
+  // Drive every panel below the Trust card off the authoritative path:
+  // mined/adopted policy projection when a corpus pick exists, otherwise
+  // the legacy optimizer path, then the cached current-plan baseline.
+  const planPath: PathResult | null = useCorpusPick
+    ? (recommendedPath.forwardLooking ?? baselinePath)
+    : (optimizedPath ?? baselinePath);
+  const historicalPlanPath: PathResult | null = useCorpusPick
+    ? (recommendedPath.historical ?? historicalPath)
+    : historicalPath;
 
   // Year-by-year series: prefer the optimized projection so every
   // tile (this month, this year, next year, trajectory chart, actions
   // due) stays consistent with the Trust headline. Fall back to
   // baselinePath while the optimizer is still running.
   const yearlySeries =
-    optimizedPath?.yearlySeries ?? baselinePath?.yearlySeries ?? [];
+    planPath?.yearlySeries ?? [];
   const currentYear = new Date().getFullYear();
   const yearIndex = Math.max(
     0,
@@ -3288,10 +3293,10 @@ export function CockpitScreen() {
       });
     };
     return {
-      forwardLooking: computeFor(baselinePath),
-      historical: computeFor(historicalPath),
+      forwardLooking: computeFor(planPath),
+      historical: computeFor(historicalPlanPath),
     };
-  }, [baselinePath, historicalPath, legacyTarget, assumptions?.inflation]);
+  }, [planPath, historicalPlanPath, legacyTarget, assumptions?.inflation]);
   const legacyAttainmentRate = legacyAttainmentBoth.forwardLooking;
   const legacyAttainmentHistorical = legacyAttainmentBoth.historical;
 
@@ -3359,7 +3364,7 @@ export function CockpitScreen() {
     : null;
   const spendStale =
     adopted != null &&
-    baselinePath != null &&
+    planPath != null &&
     appliedSpendTotal != null &&
     Math.abs(appliedSpendTotal - adopted.annualSpendTodayDollars) >
       ADOPTED_SPEND_STALE_TOLERANCE_DOLLARS;
@@ -3385,9 +3390,11 @@ export function CockpitScreen() {
           </h1>
         </div>
         <p className="text-xs text-stone-400">
-          {baselinePath
+          {planPath
             ? `${yearlySeries.length}-year horizon`
-            : 'Run a plan to populate'}
+            : recommendedPath.computing && useCorpusPick
+              ? 'Projecting adopted plan'
+              : 'Run a plan to populate'}
         </p>
       </div>
 
@@ -3551,11 +3558,11 @@ export function CockpitScreen() {
           <p className="text-[11px] font-medium uppercase tracking-[0.2em] text-stone-400">
             Trust
           </p>
-          {baselinePath ? (
+          {planPath ? (
             <>
               {/* The Trust card now reads from the OPTIMIZED plan when
                *  available — i.e., the projection at (recommended SS,
-               *  recommended max spend). The seed-based baselinePath is
+               *  recommended max spend). The seed/current-plan path is
                *  only used as a fallback while the optimizers run. The
                *  85% threshold is the household's stated north-star
                *  floor; below it the number paints rose. */}
@@ -3563,7 +3570,7 @@ export function CockpitScreen() {
                 const useOpt = optimizedSolventRate !== null;
                 const solventForDisplay = useOpt
                   ? optimizedSolventRate!
-                  : baselinePath.successRate;
+                  : planPath.successRate;
                 const legacyForDisplay = useOpt
                   ? optimizedLegacyRate
                   : legacyAttainmentRate;
@@ -3640,13 +3647,13 @@ export function CockpitScreen() {
                   <span className="text-stone-400"> · projecting recommended plan…</span>
                 )}
               </p>
-              {historicalPath && (
+              {historicalPlanPath && (
                 <p className="mt-1 text-[12px] text-stone-500">
                   {useCorpusPick
-                    ? 'Current-plan historical-precedent baseline: '
+                    ? 'Adopted-policy historical-precedent reading: '
                     : 'Historical-precedent reading: '}
                   <span className="font-medium text-stone-700 tabular-nums">
-                    {Math.round(historicalPath.successRate * 100)}%
+                    {Math.round(historicalPlanPath.successRate * 100)}%
                   </span>{' '}
                   solvent
                   {legacyAttainmentHistorical !== null && (
@@ -3661,7 +3668,7 @@ export function CockpitScreen() {
                   {' · '}
                   median EW{' '}
                   <span className="font-medium text-stone-700 tabular-nums">
-                    {formatCurrency(historicalPath.medianEndingWealth)}
+                    {formatCurrency(historicalPlanPath.medianEndingWealth)}
                   </span>
                   {' · '}
                   <span className="text-stone-400">1926–2023 bootstrap</span>
@@ -3696,7 +3703,11 @@ export function CockpitScreen() {
               </p>
             </>
           ) : (
-            <p className="mt-4 text-sm text-stone-400">No projection yet.</p>
+            <p className="mt-4 text-sm text-stone-400">
+              {recommendedPath.computing && useCorpusPick
+                ? 'Projecting adopted plan…'
+                : 'No projection yet.'}
+            </p>
           )}
         </div>
 
@@ -3825,8 +3836,8 @@ export function CockpitScreen() {
       {assumptions && (
         <AssumptionPanel
           assumptions={assumptions}
-          forwardLooking={baselinePath}
-          historical={historicalPath}
+          forwardLooking={planPath}
+          historical={historicalPlanPath}
           trustForwardLookingRate={optimizedSolventRate}
           historicalComparable={!useCorpusPick}
         />
@@ -3928,7 +3939,7 @@ export function CockpitScreen() {
       </div>
 
       <CockpitSensitivityPanel
-        baseline={baselinePath}
+        baseline={planPath}
         data={data}
         assumptions={assumptions}
         selectedStressors={selectedStressors ?? []}
