@@ -546,18 +546,12 @@ function buildClusterSnapshot(): ClusterSnapshot {
   let session: ClusterSnapshot['session'] = null;
   if (activeSession) {
     const queueSnap = activeSession.queue.snapshot();
-    // For two-stage sessions, the snapshot's `totalPolicies` should
-    // reflect the FULL workload denominator the user expects to see in
-    // the status panel. During the coarse phase that's the coarse
-    // queue's total (which equals the original policy count). During
-    // the fine phase the queue's total switches to the survivor count
-    // — but we want the panel to keep showing "X / 7,776 evaluated"
-    // not jump to "X / 1,944 evaluated", so we override with the
-    // recorded original count.
-    const totalPoliciesForSnapshot =
-      activeSession.currentStage === 'fine'
-        ? activeSession.coarseTotalPolicies
-        : queueSnap.totalPolicies;
+    // Match the in-process miner's two-stage semantics: coarse progress
+    // uses the original candidate count, then fine progress re-anchors
+    // to the survivor count. The coarse fields below keep the full
+    // screening denominator available to the UI without making the main
+    // progress counter finish at ~67%.
+    const totalPoliciesForSnapshot = queueSnap.totalPolicies;
     // policiesEvaluated semantics: count of evaluations that landed in
     // the corpus. For single-pass sessions (the common case — two-stage
     // is disabled in production) this is the queue's evaluatedCount

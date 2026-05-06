@@ -191,6 +191,10 @@ let lastFeasible = 0;
 function renderClusterState(snap: ClusterSnapshot): void {
   if (!snap.session) return;
   const stats = snap.session.stats;
+  if (stats.policiesEvaluated < lastEvaluated || stats.feasiblePolicies < lastFeasible) {
+    lastEvaluated = stats.policiesEvaluated;
+    lastFeasible = stats.feasiblePolicies;
+  }
   const newSinceLast = stats.policiesEvaluated - lastEvaluated;
   const newFeasible = stats.feasiblePolicies - lastFeasible;
   lastEvaluated = stats.policiesEvaluated;
