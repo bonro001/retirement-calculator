@@ -91,6 +91,7 @@ Environment variables:
 | `HOST_PERF_CLASS` | auto from arch | One of `apple-silicon-perf`, `apple-silicon-efficiency`, `x86-modern`, `x86-legacy`, `unknown`. The dispatcher uses this to size initial batches before measured throughput is in. |
 | `HOST_PLATFORM_DESCRIPTOR` | auto | Free-form descriptor surfaced in diagnostics. |
 | `HOST_AUTO_UPDATE` | `0` | When `1`, a host that sees a dispatcher build mismatch exits through `scripts/start-rust-host.mjs` so the launcher can pull/build/restart. |
+| `HOST_AUTO_UPDATE_RETRY_MS` | `60000` | Supervisor retry interval after an auto-update attempt cannot catch up. Keeps a worker from permanently ignoring later dispatcher commits while still avoiding a tight restart loop. |
 | `CLUSTER_ALLOW_BUILD_MISMATCH` | `0` | Emergency override. By default, hosts on a different or unknown git/package build stay visible but receive no mining batches. |
 | `CLUSTER_BLOCK_DIRTY_BUILDS` | `0` | When `1`, dirty hosts/dispatcher builds are also withheld from dispatch. Dirty state is otherwise visible but allowed for local development. |
 | `CLUSTER_WARMUP_MAX_BATCH_SIZE` | `16` | Per-host calibration cap. At the start of each stage, the dispatcher sends one small real-work batch to each eligible host before normal scheduling. |

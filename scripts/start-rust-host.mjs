@@ -96,6 +96,12 @@ function buildInfo() {
  * so we don't need an async fetch in this otherwise-sync flow.
  */
 function fetchDispatcherBranch() {
+  const buildInfo = fetchDispatcherBuildInfo();
+  const branch = buildInfo?.gitBranch;
+  return typeof branch === 'string' && branch.length > 0 ? branch : null;
+}
+
+function fetchDispatcherBuildInfo() {
   const dispatcherUrl = process.env.DISPATCHER_URL;
   if (!dispatcherUrl) return null;
   const httpUrl = dispatcherUrl
@@ -110,8 +116,7 @@ function fetchDispatcherBranch() {
     );
     if (res.status !== 0) return null;
     const body = JSON.parse(res.stdout);
-    const branch = body?.buildInfo?.gitBranch;
-    return typeof branch === 'string' && branch.length > 0 ? branch : null;
+    return body?.buildInfo ?? null;
   } catch {
     return null;
   }
@@ -285,6 +290,7 @@ if (dryRun) {
 
 let child = null;
 let shuttingDown = false;
+let restartingForAutoUpdateRetry = false;
 // Set when an auto-update attempt couldn't actually move the branch
 // forward (already current, not fast-forwardable, dirty tree). Without
 // this, the launcher would catch each AUTO_UPDATE_EXIT_CODE, no-op the
@@ -293,9 +299,32 @@ let shuttingDown = false;
 // 200+ rapid reconnects when a Windows host on a feature branch tried
 // to auto-update against a `main`-expecting dispatcher.
 let autoUpdateExhausted = false;
+let autoUpdateExhaustedForCommit = null;
+let autoUpdateExhaustedAtMs = 0;
+
+const AUTO_UPDATE_RETRY_MS = Number.parseInt(
+  process.env.HOST_AUTO_UPDATE_RETRY_MS ?? '60000',
+  10,
+);
 
 function refreshBuildEnv() {
   process.env.HOST_BUILD_INFO_JSON = JSON.stringify(buildInfo());
+}
+
+function relaunchSupervisorAfterUpdate() {
+  console.warn('[start-rust-host] relaunching supervisor from updated checkout');
+  shuttingDown = true;
+  const args = process.argv.slice(1);
+  const next = spawn(process.execPath, args, {
+    cwd: REPO_ROOT,
+    stdio: 'inherit',
+    env: process.env,
+  });
+  next.on('error', (err) => {
+    console.error('[start-rust-host] failed to relaunch supervisor', err);
+    process.exit(1);
+  });
+  process.exit(0);
 }
 
 function startChild() {
@@ -307,6 +336,8 @@ function startChild() {
   // they're ready.
   if (autoUpdateExhausted) {
     process.env.HOST_AUTO_UPDATE = '0';
+  } else {
+    process.env.HOST_AUTO_UPDATE = autoUpdate ? '1' : '0';
   }
   child = spawn(process.execPath, ['--import', 'tsx', HOST_ENTRY], {
     cwd: REPO_ROOT,
@@ -317,6 +348,11 @@ function startChild() {
     if (shuttingDown) {
       process.exit(code ?? (signal ? 1 : 0));
     }
+    if (restartingForAutoUpdateRetry) {
+      restartingForAutoUpdateRetry = false;
+      startChild();
+      return;
+    }
     if (autoUpdate && !autoUpdateExhausted && code === AUTO_UPDATE_EXIT_CODE) {
       let advanced = false;
       try {
@@ -325,12 +361,18 @@ function startChild() {
         console.error('[start-rust-host] auto-update failed', err);
       }
       if (!advanced) {
+        const dispatcherBuildInfo = fetchDispatcherBuildInfo();
         autoUpdateExhausted = true;
+        autoUpdateExhaustedForCommit = dispatcherBuildInfo?.gitCommit ?? null;
+        autoUpdateExhaustedAtMs = Date.now();
         console.warn(
           "[start-rust-host] auto-update can't catch up with the dispatcher — " +
-            'local branch is not fast-forwardable to upstream. Continuing ' +
-            'without auto-update; restart manually after switching branches.',
+            'continuing without host-triggered auto-update for now; the ' +
+            'supervisor will retry periodically.',
         );
+      } else {
+        relaunchSupervisorAfterUpdate();
+        return;
       }
       startChild();
       return;
@@ -354,10 +396,42 @@ if (autoUpdate) {
     // in which case mismatch is benign and never triggers an
     // auto-update request. The exhausted flag flips lazily, only
     // after the host actually requests an update we can't fulfill.
-    updateIfBehind();
+    if (updateIfBehind()) {
+      relaunchSupervisorAfterUpdate();
+    }
   } catch (err) {
     console.error('[start-rust-host] initial auto-update failed', err);
   }
 }
 
 startChild();
+
+if (autoUpdate) {
+  setInterval(() => {
+    if (!autoUpdateExhausted || shuttingDown || restartingForAutoUpdateRetry) return;
+    const dispatcherBuildInfo = fetchDispatcherBuildInfo();
+    const dispatcherCommit = dispatcherBuildInfo?.gitCommit ?? null;
+    const dispatcherChanged =
+      dispatcherCommit &&
+      autoUpdateExhaustedForCommit &&
+      dispatcherCommit !== autoUpdateExhaustedForCommit;
+    const retryElapsed =
+      Number.isFinite(AUTO_UPDATE_RETRY_MS) &&
+      AUTO_UPDATE_RETRY_MS > 0 &&
+      Date.now() - autoUpdateExhaustedAtMs >= AUTO_UPDATE_RETRY_MS;
+    if (!dispatcherChanged && !retryElapsed) return;
+    console.warn('[start-rust-host] retrying previously exhausted auto-update', {
+      dispatcherCommit,
+      exhaustedForCommit: autoUpdateExhaustedForCommit,
+      reason: dispatcherChanged ? 'dispatcher_changed' : 'retry_interval',
+    });
+    autoUpdateExhausted = false;
+    autoUpdateExhaustedForCommit = null;
+    autoUpdateExhaustedAtMs = 0;
+    process.env.HOST_AUTO_UPDATE = autoUpdate ? '1' : '0';
+    if (child && !child.killed) {
+      restartingForAutoUpdateRetry = true;
+      child.kill('SIGTERM');
+    }
+  }, 5_000).unref();
+}
