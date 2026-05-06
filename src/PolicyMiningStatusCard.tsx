@@ -650,6 +650,24 @@ export function PolicyMiningStatusCard({
       >
         {showUrlEditor ? 'cancel' : 'edit'}
       </button>
+      {(cluster.state === 'idle' || cluster.state === 'disconnected') && (
+        <button
+          type="button"
+          className="rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-700 hover:bg-emerald-100"
+          onClick={cluster.reconnect}
+        >
+          connect
+        </button>
+      )}
+      {(cluster.state === 'connected' || cluster.state === 'connecting') && (
+        <button
+          type="button"
+          className="rounded-full bg-stone-100 px-2 py-0.5 text-[11px] font-semibold text-stone-600 hover:bg-stone-200"
+          onClick={cluster.disconnect}
+        >
+          disconnect
+        </button>
+      )}
       {cluster.state === 'error' && (
         <button
           type="button"

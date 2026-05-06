@@ -112,14 +112,17 @@ export interface UseClusterSession {
    */
   ghosts: Map<string, PeerGhost>;
   setDispatcherUrl(url: string): void;
+  disconnect(): void;
   reconnect(): void;
   startSession(opts: StartSessionOptions): void;
   cancelSession(reason?: string): void;
 }
 
 /**
- * Subscribe to the cluster client. Initiates a connection on first mount
- * (idempotent — repeated mounts share the singleton's connection).
+ * Subscribe to the cluster client. Mounting a screen is intentionally
+ * passive: callers opt into opening the browser controller socket via
+ * `reconnect()`. This keeps the headless Node-host array quiet when the
+ * browser is only being used to view results.
  */
 export function useClusterSession(): UseClusterSession {
   const client = useMemo(getSingleton, []);
@@ -129,8 +132,6 @@ export function useClusterSession(): UseClusterSession {
 
   useEffect(() => {
     const unsubscribe = client.subscribe(setSnapshot);
-    // Kick off the connection. `connect()` is a no-op if already in flight.
-    client.connect();
     return unsubscribe;
   }, [client]);
 
@@ -165,6 +166,7 @@ export function useClusterSession(): UseClusterSession {
     [client],
   );
   const reconnect = useCallback(() => client.reconnect(), [client]);
+  const disconnect = useCallback(() => client.disconnect(), [client]);
   const startSession = useCallback(
     (opts: StartSessionOptions) => client.startSession(opts),
     [client],
@@ -184,6 +186,7 @@ export function useClusterSession(): UseClusterSession {
     session,
     ghosts,
     setDispatcherUrl,
+    disconnect,
     reconnect,
     startSession,
     cancelSession,
