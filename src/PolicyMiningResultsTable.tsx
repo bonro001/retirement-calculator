@@ -10,8 +10,9 @@ import { PolicyAdoptionModal } from './PolicyAdoptionModal';
 import { PolicyFrontierChart } from './PolicyFrontierChart';
 import { SensitivityPanel } from './SensitivityPanel';
 import { StressTestPanel } from './StressTestPanel';
-import { explainAdoption } from './policy-adoption';
+import { buildAdoptedSeedData, explainAdoption } from './policy-adoption';
 import { useAppStore } from './store';
+import { primeRecommendedPathCache } from './recommended-path-cache';
 import {
   LEGACY_ATTAINMENT_FLOOR,
   SOLVENCY_DEFENSE_FLOOR,
@@ -342,10 +343,18 @@ export function PolicyMiningResultsTable({
   const [adoptingEvaluation, setAdoptingEvaluation] =
     useState<PolicyEvaluation | null>(null);
   const currentSeed = useAppStore((s) => s.data);
+  const appliedSeed = useAppStore((s) => s.appliedData);
+  const appliedAssumptions = useAppStore((s) => s.appliedAssumptions);
+  const appliedSelectedStressors = useAppStore((s) => s.appliedSelectedStressors);
+  const appliedSelectedResponses = useAppStore((s) => s.appliedSelectedResponses);
   const adoptMinedPolicy = useAppStore((s) => s.adoptMinedPolicy);
   const lastPolicyAdoption = useAppStore((s) => s.lastPolicyAdoption);
   const undoLastPolicyAdoption = useAppStore((s) => s.undoLastPolicyAdoption);
   const clearLastPolicyAdoption = useAppStore((s) => s.clearLastPolicyAdoption);
+  const [adoptionProjectionStatus, setAdoptionProjectionStatus] =
+    useState<'idle' | 'saving' | 'saved' | 'failed'>('idle');
+  const [adoptionProjectionError, setAdoptionProjectionError] =
+    useState<string | null>(null);
 
   const clusterEnabled = !!dispatcherUrl;
   const selectedSession = clusterSessions.find(
@@ -691,6 +700,38 @@ export function PolicyMiningResultsTable({
     );
   }, [lastPolicyAdoption, evaluations]);
 
+  const adoptAndPrimeProjection = (evaluation: PolicyEvaluation) => {
+    const adoptedSeed = buildAdoptedSeedData(appliedSeed, evaluation.policy);
+    adoptMinedPolicy(evaluation.policy, evaluation);
+    setAdoptingEvaluation(null);
+    setAdoptionProjectionStatus('saving');
+    setAdoptionProjectionError(null);
+
+    // Let the modal close and the adoption banner paint before doing the
+    // synchronous full-trace work. This primes the exact cache Cockpit reads
+    // later, so the monthly view can reopen without recomputing.
+    setTimeout(() => {
+      try {
+        const entry = primeRecommendedPathCache({
+          data: adoptedSeed,
+          assumptions: appliedAssumptions,
+          recommendation: evaluation,
+          selectedStressors: appliedSelectedStressors ?? [],
+          selectedResponses: appliedSelectedResponses ?? [],
+        });
+        if (!entry.forwardLooking) {
+          throw new Error('Forward-looking projection failed');
+        }
+        setAdoptionProjectionStatus('saved');
+      } catch (err) {
+        setAdoptionProjectionStatus('failed');
+        setAdoptionProjectionError(
+          err instanceof Error ? err.message : 'Projection cache failed',
+        );
+      }
+    }, 0);
+  };
+
   return (
     <div className="mt-4 rounded-2xl border border-stone-200 bg-white/80 p-4 text-sm text-stone-700 shadow-sm">
       {lastPolicyAdoption && (
@@ -736,6 +777,23 @@ export function PolicyMiningResultsTable({
                 </p>
               )}
             </div>
+          )}
+          {adoptionProjectionStatus !== 'idle' && (
+            <p
+              className={`mt-1.5 text-[11px] ${
+                adoptionProjectionStatus === 'failed'
+                  ? 'text-amber-700'
+                  : 'text-emerald-700'
+              }`}
+            >
+              {adoptionProjectionStatus === 'saving'
+                ? 'Saving Cockpit projections for the adopted plan…'
+                : adoptionProjectionStatus === 'saved'
+                  ? 'Cockpit projections saved for month-end review.'
+                  : `Cockpit projection cache did not save${
+                      adoptionProjectionError ? `: ${adoptionProjectionError}` : '.'
+                    }`}
+            </p>
           )}
         </div>
       )}
@@ -1135,8 +1193,7 @@ export function PolicyMiningResultsTable({
           baselineMismatch={!!baselineMismatch}
           onCancel={() => setAdoptingEvaluation(null)}
           onConfirm={() => {
-            adoptMinedPolicy(adoptingEvaluation.policy, adoptingEvaluation);
-            setAdoptingEvaluation(null);
+            adoptAndPrimeProjection(adoptingEvaluation);
           }}
         />
       )}
