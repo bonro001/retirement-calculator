@@ -23,6 +23,7 @@ import {
   loadClusterSessions,
 } from './policy-mining-cluster';
 import { POLICY_MINER_ENGINE_VERSION } from './policy-miner-types';
+import { POLICY_MINING_TRIAL_COUNT } from './policy-mining-config';
 import { bestPolicy, LEGACY_FIRST_LEXICOGRAPHIC } from './policy-ranker';
 
 export type CorpusState =
@@ -132,7 +133,7 @@ export function useRecommendedPolicy(
     if (!data || !assumptions) return null;
     try {
       // Use the SAME suffixed fingerprint MiningScreen uses to register
-      // sessions (`|trials=2000|fpv1`). Without the suffix, the cockpit
+      // sessions. Without the suffix, the cockpit
       // and the mining screen would look at different cluster sessions
       // for the same household plan and the cockpit would never see
       // the corpus produced by a mine.
@@ -142,7 +143,6 @@ export function useRecommendedPolicy(
         selectedStressors,
         selectedResponses,
       });
-      const POLICY_MINING_TRIAL_COUNT = 2000;
       return `${base}|trials=${POLICY_MINING_TRIAL_COUNT}|fpv1`;
     } catch {
       return null;

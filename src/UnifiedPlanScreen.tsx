@@ -36,6 +36,7 @@ import { PolicyMiningStatusCard } from './PolicyMiningStatusCard';
 import { PolicyMiningResultsTable } from './PolicyMiningResultsTable';
 import { POLICY_MINER_ENGINE_VERSION } from './policy-miner-types';
 import { useClusterSession } from './useClusterSession';
+import { POLICY_MINING_TRIAL_COUNT } from './policy-mining-config';
 import { CalibrationDashboard } from './CalibrationDashboard';
 import { AxisPruningCard } from './AxisPruningCard';
 
@@ -47,16 +48,11 @@ const INTERACTIVE_UNIFIED_PLAN_MAX_RUNS = 250;
  *     comparisons across mined records are apples-to-apples)
  *   - bumping this number deliberately busts the corpus (see
  *     `policyMiningFingerprint` below) instead of silently mixing
- *     2000-trial and 5000-trial results in the same dedupe bucket.
+ *     old and current mining results in the same dedupe bucket.
  *
- * 2000 trials is the Phase A "good enough" point: per the throughput probe,
- * ~31 min for the full ~8,748-candidate corpus on the M4 mini's 8-worker
- * pool, with bequest p10/p90 stable enough to rank-order policies. 5000
- * trials is more accurate but pushes a single mining run past 75 min,
- * which kills the iterative loop. Re-evaluate when Phase D (multi-host)
- * lands.
+ * The value is centralized in `policy-mining-config` because the Cockpit
+ * must look up exactly the same fingerprint the Mining screen writes.
  */
-const POLICY_MINING_TRIAL_COUNT = 2000;
 const PLAN_ANALYSIS_TIMEOUT_MS = 45_000;
 const PLAN_ANALYSIS_REQUEST_PREFIX = 'plan-analysis-request';
 const INTERACTIVE_RUNTIME_BUDGETS = {

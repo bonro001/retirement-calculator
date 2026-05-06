@@ -1,8 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  loadEvaluationsForBaseline,
-} from './policy-mining-corpus';
-import {
   isBetterFeasibleCandidate,
 } from './policy-miner';
 import {
@@ -445,10 +442,10 @@ export function PolicyMiningStatusCard({
     }
   }, [baselineFingerprint, evalCount, flippedForFingerprint]);
 
-  // Poll IDB for legacy "best so far" — pre-D.3 sessions wrote here.
-  // Cluster sessions write to the dispatcher's on-disk corpus; that path
-  // doesn't update IDB, so live cluster progress is reflected via
-  // cluster.session below, not this poll.
+  // Poll the canonical corpus source for "best so far". Cluster sessions
+  // write to the dispatcher's on-disk corpus; legacy pre-D.3 sessions wrote
+  // to IDB. The shared loader checks cluster first and falls back to IDB so
+  // the status card and results table agree after a completed cluster mine.
   useEffect(() => {
     if (!baselineFingerprint) {
       setBestEval(null);
@@ -456,11 +453,13 @@ export function PolicyMiningStatusCard({
       return undefined;
     }
     let cancelled = false;
+    const dispatcherUrl = cluster.snapshot.dispatcherUrl ?? null;
     const tick = async () => {
       try {
-        const evals = await loadEvaluationsForBaseline(
+        const evals = await loadCorpusEvaluations(
           baselineFingerprint,
           engineVersion,
+          dispatcherUrl,
         );
         if (cancelled) return;
         setEvalCount(evals.length);
@@ -483,7 +482,7 @@ export function PolicyMiningStatusCard({
       cancelled = true;
       clearInterval(handle);
     };
-  }, [baselineFingerprint, engineVersion]);
+  }, [baselineFingerprint, engineVersion, cluster.snapshot.dispatcherUrl]);
 
   // -------------------------------------------------------------------------
   // Total candidate count — needed for the "Start" tooltip and to size the
