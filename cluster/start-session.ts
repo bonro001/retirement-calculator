@@ -203,8 +203,13 @@ function renderClusterState(snap: ClusterSnapshot): void {
     stats.estimatedRemainingMs > 0
       ? (stats.estimatedRemainingMs / 60_000).toFixed(1) + ' min'
       : '?';
-  const hostsActive = snap.peers.filter((p) => p.roles.includes('host')).length;
+  const hostCount = snap.peers.filter((p) => p.roles.includes('host')).length;
   const metrics = snap.session.metrics;
+  const activeHostCount = metrics?.activeHostCount ?? hostCount;
+  const quarantinedHostCount = metrics?.quarantinedHostCount ?? 0;
+  const unavailableHostCount = metrics?.unavailableHostCount ?? 0;
+  const calibratingHostCount = metrics?.calibratingHostCount ?? 0;
+  const inactiveHostCount = quarantinedHostCount + unavailableHostCount;
   log('progress', {
     pct: `${pct}%`,
     evaluated: `${stats.policiesEvaluated}/${stats.totalPolicies}`,
@@ -213,13 +218,31 @@ function renderClusterState(snap: ClusterSnapshot): void {
     newFeasible,
     msPerPolicy: Math.round(stats.meanMsPerPolicy),
     eta: remainingMin,
-    hosts: hostsActive,
+    hosts:
+      inactiveHostCount > 0
+        ? `${activeHostCount}/${hostCount}`
+        : activeHostCount,
+    quarantinedHosts: quarantinedHostCount > 0 ? quarantinedHostCount : undefined,
+    unavailableHosts: unavailableHostCount > 0 ? unavailableHostCount : undefined,
+    calibratingHosts: calibratingHostCount > 0 ? calibratingHostCount : undefined,
     utilization: metrics?.hostUtilizationRate == null
       ? undefined
       : `${Math.round(metrics.hostUtilizationRate * 100)}%`,
     capacityNacks: metrics?.capacityNacks,
     dropped: metrics?.policiesDropped,
     avgBatch: metrics?.avgBatchSize == null ? undefined : Number(metrics.avgBatchSize.toFixed(1)),
+    avgPump:
+      metrics?.avgBatchesAssignedPerPump == null
+        ? undefined
+        : Number(metrics.avgBatchesAssignedPerPump.toFixed(1)),
+    hostQueueMs:
+      metrics?.avgHostQueueDelayMs == null
+        ? undefined
+        : Math.round(metrics.avgHostQueueDelayMs),
+    appendMs:
+      metrics?.avgCorpusAppendMs == null
+        ? undefined
+        : Math.round(metrics.avgCorpusAppendMs),
   });
 }
 

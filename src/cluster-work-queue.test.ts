@@ -22,7 +22,15 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { MAX_POLICY_ATTEMPTS, WorkQueue, recommendedBatchSize } from '../cluster/work-queue';
+import {
+  MAX_POLICY_ATTEMPTS,
+  WorkQueue,
+  maxBatchSizeForRuntime,
+  recommendedBatchSize,
+  reserveWorkerSlotsForBatch,
+  targetBatchWallClockMsForRuntime,
+  targetInFlightBatchesForRuntime,
+} from '../cluster/work-queue';
 import type { Policy } from './policy-miner-types';
 
 function makePolicy(spend: number): Policy {
@@ -56,6 +64,65 @@ describe('recommendedBatchSize', () => {
   });
 });
 
+describe('runtime-specific dispatch tuning helpers', () => {
+  it('keeps TS hosts at shallow prefetch and Rust compact hosts deeper', () => {
+    expect(targetInFlightBatchesForRuntime('ts')).toBe(2);
+    expect(targetInFlightBatchesForRuntime('rust-native-compact')).toBe(4);
+  });
+
+  it('lets callers override prefetch depths for experiments', () => {
+    expect(
+      targetInFlightBatchesForRuntime('rust-native-compact', {
+        defaultDepth: 1,
+        rustCompactDepth: 6,
+      }),
+    ).toBe(6);
+    expect(
+      targetInFlightBatchesForRuntime('ts', {
+        defaultDepth: 1,
+        rustCompactDepth: 6,
+      }),
+    ).toBe(1);
+  });
+
+  it('gives Rust compact larger batches and longer wall-clock targets', () => {
+    expect(
+      maxBatchSizeForRuntime({
+        runtime: 'rust-native-compact',
+        workers: 8,
+        freeSlots: 8,
+      }),
+    ).toBe(256);
+    expect(
+      maxBatchSizeForRuntime({
+        runtime: 'ts',
+        workers: 8,
+        freeSlots: 8,
+      }),
+    ).toBe(25);
+    expect(targetBatchWallClockMsForRuntime('rust-native-compact')).toBeGreaterThan(
+      targetBatchWallClockMsForRuntime('ts'),
+    );
+  });
+
+  it('splits slot reservations across the target number of in-flight batches', () => {
+    expect(
+      reserveWorkerSlotsForBatch({
+        workers: 8,
+        targetInFlightBatches: 4,
+        policyCount: 256,
+      }),
+    ).toBe(2);
+    expect(
+      reserveWorkerSlotsForBatch({
+        workers: 8,
+        targetInFlightBatches: 4,
+        policyCount: 1,
+      }),
+    ).toBe(1);
+  });
+});
+
 describe('WorkQueue (D.4 baseline)', () => {
   it('hands out batches in input order and counts evaluated correctly', () => {
     const policies = [makePolicy(50_000), makePolicy(60_000), makePolicy(70_000)];
@@ -76,12 +143,14 @@ describe('WorkQueue (D.4 baseline)', () => {
     const q = new WorkQueue('s-test', [makePolicy(50_000), makePolicy(60_000)]);
     const a = q.assignBatch('peer-1', 2);
     expect(a).not.toBeNull();
+    expect(q.inFlightPolicyCount(a!.batchId)).toBe(2);
 
     const r = q.requeueBatch(a!.batchId);
     expect(r).toEqual({ requeued: 2, dropped: 0 });
     expect(q.pendingCount()).toBe(2);
     expect(q.droppedCountValue()).toBe(0);
     expect(q.snapshot().droppedCount).toBe(0);
+    expect(q.inFlightPolicyCount(a!.batchId)).toBeNull();
   });
 
   it('can requeue capacity backpressure without consuming policy attempts', () => {

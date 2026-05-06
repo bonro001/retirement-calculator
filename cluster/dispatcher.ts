@@ -77,7 +77,11 @@ import type {
 } from '../src/policy-miner-types';
 import {
   WorkQueue,
+  maxBatchSizeForRuntime,
   recommendedBatchSize,
+  reserveWorkerSlotsForBatch,
+  targetBatchWallClockMsForRuntime,
+  targetInFlightBatchesForRuntime,
 } from './work-queue';
 import {
   appendEvaluations,
@@ -140,6 +144,8 @@ interface Peer {
   assignedPolicies: number;
   completedPolicies: number;
   totalDispatchToResultMs: number;
+  totalHostQueueDelayMs: number;
+  hostQueueDelaySamples: number;
   busySlotMs: number;
   idleWhilePendingSlotMs: number;
   lastUtilizationSampleMs: number | null;
@@ -148,6 +154,13 @@ interface Peer {
   /** Count of completed batches; threshold for "trust the measured mean
    *  over the perf-class hint" lives in recommendedBatchSize. */
   completedBatchCount: number;
+  /** Number of batch_result messages that failed dispatcher validation
+   *  in the current session. Repeated misses indicate a stale or broken
+   *  host, not unlucky policies. */
+  incompleteResultBatches: number;
+  /** Set for the rest of the session when a host repeatedly returns
+   *  malformed/incomplete results. */
+  quarantinedForSessionReason: string | null;
   /** Earliest wall-clock ms at which this peer may be re-fed. Set by the
    *  nack handler to break tight nack loops; the failsafe pump tick
    *  retries after the cooldown elapses. */
@@ -164,6 +177,12 @@ interface SessionRuntimeCounters {
   policiesRequeued: number;
   policiesDropped: number;
   totalDispatchToResultMs: number;
+  totalHostQueueDelayMs: number;
+  hostQueueDelaySamples: number;
+  totalCorpusAppendMs: number;
+  corpusAppendSamples: number;
+  pumpCycles: number;
+  pumpAssignedBatches: number;
 }
 
 /** How long after a nack to skip a peer in pumpDispatch. Long enough to
@@ -173,22 +192,37 @@ const NACK_COOLDOWN_MS = 1_000;
 /** Capacity NACKs are normal backpressure/race signals, not host failures.
  *  Keep the pause short so a just-freed fast host can be fed promptly. */
 const CAPACITY_NACK_COOLDOWN_MS = 100;
+/** A host that repeatedly returns fewer evaluations than it was assigned
+ *  is almost certainly on stale code or has a broken runtime. Stop feeding
+ *  it for the current session so healthy hosts don't spend the run
+ *  reprocessing its empty batches. */
+const INCOMPLETE_RESULT_QUARANTINE_THRESHOLD = 2;
+
+function readPositiveIntEnv(name: string, fallback: number): number {
+  const raw = process.env[name];
+  if (!raw) return fallback;
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
 
 /**
- * How many batches dispatcher allows to be in flight per peer at the
- * same time. Default 2: while the host is computing batch N, the host's
- * in-process queue already has batch N+1 ready to start the moment any
- * worker frees up. This overlaps network round-trip with compute time
- * and yields ~10-20% throughput on Rust hosts where compute per policy
- * is short relative to the websocket RT.
- *
- * Set to 1 to revert to the original "one batch per peer at a time"
- * behavior. Higher values (3+) over-queue at the host without further
- * benefit because the host's internal worker pool can only consume so
- * fast — past 2 the extra batches just sit in the host's pendingRuns
- * map, holding seedDataPayload references in memory.
+ * Host prefetch depth. TypeScript hosts stay shallow because one policy is
+ * still relatively heavy. Rust compact hosts default deeper because a whole
+ * host batch can finish before the next 1Hz failsafe pump, which creates
+ * the visible CPU pulse this scheduler pass is targeting.
  */
-const IN_FLIGHT_PER_PEER = 2;
+const DEFAULT_PREFETCH_DEPTH = readPositiveIntEnv('CLUSTER_PREFETCH_DEPTH', 2);
+const RUST_COMPACT_PREFETCH_DEPTH = readPositiveIntEnv(
+  'CLUSTER_RUST_COMPACT_PREFETCH_DEPTH',
+  4,
+);
+const WARMUP_MAX_BATCH_SIZE = readPositiveIntEnv('CLUSTER_WARMUP_MAX_BATCH_SIZE', 16);
+const ALLOW_BUILD_MISMATCH =
+  process.env.CLUSTER_ALLOW_BUILD_MISMATCH === '1' ||
+  process.env.CLUSTER_ALLOW_BUILD_MISMATCH === 'true';
+const BLOCK_DIRTY_BUILDS =
+  process.env.CLUSTER_BLOCK_DIRTY_BUILDS === '1' ||
+  process.env.CLUSTER_BLOCK_DIRTY_BUILDS === 'true';
 
 /**
  * Authoritative free-slot count for a peer. The peer's heartbeat-reported
@@ -234,29 +268,39 @@ function resetPeerRuntimeMetrics(peer: Peer): void {
   peer.assignedPolicies = 0;
   peer.completedPolicies = 0;
   peer.totalDispatchToResultMs = 0;
+  peer.totalHostQueueDelayMs = 0;
+  peer.hostQueueDelaySamples = 0;
   peer.busySlotMs = 0;
   peer.idleWhilePendingSlotMs = 0;
   peer.lastUtilizationSampleMs = Date.now();
+  peer.incompleteResultBatches = 0;
+  peer.quarantinedForSessionReason = null;
+  peer.pumpCooldownUntilMs = 0;
 }
 
-function maxBatchSizeForPeer(
-  peer: Peer,
-  freeSlots: number = peer.capabilities?.workerCount ?? 1,
-): number {
-  const runtime = peer.capabilities?.engineRuntime;
-  const workers = peer.capabilities?.workerCount ?? 1;
-  const slots = Math.max(1, Math.min(workers, freeSlots));
-  if (runtime === 'rust-native-compact') {
-    return Math.max(1, Math.min(400, slots * 32));
-  }
-  if (runtime === 'rust-native-compact-shadow') {
-    return Math.max(1, Math.min(100, slots * 8));
-  }
-  // JS engine: per-policy compute is large, so keep batches big enough
-  // to amortize websocket round-trip. Idle peer (slots == workers) gets
-  // ~3 rounds of work (25 / 8 ≈ 3); fully-saturated peer was already
-  // skipped above by the freeSlots <= 0 check in pumpDispatch.
-  return Math.max(1, Math.min(25, slots * 4));
+function targetInFlightBatchesForPeer(peer: Peer): number {
+  return targetInFlightBatchesForRuntime(peer.capabilities?.engineRuntime, {
+    defaultDepth: DEFAULT_PREFETCH_DEPTH,
+    rustCompactDepth: RUST_COMPACT_PREFETCH_DEPTH,
+  });
+}
+
+function hostDispatchBlockedReason(peer: Peer): string | null {
+  if (!peer.roles.includes('host') || ALLOW_BUILD_MISMATCH) return null;
+  const status = compareBuildInfo(DISPATCHER_BUILD_INFO, peer.buildInfo);
+  if (status === 'match') return null;
+  if (status === 'dirty' && !BLOCK_DIRTY_BUILDS) return null;
+  return `build_${status}`;
+}
+
+function isDispatchableHost(peer: Peer, nowMs: number): boolean {
+  return (
+    peer.roles.includes('host') &&
+    peer.socket.readyState === peer.socket.OPEN &&
+    !peer.quarantinedForSessionReason &&
+    !hostDispatchBlockedReason(peer) &&
+    peer.pumpCooldownUntilMs <= nowMs
+  );
 }
 
 function accountPeerUtilization(nowMs: number): void {
@@ -272,6 +316,8 @@ function accountPeerUtilization(nowMs: number): void {
     if (!activeSession || dt === 0) continue;
     const workers = peer.capabilities?.workerCount ?? 0;
     if (workers <= 0) continue;
+    if (peer.quarantinedForSessionReason) continue;
+    if (hostDispatchBlockedReason(peer)) continue;
     const busySlots = Math.min(workers, reservedWorkerSlots(peer));
     peer.busySlotMs += busySlots * dt;
     if (pendingWorkExists) {
@@ -289,12 +335,20 @@ function buildPeerMetrics(peer: Peer): ClusterPeerMetrics {
     capacityNacks: peer.capacityNacks,
     assignedPolicies: peer.assignedPolicies,
     completedPolicies: peer.completedPolicies,
+    targetInFlightBatches: targetInFlightBatchesForPeer(peer),
     reservedWorkerSlots: reservedWorkerSlots(peer),
     busySlotMs: Math.round(peer.busySlotMs),
     idleWhilePendingSlotMs: Math.round(peer.idleWhilePendingSlotMs),
     utilizationRate: denominator > 0 ? peer.busySlotMs / denominator : null,
     avgDispatchToResultMs:
       peer.completedBatches > 0 ? peer.totalDispatchToResultMs / peer.completedBatches : null,
+    avgHostQueueDelayMs:
+      peer.hostQueueDelaySamples > 0
+        ? peer.totalHostQueueDelayMs / peer.hostQueueDelaySamples
+        : null,
+    incompleteResultBatches: peer.incompleteResultBatches,
+    quarantinedForSessionReason: peer.quarantinedForSessionReason,
+    dispatchBlockedReason: hostDispatchBlockedReason(peer),
   };
 }
 
@@ -302,8 +356,24 @@ function buildRuntimeMetrics(queueSnap: ReturnType<WorkQueue['snapshot']>): Clus
   if (!activeSession) return undefined;
   let hostBusySlotMs = 0;
   let hostIdleWhilePendingSlotMs = 0;
+  let activeHostCount = 0;
+  let quarantinedHostCount = 0;
+  let unavailableHostCount = 0;
+  let calibratingHostCount = 0;
   for (const peer of peers.values()) {
     if (!peer.roles.includes('host')) continue;
+    if (peer.quarantinedForSessionReason) {
+      quarantinedHostCount += 1;
+      continue;
+    }
+    if (hostDispatchBlockedReason(peer)) {
+      unavailableHostCount += 1;
+      continue;
+    }
+    activeHostCount += 1;
+    if (activeSession && peer.completedBatchCount < 1) {
+      calibratingHostCount += 1;
+    }
     hostBusySlotMs += peer.busySlotMs;
     hostIdleWhilePendingSlotMs += peer.idleWhilePendingSlotMs;
   }
@@ -323,6 +393,17 @@ function buildRuntimeMetrics(queueSnap: ReturnType<WorkQueue['snapshot']>): Clus
     avgBatchSize: m.batchesAssigned > 0 ? m.policiesAssigned / m.batchesAssigned : null,
     avgDispatchToResultMs:
       m.batchResults > 0 ? m.totalDispatchToResultMs / m.batchResults : null,
+    avgHostQueueDelayMs:
+      m.hostQueueDelaySamples > 0 ? m.totalHostQueueDelayMs / m.hostQueueDelaySamples : null,
+    avgCorpusAppendMs:
+      m.corpusAppendSamples > 0 ? m.totalCorpusAppendMs / m.corpusAppendSamples : null,
+    pumpCycles: m.pumpCycles,
+    avgBatchesAssignedPerPump:
+      m.pumpCycles > 0 ? m.pumpAssignedBatches / m.pumpCycles : null,
+    activeHostCount,
+    quarantinedHostCount,
+    unavailableHostCount,
+    calibratingHostCount,
     hostBusySlotMs: Math.round(hostBusySlotMs),
     hostIdleWhilePendingSlotMs: Math.round(hostIdleWhilePendingSlotMs),
     hostUtilizationRate:
@@ -640,11 +721,15 @@ function handleRegister(socket: WebSocket, registration: RegisterMessage, remote
     assignedPolicies: 0,
     completedPolicies: 0,
     totalDispatchToResultMs: 0,
+    totalHostQueueDelayMs: 0,
+    hostQueueDelaySamples: 0,
     busySlotMs: 0,
     idleWhilePendingSlotMs: 0,
     lastUtilizationSampleMs: null,
     connectedAtMs: Date.now(),
     completedBatchCount: 0,
+    incompleteResultBatches: 0,
+    quarantinedForSessionReason: null,
     pumpCooldownUntilMs: 0,
   };
   peers.set(peerId, peer);
@@ -873,6 +958,12 @@ function handleStartSession(peer: Peer, message: StartSessionMessage): void {
       policiesRequeued: 0,
       policiesDropped: 0,
       totalDispatchToResultMs: 0,
+      totalHostQueueDelayMs: 0,
+      hostQueueDelaySamples: 0,
+      totalCorpusAppendMs: 0,
+      corpusAppendSamples: 0,
+      pumpCycles: 0,
+      pumpAssignedBatches: 0,
     },
   };
 
@@ -931,6 +1022,7 @@ function forwardStartSessionToHosts(): void {
   };
   for (const peer of peers.values()) {
     if (!peer.roles.includes('host')) continue;
+    if (hostDispatchBlockedReason(peer)) continue;
     sendTo(peer, start);
   }
 }
@@ -939,6 +1031,7 @@ function forwardStartSessionToHosts(): void {
  *  host registers mid-session so the next batch_assign doesn't bounce. */
 function forwardStartSessionToOnePeer(peer: Peer): void {
   if (!activeSession) return;
+  if (hostDispatchBlockedReason(peer)) return;
   const session = activeSession;
   const start: StartSessionMessage = {
     kind: 'start_session',
@@ -1062,6 +1155,8 @@ function pumpDispatch(): void {
     }
     return;
   }
+  session.runtimeMetrics.pumpCycles += 1;
+  let assignedThisPump = 0;
 
   // Walk hosts in a stable order so a tied set of hosts is fair across
   // pumps. Sort by displayName as a deterministic-ish proxy.
@@ -1070,14 +1165,13 @@ function pumpDispatch(): void {
     .sort((a, b) => a.displayName.localeCompare(b.displayName));
 
   const now = Date.now();
-  for (const peer of hostsByName) {
+  const dispatchableHosts = hostsByName.filter((peer) => isDispatchableHost(peer, now));
+  const needsWarmup = dispatchableHosts.some((peer) => peer.completedBatchCount < 1);
+  for (const peer of dispatchableHosts) {
     if (session.queue.pendingCount() === 0) break;
-    // Authoritative — see `effectiveFreeSlots` above for why heartbeat
-    // can't be trusted here.
-    const freeSlots = effectiveFreeSlots(peer);
-    if (freeSlots <= 0) continue;
-    if (peer.socket.readyState !== peer.socket.OPEN) continue;
-    if (peer.pumpCooldownUntilMs > now) continue;
+    if (needsWarmup && (peer.completedBatchCount >= 1 || peer.inFlightBatchIds.size > 0)) {
+      continue;
+    }
 
     // Phase 2.C: ship coarseStage.trialCount per batch during the
     // coarse phase; otherwise the configured full trialCount. The
@@ -1087,70 +1181,80 @@ function pumpDispatch(): void {
       session.currentStage === 'coarse' && session.config.coarseStage
         ? session.config.coarseStage.trialCount
         : session.trialCount;
-    // One batch per pump-call per host. Multi-batch-per-pump is doable
-    // but adds bookkeeping; the 1Hz tick catches any host that needs a
-    // second helping after its first batch completes.
-    //
-    // Phase 2.C tuning: pass batchTrialCount to recommendedBatchSize so
-    // the perf-class hint scaling kicks in for coarse phase. Without
-    // this, the cold-start hint is calibrated at 2000 trials and ships
-    // batches 10× too small for a 200-trial coarse pass.
-    const size = recommendedBatchSize(
-      peer.capabilities?.perfClass ?? 'unknown',
-      peer.completedBatchCount >= 3 ? peer.meanMsPerPolicy : null,
-      session.queue.pendingCount(),
-      batchTrialCount,
-      { maxBatchSize: maxBatchSizeForPeer(peer, freeSlots) },
-    );
-    const assigned = session.queue.assignBatch(peer.peerId, size);
-    if (!assigned) continue;
-    const batch: MiningJobBatch = {
-      batchId: assigned.batchId,
-      baselineFingerprint: session.config.baselineFingerprint,
-      engineVersion: session.config.engineVersion,
-      seedDataPayload: session.seedDataPayload,
-      marketAssumptionsPayload: session.marketAssumptionsPayload,
-      policies: assigned.policies,
-      trialCount: batchTrialCount,
-    };
-    const batchAssign: BatchAssignMessage = {
-      kind: 'batch_assign',
-      sessionId: session.sessionId,
-      batch,
-      from: 'dispatcher',
-      to: peer.peerId,
-    };
-    sendTo(peer, batchAssign);
-    peer.inFlightBatchIds.add(assigned.batchId);
-    // Multi-batch-in-flight: cap each batch's slot reservation at
-    // ceil(workerCount / IN_FLIGHT_PER_PEER) instead of all available
-    // slots. With IN_FLIGHT_PER_PEER=2 a host runs the current batch
-    // while the next is already in its in-host queue, overlapping
-    // network round-trip with compute. The 1Hz pump tick + the
-    // batch_result trigger pick up the second batch as soon as the
-    // first releases its reservation.
-    //
-    // The reservation is informational, not the actual worker
-    // constraint — the host has its own internal worker pool and
-    // queue, and processes batches concurrently across all workers
-    // regardless of how dispatcher accounts for slots. Capping the
-    // reservation lets dispatcher think enough slots are free to
-    // ship a follow-up batch.
-    const workers = peer.capabilities?.workerCount ?? 1;
-    const reservationCap = Math.max(1, Math.ceil(workers / IN_FLIGHT_PER_PEER));
-    const reservedSlots = Math.max(
-      1,
-      Math.min(assigned.policies.length, reservationCap),
-    );
-    peer.inFlightSlotReservations.set(assigned.batchId, reservedSlots);
-    peer.assignedBatches += 1;
-    peer.assignedPolicies += assigned.policies.length;
-    session.runtimeMetrics.batchesAssigned += 1;
-    session.runtimeMetrics.policiesAssigned += assigned.policies.length;
-    // No optimistic decrement of peer.freeWorkerSlots: that field is
-    // informational only. Slot reservations are the decrement
-    // (effectiveFreeSlots reads them directly).
+    const targetDepth = needsWarmup ? 1 : targetInFlightBatchesForPeer(peer);
+    while (
+      session.queue.pendingCount() > 0 &&
+      peer.inFlightBatchIds.size < targetDepth
+    ) {
+      // Authoritative — see `effectiveFreeSlots` above for why heartbeat
+      // can't be trusted here.
+      const freeSlots = effectiveFreeSlots(peer);
+      if (freeSlots <= 0) break;
+      const runtime = peer.capabilities?.engineRuntime;
+      const workers = peer.capabilities?.workerCount ?? 1;
+      const warmupMaxBatchSize = Math.max(1, Math.min(WARMUP_MAX_BATCH_SIZE, workers * 2));
+      // Phase 2.C tuning: pass batchTrialCount to recommendedBatchSize so
+      // the perf-class hint scaling kicks in for coarse phase. Without
+      // this, the cold-start hint is calibrated at 2000 trials and ships
+      // batches 10× too small for a 200-trial coarse pass.
+      const size = recommendedBatchSize(
+        peer.capabilities?.perfClass ?? 'unknown',
+        peer.completedBatchCount >= 1 ? peer.meanMsPerPolicy : null,
+        session.queue.pendingCount(),
+        batchTrialCount,
+        {
+          maxBatchSize: needsWarmup
+            ? warmupMaxBatchSize
+            : maxBatchSizeForRuntime({
+                runtime,
+                workers,
+                freeSlots,
+              }),
+          targetBatchWallClockMs: targetBatchWallClockMsForRuntime(runtime),
+        },
+      );
+      const assigned = session.queue.assignBatch(peer.peerId, size);
+      if (!assigned) break;
+      const batch: MiningJobBatch = {
+        batchId: assigned.batchId,
+        baselineFingerprint: session.config.baselineFingerprint,
+        engineVersion: session.config.engineVersion,
+        seedDataPayload: session.seedDataPayload,
+        marketAssumptionsPayload: session.marketAssumptionsPayload,
+        policies: assigned.policies,
+        trialCount: batchTrialCount,
+      };
+      const batchAssign: BatchAssignMessage = {
+        kind: 'batch_assign',
+        sessionId: session.sessionId,
+        batch,
+        from: 'dispatcher',
+        to: peer.peerId,
+      };
+      sendTo(peer, batchAssign);
+      peer.inFlightBatchIds.add(assigned.batchId);
+      // Reserve a slice of the host for each outstanding batch. Rust
+      // compact hosts default to four prefilled waves, so an 8-worker
+      // host reserves roughly two slots per batch and receives four
+      // batches in one pump instead of waiting for the next 1s tick.
+      const reservedSlots = reserveWorkerSlotsForBatch({
+        workers,
+        targetInFlightBatches: targetDepth,
+        policyCount: assigned.policies.length,
+      });
+      peer.inFlightSlotReservations.set(assigned.batchId, reservedSlots);
+      peer.assignedBatches += 1;
+      peer.assignedPolicies += assigned.policies.length;
+      session.runtimeMetrics.batchesAssigned += 1;
+      session.runtimeMetrics.policiesAssigned += assigned.policies.length;
+      assignedThisPump += 1;
+      // No optimistic decrement of peer.freeWorkerSlots: that field is
+      // informational only. Slot reservations are the decrement
+      // (effectiveFreeSlots reads them directly).
+      if (needsWarmup) break;
+    }
   }
+  session.runtimeMetrics.pumpAssignedBatches += assignedThisPump;
 }
 
 /**
@@ -1231,7 +1335,7 @@ function transitionToFineStage(session: ActiveSession): void {
   // The trial count changed — per-host meanMsPerPolicy EWMAs from the
   // coarse pass would over-recommend batch sizes for the (slower) fine
   // pass and tank wall-clock pump efficiency. Reset so recommendedBatchSize
-  // falls back to the perf-class hint until 3 fine batches land.
+  // falls back to the perf-class hint until the fine warmup batch lands.
   for (const peer of peers.values()) {
     peer.meanMsPerPolicy = null;
     peer.completedBatchCount = 0;
@@ -1289,6 +1393,87 @@ function handleBatchResult(peer: Peer, message: Extract<ClusterMessage, { kind: 
     );
   }
 
+  const expectedPolicyCount = session.queue.inFlightPolicyCount(message.result.batchId);
+  if (expectedPolicyCount === null) {
+    log('warn', 'batch_result for unknown batch (already completed?)', {
+      from: peer.peerId,
+      batchId: message.result.batchId,
+    });
+    // Still send an ack — the host needs to clear its in-flight tracking.
+    sendTo(peer, {
+      kind: 'batch_ack',
+      sessionId: session.sessionId,
+      batchId: message.result.batchId,
+      from: 'dispatcher',
+      to: peer.peerId,
+    });
+    return;
+  }
+
+  if (message.result.evaluations.length !== expectedPolicyCount) {
+    const r = session.queue.requeueBatch(message.result.batchId, {
+      countAttemptFailure: false,
+    });
+    peer.inFlightBatchIds.delete(message.result.batchId);
+    peer.inFlightSlotReservations.delete(message.result.batchId);
+    peer.nackedBatches += 1;
+    peer.incompleteResultBatches += 1;
+    session.runtimeMetrics.batchNacks += 1;
+    session.runtimeMetrics.policiesRequeued += r?.requeued ?? 0;
+    session.runtimeMetrics.policiesDropped += r?.dropped ?? 0;
+    const wasQuarantined = peer.quarantinedForSessionReason !== null;
+    const newlyQuarantined =
+      !wasQuarantined &&
+      peer.incompleteResultBatches >= INCOMPLETE_RESULT_QUARANTINE_THRESHOLD;
+    if (newlyQuarantined) {
+      peer.quarantinedForSessionReason = 'incomplete_batch_result';
+    }
+    const isQuarantined = peer.quarantinedForSessionReason !== null;
+    if (isQuarantined) {
+      peer.pumpCooldownUntilMs = Number.POSITIVE_INFINITY;
+    } else {
+      peer.pumpCooldownUntilMs = Date.now() + NACK_COOLDOWN_MS;
+    }
+    log('warn', 'incomplete batch_result — requeueing batch', {
+      from: peer.peerId,
+      batchId: message.result.batchId,
+      expectedPolicies: expectedPolicyCount,
+      evaluations: message.result.evaluations.length,
+      partialFailure: message.result.partialFailure
+        ? {
+            completed: message.result.partialFailure.completedPolicyIds.length,
+            reason: message.result.partialFailure.reason,
+          }
+        : null,
+      requeuedPolicies: r?.requeued ?? 0,
+      droppedPolicies: r?.dropped ?? 0,
+      incompleteResultBatches: peer.incompleteResultBatches,
+      quarantinedForSession: isQuarantined,
+      cooldownMs: isQuarantined ? null : NACK_COOLDOWN_MS,
+    });
+    if (newlyQuarantined) {
+      log('warn', 'host quarantined for current session', {
+        peerId: peer.peerId,
+        displayName: peer.displayName,
+        reason: peer.quarantinedForSessionReason,
+        incompleteResultBatches: peer.incompleteResultBatches,
+        build: formatBuildInfo(peer.buildInfo),
+        expectedBuild: formatBuildInfo(DISPATCHER_BUILD_INFO),
+        buildStatus: compareBuildInfo(DISPATCHER_BUILD_INFO, peer.buildInfo),
+      });
+    }
+    sendTo(peer, {
+      kind: 'batch_ack',
+      sessionId: session.sessionId,
+      batchId: message.result.batchId,
+      from: 'dispatcher',
+      to: peer.peerId,
+    });
+    pumpDispatch();
+    broadcastClusterState();
+    return;
+  }
+
   // Phase 2.C: route by stage.
   //   - coarse: collect into in-memory buffer; never touches the corpus.
   //   - fine / single: append to disk before marking complete (existing path).
@@ -1312,7 +1497,10 @@ function handleBatchResult(peer: Peer, message: Extract<ClusterMessage, { kind: 
     // a write failure doesn't leave us with a queue that thinks the work
     // is done while the corpus is missing it.
     try {
+      const appendStartedAt = Date.now();
       appendOutcome = appendEvaluations(session.sessionId, message.result.evaluations);
+      session.runtimeMetrics.totalCorpusAppendMs += Date.now() - appendStartedAt;
+      session.runtimeMetrics.corpusAppendSamples += 1;
     } catch (err) {
       log('error', 'corpus append failed — requeueing batch', {
         err: String(err),
@@ -1327,21 +1515,7 @@ function handleBatchResult(peer: Peer, message: Extract<ClusterMessage, { kind: 
   }
 
   const completed = session.queue.completeBatch(message.result.batchId, appendOutcome.feasibleInBatch);
-  if (!completed) {
-    log('warn', 'batch_result for unknown batch (already completed?)', {
-      from: peer.peerId,
-      batchId: message.result.batchId,
-    });
-    // Still send an ack — the host needs to clear its in-flight tracking.
-    sendTo(peer, {
-      kind: 'batch_ack',
-      sessionId: session.sessionId,
-      batchId: message.result.batchId,
-      from: 'dispatcher',
-      to: peer.peerId,
-    });
-    return;
-  }
+  if (!completed) return;
 
   // Update per-host throughput. msPerPolicy from the batch dominates the
   // EWMA; we keep the EWMA so a single slow batch doesn't tank the
@@ -1354,6 +1528,16 @@ function handleBatchResult(peer: Peer, message: Extract<ClusterMessage, { kind: 
     session.runtimeMetrics.batchResults += 1;
     session.runtimeMetrics.policiesCompleted += completed.policies.length;
     session.runtimeMetrics.totalDispatchToResultMs += dispatchToResultMs;
+    if (
+      typeof message.result.hostQueueDelayMs === 'number' &&
+      Number.isFinite(message.result.hostQueueDelayMs)
+    ) {
+      const delay = Math.max(0, message.result.hostQueueDelayMs);
+      peer.totalHostQueueDelayMs += delay;
+      peer.hostQueueDelaySamples += 1;
+      session.runtimeMetrics.totalHostQueueDelayMs += delay;
+      session.runtimeMetrics.hostQueueDelaySamples += 1;
+    }
     const batchMsPerPolicy = message.result.batchDurationMs / message.result.evaluations.length;
     if (peer.meanMsPerPolicy === null) {
       peer.meanMsPerPolicy = batchMsPerPolicy;

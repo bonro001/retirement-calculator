@@ -735,7 +735,10 @@ const inFlightBatchIds = new Set<string>();
 // pre-load the next batch while the current one runs — eliminating the
 // round-trip idle time that previously caused CPU to pulse on multi-worker
 // hosts.
-const pendingBatchQueue: BatchAssignMessage[] = [];
+const pendingBatchQueue: Array<{
+  message: BatchAssignMessage;
+  receivedAtMs: number;
+}> = [];
 
 // Per-session counters used solely for the host-terminal `batch done`
 // log line. Reset whenever the active session changes so the numbers
@@ -1094,7 +1097,10 @@ function handleCancelSession(message: CancelSessionMessage): void {
   activeSession = null;
 }
 
-async function handleBatchAssign(message: BatchAssignMessage): Promise<void> {
+async function handleBatchAssign(
+  message: BatchAssignMessage,
+  receivedAtMs = Date.now(),
+): Promise<void> {
   const { sessionId, batch } = message;
   // Hot-path assertions — if any of these fire it's a dispatcher bug, but
   // we'd rather log and nack than evaluate against a stale baseline.
@@ -1134,7 +1140,7 @@ async function handleBatchAssign(message: BatchAssignMessage): Promise<void> {
       sendNack(sessionId, batch.batchId, 'host_no_free_slots');
       return;
     }
-    pendingBatchQueue.push(message);
+    pendingBatchQueue.push({ message, receivedAtMs });
     inFlightBatchIds.add(batch.batchId);
     log('info', 'queued batch — workers busy', {
       batchId: batch.batchId,
@@ -1156,6 +1162,7 @@ async function handleBatchAssign(message: BatchAssignMessage): Promise<void> {
   );
 
   const startedAt = Date.now();
+  const hostQueueDelayMs = Math.max(0, startedAt - receivedAtMs);
   let evaluations: PolicyEvaluation[] = [];
   let shadowStats: PolicyMinerShadowStats | undefined;
   let partialFailure: MiningJobResult['partialFailure'] = null;
@@ -1196,6 +1203,7 @@ async function handleBatchAssign(message: BatchAssignMessage): Promise<void> {
   const result: MiningJobResult = {
     batchId: batch.batchId,
     evaluatedByNodeId: myPeerId ?? 'unknown',
+    hostQueueDelayMs,
     batchDurationMs: Date.now() - startedAt,
     evaluations,
     shadowStats,
@@ -1238,10 +1246,10 @@ function drainPendingBatchQueue(): void {
     // so handleBatchAssign re-adds it on the run path (keeping the set
     // consistent if the batch ends up nacked due to session/version drift
     // detected on the second pass).
-    inFlightBatchIds.delete(next.batch.batchId);
-    handleBatchAssign(next).catch((err) => {
+    inFlightBatchIds.delete(next.message.batch.batchId);
+    handleBatchAssign(next.message, next.receivedAtMs).catch((err) => {
       log('error', 'queued batch failed during drain', {
-        batchId: next.batch.batchId,
+        batchId: next.message.batch.batchId,
         err: String(err),
       });
     });
