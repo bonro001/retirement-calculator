@@ -44,7 +44,9 @@
  */
 
 import { Worker } from 'node:worker_threads';
+import { writeFileSync } from 'node:fs';
 import { hostname, cpus, platform, arch } from 'node:os';
+import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import WebSocket from 'ws';
 import {
@@ -79,6 +81,9 @@ import type {
   PolicyMinerWorkerResponse,
 } from '../src/policy-miner-worker-types';
 import type { MarketAssumptions, SeedData } from '../src/types';
+
+const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+const UPDATE_REQUEST_PATH = resolve(REPO_ROOT, '.cluster-update-request.json');
 
 // ---------------------------------------------------------------------------
 // Config — env-driven so per-machine overrides don't need code changes
@@ -890,6 +895,33 @@ let autoUpdateRequested = false;
 // transitions, not on every poll.
 let lastWaitingWarnExpected: string | null = null;
 
+function writeUpdateRequest(
+  expectedBuildInfo: Parameters<typeof compareBuildInfo>[0],
+  source: string,
+): void {
+  if (!expectedBuildInfo) return;
+  try {
+    writeFileSync(
+      UPDATE_REQUEST_PATH,
+      `${JSON.stringify(
+        {
+          requestedAtIso: new Date().toISOString(),
+          source,
+          expectedBuildInfo,
+        },
+        null,
+        2,
+      )}\n`,
+      'utf8',
+    );
+  } catch (err) {
+    log('warn', 'failed to write update request', {
+      path: UPDATE_REQUEST_PATH,
+      err: String(err),
+    });
+  }
+}
+
 function maybeRequestAutoUpdate(
   expectedBuildInfo: Parameters<typeof compareBuildInfo>[0],
   source: string,
@@ -930,6 +962,7 @@ function maybeRequestAutoUpdate(
   }
   autoUpdateRequested = true;
   stopReconnecting = true;
+  writeUpdateRequest(expectedBuildInfo, source);
   log('warn', 'auto-update requested: host code is behind dispatcher', {
     local: formatBuildInfo(HOST_BUILD_INFO),
     expected: formatBuildInfo(expectedBuildInfo),

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { spawn, spawnSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { readFileSync, unlinkSync } from 'node:fs';
 import { arch, cpus, hostname, platform } from 'node:os';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -9,6 +9,7 @@ import { fileURLToPath } from 'node:url';
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(SCRIPT_DIR, '..');
 const HOST_ENTRY = resolve(REPO_ROOT, 'cluster/host.ts');
+const UPDATE_REQUEST_PATH = resolve(REPO_ROOT, '.cluster-update-request.json');
 const AUTO_UPDATE_EXIT_CODE = 75;
 
 function readArg(name) {
@@ -122,21 +123,47 @@ function fetchDispatcherBuildInfo() {
   }
 }
 
+function deriveRepoGitUrl() {
+  if (process.env.REPO_GIT_URL) return process.env.REPO_GIT_URL;
+  const dispatcherUrl = process.env.DISPATCHER_URL;
+  const match = dispatcherUrl?.match(/^wss?:\/\/([^:/]+)/);
+  return match ? `git://${match[1]}/retirement-calculator` : null;
+}
+
+function ensureOriginRemote() {
+  const repoGitUrl = deriveRepoGitUrl();
+  if (!repoGitUrl) return;
+  const currentOrigin = git(['remote', 'get-url', 'origin']);
+  if (currentOrigin === repoGitUrl) return;
+  if (currentOrigin) {
+    runStep('git', ['remote', 'set-url', 'origin', repoGitUrl]);
+  } else {
+    runStep('git', ['remote', 'add', 'origin', repoGitUrl]);
+  }
+}
+
+function readAndClearUpdateRequest() {
+  try {
+    const parsed = JSON.parse(readFileSync(UPDATE_REQUEST_PATH, 'utf8'));
+    unlinkSync(UPDATE_REQUEST_PATH);
+    const buildInfo = parsed?.expectedBuildInfo;
+    if (!buildInfo || typeof buildInfo !== 'object') return null;
+    return buildInfo;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Try to bring the local checkout in sync with the dispatcher and
  * rebuild. Returns true when the working tree actually advanced.
  *
- * Two paths:
- *
- *   1. Same branch as dispatcher (or dispatcher unreachable / not
- *      reporting branch): plain `git pull --ff-only`. False return
- *      when already current or not fast-forwardable.
- *
- *   2. Different branch from dispatcher: `git checkout -B <branch>
- *      origin/<branch>` to follow the dispatcher across branches.
- *      Useful when the dispatcher is on a feature branch for testing
- *      — without this, hosts get stuck "needs update" forever because
- *      `git pull` works within the current branch only.
+ * The dispatcher is authoritative. Each attempt derives the LAN git
+ * URL from DISPATCHER_URL (unless REPO_GIT_URL overrides it), fetches
+ * origin explicitly, then force-resets the local branch to
+ * origin/<dispatcher-branch>. That makes auto-update self-healing even
+ * when a worker's origin/upstream was stale, missing, or pointed at
+ * GitHub from an older bootstrap.
  *
  * Branch names are validated against a strict regex before being
  * passed to git, so a malicious dispatcher (compromised or spoofed)
@@ -144,57 +171,57 @@ function fetchDispatcherBuildInfo() {
  */
 function updateIfBehind() {
   const before = buildInfo();
-  if (!before.gitUpstream) {
-    console.log('[start-rust-host] auto-update skipped: no upstream branch');
-    return false;
-  }
+  const requestedBuildInfo = readAndClearUpdateRequest();
+  ensureOriginRemote();
 
-  runStep('git', ['fetch', '--prune']);
+  runStep('git', ['fetch', '--prune', 'origin']);
 
   // Determine target branch: prefer dispatcher's, fall back to current.
   const dispatcherBranch = fetchDispatcherBranch();
   const currentBranch = git(['rev-parse', '--abbrev-ref', 'HEAD']);
-
-  if (dispatcherBranch && dispatcherBranch !== currentBranch) {
-    // Cross-branch update path. Validate the branch name strictly so
-    // we don't pass adversarial input to shell-invoked git commands.
-    if (!/^[A-Za-z0-9._/-]+$/.test(dispatcherBranch)) {
-      console.log(
-        `[start-rust-host] auto-update skipped: dispatcher reports invalid branch '${dispatcherBranch}'`,
-      );
-      return false;
-    }
-    // origin/<branch> must exist; otherwise we can't checkout.
-    const originRef = git(['rev-parse', '--verify', `origin/${dispatcherBranch}`]);
-    if (!originRef) {
-      console.log(
-        `[start-rust-host] auto-update skipped: origin/${dispatcherBranch} doesn't exist`,
-      );
-      return false;
-    }
-    console.log(
-      `[start-rust-host] switching ${currentBranch} → ${dispatcherBranch} to follow dispatcher`,
-    );
-    // `-f -B` force-creates-or-resets the branch and discards any
-    // local modifications. Workers are ephemeral; the dispatcher is
-    // authoritative.
-    runStep('git', ['checkout', '-f', '-B', dispatcherBranch, `origin/${dispatcherBranch}`]);
-  } else {
-    // Same branch — hard reset to upstream. This handles three cases
-    // that used to wedge the worker (dirty tree, non-fast-forwardable,
-    // commits diverged from main) by trusting upstream as authoritative.
-    const local = git(['rev-parse', 'HEAD']);
-    const upstream = git(['rev-parse', '@{u}']);
-    if (!local || !upstream) {
-      console.log('[start-rust-host] auto-update: no HEAD/upstream to compare');
-      return false;
-    }
-    if (local === upstream && !before.gitDirty) {
-      console.log('[start-rust-host] auto-update: already current');
-      return false;
-    }
-    runStep('git', ['reset', '--hard', '@{u}']);
+  const requestedBranch =
+    typeof requestedBuildInfo?.gitBranch === 'string'
+      ? requestedBuildInfo.gitBranch
+      : null;
+  const targetBranch = requestedBranch ?? dispatcherBranch ?? currentBranch;
+  if (!targetBranch) {
+    console.log('[start-rust-host] auto-update skipped: no target branch');
+    return false;
   }
+  if (!/^[A-Za-z0-9._/-]+$/.test(targetBranch)) {
+    console.log(
+      `[start-rust-host] auto-update skipped: dispatcher reports invalid branch '${targetBranch}'`,
+    );
+    return false;
+  }
+  const originRef = git(['rev-parse', '--verify', `refs/remotes/origin/${targetBranch}`]);
+  if (!originRef) {
+    console.log(
+      `[start-rust-host] auto-update skipped: origin/${targetBranch} doesn't exist`,
+    );
+    return false;
+  }
+  const requestedCommit =
+    typeof requestedBuildInfo?.gitCommit === 'string'
+      ? requestedBuildInfo.gitCommit
+      : null;
+  if (requestedCommit && !originRef.startsWith(requestedCommit)) {
+    console.log(
+      `[start-rust-host] auto-update skipped: origin/${targetBranch}@${originRef.slice(0, 12)} ` +
+        `does not match dispatcher command ${requestedCommit}`,
+    );
+    return false;
+  }
+  const local = git(['rev-parse', 'HEAD']);
+  if (local === originRef && !before.gitDirty && currentBranch === targetBranch) {
+    console.log('[start-rust-host] auto-update: already current');
+    return false;
+  }
+  console.log(
+    `[start-rust-host] resetting ${currentBranch ?? 'detached'} → ${targetBranch} to follow dispatcher`,
+  );
+  runStep('git', ['checkout', '-f', '-B', targetBranch, `origin/${targetBranch}`]);
+  runStep('git', ['branch', '--set-upstream-to', `origin/${targetBranch}`, targetBranch]);
 
   // Prefer `npm ci` (strict, never modifies lockfile). Fall back to
   // `npm install` if the lockfile drifted out of sync with package.json

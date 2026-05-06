@@ -129,6 +129,7 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 # main on every welcome / start_session and self-update if behind.
 Write-Host "[start-host] launching with auto-update enabled"
 $env:DISPATCHER_URL = $DispatcherUrl
+$env:REPO_GIT_URL = $RepoGitUrl
 $env:HOST_DISPLAY_NAME = $DisplayName
 $env:HOST_AUTO_UPDATE = "1"
 npm run cluster:host:rust-auto
