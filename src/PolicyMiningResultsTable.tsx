@@ -339,7 +339,8 @@ export function PolicyMiningResultsTable({
   // values (not a snapshot from when the table mounted) to show the
   // diff accurately — the user might edit Spending while the modal is
   // open, though that's a corner case.
-  const [adoptingPolicy, setAdoptingPolicy] = useState<Policy | null>(null);
+  const [adoptingEvaluation, setAdoptingEvaluation] =
+    useState<PolicyEvaluation | null>(null);
   const currentSeed = useAppStore((s) => s.data);
   const adoptMinedPolicy = useAppStore((s) => s.adoptMinedPolicy);
   const lastPolicyAdoption = useAppStore((s) => s.lastPolicyAdoption);
@@ -908,7 +909,12 @@ export function PolicyMiningResultsTable({
             adoptedPolicy={lastPolicyAdoption?.policy ?? null}
             defaultFeasibilityThreshold={defaultFeasibilityThreshold}
             minSolvencyThreshold={solvencyThreshold}
-            onAdoptPolicy={(policy) => setAdoptingPolicy(policy)}
+            onAdoptPolicy={(policy) => {
+              const evaluation = evaluations.find((ev) =>
+                policyMatches(ev.policy, policy),
+              );
+              setAdoptingEvaluation(evaluation ?? null);
+            }}
           />
         <div className="mt-4 -mx-4 overflow-x-auto px-4">
           <table className="w-full text-left text-[12px] tabular-nums">
@@ -1091,7 +1097,7 @@ export function PolicyMiningResultsTable({
                       ) : (
                         <button
                           type="button"
-                          onClick={() => setAdoptingPolicy(ev.policy)}
+                          onClick={() => setAdoptingEvaluation(ev)}
                           className="rounded-full bg-emerald-600 px-3 py-1 text-[11px] font-semibold text-white shadow-sm transition hover:bg-emerald-700"
                         >
                           Adopt
@@ -1122,15 +1128,15 @@ export function PolicyMiningResultsTable({
           </button>
         </div>
       )}
-      {adoptingPolicy && (
+      {adoptingEvaluation && (
         <PolicyAdoptionModal
-          policy={adoptingPolicy}
+          policy={adoptingEvaluation.policy}
           currentData={currentSeed}
           baselineMismatch={!!baselineMismatch}
-          onCancel={() => setAdoptingPolicy(null)}
+          onCancel={() => setAdoptingEvaluation(null)}
           onConfirm={() => {
-            adoptMinedPolicy(adoptingPolicy);
-            setAdoptingPolicy(null);
+            adoptMinedPolicy(adoptingEvaluation.policy, adoptingEvaluation);
+            setAdoptingEvaluation(null);
           }}
         />
       )}

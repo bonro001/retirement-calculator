@@ -3168,6 +3168,7 @@ export function CockpitScreen() {
     selectedStressors ?? [],
     selectedResponses ?? [],
     cluster.snapshot.dispatcherUrl ?? null,
+    lastPolicyAdoption,
   );
 
   // Run a baseline path so we have year-by-year medians for the tiles.

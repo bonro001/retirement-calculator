@@ -15,7 +15,7 @@ import {
   type PlanSnapshot,
 } from './plan-snapshots';
 import { buildAdoptedSeedData, diffAdoption } from './policy-adoption';
-import type { Policy } from './policy-miner-types';
+import type { Policy, PolicyEvaluation } from './policy-miner-types';
 import type {
   AccountsData,
   EmployerMatchFormula,
@@ -364,7 +364,7 @@ interface AppState {
    * accounts. Stores the previous draft/applied snapshots in
    * `lastPolicyAdoption` so the change is undoable.
    */
-  adoptMinedPolicy: (policy: Policy) => void;
+  adoptMinedPolicy: (policy: Policy, evaluation?: PolicyEvaluation | null) => void;
   /** Restore the draft plan to what it was before the last adoption. */
   undoLastPolicyAdoption: () => void;
   /** Forget the last-adoption undo slot without changing the plan. */
@@ -378,6 +378,9 @@ export interface PolicyAdoptionUndo {
   previousAppliedData: SeedData;
   /** Which policy was adopted. Used to render the undo banner copy. */
   policy: Policy;
+  /** The mined row that was adopted, when available. Lets Cockpit cite
+   *  the exact record after adoption changes the plan fingerprint. */
+  evaluation?: PolicyEvaluation | null;
   /** Pre-formatted summary line ("$130k/yr · SS 70/68 · Roth $40k"). */
   summary: string;
   /** ISO timestamp the adoption happened, for display. */
@@ -852,7 +855,7 @@ export const useAppStore = create<AppState>((set) => ({
     return created as unknown as PlanSnapshot;
   },
   lastPolicyAdoption: null,
-  adoptMinedPolicy: (policy) =>
+  adoptMinedPolicy: (policy, evaluation = null) =>
     set((state) => {
       const previousData = cloneSeedData(state.data);
       const previousAppliedData = cloneSeedData(state.appliedData);
@@ -863,6 +866,7 @@ export const useAppStore = create<AppState>((set) => ({
         previousData,
         previousAppliedData,
         policy,
+        evaluation,
         summary,
         adoptedAtIso: new Date().toISOString(),
       };

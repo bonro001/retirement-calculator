@@ -3,6 +3,7 @@ import { initialSeedData } from './data';
 import type { Policy } from './policy-miner-types';
 import type { SeedData } from './types';
 import {
+  adoptedSeedMatchesPolicy,
   buildAdoptedSeedData,
   diffAdoption,
   explainAdoption,
@@ -107,6 +108,26 @@ describe('buildAdoptedSeedData', () => {
       makePolicy({ rothConversionAnnualCeiling: 0 }),
     );
     expect(adopted.rules?.rothConversionPolicy?.enabled).toBe(false);
+  });
+
+  it('recognizes when the current seed is exactly the adopted mined policy', () => {
+    const policy = makePolicy({ annualSpendTodayDollars: 118_000 });
+    const adopted = buildAdoptedSeedData(initialSeedData, policy);
+    expect(adoptedSeedMatchesPolicy(adopted, initialSeedData, policy)).toBe(true);
+  });
+
+  it('does not treat later non-adoption edits as current mined policy state', () => {
+    const policy = makePolicy({ annualSpendTodayDollars: 118_000 });
+    const adopted = buildAdoptedSeedData(initialSeedData, policy);
+    const edited: SeedData = {
+      ...adopted,
+      goals: {
+        ...adopted.goals,
+        legacyTargetTodayDollars:
+          (adopted.goals?.legacyTargetTodayDollars ?? 1_000_000) + 50_000,
+      },
+    };
+    expect(adoptedSeedMatchesPolicy(edited, initialSeedData, policy)).toBe(false);
   });
 });
 

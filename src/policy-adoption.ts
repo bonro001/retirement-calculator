@@ -216,6 +216,22 @@ export function buildAdoptedSeedData(seed: SeedData, policy: Policy): SeedData {
   return next;
 }
 
+/**
+ * True when `seed` is exactly the durable plan produced by adopting
+ * `policy` into `previousAppliedData`. This is used by Cockpit to avoid
+ * a false "plan changed since last mine" warning immediately after the
+ * household adopts a mined row: the data fingerprint changes, but only
+ * because the mined policy was written into the plan.
+ */
+export function adoptedSeedMatchesPolicy(
+  seed: SeedData,
+  previousAppliedData: SeedData,
+  policy: Policy,
+): boolean {
+  const expected = buildAdoptedSeedData(previousAppliedData, policy);
+  return JSON.stringify(seed) === JSON.stringify(expected);
+}
+
 function formatCurrency(amount: number): string {
   if (!Number.isFinite(amount)) return '—';
   if (Math.abs(amount) >= 1_000_000) return `$${(amount / 1_000_000).toFixed(2)}M`;
