@@ -357,17 +357,21 @@ export function PolicyMiningResultsTable({
         if (cancelled) return;
         setClusterSessions(sessions);
         setClusterError(null);
-        // Auto-pick: prefer first session matching the current baseline,
-        // otherwise the freshest one. The server already sorted them
-        // most-recent-first.
-        if (selectedSessionId == null && sessions.length > 0) {
+        // Auto-pick: prefer the freshest session matching the current
+        // baseline, otherwise the freshest session overall. The picker
+        // is intentionally hidden, so a newly completed remine must
+        // replace an older matching session without user intervention.
+        if (sessions.length > 0) {
           const match = baselineFingerprint
             ? sessions.find(
                 (s) =>
                   s.manifest?.config?.baselineFingerprint === baselineFingerprint,
               )
             : null;
-          setSelectedSessionId((match ?? sessions[0]).sessionId);
+          const preferred = match ?? sessions[0];
+          if (preferred.sessionId !== selectedSessionId) {
+            setSelectedSessionId(preferred.sessionId);
+          }
         }
       } catch (e) {
         if (cancelled) return;
