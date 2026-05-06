@@ -93,6 +93,7 @@ interface CachedPlanOptimization {
 // load, which is safer than partial deserialization.
 const PLAN_CACHE_LS_KEY = 'retirement-calc:plan-opt-cache:v1';
 const PLAN_CACHE_MAX_ENTRIES = 8; // FIFO evict; small to fit in 5MB localStorage.
+const ADOPTED_SPEND_STALE_TOLERANCE_DOLLARS = 25;
 
 function loadPlanCacheFromLocalStorage(): Map<string, CachedPlanOptimization> {
   try {
@@ -3357,8 +3358,10 @@ export function CockpitScreen() {
     : null;
   const spendStale =
     adopted != null &&
+    baselinePath != null &&
     appliedSpendTotal != null &&
-    Math.abs(appliedSpendTotal - adopted.annualSpendTodayDollars) > 1;
+    Math.abs(appliedSpendTotal - adopted.annualSpendTodayDollars) >
+      ADOPTED_SPEND_STALE_TOLERANCE_DOLLARS;
 
   const spendBuckets = data?.spending
     ? {
@@ -3476,7 +3479,8 @@ export function CockpitScreen() {
             .
           </div>
           {editableSpendTotal != null &&
-          Math.abs(editableSpendTotal - adopted.annualSpendTodayDollars) < 1 ? (
+          Math.abs(editableSpendTotal - adopted.annualSpendTodayDollars) <=
+            ADOPTED_SPEND_STALE_TOLERANCE_DOLLARS ? (
             <button
               type="button"
               onClick={commitDraftToApplied}

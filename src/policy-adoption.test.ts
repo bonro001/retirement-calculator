@@ -33,8 +33,24 @@ describe('buildAdoptedSeedData', () => {
     const policy = makePolicy({ annualSpendTodayDollars: 130_000 });
     const adopted = buildAdoptedSeedData(initialSeedData, policy);
     const newTotal = totalAnnualSpendFromCategories(adopted.spending);
-    // Allow $4 of rounding slop ($1 per category from Math.round).
-    expect(Math.abs(newTotal - 130_000)).toBeLessThanOrEqual(4);
+    expect(Math.abs(newTotal - 130_000)).toBeLessThanOrEqual(0.01);
+  });
+
+  it('reconciles monthly rounding drift back to the exact annual target', () => {
+    const seed: SeedData = {
+      ...initialSeedData,
+      spending: {
+        ...initialSeedData.spending,
+        essentialMonthly: 4_333,
+        optionalMonthly: 2_777,
+        annualTaxesInsurance: 8_888,
+        travelEarlyRetirementAnnual: 6_666,
+      },
+    };
+    const policy = makePolicy({ annualSpendTodayDollars: 110_000 });
+    const adopted = buildAdoptedSeedData(seed, policy);
+    const newTotal = totalAnnualSpendFromCategories(adopted.spending);
+    expect(Math.abs(newTotal - 110_000)).toBeLessThanOrEqual(0.01);
   });
 
   it('preserves the relative split between categories', () => {
@@ -133,7 +149,7 @@ describe('diffAdoption', () => {
     const annual = diff.spendingBreakdown
       .filter((b) => b.unit === '$/yr')
       .reduce((s, b) => s + b.proposed, 0);
-    expect(Math.abs(monthly + annual - 130_000)).toBeLessThanOrEqual(4);
+    expect(Math.abs(monthly + annual - 130_000)).toBeLessThanOrEqual(0.01);
   });
 });
 
