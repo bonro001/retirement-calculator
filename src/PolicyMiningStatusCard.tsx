@@ -347,8 +347,8 @@ export function PolicyMiningStatusCard({
         const recommendation = recommendCombinedPass2(
           evals,
           ctrls2.baseline,
-          ctrls2.solvencyThreshold ?? SOLVENCY_DEFENSE_FLOOR,
-          'solvency',
+          ctrls2.feasibilityThreshold ?? LEGACY_ATTAINMENT_FLOOR,
+          'legacy',
         );
         if (!recommendation.hasRecommendation) {
           pipelineActiveRef.current = false;
