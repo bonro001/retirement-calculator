@@ -137,7 +137,14 @@ export function useRecommendedPath(
       return;
     }
     if (cached?.key === cacheKey) return;
+    const stored = readCache();
+    if (stored?.key === cacheKey) {
+      setCached(stored);
+      setComputing(false);
+      return;
+    }
     if (!autoCompute) {
+      setCached(null);
       setComputing(false);
       return;
     }

@@ -1413,6 +1413,7 @@ function YearColumn({
   policyTargetSpend,
   spendBuckets,
   salaryEndDate,
+  missingMessage,
 }: {
   eyebrow: string;
   year: number;
@@ -1441,11 +1442,15 @@ function YearColumn({
    *  engine projects salary in this year so the household sees the
    *  exact value to fix. */
   salaryEndDate?: string | null;
+  /** Copy shown when the full yearly trace is not available yet. */
+  missingMessage?: string;
 }) {
   if (!yr) {
     return (
       <CockpitTile eyebrow={eyebrow} subtitle={`Year ${year}`}>
-        <p className="text-stone-400">No projection yet — adopt a plan and run it.</p>
+        <p className="text-stone-400">
+          {missingMessage ?? 'No projection yet — adopt a plan and run it.'}
+        </p>
       </CockpitTile>
     );
   }
@@ -3170,6 +3175,7 @@ export function CockpitScreen() {
   // bisection chain — Phase 2 retires that and rewires TRUST to the
   // corpus directly.
   const cluster = useClusterSession();
+  const [projectDetailsRequested, setProjectDetailsRequested] = useState(false);
   const recommendation = useRecommendedPolicy(
     data ?? null,
     assumptions ?? null,
@@ -3210,7 +3216,7 @@ export function CockpitScreen() {
   const corpusRecommendation =
     recommendation.state === 'fresh' ? recommendation.policy : null;
   const useCorpusPick = corpusRecommendation != null;
-  const autoProjectRecommendedPath = useCorpusPick;
+  const autoProjectRecommendedPath = useCorpusPick && projectDetailsRequested;
 
   const recommendedPath = useRecommendedPath(
     data ?? null,
@@ -3253,6 +3259,10 @@ export function CockpitScreen() {
   // baselinePath while the optimizer is still running.
   const yearlySeries =
     planPath?.yearlySeries ?? [];
+  const projectionDetailsCold = useCorpusPick && !planPath;
+  const missingProjectionMessage = projectionDetailsCold
+    ? 'Mined policy is loaded. Build the detailed projection to populate this tile.'
+    : undefined;
   const currentYear = new Date().getFullYear();
   const yearIndex = Math.max(
     0,
@@ -3860,6 +3870,23 @@ export function CockpitScreen() {
       )}
 
       {/* Three time horizons */}
+      {projectionDetailsCold && (
+        <div className="flex flex-col gap-3 rounded-2xl border border-blue-200 bg-blue-50/80 p-4 text-sm text-blue-950 md:flex-row md:items-center md:justify-between">
+          <p>
+            <span className="font-semibold">Mined policy loaded.</span>{' '}
+            The year-by-year detail is not cached yet, so the lower tiles are
+            waiting on one explicit projection run.
+          </p>
+          <button
+            type="button"
+            onClick={() => setProjectDetailsRequested(true)}
+            disabled={recommendedPath.computing}
+            className="self-start rounded-xl bg-blue-700 px-4 py-2 text-sm font-semibold text-white shadow-sm disabled:cursor-wait disabled:bg-blue-400 md:self-auto"
+          >
+            {recommendedPath.computing ? 'Projecting…' : 'Project details'}
+          </button>
+        </div>
+      )}
       <div className="grid gap-3 lg:grid-cols-3">
         <YearColumn
           eyebrow="This month (≈)"
@@ -3869,6 +3896,7 @@ export function CockpitScreen() {
           policyTargetSpend={adopted?.annualSpendTodayDollars ?? null}
           spendBuckets={spendBuckets}
           salaryEndDate={data?.income?.salaryEndDate ?? null}
+          missingMessage={missingProjectionMessage}
         />
         <YearColumn
           eyebrow="This year"
@@ -3877,6 +3905,7 @@ export function CockpitScreen() {
           policyTargetSpend={adopted?.annualSpendTodayDollars ?? null}
           spendBuckets={spendBuckets}
           salaryEndDate={data?.income?.salaryEndDate ?? null}
+          missingMessage={missingProjectionMessage}
         />
         <YearColumn
           eyebrow="Next year"
@@ -3885,6 +3914,7 @@ export function CockpitScreen() {
           policyTargetSpend={adopted?.annualSpendTodayDollars ?? null}
           spendBuckets={spendBuckets}
           salaryEndDate={data?.income?.salaryEndDate ?? null}
+          missingMessage={missingProjectionMessage}
         />
       </div>
 

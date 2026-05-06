@@ -387,6 +387,45 @@ export interface PolicyAdoptionUndo {
   adoptedAtIso: string;
 }
 
+const ADOPTED_PLAN_LS_KEY = 'retirement-calc:adopted-plan:v1';
+
+interface PersistedAdoptedPlan {
+  version: 1;
+  data: SeedData;
+  appliedData: SeedData;
+  lastPolicyAdoption: PolicyAdoptionUndo;
+  savedAtIso: string;
+}
+
+function readPersistedAdoptedPlan(): PersistedAdoptedPlan | null {
+  try {
+    if (typeof window === 'undefined' || !window.localStorage) return null;
+    const raw = window.localStorage.getItem(ADOPTED_PLAN_LS_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as PersistedAdoptedPlan;
+    if (parsed?.version !== 1) return null;
+    if (!parsed.data || !parsed.appliedData || !parsed.lastPolicyAdoption?.policy) {
+      return null;
+    }
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function writePersistedAdoptedPlan(payload: PersistedAdoptedPlan | null): void {
+  try {
+    if (typeof window === 'undefined' || !window.localStorage) return;
+    if (!payload) {
+      window.localStorage.removeItem(ADOPTED_PLAN_LS_KEY);
+      return;
+    }
+    window.localStorage.setItem(ADOPTED_PLAN_LS_KEY, JSON.stringify(payload));
+  } catch {
+    // localStorage quota / private browsing — adoption still succeeds in memory.
+  }
+}
+
 const defaultAssumptions: MarketAssumptions = {
   equityMean: 0.074,
   equityVolatility: 0.16,
@@ -435,13 +474,33 @@ const restoredEvalContext = loadPlanEvalFromCache(initialFingerprint);
 const restoredLegacyTarget = loadLegacyTargetFromCache();
 const initialLegacyTarget =
   restoredLegacyTarget ?? DEFAULT_LEGACY_TARGET_TODAY_DOLLARS;
-const seedDataWithRestoredLegacy: SeedData = {
-  ...initialSeedData,
+const withRestoredLegacyTarget = (data: SeedData): SeedData => ({
+  ...cloneSeedData(data),
   goals: {
-    ...(initialSeedData.goals ?? {}),
+    ...(data.goals ?? {}),
     legacyTargetTodayDollars: initialLegacyTarget,
   },
-};
+});
+const seedDataWithRestoredLegacy: SeedData =
+  withRestoredLegacyTarget(initialSeedData);
+const persistedAdoptedPlan = readPersistedAdoptedPlan();
+const initialStoreData: SeedData = persistedAdoptedPlan
+  ? withRestoredLegacyTarget(persistedAdoptedPlan.data)
+  : seedDataWithRestoredLegacy;
+const initialAppliedStoreData: SeedData = persistedAdoptedPlan
+  ? withRestoredLegacyTarget(persistedAdoptedPlan.appliedData)
+  : seedDataWithRestoredLegacy;
+const initialPolicyAdoption: PolicyAdoptionUndo | null = persistedAdoptedPlan
+  ? {
+      ...persistedAdoptedPlan.lastPolicyAdoption,
+      previousData: withRestoredLegacyTarget(
+        persistedAdoptedPlan.lastPolicyAdoption.previousData,
+      ),
+      previousAppliedData: withRestoredLegacyTarget(
+        persistedAdoptedPlan.lastPolicyAdoption.previousAppliedData,
+      ),
+    }
+  : null;
 
 const initialSnapshots: PlanSnapshot[] = (() => {
   const existing = loadSnapshots();
@@ -458,8 +517,8 @@ const initialSnapshots: PlanSnapshot[] = (() => {
 })();
 
 export const useAppStore = create<AppState>((set) => ({
-  data: cloneSeedData(seedDataWithRestoredLegacy),
-  appliedData: cloneSeedData(seedDataWithRestoredLegacy),
+  data: cloneSeedData(initialStoreData),
+  appliedData: cloneSeedData(initialAppliedStoreData),
   currentScreen: 'mining',
   draftSelectedStressors: [],
   draftSelectedResponses: [],
@@ -854,7 +913,7 @@ export const useAppStore = create<AppState>((set) => ({
     });
     return created as unknown as PlanSnapshot;
   },
-  lastPolicyAdoption: null,
+  lastPolicyAdoption: initialPolicyAdoption,
   adoptMinedPolicy: (policy, evaluation = null) =>
     set((state) => {
       const previousData = cloneSeedData(state.data);
@@ -874,6 +933,13 @@ export const useAppStore = create<AppState>((set) => ({
         ...state,
         data: nextData,
         appliedData,
+      });
+      writePersistedAdoptedPlan({
+        version: 1,
+        data: nextData,
+        appliedData,
+        lastPolicyAdoption: undo,
+        savedAtIso: new Date().toISOString(),
       });
       // Bump the rerun nonce so UnifiedPlanScreen's existing rerun
       // effect kicks off a fresh Plan Analysis with the adopted policy
@@ -902,6 +968,7 @@ export const useAppStore = create<AppState>((set) => ({
         data,
         appliedData,
       });
+      writePersistedAdoptedPlan(null);
       // Symmetric with adoptMinedPolicy: undo also changes the seed
       // data and the household will want the projection to follow.
       return {
