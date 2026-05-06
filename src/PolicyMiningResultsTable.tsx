@@ -252,6 +252,20 @@ function policyDiffSummary(
   return parts.length > 0 ? parts.join(' · ') : 'same axes as current';
 }
 
+function policyMatches(
+  a: Policy | null | undefined,
+  b: Policy | null | undefined,
+): boolean {
+  if (!a || !b) return false;
+  return (
+    a.annualSpendTodayDollars === b.annualSpendTodayDollars &&
+    a.primarySocialSecurityClaimAge === b.primarySocialSecurityClaimAge &&
+    a.spouseSocialSecurityClaimAge === b.spouseSocialSecurityClaimAge &&
+    a.rothConversionAnnualCeiling === b.rothConversionAnnualCeiling &&
+    (a.withdrawalRule ?? null) === (b.withdrawalRule ?? null)
+  );
+}
+
 /** Format the picker label so the user can tell sessions apart at a glance. */
 function describeSession(
   s: ClusterSessionListing,
@@ -970,15 +984,30 @@ export function PolicyMiningResultsTable({
                     : null;
                 const isHighestSpendPinned =
                   bestByMaxSpend != null && ev.id === bestByMaxSpend.id;
+                const isAdopted = policyMatches(
+                  ev.policy,
+                  lastPolicyAdoption?.policy,
+                );
                 const solventPct = ev.outcome.solventSuccessRate;
+                const rowClassName = isAdopted
+                  ? 'bg-emerald-50/80 hover:bg-emerald-50'
+                  : isHighestSpendPinned
+                  ? 'bg-amber-50/50 hover:bg-amber-50'
+                  : 'hover:bg-stone-50';
                 return (
                   <tr
                     key={ev.id}
-                    className={`border-b border-stone-100 last:border-b-0 hover:bg-stone-50 ${
-                      isHighestSpendPinned ? 'bg-amber-50/50' : ''
-                    }`}
+                    className={`border-b border-stone-100 last:border-b-0 ${rowClassName}`}
                   >
                     <td className="py-2 pr-3 font-semibold text-stone-900">
+                      {isAdopted && (
+                        <span
+                          className="mr-1.5 inline-block rounded bg-emerald-600 px-1 py-0.5 text-[9px] font-bold text-white"
+                          title="Currently adopted policy"
+                        >
+                          ADOPTED
+                        </span>
+                      )}
                       {isHighestSpendPinned && (
                         <span
                           className="mr-1.5 inline-block rounded bg-amber-500 px-1 py-0.5 text-[9px] font-bold text-white"
@@ -1044,13 +1073,19 @@ export function PolicyMiningResultsTable({
                       </>
                     ) : null}
                     <td className="py-2 text-right">
-                      <button
-                        type="button"
-                        onClick={() => setAdoptingPolicy(ev.policy)}
-                        className="rounded-full bg-emerald-600 px-3 py-1 text-[11px] font-semibold text-white shadow-sm transition hover:bg-emerald-700"
-                      >
-                        Adopt
-                      </button>
+                      {isAdopted ? (
+                        <span className="inline-flex rounded-full bg-emerald-100 px-3 py-1 text-[11px] font-semibold text-emerald-800">
+                          Adopted
+                        </span>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => setAdoptingPolicy(ev.policy)}
+                          className="rounded-full bg-emerald-600 px-3 py-1 text-[11px] font-semibold text-white shadow-sm transition hover:bg-emerald-700"
+                        >
+                          Adopt
+                        </button>
+                      )}
                     </td>
                   </tr>
                 );
