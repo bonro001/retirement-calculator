@@ -1,8 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  isBetterFeasibleCandidate,
-} from './policy-miner';
-import {
   buildDefaultPolicyAxes,
   computeMinimumSpendFloor,
   countPolicyCandidates,
@@ -18,6 +15,10 @@ import { MiningPhaseSegments, type PipelinePhase } from './MiningPhaseSegments';
 import { recommendCombinedPass2 } from './combined-pass2-analyzer';
 import { loadCorpusEvaluations } from './policy-mining-corpus-source';
 import { loadClusterEvaluations } from './policy-mining-cluster';
+import {
+  bestPolicy,
+  LEGACY_ATTAINMENT_FLOOR,
+} from './policy-ranker';
 import {
   buildPeerViewList,
   formatAgo,
@@ -63,9 +64,9 @@ export interface PolicyMiningControls {
   legacyTargetTodayDollars: number;
   /** Soft cap to keep first runs interactive — defaults to whole corpus. */
   maxPoliciesPerSession?: number;
-  /** Min bequest attainment rate to count a policy as feasible (default 0.70). */
+  /** Min bequest attainment rate to count a policy as feasible (default 0.85). */
   feasibilityThreshold?: number;
-  /** Trials per policy this session. Default 2000 (production). */
+  /** Trials per policy this session. Default is owned by caller. */
   trialCount?: number;
 }
 
@@ -355,7 +356,8 @@ export function PolicyMiningStatusCard({
             assumptions: ctrls2.assumptions,
             baselineFingerprint,
             legacyTargetTodayDollars: ctrls2.legacyTargetTodayDollars,
-            feasibilityThreshold: ctrls2.feasibilityThreshold ?? 0.7,
+            feasibilityThreshold:
+              ctrls2.feasibilityThreshold ?? LEGACY_ATTAINMENT_FLOOR,
             maxPoliciesPerSession: recommendation.estimatedPass2Candidates,
             trialCount: ctrls2.trialCount,
             axesOverride: recommendation.axes,
@@ -388,14 +390,7 @@ export function PolicyMiningStatusCard({
       dispatcherUrl,
     ).then((evals) => {
       if (cancelled) return;
-      let best: PolicyEvaluation | null = null;
-      let bestAttainment = -1;
-      for (const e of evals) {
-        if (e.outcome.bequestAttainmentRate > bestAttainment) {
-          bestAttainment = e.outcome.bequestAttainmentRate;
-          best = e;
-        }
-      }
+      const best = bestPolicy(evals);
       setPipelineBestPolicyId(best?.id ?? null);
     });
     return () => {
@@ -463,14 +458,7 @@ export function PolicyMiningStatusCard({
         );
         if (cancelled) return;
         setEvalCount(evals.length);
-        const feasible = evals.filter(
-          (e) => e.outcome.bequestAttainmentRate >= 0.7,
-        );
-        let best: typeof feasible[number] | null = null;
-        for (const e of feasible) {
-          if (isBetterFeasibleCandidate(e, best)) best = e;
-        }
-        setBestEval(best);
+        setBestEval(bestPolicy(evals));
       } catch (e) {
         // eslint-disable-next-line no-console
         console.warn('[mining-status-card] poll failed:', e);
@@ -536,7 +524,8 @@ export function PolicyMiningStatusCard({
         assumptions: controls.assumptions,
         baselineFingerprint,
         legacyTargetTodayDollars: controls.legacyTargetTodayDollars,
-        feasibilityThreshold: controls.feasibilityThreshold ?? 0.7,
+        feasibilityThreshold:
+          controls.feasibilityThreshold ?? LEGACY_ATTAINMENT_FLOOR,
         maxPoliciesPerSession: cap,
         trialCount: controls.trialCount,
         // axesOverride is the Apply-narrowed-range path — when the
@@ -1329,9 +1318,10 @@ export function PolicyMiningStatusCard({
           {bestEval ? (
             <>
               <p className="mt-1 text-2xl font-semibold tabular-nums text-emerald-700">
-                {formatPct(bestEval.outcome.bequestAttainmentRate)}
+                {formatPct(bestEval.outcome.solventSuccessRate)}
               </p>
               <p className="mt-1 text-[11px] text-stone-500">
+                solvency · legacy {formatPct(bestEval.outcome.bequestAttainmentRate)} ·{' '}
                 spend{' '}
                 {formatCurrency(bestEval.policy.annualSpendTodayDollars)}/yr,
                 bequest{' '}

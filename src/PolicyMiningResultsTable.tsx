@@ -12,6 +12,10 @@ import { SensitivityPanel } from './SensitivityPanel';
 import { StressTestPanel } from './StressTestPanel';
 import { explainAdoption } from './policy-adoption';
 import { useAppStore } from './store';
+import {
+  LEGACY_ATTAINMENT_FLOOR,
+  SOLVENCY_DEFENSE_FLOOR,
+} from './policy-ranker';
 
 /**
  * Policy Mining — Results Table.
@@ -60,7 +64,7 @@ import { useAppStore } from './store';
 // unboundedly — see the deferred follow-up that pairs with this.
 const POLL_INTERVAL_MS = 30_000;
 const SESSION_LIST_POLL_MS = 10_000;
-const DEFAULT_FEASIBILITY_THRESHOLD = 0.85;
+const DEFAULT_FEASIBILITY_THRESHOLD = LEGACY_ATTAINMENT_FLOOR;
 const DEFAULT_ROW_LIMIT = 25;
 
 interface CurrentPlanReference {
@@ -419,7 +423,11 @@ export function PolicyMiningResultsTable({
         const payload = await loadClusterEvaluations(
           dispatcherUrl,
           selectedSessionId,
-          { topN, minFeasibility: serverMinFeasibility },
+          {
+            topN,
+            minFeasibility: serverMinFeasibility,
+            minSolvency: SOLVENCY_DEFENSE_FLOOR,
+          },
         );
         if (cancelled) return;
         setEvaluations(payload.evaluations);
@@ -450,23 +458,24 @@ export function PolicyMiningResultsTable({
 
   const filtered = useMemo(() => {
     return evaluations
-      .filter((e) => e.outcome.bequestAttainmentRate >= feasibilityThreshold)
+      .filter(
+        (e) =>
+          e.outcome.bequestAttainmentRate >= feasibilityThreshold &&
+          e.outcome.solventSuccessRate >= SOLVENCY_DEFENSE_FLOOR,
+      )
       .sort((a, b) => compareEvals(a, b, sort));
   }, [evaluations, feasibilityThreshold, sort]);
 
   /**
-   * Highest-spend evaluation that still clears the feasibility floor.
-   * Mirrors the "best so far" criterion the dispatcher uses (max spend
-   * subject to feasibility ≥ threshold). When the user sorts by
-   * feasibility-desc this row is buried below the high-feasibility/
-   * low-spend rows; pinning it surfaces the answer to "what's the
-   * most spend I can take and still hit my legacy?" without making
-   * the household scroll for it.
+   * Highest-spend evaluation that still clears both policy gates.
+   * Mirrors the household-facing ranker: hit the legacy floor, defend
+   * against plans that run out of money, then maximize spend.
    */
   const bestByMaxSpend = useMemo(() => {
     let best: PolicyEvaluation | null = null;
     for (const ev of evaluations) {
       if (ev.outcome.bequestAttainmentRate < feasibilityThreshold) continue;
+      if (ev.outcome.solventSuccessRate < SOLVENCY_DEFENSE_FLOOR) continue;
       if (!best) {
         best = ev;
         continue;
@@ -479,6 +488,21 @@ export function PolicyMiningResultsTable({
       } else if (
         ev.policy.annualSpendTodayDollars ===
           best.policy.annualSpendTodayDollars &&
+        ev.outcome.solventSuccessRate > best.outcome.solventSuccessRate
+      ) {
+        best = ev;
+      } else if (
+        ev.policy.annualSpendTodayDollars ===
+          best.policy.annualSpendTodayDollars &&
+        ev.outcome.solventSuccessRate === best.outcome.solventSuccessRate &&
+        ev.outcome.bequestAttainmentRate > best.outcome.bequestAttainmentRate
+      ) {
+        best = ev;
+      } else if (
+        ev.policy.annualSpendTodayDollars ===
+          best.policy.annualSpendTodayDollars &&
+        ev.outcome.solventSuccessRate === best.outcome.solventSuccessRate &&
+        ev.outcome.bequestAttainmentRate === best.outcome.bequestAttainmentRate &&
         ev.outcome.p50EndingWealthTodayDollars >
           best.outcome.p50EndingWealthTodayDollars
       ) {
@@ -655,7 +679,7 @@ export function PolicyMiningResultsTable({
             Mined Plan Candidates
           </p>
           <p className="mt-0.5 text-[12px] text-stone-500">
-            {totalFeasible.toLocaleString()} feasible of{' '}
+            {totalFeasible.toLocaleString()} candidates clear gates of{' '}
             {totalEvaluated.toLocaleString()} evaluated · sorted by{' '}
             {sort.key === 'spend'
               ? 'highest annual spend'
@@ -682,7 +706,7 @@ export function PolicyMiningResultsTable({
            *  results. */}
           <div className="flex items-center gap-2">
             <label className="text-[11px] font-medium uppercase tracking-wider text-stone-500">
-              Min feasibility
+              Min legacy
             </label>
             <input
               type="range"
@@ -697,6 +721,9 @@ export function PolicyMiningResultsTable({
             />
             <span className="w-10 text-right text-[12px] font-semibold tabular-nums text-stone-700">
               {formatPct(feasibilityThreshold)}
+            </span>
+            <span className="text-[11px] font-medium text-stone-500">
+              Solvency floor {formatPct(SOLVENCY_DEFENSE_FLOOR)}
             </span>
           </div>
         </div>
@@ -733,8 +760,9 @@ export function PolicyMiningResultsTable({
         </p>
       ) : totalFeasible === 0 ? (
         <p className="rounded-md bg-amber-50 px-3 py-2 text-[12px] text-amber-800">
-          No candidates clear the {formatPct(feasibilityThreshold)} feasibility
-          floor. Lower the threshold or wait for more policies to be mined.
+          No candidates clear the {formatPct(feasibilityThreshold)} legacy
+          floor and {formatPct(SOLVENCY_DEFENSE_FLOOR)} solvency defense.
+          Lower the legacy threshold or wait for more policies to be mined.
         </p>
       ) : (
         <>
@@ -756,6 +784,7 @@ export function PolicyMiningResultsTable({
             }
             adoptedPolicy={lastPolicyAdoption?.policy ?? null}
             defaultFeasibilityThreshold={feasibilityThreshold}
+            minSolvencyThreshold={SOLVENCY_DEFENSE_FLOOR}
             onAdoptPolicy={(policy) => setAdoptingPolicy(policy)}
           />
         <div className="mt-4 -mx-4 overflow-x-auto px-4">
@@ -855,7 +884,7 @@ export function PolicyMiningResultsTable({
                       {isHighestSpendPinned && (
                         <span
                           className="mr-1.5 inline-block rounded bg-amber-500 px-1 py-0.5 text-[9px] font-bold text-white"
-                          title="Highest-spend policy that still hits your legacy floor (the 'best so far' answer)"
+                          title="Highest-spend policy that still clears the legacy and solvency floors"
                         >
                           ★ MAX
                         </span>

@@ -24,7 +24,12 @@ import {
 } from './policy-mining-cluster';
 import { POLICY_MINER_ENGINE_VERSION } from './policy-miner-types';
 import { POLICY_MINING_TRIAL_COUNT } from './policy-mining-config';
-import { bestPolicy, LEGACY_FIRST_LEXICOGRAPHIC } from './policy-ranker';
+import {
+  bestPolicy,
+  LEGACY_ATTAINMENT_FLOOR,
+  LEGACY_FIRST_LEXICOGRAPHIC,
+  SOLVENCY_DEFENSE_FLOOR,
+} from './policy-ranker';
 
 export type CorpusState =
   | 'loading'
@@ -103,7 +108,11 @@ async function fetchCorpus(
         const payload = await loadClusterEvaluations(
           dispatcherUrl,
           match.sessionId,
-          { topN: 0, minFeasibility: 0.5 },
+          {
+            topN: 0,
+            minFeasibility: LEGACY_ATTAINMENT_FLOOR,
+            minSolvency: SOLVENCY_DEFENSE_FLOOR,
+          },
         );
         if (payload?.evaluations?.length) return payload.evaluations;
       }

@@ -176,17 +176,15 @@ export async function loadClusterSessions(
  * is the TOTAL records on disk — the UI can show "showing 200 of 4,346
  * evaluated" so the household knows the cap exists.
  *
- * `minFeasibility` (0..1) filters out infeasible records server-side
- * and switches the default sort to spend-desc, so the top-N reflects
- * "highest spend that still hits the legacy floor". Without it the
- * dispatcher sorts feasibility-first, which buries high-spend/just-
- * feasible rows under low-spend/100%-feasible ones and makes the
- * client's ★ MAX badge under-report achievable spend.
+ * `minFeasibility` (0..1) filters out records below the legacy floor;
+ * `minSolvency` (0..1) filters out records below the solvency defense
+ * floor. Setting either switches the default sort to spend-desc, so the
+ * top-N reflects "highest spend that still clears the household gates".
  */
 export async function loadClusterEvaluations(
   dispatcherUrl: string,
   sessionId: string,
-  options?: { topN?: number; minFeasibility?: number },
+  options?: { topN?: number; minFeasibility?: number; minSolvency?: number },
 ): Promise<ClusterEvaluationsPayload> {
   const qsParts: string[] = [];
   if (options?.topN && options.topN > 0) {
@@ -195,6 +193,11 @@ export async function loadClusterEvaluations(
   if (options?.minFeasibility && options.minFeasibility > 0) {
     qsParts.push(
       `minFeasibility=${encodeURIComponent(String(options.minFeasibility))}`,
+    );
+  }
+  if (options?.minSolvency && options.minSolvency > 0) {
+    qsParts.push(
+      `minSolvency=${encodeURIComponent(String(options.minSolvency))}`,
     );
   }
   const qs = qsParts.length > 0 ? `?${qsParts.join('&')}` : '';

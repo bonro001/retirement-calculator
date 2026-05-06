@@ -159,6 +159,7 @@ export function MiningScreen() {
                 assumptions: getPolicyMiningAssumptions(assumptions),
                 evaluatedByNodeId: 'local-browser',
                 legacyTargetTodayDollars,
+                trialCount: POLICY_MINING_TRIAL_COUNT,
               }
             : undefined
         }

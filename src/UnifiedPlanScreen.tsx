@@ -2536,6 +2536,7 @@ export function UnifiedPlanScreen({
                   assumptions: getPolicyMiningAssumptions(assumptions),
                   evaluatedByNodeId: 'local-browser',
                   legacyTargetTodayDollars,
+                  trialCount: POLICY_MINING_TRIAL_COUNT,
                 }
               : undefined
           }
