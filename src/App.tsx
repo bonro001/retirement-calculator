@@ -232,6 +232,15 @@ const navigation: {
       'M12 2 4 5v6c0 4.97 3.42 9.59 8 11 4.58-1.41 8-6.03 8-11V5l-8-3Z',
   },
   {
+    id: 'income',
+    label: 'Income',
+    shortLabel: 'Income',
+    section: 'configure',
+    // Sparkle/cash event — income timing and one-off inflows.
+    iconPath:
+      'M12 3v3m0 12v3m7.5-10.5h-3m-9 0h-3m12.3-5.3-2.1 2.1m-7.4 7.4-2.1 2.1m0-11.6 2.1 2.1m7.4 7.4 2.1 2.1M12 8.25a3.75 3.75 0 1 0 0 7.5 3.75 3.75 0 0 0 0-7.5Z',
+  },
+  {
     id: 'taxes',
     label: 'Taxes',
     shortLabel: 'Taxes',
@@ -697,6 +706,7 @@ export function App() {
     'history',
     'accounts',
     'social_security',
+    'income',
     'taxes',
     'export',
   ];
