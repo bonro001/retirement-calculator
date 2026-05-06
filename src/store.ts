@@ -358,11 +358,10 @@ interface AppState {
    */
   lastPolicyAdoption: PolicyAdoptionUndo | null;
   /**
-   * Stage a mined policy into the draft plan. Scales spending categories
+   * Adopt a mined policy into the draft and applied plan. Scales spending categories
    * proportionally to hit the policy's annual-spend target, writes SS
    * claim ages, and writes the Roth conversion ceiling. Does NOT touch
-   * accounts. Sets `hasPendingSimulationChanges` so the user gets the
-   * usual "Run Plan Analysis" CTA. Stores the previous draft in
+   * accounts. Stores the previous draft/applied snapshots in
    * `lastPolicyAdoption` so the change is undoable.
    */
   adoptMinedPolicy: (policy: Policy) => void;
@@ -375,6 +374,8 @@ interface AppState {
 export interface PolicyAdoptionUndo {
   /** Snapshot of `data` before the adoption write — restored on undo. */
   previousData: SeedData;
+  /** Snapshot of `appliedData` before adoption — restored on undo. */
+  previousAppliedData: SeedData;
   /** Which policy was adopted. Used to render the undo banner copy. */
   policy: Policy;
   /** Pre-formatted summary line ("$130k/yr · SS 70/68 · Roth $40k"). */
@@ -854,10 +855,13 @@ export const useAppStore = create<AppState>((set) => ({
   adoptMinedPolicy: (policy) =>
     set((state) => {
       const previousData = cloneSeedData(state.data);
-      const nextData = buildAdoptedSeedData(state.data, policy);
-      const summary = diffAdoption(state.data, policy).summary;
+      const previousAppliedData = cloneSeedData(state.appliedData);
+      const nextData = buildAdoptedSeedData(state.appliedData, policy);
+      const appliedData = cloneSeedData(nextData);
+      const summary = diffAdoption(state.appliedData, policy).summary;
       const undo: PolicyAdoptionUndo = {
         previousData,
+        previousAppliedData,
         policy,
         summary,
         adoptedAtIso: new Date().toISOString(),
@@ -865,6 +869,7 @@ export const useAppStore = create<AppState>((set) => ({
       const hasPendingSimulationChanges = hasPendingChanges({
         ...state,
         data: nextData,
+        appliedData,
       });
       // Bump the rerun nonce so UnifiedPlanScreen's existing rerun
       // effect kicks off a fresh Plan Analysis with the adopted policy
@@ -875,6 +880,7 @@ export const useAppStore = create<AppState>((set) => ({
       // is the chart not changing?"
       return {
         data: nextData,
+        appliedData,
         hasPendingSimulationChanges,
         lastPolicyAdoption: undo,
         unifiedPlanRerunNonce: state.unifiedPlanRerunNonce + 1,
@@ -884,14 +890,19 @@ export const useAppStore = create<AppState>((set) => ({
     set((state) => {
       if (!state.lastPolicyAdoption) return {};
       const data = cloneSeedData(state.lastPolicyAdoption.previousData);
+      const appliedData = cloneSeedData(
+        state.lastPolicyAdoption.previousAppliedData,
+      );
       const hasPendingSimulationChanges = hasPendingChanges({
         ...state,
         data,
+        appliedData,
       });
       // Symmetric with adoptMinedPolicy: undo also changes the seed
       // data and the household will want the projection to follow.
       return {
         data,
+        appliedData,
         hasPendingSimulationChanges,
         lastPolicyAdoption: null,
         unifiedPlanRerunNonce: state.unifiedPlanRerunNonce + 1,
