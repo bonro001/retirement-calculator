@@ -80,6 +80,7 @@ import {
   maxBatchSizeForRuntime,
   recommendedBatchSize,
   reserveWorkerSlotsForBatch,
+  shouldThrottleSlowHostForTail,
   targetBatchWallClockMsForRuntime,
   targetInFlightBatchesForRuntime,
 } from './work-queue';
@@ -217,6 +218,14 @@ const RUST_COMPACT_PREFETCH_DEPTH = readPositiveIntEnv(
   4,
 );
 const WARMUP_MAX_BATCH_SIZE = readPositiveIntEnv('CLUSTER_WARMUP_MAX_BATCH_SIZE', 16);
+const SLOW_HOST_TAIL_CUTOFF_MULTIPLIER = readPositiveIntEnv(
+  'CLUSTER_SLOW_HOST_TAIL_CUTOFF_MULTIPLIER',
+  4,
+);
+const SLOW_HOST_TAIL_WORK_MULTIPLIER = readPositiveIntEnv(
+  'CLUSTER_SLOW_HOST_TAIL_WORK_MULTIPLIER',
+  4,
+);
 const ALLOW_BUILD_MISMATCH =
   process.env.CLUSTER_ALLOW_BUILD_MISMATCH === '1' ||
   process.env.CLUSTER_ALLOW_BUILD_MISMATCH === 'true';
@@ -1167,6 +1176,14 @@ function pumpDispatch(): void {
   const now = Date.now();
   const dispatchableHosts = hostsByName.filter((peer) => isDispatchableHost(peer, now));
   const needsWarmup = dispatchableHosts.some((peer) => peer.completedBatchCount < 1);
+  const fastestMeasuredMsPerPolicy =
+    needsWarmup
+      ? null
+      : dispatchableHosts.reduce<number | null>((fastest, peer) => {
+          const mean = peer.meanMsPerPolicy;
+          if (mean === null || !Number.isFinite(mean) || mean <= 0) return fastest;
+          return fastest === null ? mean : Math.min(fastest, mean);
+        }, null);
   for (const peer of dispatchableHosts) {
     if (session.queue.pendingCount() === 0) break;
     if (needsWarmup && (peer.completedBatchCount >= 1 || peer.inFlightBatchIds.size > 0)) {
@@ -1213,6 +1230,20 @@ function pumpDispatch(): void {
           targetBatchWallClockMs: targetBatchWallClockMsForRuntime(runtime),
         },
       );
+      if (
+        !needsWarmup &&
+        shouldThrottleSlowHostForTail({
+          peerMsPerPolicy: peer.meanMsPerPolicy,
+          fastestMsPerPolicy: fastestMeasuredMsPerPolicy,
+          pendingPolicies: session.queue.pendingCount(),
+          plannedBatchSize: size,
+          targetInFlightBatches: targetDepth,
+          cutoffMultiplier: SLOW_HOST_TAIL_CUTOFF_MULTIPLIER,
+          tailWorkMultiplier: SLOW_HOST_TAIL_WORK_MULTIPLIER,
+        })
+      ) {
+        break;
+      }
       const assigned = session.queue.assignBatch(peer.peerId, size);
       if (!assigned) break;
       const batch: MiningJobBatch = {

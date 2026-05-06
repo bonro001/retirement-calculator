@@ -105,6 +105,9 @@ const DEFAULT_PREFETCH_DEPTH = 2;
  *  most 16 single-policy batches per session. */
 const TAIL_STEAL_THRESHOLD = 16;
 
+const DEFAULT_SLOW_HOST_CUTOFF_MULTIPLIER = 4;
+const DEFAULT_SLOW_HOST_TAIL_WORK_MULTIPLIER = 4;
+
 /**
  * How many times one policy may be assigned (and then nacked or
  * disconnected away) before the queue gives up on it and drops it to
@@ -227,6 +230,48 @@ export function reserveWorkerSlotsForBatch(input: {
   const policyCount = Math.max(1, Math.floor(input.policyCount));
   const reservationCap = Math.max(1, Math.ceil(workers / target));
   return Math.max(1, Math.min(policyCount, reservationCap));
+}
+
+export function shouldThrottleSlowHostForTail(input: {
+  peerMsPerPolicy: number | null;
+  fastestMsPerPolicy: number | null;
+  pendingPolicies: number;
+  plannedBatchSize: number;
+  targetInFlightBatches: number;
+  cutoffMultiplier?: number;
+  tailWorkMultiplier?: number;
+}): boolean {
+  const peerMs = input.peerMsPerPolicy;
+  const fastestMs = input.fastestMsPerPolicy;
+  if (
+    peerMs === null ||
+    fastestMs === null ||
+    !Number.isFinite(peerMs) ||
+    !Number.isFinite(fastestMs) ||
+    peerMs <= 0 ||
+    fastestMs <= 0
+  ) {
+    return false;
+  }
+
+  const cutoffMultiplier = Math.max(
+    1,
+    input.cutoffMultiplier ?? DEFAULT_SLOW_HOST_CUTOFF_MULTIPLIER,
+  );
+  if (peerMs < fastestMs * cutoffMultiplier) {
+    return false;
+  }
+
+  const plannedBatchSize = Math.max(1, Math.floor(input.plannedBatchSize));
+  const targetInFlightBatches = Math.max(1, Math.floor(input.targetInFlightBatches));
+  const tailWorkMultiplier = Math.max(
+    1,
+    input.tailWorkMultiplier ?? DEFAULT_SLOW_HOST_TAIL_WORK_MULTIPLIER,
+  );
+  const pendingPolicies = Math.max(0, Math.floor(input.pendingPolicies));
+  const slowHostTailBudget =
+    plannedBatchSize * targetInFlightBatches * tailWorkMultiplier;
+  return pendingPolicies <= Math.max(TAIL_STEAL_THRESHOLD, slowHostTailBudget);
 }
 
 /**

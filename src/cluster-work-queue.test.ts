@@ -28,6 +28,7 @@ import {
   maxBatchSizeForRuntime,
   recommendedBatchSize,
   reserveWorkerSlotsForBatch,
+  shouldThrottleSlowHostForTail,
   targetBatchWallClockMsForRuntime,
   targetInFlightBatchesForRuntime,
 } from '../cluster/work-queue';
@@ -120,6 +121,39 @@ describe('runtime-specific dispatch tuning helpers', () => {
         policyCount: 1,
       }),
     ).toBe(1);
+  });
+
+  it('throttles dramatically slow hosts only near their tail-risk budget', () => {
+    expect(
+      shouldThrottleSlowHostForTail({
+        peerMsPerPolicy: 120,
+        fastestMsPerPolicy: 12,
+        pendingPolicies: 1500,
+        plannedBatchSize: 100,
+        targetInFlightBatches: 4,
+      }),
+    ).toBe(true);
+    expect(
+      shouldThrottleSlowHostForTail({
+        peerMsPerPolicy: 120,
+        fastestMsPerPolicy: 12,
+        pendingPolicies: 2000,
+        plannedBatchSize: 100,
+        targetInFlightBatches: 4,
+      }),
+    ).toBe(false);
+  });
+
+  it('keeps moderately slower hosts eligible during tail throttling', () => {
+    expect(
+      shouldThrottleSlowHostForTail({
+        peerMsPerPolicy: 30,
+        fastestMsPerPolicy: 12,
+        pendingPolicies: 100,
+        plannedBatchSize: 100,
+        targetInFlightBatches: 4,
+      }),
+    ).toBe(false);
   });
 });
 
