@@ -3280,6 +3280,8 @@ export function CockpitScreen() {
   const irmaaNextYear = nextYear ? findActiveIrmaaTier(nextYear.medianMagi) : null;
 
   const adopted = lastPolicyAdoption?.policy ?? null;
+  const displayedPolicy = adopted ?? (useCorpusPick ? corpusRecommendation?.policy ?? null : null);
+  const displayedPolicyIsPersisted = adopted != null;
   const legacyTarget = data?.goals?.legacyTargetTodayDollars;
 
   // Legacy attainment — second half of the north star ("leave money").
@@ -3734,30 +3736,40 @@ export function CockpitScreen() {
         </div>
 
         <CockpitTile eyebrow="Adopted policy">
-          {adopted ? (
+          {displayedPolicy ? (
             <div className="space-y-1.5 text-[13px]">
+              {!displayedPolicyIsPersisted && (
+                <p className="pb-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-blue-700">
+                  Mined policy loaded
+                </p>
+              )}
               <div>
                 Spend{' '}
                 <span className="font-semibold text-stone-900">
-                  {formatCurrencyExact(adopted.annualSpendTodayDollars)}/yr
+                  {formatCurrencyExact(displayedPolicy.annualSpendTodayDollars)}/yr
                 </span>
               </div>
               <div className="text-stone-600">
                 Rob SS @{' '}
                 <span className="font-semibold text-stone-900">
-                  {adopted.primarySocialSecurityClaimAge}
+                  {displayedPolicy.primarySocialSecurityClaimAge}
                 </span>
                 , Debbie SS @{' '}
                 <span className="font-semibold text-stone-900">
-                  {adopted.spouseSocialSecurityClaimAge ?? '—'}
+                  {displayedPolicy.spouseSocialSecurityClaimAge ?? '—'}
                 </span>
               </div>
               <div className="text-stone-600">
                 Roth ceiling{' '}
                 <span className="font-semibold text-stone-900">
-                  {formatCurrencyExact(adopted.rothConversionAnnualCeiling)}/yr
+                  {formatCurrencyExact(displayedPolicy.rothConversionAnnualCeiling)}/yr
                 </span>
               </div>
+              {!displayedPolicyIsPersisted && (
+                <p className="pt-1 text-[11px] leading-snug text-stone-500">
+                  Re-adopt from Policy Mining once to pin this exact policy after refresh.
+                </p>
+              )}
             </div>
           ) : (
             <p className="text-stone-400 text-sm">
@@ -3893,7 +3905,7 @@ export function CockpitScreen() {
           year={currentYear}
           yr={thisYear}
           monthly
-          policyTargetSpend={adopted?.annualSpendTodayDollars ?? null}
+          policyTargetSpend={displayedPolicy?.annualSpendTodayDollars ?? null}
           spendBuckets={spendBuckets}
           salaryEndDate={data?.income?.salaryEndDate ?? null}
           missingMessage={missingProjectionMessage}
@@ -3902,7 +3914,7 @@ export function CockpitScreen() {
           eyebrow="This year"
           year={currentYear}
           yr={thisYear}
-          policyTargetSpend={adopted?.annualSpendTodayDollars ?? null}
+          policyTargetSpend={displayedPolicy?.annualSpendTodayDollars ?? null}
           spendBuckets={spendBuckets}
           salaryEndDate={data?.income?.salaryEndDate ?? null}
           missingMessage={missingProjectionMessage}
@@ -3911,7 +3923,7 @@ export function CockpitScreen() {
           eyebrow="Next year"
           year={currentYear + 1}
           yr={nextYear}
-          policyTargetSpend={adopted?.annualSpendTodayDollars ?? null}
+          policyTargetSpend={displayedPolicy?.annualSpendTodayDollars ?? null}
           spendBuckets={spendBuckets}
           salaryEndDate={data?.income?.salaryEndDate ?? null}
           missingMessage={missingProjectionMessage}
