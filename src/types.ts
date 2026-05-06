@@ -103,6 +103,16 @@ export interface WindfallEntry {
   exclusionAmount?: number;
   // For inherited IRA treatment, defaulted to 10 when omitted.
   distributionYears?: number;
+  // For windfalls held in a market account between today and `year`,
+  // optionally compound the entered amount by this REAL rate of return
+  // (per year). When set, the engine multiplies amount and liquidity by
+  // (1 + presentValueGrowthRate)^(year - currentPlanningYear) before
+  // crediting. Models the case where the source account (e.g., a parent's
+  // brokerage holding the future gift / inheritance) is invested and
+  // growing in real terms while it waits to land. When undefined,
+  // current behavior is preserved (no growth applied — entered amount
+  // is taken as the year-of-arrival amount in today's dollars).
+  presentValueGrowthRate?: number;
 }
 
 export interface IncomeData {

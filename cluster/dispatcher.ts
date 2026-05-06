@@ -542,6 +542,149 @@ function log(level: 'info' | 'warn' | 'error', message: string, meta?: Record<st
   stream(`[${ts}] [dispatcher@${SELF_HOST}] [${level}] ${message}${metaStr}`);
 }
 
+// ── MINE_PERF instrumentation ──────────────────────────────────────────────
+// Per-peer batch_assign frame size + dispatcher→host RTT (send → batch_result
+// received). On when MINE_PERF=1; one summary line per peer per 10s window.
+const MINE_PERF = process.env.MINE_PERF === '1';
+const PERF_WINDOW_MS = 10_000;
+interface PerfPeerSamples {
+  batches: number;
+  policies: number;
+  bytes: number;
+  rttSumMs: number;
+  rttSamples: number[];
+  tapeHits: number;
+  tapeMisses: number;
+  compactTapeHits: number;
+  compactTapeMisses: number;
+  rustSummaryMsTotal: number;
+  ipcWriteMsTotal: number;
+  responseParseMsTotal: number;
+  shadowEvaluated: number;
+}
+const perfSent = new Map<
+  string,
+  { peerId: string; bytes: number; sentMs: number; policies: number }
+>();
+const perfPeers = new Map<string, PerfPeerSamples>();
+let perfWindowStartMs = Date.now();
+
+function getPerfPeer(peerId: string): PerfPeerSamples {
+  let p = perfPeers.get(peerId);
+  if (!p) {
+    p = {
+      batches: 0,
+      policies: 0,
+      bytes: 0,
+      rttSumMs: 0,
+      rttSamples: [],
+      tapeHits: 0,
+      tapeMisses: 0,
+      compactTapeHits: 0,
+      compactTapeMisses: 0,
+      rustSummaryMsTotal: 0,
+      ipcWriteMsTotal: 0,
+      responseParseMsTotal: 0,
+      shadowEvaluated: 0,
+    };
+    perfPeers.set(peerId, p);
+  }
+  return p;
+}
+
+function recordPerfShadow(
+  peerId: string,
+  shadow: import('../src/policy-miner-types').PolicyMinerShadowStats | undefined,
+): void {
+  if (!MINE_PERF) return;
+  if (!shadow || !shadow.timings || shadow.evaluated <= 0) return;
+  const p = getPerfPeer(peerId);
+  p.tapeHits += Number(shadow.timings.tapeCacheHitsTotal ?? 0);
+  p.tapeMisses += Number(shadow.timings.tapeCacheMissesTotal ?? 0);
+  p.compactTapeHits += Number(shadow.timings.compactTapeCacheHitsTotal ?? 0);
+  p.compactTapeMisses += Number(shadow.timings.compactTapeCacheMissesTotal ?? 0);
+  p.rustSummaryMsTotal += Number(shadow.timings.rustSummaryDurationMsTotal ?? 0);
+  p.ipcWriteMsTotal += Number(shadow.timings.rustIpcWriteDurationMsTotal ?? 0);
+  p.responseParseMsTotal += Number(shadow.timings.rustResponseParseDurationMsTotal ?? 0);
+  p.shadowEvaluated += shadow.evaluated;
+}
+
+function recordPerfSend(
+  peerId: string,
+  batchId: string,
+  bytes: number,
+  policies: number,
+): void {
+  if (!MINE_PERF) return;
+  perfSent.set(batchId, { peerId, bytes, sentMs: Date.now(), policies });
+}
+
+function recordPerfResult(batchId: string): void {
+  if (!MINE_PERF) return;
+  const sent = perfSent.get(batchId);
+  if (!sent) return;
+  perfSent.delete(batchId);
+  const p = getPerfPeer(sent.peerId);
+  const rtt = Date.now() - sent.sentMs;
+  p.batches += 1;
+  p.policies += sent.policies;
+  p.bytes += sent.bytes;
+  p.rttSumMs += rtt;
+  p.rttSamples.push(rtt);
+}
+
+function flushPerfSummary(): void {
+  if (!MINE_PERF) return;
+  const elapsedMs = Date.now() - perfWindowStartMs;
+  for (const [peerId, p] of perfPeers) {
+    if (p.batches === 0) continue;
+    const sorted = p.rttSamples.slice().sort((a, b) => a - b);
+    const p50 = sorted[Math.floor(sorted.length * 0.5)] ?? 0;
+    const p95 = sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * 0.95))] ?? 0;
+    const tapeLookups = p.tapeHits + p.tapeMisses;
+    const compactTapeLookups = p.compactTapeHits + p.compactTapeMisses;
+    const napiOverheadMs = p.ipcWriteMsTotal + p.responseParseMsTotal;
+    log('info', 'mine_perf_dispatch', {
+      peerId,
+      windowMs: elapsedMs,
+      batches: p.batches,
+      policies: p.policies,
+      bytesAvg: Math.round(p.bytes / p.batches),
+      bytesPerPolicyAvg: p.policies > 0 ? Math.round(p.bytes / p.policies) : 0,
+      rttAvgMs: Math.round(p.rttSumMs / p.batches),
+      rttP50Ms: p50,
+      rttP95Ms: p95,
+      msPerPolicy: p.shadowEvaluated > 0
+        ? Math.round((p.rustSummaryMsTotal / p.shadowEvaluated) * 100) / 100
+        : 0,
+      napiOverheadPct: p.rustSummaryMsTotal > 0
+        ? Math.round((napiOverheadMs / p.rustSummaryMsTotal) * 1000) / 10
+        : 0,
+      tapeHitPct: tapeLookups > 0
+        ? Math.round((p.tapeHits / tapeLookups) * 1000) / 10
+        : 0,
+      tapeLookups,
+      compactTapeHitPct: compactTapeLookups > 0
+        ? Math.round((p.compactTapeHits / compactTapeLookups) * 1000) / 10
+        : 0,
+      compactTapeLookups,
+    });
+  }
+  perfPeers.clear();
+  perfWindowStartMs = Date.now();
+  // Drop sent records older than 60s so a lost batch doesn't leak memory.
+  const cutoff = Date.now() - 60_000;
+  for (const [k, v] of perfSent) {
+    if (v.sentMs < cutoff) perfSent.delete(k);
+  }
+}
+
+if (MINE_PERF) {
+  setInterval(flushPerfSummary, PERF_WINDOW_MS).unref();
+  log('info', 'mine_perf enabled', { windowMs: PERF_WINDOW_MS });
+}
+// ───────────────────────────────────────────────────────────────────────────
+
 // ---------------------------------------------------------------------------
 // Snapshot construction
 // ---------------------------------------------------------------------------
@@ -1266,6 +1409,14 @@ function pumpDispatch(): void {
         to: peer.peerId,
       };
       sendTo(peer, batchAssign);
+      if (MINE_PERF) {
+        recordPerfSend(
+          peer.peerId,
+          assigned.batchId,
+          encodeMessage(batchAssign).length,
+          assigned.policies.length,
+        );
+      }
       peer.inFlightBatchIds.add(assigned.batchId);
       // Reserve a slice of the host for each outstanding batch. Rust
       // compact hosts default to four prefilled waves, so an 8-worker
@@ -1394,6 +1545,8 @@ function transitionToFineStage(session: ActiveSession): void {
  * filter that runs at stage transition.
  */
 function handleBatchResult(peer: Peer, message: Extract<ClusterMessage, { kind: 'batch_result' }>): void {
+  recordPerfResult(message.result.batchId);
+  recordPerfShadow(peer.peerId, message.result.shadowStats);
   if (!activeSession || message.sessionId !== activeSession.sessionId) {
     log('warn', 'batch_result for unknown/old session, ignored', {
       from: peer.peerId,

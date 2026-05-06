@@ -101,15 +101,22 @@ describe('scenario compare registry', () => {
 
 describe('scenario compare runner + formatting', () => {
   it('builds reproducible compare output with deterministic seeds', async () => {
+    // simulationRunsOverride bumped 40 → 500. At 40 trials the standard
+    // error on deltaSuccessRate (~16%) was large enough that whether ANY
+    // recommendation cleared the inclusion threshold became dependent on
+    // engine-update-induced drift rather than the property under test
+    // (deterministic + reproducible compare output). 500 trials puts SE
+    // around 4.5% so the rankedRecommendations array reliably contains
+    // at least one entry.
     const first = await runScenarioCompare(buildInput(), {
       scenarioIds: ['base'],
-      simulationRunsOverride: 40,
+      simulationRunsOverride: 500,
       seedBase: 7331,
       seedStrategy: 'shared',
     });
     const second = await runScenarioCompare(buildInput(), {
       scenarioIds: ['base'],
-      simulationRunsOverride: 40,
+      simulationRunsOverride: 500,
       seedBase: 7331,
       seedStrategy: 'shared',
     });
@@ -117,7 +124,7 @@ describe('scenario compare runner + formatting', () => {
     expect(second).toEqual(first);
     expect(first.results[0].scenarioName).toBe('Base');
     expect(first.results[0].topRecommendation).not.toBeNull();
-  });
+  }, 30_000);
 
   it('formats compare output rows for display', () => {
     const rows = buildScenarioCompareDisplayRows({

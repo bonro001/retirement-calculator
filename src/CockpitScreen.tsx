@@ -3174,7 +3174,15 @@ export function CockpitScreen() {
   // recommendation. If no corpus exists yet, do not run the old
   // bisection fallback automatically; it can monopolize the main thread
   // long enough that the user cannot click into the mining screen.
-  const corpusRecommendation = recommendation.policy;
+  //
+  // Stale-corpus is treated as no-corpus for the path-MC step: the cached
+  // policy was mined against a different fingerprint, so running two full
+  // Monte Carlo passes for it (forward-looking + historical, ~5-15s on
+  // main thread) is wasted work — the household just gets the banner
+  // telling them to re-mine. Only run the recommended-path MC when the
+  // corpus is actually fresh.
+  const corpusRecommendation =
+    recommendation.state === 'fresh' ? recommendation.policy : null;
   const useCorpusPick = corpusRecommendation != null;
 
   const recommendedPath = useRecommendedPath(
