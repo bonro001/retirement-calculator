@@ -3332,6 +3332,7 @@ export function CockpitScreen() {
       // solvency ≥ 70%) — feasibility is implicit in the recommendation.
       true
     : (spendOptResult?.feasible ?? null);
+  const hasTrustHeadline = optimizedSolventRate !== null || planPath !== null;
   // Banner triggers only when the legacy bisection chain runs and
   // declares the plan infeasible. Corpus path never sets this — when
   // no record clears the ranker's gates, `recommendation.policy` is
@@ -3401,8 +3402,10 @@ export function CockpitScreen() {
         <p className="text-xs text-stone-400">
           {planPath
             ? `${yearlySeries.length}-year horizon`
-            : recommendedPath.computing && useCorpusPick
-              ? 'Projecting adopted plan'
+            : useCorpusPick
+              ? 'Mined policy loaded'
+              : recommendedPath.computing
+                ? 'Projecting adopted plan'
               : 'Run a plan to populate'}
         </p>
       </div>
@@ -3567,7 +3570,7 @@ export function CockpitScreen() {
           <p className="text-[11px] font-medium uppercase tracking-[0.2em] text-stone-400">
             Trust
           </p>
-          {planPath ? (
+          {hasTrustHeadline ? (
             <>
               {/* The Trust card now reads from the OPTIMIZED plan when
                *  available — i.e., the projection at (recommended SS,
@@ -3579,7 +3582,7 @@ export function CockpitScreen() {
                 const useOpt = optimizedSolventRate !== null;
                 const solventForDisplay = useOpt
                   ? optimizedSolventRate!
-                  : planPath.successRate;
+                  : (planPath?.successRate ?? 0);
                 const legacyForDisplay = useOpt
                   ? optimizedLegacyRate
                   : legacyAttainmentRate;
