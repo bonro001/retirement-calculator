@@ -4,6 +4,7 @@ import type { PlanEvaluation } from './plan-evaluation';
 import { buildEvaluationFingerprint } from './evaluation-fingerprint';
 import { loadPlanEvalFromCache, savePlanEvalToCache } from './plan-eval-cache';
 import {
+  DEFAULT_LEGACY_TARGET_TODAY_DOLLARS,
   loadLegacyTargetFromCache,
   saveLegacyTargetToCache,
 } from './legacy-target-cache';
@@ -428,22 +429,21 @@ const restoredEvalContext = loadPlanEvalFromCache(initialFingerprint);
 // `set()` call so the very first render already shows the right number
 // — no flash of the seed default.
 const restoredLegacyTarget = loadLegacyTargetFromCache();
-const seedDataWithRestoredLegacy: SeedData =
-  restoredLegacyTarget === undefined
-    ? initialSeedData
-    : {
-        ...initialSeedData,
-        goals: {
-          ...(initialSeedData.goals ?? {}),
-          legacyTargetTodayDollars: restoredLegacyTarget,
-        },
-      };
+const initialLegacyTarget =
+  restoredLegacyTarget ?? DEFAULT_LEGACY_TARGET_TODAY_DOLLARS;
+const seedDataWithRestoredLegacy: SeedData = {
+  ...initialSeedData,
+  goals: {
+    ...(initialSeedData.goals ?? {}),
+    legacyTargetTodayDollars: initialLegacyTarget,
+  },
+};
 
 const initialSnapshots: PlanSnapshot[] = (() => {
   const existing = loadSnapshots();
   if (existing.length) return existing;
   const seeded = [
-    buildSnapshot(initialSeedData, {
+    buildSnapshot(seedDataWithRestoredLegacy, {
       capturedAt: new Date().toISOString(),
       label: 'baseline',
       successRate: restoredEvalContext?.evaluation?.summary?.successRate ?? null,

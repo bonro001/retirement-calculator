@@ -27,6 +27,7 @@ import { PolicyMiningResultsTable } from './PolicyMiningResultsTable';
 import { POLICY_MINER_ENGINE_VERSION } from './policy-miner-types';
 import { POLICY_MINING_TRIAL_COUNT } from './policy-mining-config';
 import { SOLVENCY_DEFENSE_FLOOR } from './policy-ranker';
+import { DEFAULT_LEGACY_TARGET_TODAY_DOLLARS } from './legacy-target-cache';
 import type { MarketAssumptions } from './types';
 import type { PolicyAxes } from './policy-miner-types';
 import { AxisPruningCard } from './AxisPruningCard';
@@ -125,7 +126,9 @@ export function MiningScreen() {
     );
   }, [data, assumptions, selectedStressors, selectedResponses]);
 
-  const legacyTargetTodayDollars = data?.goals?.legacyTargetTodayDollars ?? 0;
+  const legacyTargetTodayDollars =
+    data?.goals?.legacyTargetTodayDollars ??
+    DEFAULT_LEGACY_TARGET_TODAY_DOLLARS;
 
   if (!data || !assumptions) {
     return (
@@ -172,6 +175,7 @@ export function MiningScreen() {
         baselineFingerprint={policyMiningFingerprint || null}
         engineVersion={POLICY_MINER_ENGINE_VERSION}
         dispatcherUrl={dispatcherUrl}
+        legacyTargetTodayDollars={legacyTargetTodayDollars}
         currentPlan={
           policyMiningFingerprint
             ? {

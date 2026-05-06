@@ -184,7 +184,14 @@ export async function loadClusterSessions(
 export async function loadClusterEvaluations(
   dispatcherUrl: string,
   sessionId: string,
-  options?: { topN?: number; minFeasibility?: number; minSolvency?: number },
+  options?: {
+    topN?: number;
+    minFeasibility?: number;
+    minSolvency?: number;
+    spend?: number;
+    minSpend?: number;
+    maxSpend?: number;
+  },
 ): Promise<ClusterEvaluationsPayload> {
   const qsParts: string[] = [];
   if (options?.topN && options.topN > 0) {
@@ -199,6 +206,15 @@ export async function loadClusterEvaluations(
     qsParts.push(
       `minSolvency=${encodeURIComponent(String(options.minSolvency))}`,
     );
+  }
+  if (options?.spend && options.spend > 0) {
+    qsParts.push(`spend=${encodeURIComponent(String(options.spend))}`);
+  }
+  if (options?.minSpend && options.minSpend > 0) {
+    qsParts.push(`minSpend=${encodeURIComponent(String(options.minSpend))}`);
+  }
+  if (options?.maxSpend && options.maxSpend > 0) {
+    qsParts.push(`maxSpend=${encodeURIComponent(String(options.maxSpend))}`);
   }
   const qs = qsParts.length > 0 ? `?${qsParts.join('&')}` : '';
   return fetchJson<ClusterEvaluationsPayload>(

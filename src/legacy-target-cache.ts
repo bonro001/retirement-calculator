@@ -14,6 +14,8 @@
 
 const CACHE_KEY = 'retirement-plan:legacy-target-v1';
 
+export const DEFAULT_LEGACY_TARGET_TODAY_DOLLARS = 1_000_000;
+
 export function saveLegacyTargetToCache(value: number | undefined): void {
   try {
     if (value === undefined || value === null || Number.isNaN(value)) {

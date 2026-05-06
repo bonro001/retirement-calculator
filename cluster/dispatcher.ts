@@ -203,6 +203,7 @@ const CAPACITY_NACK_COOLDOWN_MS = 100;
  *  it for the current session so healthy hosts don't spend the run
  *  reprocessing its empty batches. */
 const INCOMPLETE_RESULT_QUARANTINE_THRESHOLD = 2;
+const hostUpdateRequestBackoff = new Map<string, number>();
 
 function sessionIdPrefix(fingerprint: string): string {
   const prefix = fingerprint.slice(0, 24);
@@ -837,6 +838,12 @@ function requestHostUpdateIfNeeded(peer: Peer, source: string): void {
   if (status === 'dirty' && !BLOCK_DIRTY_BUILDS) return;
 
   const expectedKey = formatBuildInfo(DISPATCHER_BUILD_INFO);
+  const requestKey = [
+    peer.displayName,
+    peer.buildInfo?.gitBranch ?? 'unknown-branch',
+    peer.buildInfo?.gitCommit ?? 'unknown-commit',
+    DISPATCHER_BUILD_INFO.gitCommit ?? expectedKey,
+  ].join('|');
   const nowMs = Date.now();
   if (
     peer.lastUpdateRequestKey === expectedKey &&
@@ -845,9 +852,17 @@ function requestHostUpdateIfNeeded(peer: Peer, source: string): void {
   ) {
     return;
   }
+  const lastRequestAtMs = hostUpdateRequestBackoff.get(requestKey);
+  if (
+    lastRequestAtMs !== undefined &&
+    nowMs - lastRequestAtMs < HOST_UPDATE_REQUEST_INTERVAL_MS
+  ) {
+    return;
+  }
 
   peer.lastUpdateRequestKey = expectedKey;
   peer.lastUpdateRequestAtMs = nowMs;
+  hostUpdateRequestBackoff.set(requestKey, nowMs);
   sendTo(peer, {
     kind: 'host_control',
     action: 'cycle_for_update',
@@ -1043,6 +1058,16 @@ function handleStartSession(peer: Peer, message: StartSessionMessage): void {
   const cfg = message.config;
   if (!cfg || !cfg.axes || !cfg.baselineFingerprint) {
     log('warn', 'start_session: invalid config', { from: peer.peerId });
+    return;
+  }
+  if (
+    !Number.isFinite(message.legacyTargetTodayDollars) ||
+    message.legacyTargetTodayDollars <= 0
+  ) {
+    log('warn', 'start_session rejected: missing legacy target', {
+      from: peer.peerId,
+      legacyTargetTodayDollars: message.legacyTargetTodayDollars,
+    });
     return;
   }
   const policies = enumeratePolicies(cfg.axes);
@@ -2119,6 +2144,10 @@ function startDispatcher(port: number, host?: string): void {
     //                   sort defaults to spend-desc so the top-N reflects
     //                   "highest spend that still clears the household
     //                   gates" — the answer the household actually wants.
+    //   ?spend=<dollars> / ?minSpend=<dollars> / ?maxSpend=<dollars>
+    //                   Optional spend-axis filters. Used by the UI to
+    //                   jump directly to a $1k refined tier without
+    //                   downloading every record in the session.
     //   ?sort=feasibility  (default when no minFeasibility) Sort
     //                   feasible-first (by bequestAttainmentRate desc),
     //                   then by spend desc among feasibles.
@@ -2154,6 +2183,12 @@ function startDispatcher(port: number, host?: string): void {
         const minSolvency = minSolvencyRaw
           ? Number.parseFloat(minSolvencyRaw)
           : 0;
+        const spendRaw = params.get('spend');
+        const spendFilter = spendRaw ? Number.parseInt(spendRaw, 10) : 0;
+        const minSpendRaw = params.get('minSpend');
+        const minSpend = minSpendRaw ? Number.parseInt(minSpendRaw, 10) : 0;
+        const maxSpendRaw = params.get('maxSpend');
+        const maxSpend = maxSpendRaw ? Number.parseInt(maxSpendRaw, 10) : 0;
         const sortMode =
           params.get('sort') ??
           (minFeasibility > 0 || minSolvency > 0 ? 'spend' : 'feasibility');
@@ -2168,6 +2203,22 @@ function startDispatcher(port: number, host?: string): void {
           evaluations = evaluations.filter(
             (e) => (e.outcome?.solventSuccessRate ?? 0) >= minSolvency,
           );
+        }
+        if (Number.isFinite(spendFilter) && spendFilter > 0) {
+          evaluations = evaluations.filter(
+            (e) => e.policy?.annualSpendTodayDollars === spendFilter,
+          );
+        } else {
+          if (Number.isFinite(minSpend) && minSpend > 0) {
+            evaluations = evaluations.filter(
+              (e) => (e.policy?.annualSpendTodayDollars ?? 0) >= minSpend,
+            );
+          }
+          if (Number.isFinite(maxSpend) && maxSpend > 0) {
+            evaluations = evaluations.filter(
+              (e) => (e.policy?.annualSpendTodayDollars ?? 0) <= maxSpend,
+            );
+          }
         }
         if (sortMode === 'spend') {
           // Highest-spend gate-passers first; solvency and legacy

@@ -95,6 +95,8 @@ interface Props {
    * table still works but only shows absolute numbers.
    */
   currentPlan?: CurrentPlanReference;
+  /** Current household legacy target, used to avoid showing stale zero-target mines as decision-grade. */
+  legacyTargetTodayDollars?: number;
   /** Default feasibility threshold (0..1). Defaults to 0.85. */
   defaultFeasibilityThreshold?: number;
   /** Max rows to render. Defaults to 25. */
@@ -135,6 +137,17 @@ function formatCurrency(amount: number): string {
   if (amount >= 1_000_000) return `$${(amount / 1_000_000).toFixed(1)}M`;
   if (amount >= 1_000) return `$${(amount / 1_000).toFixed(0)}k`;
   return `$${Math.round(amount)}`;
+}
+
+function formatSpendStep(levels: number[]): string | null {
+  if (levels.length < 2) return null;
+  let step: number | null = null;
+  for (let i = 1; i < levels.length; i += 1) {
+    const diff = levels[i]! - levels[i - 1]!;
+    if (diff <= 0) continue;
+    step = step === null ? diff : Math.min(step, diff);
+  }
+  return step !== null ? `${formatCurrency(step)} steps` : null;
 }
 
 function formatPct(rate: number | null): string {
@@ -261,6 +274,7 @@ export function PolicyMiningResultsTable({
   engineVersion,
   dispatcherUrl,
   currentPlan,
+  legacyTargetTodayDollars,
   defaultFeasibilityThreshold = DEFAULT_FEASIBILITY_THRESHOLD,
   rowLimit = DEFAULT_ROW_LIMIT,
   sensitivityControls,
@@ -278,6 +292,7 @@ export function PolicyMiningResultsTable({
   const [solvencyThreshold, setSolvencyThreshold] = useState<number>(
     SOLVENCY_DEFENSE_FLOOR,
   );
+  const [spendFilter, setSpendFilter] = useState<number | null>(null);
   const [sort, setSort] = useState<SortSpec>({
     key: 'spend',
     direction: 'desc',
@@ -307,6 +322,30 @@ export function PolicyMiningResultsTable({
   const clearLastPolicyAdoption = useAppStore((s) => s.clearLastPolicyAdoption);
 
   const clusterEnabled = !!dispatcherUrl;
+  const selectedSession = clusterSessions.find(
+    (s) => s.sessionId === selectedSessionId,
+  );
+  const spendLevels = useMemo(() => {
+    const axis = selectedSession?.manifest?.config?.axes?.annualSpendTodayDollars;
+    const sourceLevels =
+      source === 'cluster' && axis && axis.length > 0
+        ? axis
+        : evaluations.map((e) => e.policy.annualSpendTodayDollars);
+    return Array.from(new Set(sourceLevels)).sort((a, b) => a - b);
+  }, [selectedSession, source, evaluations]);
+  const spendRangeLabel = useMemo(() => {
+    if (spendLevels.length === 0) return null;
+    const min = spendLevels[0]!;
+    const max = spendLevels[spendLevels.length - 1]!;
+    const step = formatSpendStep(spendLevels);
+    if (min === max) return `${formatCurrency(min)}/yr`;
+    return `${formatCurrency(min)}-${formatCurrency(max)}/yr${step ? ` · ${step}` : ''}`;
+  }, [spendLevels]);
+
+  useEffect(() => {
+    if (spendFilter === null || spendLevels.length === 0) return;
+    if (!spendLevels.includes(spendFilter)) setSpendFilter(null);
+  }, [spendFilter, spendLevels]);
 
   // If the dispatcher URL goes away (user cleared it), drop back to local
   // so the empty state isn't confusing.
@@ -362,13 +401,25 @@ export function PolicyMiningResultsTable({
         // is intentionally hidden, so a newly completed remine must
         // replace an older matching session without user intervention.
         if (sessions.length > 0) {
-          const match = baselineFingerprint
-            ? sessions.find(
+          const baselineMatches = baselineFingerprint
+            ? sessions.filter(
                 (s) =>
                   s.manifest?.config?.baselineFingerprint === baselineFingerprint,
               )
-            : null;
-          const preferred = match ?? sessions[0];
+            : [];
+          const legacyTargetMatch =
+            legacyTargetTodayDollars && legacyTargetTodayDollars > 0
+              ? baselineMatches.find(
+                  (s) =>
+                    s.manifest?.legacyTargetTodayDollars ===
+                    legacyTargetTodayDollars,
+                )
+              : null;
+          const match = baselineMatches[0] ?? null;
+          const preferred =
+            legacyTargetMatch ??
+            match ??
+            sessions[0];
           if (preferred.sessionId !== selectedSessionId) {
             setSelectedSessionId(preferred.sessionId);
           }
@@ -385,7 +436,13 @@ export function PolicyMiningResultsTable({
       cancelled = true;
       clearInterval(handle);
     };
-  }, [source, dispatcherUrl, baselineFingerprint, selectedSessionId]);
+  }, [
+    source,
+    dispatcherUrl,
+    baselineFingerprint,
+    selectedSessionId,
+    legacyTargetTodayDollars,
+  ]);
 
   // Cluster-mode evaluations: poll the selected session.
   // Phase 2.D: ask the dispatcher for only the top N results most of
@@ -429,6 +486,7 @@ export function PolicyMiningResultsTable({
             topN,
             minFeasibility: serverMinLegacy,
             minSolvency: serverMinSolvency,
+            spend: spendFilter ?? undefined,
           },
         );
         if (cancelled) return;
@@ -457,6 +515,7 @@ export function PolicyMiningResultsTable({
     rowLimit,
     serverMinLegacy,
     serverMinSolvency,
+    spendFilter,
   ]);
 
   const filtered = useMemo(() => {
@@ -464,10 +523,12 @@ export function PolicyMiningResultsTable({
       .filter(
         (e) =>
           e.outcome.bequestAttainmentRate >= defaultFeasibilityThreshold &&
-          e.outcome.solventSuccessRate >= solvencyThreshold,
+          e.outcome.solventSuccessRate >= solvencyThreshold &&
+          (spendFilter === null ||
+            e.policy.annualSpendTodayDollars === spendFilter),
       )
       .sort((a, b) => compareEvals(a, b, sort));
-  }, [evaluations, defaultFeasibilityThreshold, solvencyThreshold, sort]);
+  }, [evaluations, defaultFeasibilityThreshold, solvencyThreshold, spendFilter, sort]);
 
   /**
    * Highest-spend evaluation that still clears both policy gates.
@@ -564,14 +625,17 @@ export function PolicyMiningResultsTable({
     return sort.direction === 'desc' ? ' ↓' : ' ↑';
   };
 
-  const selectedSession = clusterSessions.find(
-    (s) => s.sessionId === selectedSessionId,
-  );
   const baselineMismatch =
     source === 'cluster' &&
     selectedSession &&
     baselineFingerprint &&
     selectedSession.manifest?.config?.baselineFingerprint !== baselineFingerprint;
+  const legacyTargetMismatch =
+    source === 'cluster' &&
+    selectedSession &&
+    legacyTargetTodayDollars != null &&
+    legacyTargetTodayDollars > 0 &&
+    selectedSession.manifest?.legacyTargetTodayDollars !== legacyTargetTodayDollars;
 
   // E.7 — plain-English explanation of the most recent adoption. Looks
   // up the adopted policy in the visible evaluations to enrich the
@@ -709,6 +773,32 @@ export function PolicyMiningResultsTable({
            *  results. */}
           <div className="flex items-center gap-2">
             <label className="text-[11px] font-medium uppercase tracking-wider text-stone-500">
+              Spend
+            </label>
+            <select
+              value={spendFilter ?? ''}
+              onChange={(e) =>
+                setSpendFilter(
+                  e.target.value ? Number.parseInt(e.target.value, 10) : null,
+                )
+              }
+              className="rounded-md border border-stone-200 bg-white px-2 py-1 text-[12px] font-semibold text-stone-700"
+            >
+              <option value="">All</option>
+              {spendLevels.map((level) => (
+                <option key={level} value={level}>
+                  {formatCurrency(level)}
+                </option>
+              ))}
+            </select>
+            {spendRangeLabel && (
+              <span className="text-[11px] text-stone-500">
+                {spendRangeLabel}
+              </span>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            <label className="text-[11px] font-medium uppercase tracking-wider text-stone-500">
               Min solvency
             </label>
             <input
@@ -739,7 +829,7 @@ export function PolicyMiningResultsTable({
        *  below stays — that's the one piece of session metadata that
        *  matters to the user (when their plan has drifted since the
        *  last mine ran). */}
-      {source === 'cluster' && (clusterError || baselineMismatch) && (
+      {source === 'cluster' && (clusterError || baselineMismatch || legacyTargetMismatch) && (
         <div className="mb-3 flex flex-wrap items-center gap-2">
           {clusterError && (
             <span className="text-[11px] text-rose-600">{clusterError}</span>
@@ -748,6 +838,11 @@ export function PolicyMiningResultsTable({
             <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-800">
               Baseline differs from current plan — diff columns may not be
               meaningful
+            </span>
+          )}
+          {legacyTargetMismatch && (
+            <span className="rounded-full bg-rose-100 px-2 py-0.5 text-[11px] font-medium text-rose-800">
+              Mine used {formatCurrency(selectedSession.manifest?.legacyTargetTodayDollars ?? 0)} legacy target — remine for {formatCurrency(legacyTargetTodayDollars)}
             </span>
           )}
         </div>

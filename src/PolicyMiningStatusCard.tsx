@@ -500,6 +500,13 @@ export function PolicyMiningStatusCard({
   const startMining = () => {
     if (!controls || !baselineFingerprint) return;
     setStartError(null);
+    if (
+      !Number.isFinite(controls.legacyTargetTodayDollars) ||
+      controls.legacyTargetTodayDollars <= 0
+    ) {
+      setStartError('Set a legacy target before mining.');
+      return;
+    }
     // The picker (Quick / Full) wins over any cap the caller passed,
     // since the picker is the household's just-now choice. Caller's
     // cap is the floor for legacy code paths that don't show a picker.

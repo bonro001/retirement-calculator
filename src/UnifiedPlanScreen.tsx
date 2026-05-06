@@ -40,6 +40,7 @@ import { POLICY_MINING_TRIAL_COUNT } from './policy-mining-config';
 import { SOLVENCY_DEFENSE_FLOOR } from './policy-ranker';
 import { CalibrationDashboard } from './CalibrationDashboard';
 import { AxisPruningCard } from './AxisPruningCard';
+import { DEFAULT_LEGACY_TARGET_TODAY_DOLLARS } from './legacy-target-cache';
 
 const INTERACTIVE_UNIFIED_PLAN_MAX_RUNS = 250;
 /**
@@ -1126,7 +1127,9 @@ export function UnifiedPlanScreen({
   const setPlanAnalysisStatusInStore = useAppStore((state) => state.setPlanAnalysisStatus);
   const unifiedPlanRerunNonce = useAppStore((state) => state.unifiedPlanRerunNonce);
 
-  const [legacyTargetTodayDollars, setLegacyTargetTodayDollars] = useState(1_000_000);
+  const [legacyTargetTodayDollars, setLegacyTargetTodayDollars] = useState(
+    DEFAULT_LEGACY_TARGET_TODAY_DOLLARS,
+  );
   const [legacyPriority, setLegacyPriority] = useState<LegacyPriority>('important');
   const [successFloorMode, setSuccessFloorMode] =
     useState<SuccessFloorMode>('balanced');
@@ -2551,6 +2554,7 @@ export function UnifiedPlanScreen({
           baselineFingerprint={policyMiningFingerprint || null}
           engineVersion={POLICY_MINER_ENGINE_VERSION}
           dispatcherUrl={dispatcherUrl}
+          legacyTargetTodayDollars={legacyTargetTodayDollars}
           currentPlan={
             policyMiningFingerprint
               ? {
