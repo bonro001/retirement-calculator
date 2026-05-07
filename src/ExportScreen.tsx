@@ -58,6 +58,17 @@ interface AuditContext {
   debbieBirthYear: number;
 }
 
+interface PortfolioCompositionRow {
+  bucket: AccountBucketType | 'hsa';
+  label: string;
+  balance: number;
+  stocks: number;
+  bonds: number;
+  cash: number;
+  other: number;
+  rawAllocation: Map<AssetKey, number>;
+}
+
 const AUDIT_COLUMNS: AuditColumn[] = [
   // Identity
   { key: 'year', label: 'Year', format: 'integer', pick: (y) => y.year },
@@ -147,6 +158,16 @@ function buildAuditCsv(
   return [header, ...rows].join('\n');
 }
 
+function buildAuditContext(data: SeedData): AuditContext {
+  const robBirthYear = data.household.robBirthDate
+    ? new Date(data.household.robBirthDate).getUTCFullYear()
+    : 0;
+  const debbieBirthYear = data.household.debbieBirthDate
+    ? new Date(data.household.debbieBirthDate).getUTCFullYear()
+    : 0;
+  return { robBirthYear, debbieBirthYear };
+}
+
 function formatAuditCell(
   raw: number | string,
   format: AuditCellFormat,
@@ -226,68 +247,338 @@ const BUCKET_LABELS: Record<AccountBucketType, string> = {
   cash: 'Cash',
 };
 
-function PortfolioCompositionTable({ data }: { data: SeedData }) {
-  const rows = useMemo(() => {
-    const out: Array<{
-      bucket: AccountBucketType | 'hsa';
-      label: string;
-      balance: number;
-      stocks: number;
-      bonds: number;
-      cash: number;
-      other: number;
-      rawAllocation: Map<AssetKey, number>;
-    }> = [];
-    const pushBucket = (
-      bucket: AccountBucketType | 'hsa',
-      label: string,
-      ab: AccountBucket | undefined,
-    ) => {
-      if (!ab) return;
-      const balance = ab.balance ?? 0;
-      const allocation = flattenAllocation(ab.targetAllocation ?? {});
-      let stocks = 0;
-      let bonds = 0;
-      let cashDollars = 0;
-      let other = 0;
-      for (const [k, frac] of allocation) {
-        const dollars = balance * frac;
-        const cls = classifyAsset(k);
-        if (cls === 'stocks') stocks += dollars;
-        else if (cls === 'bonds') bonds += dollars;
-        else if (cls === 'cash') cashDollars += dollars;
-        else other += dollars;
+function buildPortfolioCompositionRows(data: SeedData): PortfolioCompositionRow[] {
+  const out: PortfolioCompositionRow[] = [];
+  const pushBucket = (
+    bucket: AccountBucketType | 'hsa',
+    label: string,
+    ab: AccountBucket | undefined,
+  ) => {
+    if (!ab) return;
+    const balance = ab.balance ?? 0;
+    const allocation = flattenAllocation(ab.targetAllocation ?? {});
+    let stocks = 0;
+    let bonds = 0;
+    let cashDollars = 0;
+    let other = 0;
+    for (const [k, frac] of allocation) {
+      const dollars = balance * frac;
+      const cls = classifyAsset(k);
+      if (cls === 'stocks') stocks += dollars;
+      else if (cls === 'bonds') bonds += dollars;
+      else if (cls === 'cash') cashDollars += dollars;
+      else other += dollars;
+    }
+    out.push({
+      bucket,
+      label,
+      balance,
+      stocks,
+      bonds,
+      cash: cashDollars,
+      other,
+      rawAllocation: allocation,
+    });
+  };
+  for (const b of BUCKET_ORDER) {
+    pushBucket(b, BUCKET_LABELS[b], data.accounts[b]);
+  }
+  if (data.accounts.hsa) {
+    pushBucket('hsa', 'HSA', data.accounts.hsa);
+  }
+  return out;
+}
+
+function summarizePortfolioRows(rows: PortfolioCompositionRow[]) {
+  const totals = { balance: 0, stocks: 0, bonds: 0, cash: 0, other: 0 };
+  for (const r of rows) {
+    totals.balance += r.balance;
+    totals.stocks += r.stocks;
+    totals.bonds += r.bonds;
+    totals.cash += r.cash;
+    totals.other += r.other;
+  }
+  return totals;
+}
+
+function buildPortfolioCsv(data: SeedData): string {
+  const rows = buildPortfolioCompositionRows(data);
+  const totals = summarizePortfolioRows(rows);
+  // Two-section CSV: top half is the bucket × asset matrix; bottom
+  // half is per-source-account, per-holding detail. Spreadsheets
+  // open it as a single sheet — auditors can split into two ranges
+  // if they want.
+  const escape = (s: string): string =>
+    /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  const round = (n: number) => Math.round(n).toString();
+  const lines: string[] = [];
+  lines.push('# Portfolio composition (bucket × asset class)');
+  lines.push(
+    'Bucket,Balance,% of total,Stocks,Bonds,Cash,Other,Raw allocation',
+  );
+  for (const r of rows) {
+    const pct = totals.balance > 0 ? (r.balance / totals.balance) * 100 : 0;
+    const rawAllocStr = Array.from(r.rawAllocation.entries())
+      .map(([k, v]) => `${k}=${(v * 100).toFixed(0)}%`)
+      .join('; ');
+    lines.push(
+      [
+        escape(r.label),
+        round(r.balance),
+        pct.toFixed(1),
+        round(r.stocks),
+        round(r.bonds),
+        round(r.cash),
+        round(r.other),
+        escape(rawAllocStr),
+      ].join(','),
+    );
+  }
+  lines.push(
+    [
+      'TOTAL',
+      round(totals.balance),
+      '100.0',
+      round(totals.stocks),
+      round(totals.bonds),
+      round(totals.cash),
+      round(totals.other),
+      '',
+    ].join(','),
+  );
+  lines.push('');
+  lines.push('# Holdings detail (per source account)');
+  lines.push('Bucket,Account,Holding symbol,Name,Value,Managed');
+  const buckets: Array<[string, AccountBucket | undefined]> = [
+    [BUCKET_LABELS.pretax, data.accounts.pretax],
+    [BUCKET_LABELS.roth, data.accounts.roth],
+    [BUCKET_LABELS.taxable, data.accounts.taxable],
+    [BUCKET_LABELS.cash, data.accounts.cash],
+    ['HSA', data.accounts.hsa],
+  ];
+  for (const [label, ab] of buckets) {
+    if (!ab?.sourceAccounts) continue;
+    for (const acct of ab.sourceAccounts) {
+      if (acct.holdings && acct.holdings.length > 0) {
+        for (const h of acct.holdings) {
+          lines.push(
+            [
+              escape(label),
+              escape(acct.name),
+              escape(h.symbol ?? ''),
+              escape(h.name ?? ''),
+              round(h.value ?? 0),
+              acct.managed ? 'true' : 'false',
+            ].join(','),
+          );
+        }
+      } else {
+        lines.push(
+          [
+            escape(label),
+            escape(acct.name),
+            '',
+            '(no holdings detail)',
+            round(acct.balance ?? 0),
+            acct.managed ? 'true' : 'false',
+          ].join(','),
+        );
       }
-      out.push({
-        bucket,
-        label,
-        balance,
-        stocks,
-        bonds,
-        cash: cashDollars,
-        other,
-        rawAllocation: allocation,
-      });
-    };
-    for (const b of BUCKET_ORDER) {
-      pushBucket(b, BUCKET_LABELS[b], data.accounts[b]);
     }
-    if (data.accounts.hsa) {
-      pushBucket('hsa', 'HSA', data.accounts.hsa);
+  }
+  return lines.join('\n');
+}
+
+function downloadBlob(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+interface ZipEntryInput {
+  filename: string;
+  content: string;
+}
+
+interface PreparedZipEntry {
+  filenameBytes: Uint8Array;
+  compressedBytes: Uint8Array;
+  uncompressedSize: number;
+  crc32: number;
+  compressionMethod: 0 | 8;
+}
+
+const ZIP_ENCODER = new TextEncoder();
+
+const CRC32_TABLE = (() => {
+  const table = new Uint32Array(256);
+  for (let i = 0; i < 256; i += 1) {
+    let value = i;
+    for (let bit = 0; bit < 8; bit += 1) {
+      value = value & 1 ? 0xedb88320 ^ (value >>> 1) : value >>> 1;
     }
-    return out;
-  }, [data]);
+    table[i] = value >>> 0;
+  }
+  return table;
+})();
+
+function crc32(bytes: Uint8Array) {
+  let crc = 0xffffffff;
+  for (const byte of bytes) {
+    crc = CRC32_TABLE[(crc ^ byte) & 0xff] ^ (crc >>> 8);
+  }
+  return (crc ^ 0xffffffff) >>> 0;
+}
+
+function concatBytes(parts: Uint8Array[]) {
+  const totalLength = parts.reduce((total, part) => total + part.length, 0);
+  const out = new Uint8Array(totalLength);
+  let offset = 0;
+  for (const part of parts) {
+    out.set(part, offset);
+    offset += part.length;
+  }
+  return out;
+}
+
+function bytesToArrayBuffer(bytes: Uint8Array): ArrayBuffer {
+  const buffer = new ArrayBuffer(bytes.byteLength);
+  new Uint8Array(buffer).set(bytes);
+  return buffer;
+}
+
+function writeUint16(view: DataView, offset: number, value: number) {
+  view.setUint16(offset, value & 0xffff, true);
+}
+
+function writeUint32(view: DataView, offset: number, value: number) {
+  view.setUint32(offset, value >>> 0, true);
+}
+
+function dosDateTime(date = new Date()) {
+  const year = Math.max(1980, date.getFullYear());
+  const dosTime =
+    (date.getHours() << 11) |
+    (date.getMinutes() << 5) |
+    Math.floor(date.getSeconds() / 2);
+  const dosDate =
+    ((year - 1980) << 9) |
+    ((date.getMonth() + 1) << 5) |
+    date.getDate();
+  return { dosDate, dosTime };
+}
+
+async function blobToBytes(blob: Blob) {
+  return new Uint8Array(await blob.arrayBuffer());
+}
+
+async function maybeDeflateRaw(bytes: Uint8Array): Promise<Uint8Array | null> {
+  const compressionStreamCtor = (
+    globalThis as unknown as {
+      CompressionStream?: new (format: string) => TransformStream<Uint8Array, Uint8Array>;
+    }
+  ).CompressionStream;
+  if (!compressionStreamCtor) {
+    return null;
+  }
+  try {
+    const stream = new Blob([bytesToArrayBuffer(bytes)]).stream().pipeThrough(
+      new compressionStreamCtor('deflate-raw'),
+    );
+    return await blobToBytes(await new Response(stream).blob());
+  } catch {
+    return null;
+  }
+}
+
+async function prepareZipEntry(entry: ZipEntryInput): Promise<PreparedZipEntry> {
+  const uncompressedBytes = ZIP_ENCODER.encode(entry.content);
+  const compressedBytes = await maybeDeflateRaw(uncompressedBytes);
+  return {
+    filenameBytes: ZIP_ENCODER.encode(entry.filename),
+    compressedBytes: compressedBytes ?? uncompressedBytes,
+    uncompressedSize: uncompressedBytes.length,
+    crc32: crc32(uncompressedBytes),
+    compressionMethod: compressedBytes ? 8 : 0,
+  };
+}
+
+async function buildZipBlob(entries: ZipEntryInput[]) {
+  const preparedEntries = await Promise.all(entries.map(prepareZipEntry));
+  const localParts: Uint8Array[] = [];
+  const centralParts: Uint8Array[] = [];
+  const { dosDate, dosTime } = dosDateTime();
+  let offset = 0;
+
+  for (const entry of preparedEntries) {
+    const localHeader = new Uint8Array(30 + entry.filenameBytes.length);
+    const localView = new DataView(localHeader.buffer);
+    writeUint32(localView, 0, 0x04034b50);
+    writeUint16(localView, 4, 20);
+    writeUint16(localView, 6, 0x0800);
+    writeUint16(localView, 8, entry.compressionMethod);
+    writeUint16(localView, 10, dosTime);
+    writeUint16(localView, 12, dosDate);
+    writeUint32(localView, 14, entry.crc32);
+    writeUint32(localView, 18, entry.compressedBytes.length);
+    writeUint32(localView, 22, entry.uncompressedSize);
+    writeUint16(localView, 26, entry.filenameBytes.length);
+    writeUint16(localView, 28, 0);
+    localHeader.set(entry.filenameBytes, 30);
+    localParts.push(localHeader, entry.compressedBytes);
+
+    const centralHeader = new Uint8Array(46 + entry.filenameBytes.length);
+    const centralView = new DataView(centralHeader.buffer);
+    writeUint32(centralView, 0, 0x02014b50);
+    writeUint16(centralView, 4, 20);
+    writeUint16(centralView, 6, 20);
+    writeUint16(centralView, 8, 0x0800);
+    writeUint16(centralView, 10, entry.compressionMethod);
+    writeUint16(centralView, 12, dosTime);
+    writeUint16(centralView, 14, dosDate);
+    writeUint32(centralView, 16, entry.crc32);
+    writeUint32(centralView, 20, entry.compressedBytes.length);
+    writeUint32(centralView, 24, entry.uncompressedSize);
+    writeUint16(centralView, 28, entry.filenameBytes.length);
+    writeUint16(centralView, 30, 0);
+    writeUint16(centralView, 32, 0);
+    writeUint16(centralView, 34, 0);
+    writeUint16(centralView, 36, 0);
+    writeUint32(centralView, 38, 0);
+    writeUint32(centralView, 42, offset);
+    centralHeader.set(entry.filenameBytes, 46);
+    centralParts.push(centralHeader);
+
+    offset += localHeader.length + entry.compressedBytes.length;
+  }
+
+  const centralDirectory = concatBytes(centralParts);
+  const endRecord = new Uint8Array(22);
+  const endView = new DataView(endRecord.buffer);
+  writeUint32(endView, 0, 0x06054b50);
+  writeUint16(endView, 4, 0);
+  writeUint16(endView, 6, 0);
+  writeUint16(endView, 8, preparedEntries.length);
+  writeUint16(endView, 10, preparedEntries.length);
+  writeUint32(endView, 12, centralDirectory.length);
+  writeUint32(endView, 16, offset);
+  writeUint16(endView, 20, 0);
+
+  return new Blob([bytesToArrayBuffer(concatBytes([...localParts, centralDirectory, endRecord]))], {
+    type: 'application/zip',
+  });
+}
+
+function PortfolioCompositionTable({ data }: { data: SeedData }) {
+  const rows = useMemo(() => buildPortfolioCompositionRows(data), [data]);
 
   const totals = useMemo(() => {
-    const t = { balance: 0, stocks: 0, bonds: 0, cash: 0, other: 0 };
-    for (const r of rows) {
-      t.balance += r.balance;
-      t.stocks += r.stocks;
-      t.bonds += r.bonds;
-      t.cash += r.cash;
-      t.other += r.other;
-    }
-    return t;
+    return summarizePortfolioRows(rows);
   }, [rows]);
 
   const fmt = (n: number): string => {
@@ -298,100 +589,11 @@ function PortfolioCompositionTable({ data }: { data: SeedData }) {
   };
 
   const downloadHoldingsCsv = () => {
-    // Two-section CSV: top half is the bucket × asset matrix; bottom
-    // half is per-source-account, per-holding detail. Spreadsheets
-    // open it as a single sheet — auditors can split into two ranges
-    // if they want.
-    const escape = (s: string): string =>
-      /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-    const round = (n: number) => Math.round(n).toString();
-    const lines: string[] = [];
-    lines.push('# Portfolio composition (bucket × asset class)');
-    lines.push(
-      'Bucket,Balance,% of total,Stocks,Bonds,Cash,Other,Raw allocation',
+    const csv = buildPortfolioCsv(data);
+    downloadBlob(
+      new Blob([csv], { type: 'text/csv;charset=utf-8' }),
+      `retirement-plan-portfolio-${new Date().toISOString().slice(0, 10)}.csv`,
     );
-    for (const r of rows) {
-      const pct = totals.balance > 0 ? (r.balance / totals.balance) * 100 : 0;
-      const rawAllocStr = Array.from(r.rawAllocation.entries())
-        .map(([k, v]) => `${k}=${(v * 100).toFixed(0)}%`)
-        .join('; ');
-      lines.push(
-        [
-          escape(r.label),
-          round(r.balance),
-          pct.toFixed(1),
-          round(r.stocks),
-          round(r.bonds),
-          round(r.cash),
-          round(r.other),
-          escape(rawAllocStr),
-        ].join(','),
-      );
-    }
-    lines.push(
-      [
-        'TOTAL',
-        round(totals.balance),
-        '100.0',
-        round(totals.stocks),
-        round(totals.bonds),
-        round(totals.cash),
-        round(totals.other),
-        '',
-      ].join(','),
-    );
-    lines.push('');
-    lines.push('# Holdings detail (per source account)');
-    lines.push('Bucket,Account,Holding symbol,Name,Value,Managed');
-    const buckets: Array<[string, AccountBucket | undefined]> = [
-      [BUCKET_LABELS.pretax, data.accounts.pretax],
-      [BUCKET_LABELS.roth, data.accounts.roth],
-      [BUCKET_LABELS.taxable, data.accounts.taxable],
-      [BUCKET_LABELS.cash, data.accounts.cash],
-      ['HSA', data.accounts.hsa],
-    ];
-    for (const [label, ab] of buckets) {
-      if (!ab?.sourceAccounts) continue;
-      for (const acct of ab.sourceAccounts) {
-        if (acct.holdings && acct.holdings.length > 0) {
-          for (const h of acct.holdings) {
-            lines.push(
-              [
-                escape(label),
-                escape(acct.name),
-                escape(h.symbol ?? ''),
-                escape(h.name ?? ''),
-                round(h.value ?? 0),
-                acct.managed ? 'true' : 'false',
-              ].join(','),
-            );
-          }
-        } else {
-          lines.push(
-            [
-              escape(label),
-              escape(acct.name),
-              '',
-              '(no holdings detail)',
-              round(acct.balance ?? 0),
-              acct.managed ? 'true' : 'false',
-            ].join(','),
-          );
-        }
-      }
-    }
-    const csv = lines.join('\n');
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `retirement-plan-portfolio-${new Date()
-      .toISOString()
-      .slice(0, 10)}.csv`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
   };
 
   return (
@@ -540,17 +742,10 @@ function YearByYearAuditTable({
 
   const downloadCsv = () => {
     const csv = buildAuditCsv(yearlySeries, ctx);
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `retirement-plan-yearly-audit-${new Date()
-      .toISOString()
-      .slice(0, 10)}.csv`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    downloadBlob(
+      new Blob([csv], { type: 'text/csv;charset=utf-8' }),
+      `retirement-plan-yearly-audit-${new Date().toISOString().slice(0, 10)}.csv`,
+    );
   };
 
   if (yearlySeries.length === 0) {
@@ -650,6 +845,7 @@ export function ExportScreen() {
   const [payload, setPayload] = useState<PlanningStateExport | null>(null);
   const [loadState, setLoadState] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [zipState, setZipState] = useState<'idle' | 'building' | 'error'>('idle');
   const requestCounterRef = useRef(0);
   const activeRequestIdRef = useRef<string | null>(null);
   const currentEvaluationFingerprint = useMemo(
@@ -848,12 +1044,76 @@ export function ExportScreen() {
     }
   };
 
+  const downloadExportZip = async () => {
+    if (!payload) {
+      return;
+    }
+    setZipState('building');
+    try {
+      const exportDate = new Date().toISOString().slice(0, 10);
+      const auditCtx = buildAuditContext(data);
+      const zipBlob = await buildZipBlob([
+        {
+          filename: `retirement-plan-state-${exportDate}.json`,
+          content: `${payloadJson}\n`,
+        },
+        {
+          filename: `retirement-plan-yearly-audit-${exportDate}.csv`,
+          content: `${buildAuditCsv(auditYearlySeries, auditCtx)}\n`,
+        },
+        {
+          filename: `retirement-plan-portfolio-${exportDate}.csv`,
+          content: `${buildPortfolioCsv(data)}\n`,
+        },
+      ]);
+      downloadBlob(zipBlob, `retirement-plan-exports-${exportDate}.zip`);
+      setZipState('idle');
+    } catch (error) {
+      // eslint-disable-next-line no-console
+      console.warn('[export] zip build failed:', error);
+      setZipState('error');
+    }
+  };
+
   return (
     <Panel
       title="Export"
-      subtitle="Machine-readable snapshot of the current planning state for external AI/simulation runners — plus a year-by-year audit table so a CPA / spreadsheet / second opinion can verify the plan column by column."
+      subtitle="Download the plan as one ZIP containing the full JSON state export, yearly audit CSV, and portfolio CSV — or use the individual sections below for quick spreadsheet checks."
     >
       <div className="space-y-4">
+        <div className="rounded-[24px] bg-blue-50 p-4 ring-1 ring-blue-100">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="space-y-1">
+              <p className="text-sm font-semibold text-blue-900">
+                Plan export bundle
+              </p>
+              <p className="text-xs text-blue-800">
+                One ZIP with all three sections: full planning-state JSON,
+                year-by-year audit CSV, and portfolio / holdings CSV.
+              </p>
+              <p className="text-xs text-blue-700">
+                {payload
+                  ? `${payload.version.schema} · ${auditYearlySeries.length} audit years · ready to download`
+                  : loadState === 'error'
+                    ? `Export failed: ${loadError}`
+                    : 'Building the JSON section before the ZIP can be created…'}
+              </p>
+              {zipState === 'error' ? (
+                <p className="text-xs text-red-700">
+                  ZIP build failed. The individual section downloads are still available below.
+                </p>
+              ) : null}
+            </div>
+            <button
+              type="button"
+              onClick={downloadExportZip}
+              disabled={!payload || zipState === 'building'}
+              className="rounded-xl bg-blue-700 px-3 py-2 text-xs font-semibold text-white transition hover:bg-blue-600 disabled:cursor-not-allowed disabled:bg-stone-300"
+            >
+              {zipState === 'building' ? 'Building ZIP…' : 'Download ZIP'}
+            </button>
+          </div>
+        </div>
         <PortfolioCompositionTable data={data} />
         <YearByYearAuditTable
           data={data}
@@ -865,6 +1125,11 @@ export function ExportScreen() {
           <div className="space-y-1">
             <p className="text-sm font-medium text-stone-600">
               Current state export ({payload?.version.schema ?? 'pending'})
+            </p>
+            <p className="text-xs text-stone-500">
+              This is the JSON section included in the ZIP bundle. Copy it
+              directly when an external reviewer only needs the machine-readable
+              state snapshot.
             </p>
             <p className="text-xs text-stone-500">
               Unified plan context: {payload?.flightPath.evaluationContext.available
