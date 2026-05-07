@@ -50,6 +50,23 @@ function formatWindfallName(name: string): string {
     .join(' ');
 }
 
+function estimateWindfallLiquidity(entry: WindfallEntry): number {
+  if (typeof entry.liquidityAmount === 'number') {
+    return Math.max(0, entry.liquidityAmount);
+  }
+  if (entry.name !== 'home_sale') {
+    return Math.max(0, entry.amount);
+  }
+  const gross = Math.max(0, entry.amount);
+  const sellingCost = gross * Math.max(0, Math.min(1, entry.sellingCostPercent ?? 0));
+  const replacementHomeCost = Math.max(0, entry.replacementHomeCost ?? 0);
+  const replacementCost =
+    replacementHomeCost +
+    replacementHomeCost * Math.max(0, Math.min(1, entry.purchaseClosingCostPercent ?? 0)) +
+    Math.max(0, entry.movingCost ?? 0);
+  return Math.max(0, gross - sellingCost - replacementCost);
+}
+
 export function WindfallEditor() {
   const windfalls = useAppStore((state) => state.data.income.windfalls);
   const updateIncome = useAppStore((state) => state.updateIncome);
@@ -117,8 +134,8 @@ export function WindfallEditor() {
                   {formatWindfallName(entry.name)}
                 </span>
                 <span className="text-xs text-stone-500">
-                  {entry.year} · {formatCurrency(entry.liquidityAmount ?? entry.amount)} net cash
-                  {entry.amount !== (entry.liquidityAmount ?? entry.amount)
+                  {entry.year} · {formatCurrency(estimateWindfallLiquidity(entry))} net cash
+                  {entry.amount !== estimateWindfallLiquidity(entry)
                     ? ` · ${formatCurrency(entry.amount)} gross seed`
                     : ''}
                 </span>

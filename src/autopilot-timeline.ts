@@ -1,4 +1,7 @@
-import { calculatePreRetirementContributions } from './contribution-engine';
+import {
+  calculatePreRetirementContributions,
+  calculateProratedSalary,
+} from './contribution-engine';
 import { calculateHealthcarePremiums } from './healthcare-premium-engine';
 import {
   calculateIrmaaTier,
@@ -193,6 +196,10 @@ interface WorkingRouteContext {
     taxTreatment?: WindfallTaxTreatment;
     liquidityAmount?: number;
     costBasis?: number;
+    sellingCostPercent?: number;
+    replacementHomeCost?: number;
+    purchaseClosingCostPercent?: number;
+    movingCost?: number;
     exclusionAmount?: number;
     distributionYears?: number;
   }>;
@@ -476,16 +483,30 @@ function getBenefitFactor(claimAge: number) {
 }
 
 function getSalaryForYear(route: WorkingRouteContext, year: number) {
-  const endDate = new Date(route.salaryEndDate);
-  const endYear = endDate.getUTCFullYear();
-  if (year < endYear) {
-    return route.salaryAnnual;
+  return calculateProratedSalary({
+    salaryAnnual: route.salaryAnnual,
+    retirementDate: route.salaryEndDate,
+    projectionYear: year,
+    rule: 'month_fraction',
+  });
+}
+
+function buildPretaxRmdSourceAccounts(data: SeedData, pretaxBalance: number) {
+  const sourceAccounts = data.accounts.pretax.sourceAccounts ?? [];
+  const ownedTotal = sourceAccounts.reduce(
+    (sum, account) => sum + (account.owner ? Math.max(0, account.balance) : 0),
+    0,
+  );
+  if (ownedTotal <= 0) {
+    return [];
   }
-  if (year > endYear) {
-    return 0;
-  }
-  const monthFraction = endDate.getUTCMonth() / 12;
-  return route.salaryAnnual * monthFraction;
+  return sourceAccounts
+    .filter((account) => account.owner && account.balance > 0)
+    .map((account) => ({
+      id: account.id,
+      owner: account.owner,
+      balance: pretaxBalance * (Math.max(0, account.balance) / ownedTotal),
+    }));
 }
 
 function getSocialSecurityIncome(
@@ -535,7 +556,19 @@ function buildWindfallRealizationForYear(
 ): WindfallRealization {
   const treatment = inferWindfallTaxTreatment(windfall);
   const amount = Math.max(0, windfall.amount);
-  const liquidityAmount = Math.max(0, windfall.liquidityAmount ?? amount);
+  const isHomeSale = windfall.name === 'home_sale';
+  const sellingCost = isHomeSale
+    ? amount * Math.max(0, Math.min(1, windfall.sellingCostPercent ?? 0))
+    : 0;
+  const replacementHomeCost = isHomeSale
+    ? Math.max(0, windfall.replacementHomeCost ?? 0)
+    : 0;
+  const replacementCost =
+    replacementHomeCost +
+    replacementHomeCost * Math.max(0, Math.min(1, windfall.purchaseClosingCostPercent ?? 0)) +
+    (isHomeSale ? Math.max(0, windfall.movingCost ?? 0) : 0);
+  const defaultLiquidity = Math.max(0, amount - sellingCost - replacementCost);
+  const liquidityAmount = Math.max(0, windfall.liquidityAmount ?? defaultLiquidity);
   if (amount <= 0) {
     return { cashInflow: 0, ordinaryIncome: 0, ltcgIncome: 0 };
   }
@@ -621,14 +654,26 @@ function calculateHsaOffsetForYear(input: {
   rules: SeedData['rules'];
   hsaBalance: number;
   magi: number;
-  healthcareAndLtcCost: number;
+  healthcareCost: number;
+  ltcCost: number;
 }) {
   const strategy = input.rules.hsaStrategy;
-  if (!strategy?.enabled || input.hsaBalance <= 0 || input.healthcareAndLtcCost <= 0) {
+  const qualifiedExpenseNeed = Math.max(0, input.healthcareCost) + Math.max(0, input.ltcCost);
+  if (!strategy?.enabled || input.hsaBalance <= 0 || qualifiedExpenseNeed <= 0) {
+    return 0;
+  }
+  const withdrawalMode =
+    strategy.withdrawalMode ??
+    (strategy.prioritizeHighMagiYears ? 'high_magi_years' : 'ongoing_qualified_expenses');
+  const eligibleNeed =
+    withdrawalMode === 'ltc_reserve'
+      ? Math.max(0, input.ltcCost)
+      : qualifiedExpenseNeed;
+  if (eligibleNeed <= 0) {
     return 0;
   }
   const threshold = strategy.highMagiThreshold ?? DEFAULT_HSA_HIGH_MAGI_THRESHOLD;
-  if (strategy.prioritizeHighMagiYears && input.magi < threshold) {
+  if (withdrawalMode === 'high_magi_years' && input.magi < threshold) {
     return 0;
   }
   const cap = Math.max(
@@ -636,8 +681,8 @@ function calculateHsaOffsetForYear(input: {
     strategy.annualQualifiedExpenseWithdrawalCap ?? Number.POSITIVE_INFINITY,
   );
   const cappedNeed = Number.isFinite(cap)
-    ? Math.min(input.healthcareAndLtcCost, cap)
-    : input.healthcareAndLtcCost;
+    ? Math.min(eligibleNeed, cap)
+    : eligibleNeed;
   return Math.min(input.hsaBalance, cappedNeed);
 }
 
@@ -1599,11 +1644,13 @@ export function generateAutopilotPlan(input: AutopilotPlanInputs): AutopilotPlan
     const contributionResult = calculatePreRetirementContributions({
       age: robAge,
       salaryAnnual: route.salaryAnnual,
-      salaryThisYear: salary,
-      retirementDate: route.salaryEndDate,
-      projectionYear: year,
-      filingStatus: route.filingStatus,
+	      salaryThisYear: salary,
+	      retirementDate: route.salaryEndDate,
+	      projectionYear: year,
+	      salaryProrationRule: input.data.rules.payrollModel?.salaryProrationRule,
+	      filingStatus: route.filingStatus,
       settings: input.data.income.preRetirementContributions,
+      limitSettings: input.data.rules.contributionLimits,
       accountBalances: {
         pretax: balances.pretax,
         roth: balances.roth,
@@ -1623,13 +1670,24 @@ export function generateAutopilotPlan(input: AutopilotPlanInputs): AutopilotPlan
     );
     const baseIncome = adjustedWages + socialSecurityIncome + windfallCashInflow;
 
-    const rmd = calculateRequiredMinimumDistribution({
-      pretaxBalance: balances.pretax,
-      members: [
-        { birthDate: input.data.household.robBirthDate, age: robAge, accountShare: 0.5 },
-        { birthDate: input.data.household.debbieBirthDate, age: debbieAge, accountShare: 0.5 },
-      ],
-    }).amount;
+	    const rmd = calculateRequiredMinimumDistribution({
+	      pretaxBalance: balances.pretax,
+	      sourceAccounts: buildPretaxRmdSourceAccounts(input.data, balances.pretax),
+	      members: [
+	        {
+	          owner: 'rob',
+	          birthDate: input.data.household.robBirthDate,
+	          age: robAge,
+	          accountShare: 0.5,
+	        },
+	        {
+	          owner: 'debbie',
+	          birthDate: input.data.household.debbieBirthDate,
+	          age: debbieAge,
+	          accountShare: 0.5,
+	        },
+	      ],
+	    }).amount;
 
     const medicareEligibilityByPerson = [robAge >= 65, debbieAge >= 65];
     const hasMedicareMembers = medicareEligibilityByPerson.some(Boolean);
@@ -1770,7 +1828,8 @@ export function generateAutopilotPlan(input: AutopilotPlanInputs): AutopilotPlan
       rules: input.data.rules,
       hsaBalance,
       magi: taxResult.MAGI,
-      healthcareAndLtcCost: healthcare.totalHealthcarePremiumCost + ltcCostForYear,
+      healthcareCost: healthcare.totalHealthcarePremiumCost,
+      ltcCost: ltcCostForYear,
     });
     const recalculateTaxAndHealthcare = () => {
       taxResult = toTaxResult();
@@ -1800,7 +1859,8 @@ export function generateAutopilotPlan(input: AutopilotPlanInputs): AutopilotPlan
         rules: input.data.rules,
         hsaBalance,
         magi: taxResult.MAGI,
-        healthcareAndLtcCost: healthcare.totalHealthcarePremiumCost + ltcCostForYear,
+        healthcareCost: healthcare.totalHealthcarePremiumCost,
+        ltcCost: ltcCostForYear,
       });
     };
 

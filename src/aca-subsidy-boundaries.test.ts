@@ -4,14 +4,15 @@ import {
   type HealthcarePremiumCalculationInput,
 } from './healthcare-premium-engine';
 
-// Engine uses post-ARPA/IRA regime: continuous 8.5% cap above 400% FPL instead
-// of a hard cliff. Bands per DEFAULT_HEALTHCARE_PREMIUM_CONFIG:
-//   ≤1.5 FPL → 0%
-//   1.5-2.0 → 0-2% (linear on fplRatio within band)
-//   2.0-2.5 → 2-4%
-//   2.5-3.0 → 4-6%
-//   3.0-4.0 → 6-8.5%
-//   >4.0    → 8.5% flat
+// Engine uses current 2026-law ACA percentages with the restored 400% FPL cap.
+// Bands per DEFAULT_HEALTHCARE_PREMIUM_CONFIG:
+//   ≤1.33 FPL → 2.10%
+//   1.33-1.5 → 3.14-4.19%
+//   1.5-2.0 → 4.19-6.60%
+//   2.0-2.5 → 6.60-8.44%
+//   2.5-3.0 → 8.44-9.96%
+//   3.0-4.0 → 9.96%
+//   >4.0    → no subsidy
 //
 // Expected contribution = rate × MAGI. Subsidy = max(premium - contribution, 0)
 // but only applies if retired and has non-Medicare members.
@@ -35,43 +36,44 @@ function mkInput(overrides: Partial<HealthcarePremiumCalculationInput> = {}): He
 }
 
 describe('ACA subsidy / FPL-band behavior', () => {
-  it('MAGI at 1.5 FPL → expected contribution 0, full subsidy', () => {
+  it('MAGI at 1.5 FPL → expected contribution is 4.19% of MAGI', () => {
     const magi = Math.round(FPL_HOUSEHOLD_2 * 1.5); // 31,725
     const out = calculateHealthcarePremiums(mkInput({ MAGI: magi }));
     const fullPremium = BASE_PREMIUM_PER_PERSON * 2;
+    const expectedContribution = magi * 0.0419;
     expect(out.acaPremiumEstimate).toBe(fullPremium);
-    expect(out.acaSubsidyEstimate).toBe(fullPremium);
-    expect(out.netAcaCost).toBe(0);
+    expect(out.acaSubsidyEstimate).toBeCloseTo(fullPremium - expectedContribution, 0);
+    expect(out.netAcaCost).toBeCloseTo(expectedContribution, 0);
   });
 
-  it('MAGI at 2.0 FPL → expected contribution = 2% of MAGI', () => {
+  it('MAGI at 2.0 FPL → expected contribution = 6.6% of MAGI', () => {
     const magi = FPL_HOUSEHOLD_2 * 2; // 42,300
     const out = calculateHealthcarePremiums(mkInput({ MAGI: magi }));
-    const expectedContribution = magi * 0.02;
+    const expectedContribution = magi * 0.066;
     const expectedSubsidy = BASE_PREMIUM_PER_PERSON * 2 - expectedContribution;
     expect(out.acaSubsidyEstimate).toBeCloseTo(expectedSubsidy, 0);
     expect(out.netAcaCost).toBeCloseTo(expectedContribution, 0);
   });
 
-  it('MAGI at 3.0 FPL → expected contribution = 6% of MAGI', () => {
+  it('MAGI at 3.0 FPL → expected contribution = 9.96% of MAGI', () => {
     const magi = FPL_HOUSEHOLD_2 * 3; // 63,450
     const out = calculateHealthcarePremiums(mkInput({ MAGI: magi }));
-    const expectedContribution = magi * 0.06;
+    const expectedContribution = magi * 0.0996;
     expect(out.netAcaCost).toBeCloseTo(expectedContribution, 0);
   });
 
-  it('MAGI at 4.0 FPL → expected contribution = 8.5% of MAGI (band top)', () => {
+  it('MAGI at 4.0 FPL → expected contribution = 9.96% of MAGI', () => {
     const magi = FPL_HOUSEHOLD_2 * 4; // 84,600
     const out = calculateHealthcarePremiums(mkInput({ MAGI: magi }));
-    const expectedContribution = magi * 0.085;
+    const expectedContribution = magi * 0.0996;
     expect(out.netAcaCost).toBeCloseTo(expectedContribution, 0);
   });
 
-  it('MAGI at 5.0 FPL → still 8.5% (no 400%-cliff in post-IRA regime)', () => {
+  it('MAGI at 5.0 FPL → restored 400%-FPL cap means no subsidy', () => {
     const magi = FPL_HOUSEHOLD_2 * 5; // 105,750
     const out = calculateHealthcarePremiums(mkInput({ MAGI: magi }));
-    const expectedContribution = magi * 0.085;
-    expect(out.netAcaCost).toBeCloseTo(expectedContribution, 0);
+    expect(out.acaSubsidyEstimate).toBe(0);
+    expect(out.netAcaCost).toBe(BASE_PREMIUM_PER_PERSON * 2);
   });
 
   it('MAGI high enough that contribution exceeds premium → subsidy 0', () => {
@@ -132,8 +134,8 @@ describe('ACA subsidy / FPL-band behavior', () => {
         medicareEligibilityByPerson: [false, false, false, false],
       }),
     );
-    // FPL 4-person household MAGI 64,300 → 2.0 FPL band, rate 2%.
-    const expectedContribution = magi * 0.02;
+    // FPL 4-person household MAGI 64,300 → 2.0 FPL band, rate 6.6%.
+    const expectedContribution = magi * 0.066;
     expect(out.netAcaCost).toBeCloseTo(expectedContribution, 0);
   });
 

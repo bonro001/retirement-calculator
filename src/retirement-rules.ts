@@ -34,15 +34,23 @@ export interface RmdConfig {
 }
 
 export interface RmdHouseholdMemberInput {
+  owner?: string;
   birthDate: string;
   age: number;
   accountShare?: number;
   startAgeOverride?: number;
 }
 
+export interface RmdSourceAccountInput {
+  id?: string;
+  owner?: string;
+  balance: number;
+}
+
 export interface RmdCalculationInput {
   pretaxBalance: number;
   members: RmdHouseholdMemberInput[];
+  sourceAccounts?: RmdSourceAccountInput[];
 }
 
 export interface RmdCalculationDetail {
@@ -186,6 +194,30 @@ function normalizeShare(index: number, memberCount: number, explicitShares: numb
   return explicitShares[index] / totalExplicit;
 }
 
+function normalizeOwner(value: string | undefined) {
+  return value?.trim().toLowerCase() ?? '';
+}
+
+function balanceForMember(input: {
+  member: RmdHouseholdMemberInput;
+  index: number;
+  memberCount: number;
+  explicitShares: number[];
+  pretaxBalance: number;
+  sourceAccounts: RmdSourceAccountInput[];
+}) {
+  if (input.sourceAccounts.length > 0) {
+    const owner = normalizeOwner(input.member.owner);
+    const ownedBalance = input.sourceAccounts
+      .filter((account) => normalizeOwner(account.owner) === owner)
+      .reduce((sum, account) => sum + Math.max(0, account.balance), 0);
+    return owner ? ownedBalance : 0;
+  }
+
+  const share = normalizeShare(input.index, input.memberCount, input.explicitShares);
+  return input.pretaxBalance * share;
+}
+
 function getUniformLifetimeDivisor(age: number, config: RmdConfig) {
   const normalizedAge = Math.max(72, Math.min(120, Math.floor(age)));
   return config.uniformLifetimeTable[normalizedAge] ?? config.uniformLifetimeTable[120];
@@ -196,6 +228,9 @@ export function calculateRequiredMinimumDistribution(
   config: RmdConfig = DEFAULT_RMD_CONFIG,
 ): RmdCalculationResult {
   const pretaxBalance = Math.max(0, input.pretaxBalance);
+  const sourceAccounts = (input.sourceAccounts ?? []).filter(
+    (account) => account.balance > 0,
+  );
   const explicitShares = input.members
     .map((member) => member.accountShare ?? 0)
     .filter((value) => value > 0);
@@ -213,9 +248,29 @@ export function calculateRequiredMinimumDistribution(
       return;
     }
 
-    const share = normalizeShare(index, input.members.length, explicitShares);
+    const share = sourceAccounts.length > 0
+      ? (pretaxBalance > 0
+        ? balanceForMember({
+          member,
+          index,
+          memberCount: input.members.length,
+          explicitShares,
+          pretaxBalance,
+          sourceAccounts,
+        }) / pretaxBalance
+        : 0)
+      : normalizeShare(index, input.members.length, explicitShares);
     const divisor = getUniformLifetimeDivisor(member.age, config);
-    const memberBalance = pretaxBalance * share;
+    const memberBalance = sourceAccounts.length > 0
+      ? balanceForMember({
+        member,
+        index,
+        memberCount: input.members.length,
+        explicitShares,
+        pretaxBalance,
+        sourceAccounts,
+      })
+      : pretaxBalance * share;
     const memberRmd = divisor > 0 ? memberBalance / divisor : 0;
 
     amount += memberRmd;

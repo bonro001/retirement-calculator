@@ -77,23 +77,36 @@ const LOCAL_STORAGE_MAX_RECORDS = 500;
 export function createLocalStoragePredictionLogStore(
   storage: Storage,
 ): PredictionLogStore {
+  let cachedRecords: PredictionRecord[] | null = null;
+  const loadRecords = () => {
+    if (cachedRecords) {
+      return cachedRecords;
+    }
+    const raw = storage.getItem(LOCAL_STORAGE_KEY);
+    if (!raw) {
+      cachedRecords = [];
+      return cachedRecords;
+    }
+    try {
+      cachedRecords = JSON.parse(raw) as PredictionRecord[];
+    } catch {
+      cachedRecords = [];
+    }
+    return cachedRecords;
+  };
+
   return {
     readAll() {
-      const raw = storage.getItem(LOCAL_STORAGE_KEY);
-      if (!raw) return [];
-      try {
-        return JSON.parse(raw) as PredictionRecord[];
-      } catch {
-        return [];
-      }
+      return [...loadRecords()];
     },
     append(record) {
-      const existing = this.readAll();
+      const existing = loadRecords();
       existing.push(record);
       const trimmed =
         existing.length > LOCAL_STORAGE_MAX_RECORDS
           ? existing.slice(existing.length - LOCAL_STORAGE_MAX_RECORDS)
           : existing;
+      cachedRecords = trimmed;
       storage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(trimmed));
     },
   };

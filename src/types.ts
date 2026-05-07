@@ -58,20 +58,52 @@ export interface SocialSecurityEntry {
 export interface EmployerMatchFormula {
   matchRate: number;
   maxEmployeeContributionPercentOfSalary: number;
+  assumptionSource?: string;
+  verificationStatus?: 'verified' | 'user_confirmed_pending_document' | 'estimated';
 }
 
 export interface PreRetirementContributionSettings {
   employee401kPreTaxAnnualAmount?: number;
+  employee401kPreTaxAnnualAmountByYear?: Record<string, number>;
   employee401kPreTaxPercentOfSalary?: number;
   employee401kRothAnnualAmount?: number;
+  employee401kRothAnnualAmountByYear?: Record<string, number>;
   employee401kRothPercentOfSalary?: number;
   // Legacy compatibility fields. When present, they map to pre-tax 401(k) targets.
   employee401kAnnualAmount?: number;
+  employee401kAnnualAmountByYear?: Record<string, number>;
   employee401kPercentOfSalary?: number;
   employerMatch?: EmployerMatchFormula;
   hsaAnnualAmount?: number;
+  hsaAnnualAmountByYear?: Record<string, number>;
   hsaPercentOfSalary?: number;
   hsaCoverageType?: 'self' | 'family';
+}
+
+export interface ContributionLimitSettings {
+  employee401kBaseLimit?: number;
+  employee401kCatchUpAge?: number;
+  employee401kCatchUpLimit?: number;
+  employee401kBaseLimitByYear?: Record<string, number>;
+  employee401kCatchUpLimitByYear?: Record<string, number>;
+  hsaSelfLimit?: number;
+  hsaFamilyLimit?: number;
+  hsaCatchUpAge?: number;
+  hsaCatchUpLimit?: number;
+  hsaSelfLimitByYear?: Record<string, number>;
+  hsaFamilyLimitByYear?: Record<string, number>;
+  hsaCatchUpLimitByYear?: Record<string, number>;
+  assumptionSource?: string;
+}
+
+export interface HousingAfterDownsizePolicy {
+  mode?: 'own_replacement_home';
+  startYear?: number;
+  replacementHomeCost?: number;
+  netLiquidityTarget?: number;
+  postSaleAnnualTaxesInsurance?: number;
+  certainty?: 'certain' | 'estimated' | 'uncertain';
+  assumptionSource?: string;
 }
 
 export type WindfallTaxTreatment =
@@ -99,6 +131,12 @@ export interface WindfallEntry {
   costBasis?: number;
   // For home sales, modeled transaction frictions.
   sellingCostPercent?: number;
+  // For downsizing: purchase price of the next home, reducing investable liquidity.
+  replacementHomeCost?: number;
+  // For downsizing: buyer-side closing/friction cost on the replacement home.
+  purchaseClosingCostPercent?: number;
+  // For downsizing: moving, repairs, furnishing, and transition cash uses.
+  movingCost?: number;
   // For primary-home-sale treatment, this exclusion is applied against gain.
   exclusionAmount?: number;
   // For inherited IRA treatment, defaulted to 10 when omitted.
@@ -151,6 +189,7 @@ export interface SourceAccount {
   id: string;
   name: string;
   balance: number;
+  owner?: 'rob' | 'debbie' | string;
   managed?: boolean;
   holdings?: Holding[];
 }
@@ -182,6 +221,13 @@ export interface RulesData {
     maxAnnualDollars?: number;
     maxPretaxBalancePercent?: number;
     magiBufferDollars?: number;
+    lowIncomeBracketFill?: {
+      enabled?: boolean;
+      startYear?: number;
+      endYear?: number;
+      annualTargetDollars?: number;
+      requireNoWageIncome?: boolean;
+    };
   };
   assetClassMappingAssumptions?: {
     TRP_2030?: {
@@ -210,6 +256,8 @@ export interface RulesData {
     salaryProrationRule?: 'month_fraction' | 'daily';
     salaryProrationSource?: 'explicit_payroll_calendar' | 'assumed_month_fraction';
   };
+  contributionLimits?: ContributionLimitSettings;
+  housingAfterDownsizePolicy?: HousingAfterDownsizePolicy;
   healthcarePremiums?: {
     baselineAcaPremiumAnnual: number;
     baselineMedicarePremiumAnnual: number;
@@ -217,6 +265,13 @@ export interface RulesData {
   };
   hsaStrategy?: {
     enabled: boolean;
+    /**
+     * How tax-free HSA withdrawals are used in the simulation.
+     * - high_magi_years: legacy behavior; reimburse qualified costs only when MAGI is high.
+     * - ongoing_qualified_expenses: reimburse modeled qualified medical/LTC costs every year.
+     * - ltc_reserve: preserve HSA for LTC/large medical tail events only.
+     */
+    withdrawalMode?: 'high_magi_years' | 'ongoing_qualified_expenses' | 'ltc_reserve';
     annualQualifiedExpenseWithdrawalCap?: number;
     prioritizeHighMagiYears?: boolean;
     highMagiThreshold?: number;
@@ -391,8 +446,19 @@ export interface PathYearResult {
   medianCashBalance: number;
   tenthPercentileAssets: number;
   medianIncome: number;
+  medianSocialSecurityIncome: number;
+  medianSocialSecurityRob: number;
+  medianSocialSecurityDebbie: number;
+  medianSocialSecurityInflationIndex: number;
+  robSocialSecurityClaimFactor: number;
+  debbieSocialSecurityClaimFactor: number;
+  robSocialSecuritySpousalFloorMonthly: number;
+  debbieSocialSecuritySpousalFloorMonthly: number;
   medianSpending: number;
   medianFederalTax: number;
+  medianTotalCashOutflow: number;
+  medianWithdrawalTotal: number;
+  medianUnresolvedFundingGap: number;
   medianRmdAmount: number;
   medianWithdrawalCash: number;
   medianWithdrawalTaxable: number;
@@ -428,7 +494,14 @@ export interface PathYearResult {
   medianWindfallCashInflow: number;
   medianWindfallOrdinaryIncome: number;
   medianWindfallLtcgIncome: number;
+  medianHomeSaleGrossProceeds: number;
+  medianHomeSaleSellingCosts: number;
+  medianHomeReplacementPurchaseCost: number;
+  medianHomeDownsizeNetLiquidity: number;
   medianHsaOffsetUsed: number;
+  medianHsaLtcOffsetUsed: number;
+  medianLtcCostRemainingAfterHsa: number;
+  medianHsaBalance: number;
   medianLtcCost: number;
   dominantWithdrawalRationale: string;
   medianWithdrawalScoreSpendingNeed: number;
@@ -544,6 +617,13 @@ export interface SimulationConfigurationSnapshot {
     maxAnnualDollars: number | null;
     maxPretaxBalancePercent: number;
     magiBufferDollars: number;
+    lowIncomeBracketFill?: {
+      enabled: boolean;
+      startYear: number | null;
+      endYear: number | null;
+      annualTargetDollars: number;
+      requireNoWageIncome: boolean;
+    };
     source: 'rules' | 'default';
     description: string;
   };
@@ -599,8 +679,16 @@ export interface SimulationModeDiagnostics {
     amount: number;
     reason: string;
     motive: 'none' | 'opportunistic_headroom' | 'defensive_pressure';
+    conversionKind: 'none' | 'safe_room' | 'strategic_extra';
     opportunisticAmount: number;
     defensiveAmount: number;
+    safeRoomAvailable: number;
+    safeRoomUsed: number;
+    strategicExtraAvailable: number;
+    strategicExtraUsed: number;
+    annualPolicyMax: number | null;
+    annualPolicyMaxBinding: boolean;
+    safeRoomUnusedDueToAnnualPolicyMax: number;
     simulationModeUsedForConversion: SimulationStrategyMode;
     plannerLogicActiveAtConversion: boolean;
     conversionEngineInvoked: boolean;
@@ -660,6 +748,17 @@ export interface SimulationModeDiagnostics {
     notEligibleRunRate: number;
     representativeAmount: number;
     representativeReason: string;
+    representativeMotive: 'none' | 'opportunistic_headroom' | 'defensive_pressure';
+    representativeConversionKind: 'none' | 'safe_room' | 'strategic_extra';
+    representativeOpportunisticAmount: number;
+    representativeDefensiveAmount: number;
+    safeRoomAvailable: number;
+    safeRoomUsed: number;
+    strategicExtraAvailable: number;
+    strategicExtraUsed: number;
+    annualPolicyMax: number | null;
+    annualPolicyMaxBinding: boolean;
+    safeRoomUnusedDueToAnnualPolicyMax: number;
     representativeMagiEffect: number;
     representativeTaxEffect: number;
     representativeAcaEffect: number;
@@ -693,6 +792,12 @@ export interface SimulationModeDiagnostics {
   }>;
   rothConversionDecisionSummary: {
     executedYearCount: number;
+    safeRoomExecutedYearCount: number;
+    strategicExtraExecutedYearCount: number;
+    annualPolicyMaxBindingYearCount: number;
+    totalSafeRoomUsed: number;
+    totalStrategicExtraUsed: number;
+    totalSafeRoomUnusedDueToAnnualPolicyMax: number;
     blockedYearCount: number;
     noEconomicBenefitYearCount: number;
     notEligibleYearCount: number;

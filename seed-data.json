@@ -29,16 +29,28 @@
       {
         "name": "home_sale",
         "year": 2037,
-        "amount": 500000,
-        "taxTreatment": "primary_home_sale"
+        "amount": 1000000,
+        "taxTreatment": "primary_home_sale",
+        "certainty": "estimated",
+        "timingUncertaintyYears": 2,
+        "amountUncertaintyPercent": 0.3,
+        "costBasis": 500000,
+        "exclusionAmount": 500000,
+        "sellingCostPercent": 0.06,
+        "replacementHomeCost": 500000,
+        "purchaseClosingCostPercent": 0.02,
+        "movingCost": 20000,
+        "liquidityAmount": 500000
       }
     ],
     "preRetirementContributions": {
       "employee401kPreTaxPercentOfSalary": 0.1499,
       "employee401kRothPercentOfSalary": 0,
       "employerMatch": {
-        "matchRate": 0,
-        "maxEmployeeContributionPercentOfSalary": 0.06
+        "matchRate": 0.5,
+        "maxEmployeeContributionPercentOfSalary": 0.06,
+        "assumptionSource": "user_confirmed_athenahealth_50_percent_of_first_6_percent_pending_document_verification",
+        "verificationStatus": "user_confirmed_pending_document"
       },
       "hsaPercentOfSalary": 0.0159,
       "hsaCoverageType": "family"
@@ -69,6 +81,7 @@
         {
           "id": "267425112",
           "name": "Rollover IRA",
+          "owner": "rob",
           "balance": 369811.56,
           "holdings": [
             {
@@ -106,6 +119,7 @@
         {
           "id": "19098",
           "name": "ATHENAHEALTH 401(k)",
+          "owner": "rob",
           "balance": 13113.97,
           "holdings": [
             {
@@ -471,12 +485,45 @@
     "withdrawalStyle": "guardrails",
     "irmaaAware": true,
     "replaceModeImports": true,
+    "payrollModel": {
+      "salaryProrationRule": "month_fraction",
+      "salaryProrationSource": "explicit_payroll_calendar"
+    },
+    "contributionLimits": {
+      "employee401kBaseLimit": 24000,
+      "employee401kCatchUpAge": 50,
+      "employee401kCatchUpLimit": 7500,
+      "employee401kBaseLimitByYear": {
+        "2027": 25000
+      },
+      "hsaSelfLimit": 4300,
+      "hsaFamilyLimit": 8550,
+      "hsaCatchUpAge": 55,
+      "hsaCatchUpLimit": 1000,
+      "assumptionSource": "planning_estimate_for_2027_final_paycheck_window"
+    },
+    "housingAfterDownsizePolicy": {
+      "mode": "own_replacement_home",
+      "startYear": 2037,
+      "replacementHomeCost": 500000,
+      "netLiquidityTarget": 500000,
+      "certainty": "estimated",
+      "assumptionSource": "user_estimate_sell_1m_home_buy_500k_replacement_home"
+    },
     "rothConversionPolicy": {
       "enabled": true,
       "strategy": "aca_then_irmaa_headroom",
       "minAnnualDollars": 500,
+      "maxAnnualDollars": 70000,
       "maxPretaxBalancePercent": 0.12,
-      "magiBufferDollars": 2000
+      "magiBufferDollars": 2000,
+      "lowIncomeBracketFill": {
+        "enabled": true,
+        "startYear": 2028,
+        "endYear": 2030,
+        "annualTargetDollars": 70000,
+        "requireNoWageIncome": true
+      }
     },
     "healthcarePremiums": {
       "baselineAcaPremiumAnnual": 14400,
@@ -485,8 +532,9 @@
     },
     "hsaStrategy": {
       "enabled": true,
-      "annualQualifiedExpenseWithdrawalCap": 12000,
-      "prioritizeHighMagiYears": true,
+      "withdrawalMode": "ltc_reserve",
+      "annualQualifiedExpenseWithdrawalCap": 250000,
+      "prioritizeHighMagiYears": false,
       "highMagiThreshold": 190000
     },
     "ltcAssumptions": {

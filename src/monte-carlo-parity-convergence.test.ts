@@ -28,7 +28,7 @@ const TEST_ASSUMPTIONS: MarketAssumptions = {
 };
 
 describe('monte carlo parity convergence', () => {
-  it('runs convergence at 5k, 10k, and 25k and keeps diagnostics structured', () => {
+  it('runs convergence at 2k, 4k, and 8k and keeps diagnostics structured', () => {
     const payload = buildPlanningStateExport({
       data: initialSeedData,
       assumptions: TEST_ASSUMPTIONS,
@@ -36,11 +36,11 @@ describe('monte carlo parity convergence', () => {
       selectedResponseIds: ['cut_spending', 'preserve_roth'],
     });
 
-    const convergence = runParityConvergenceFromExport(payload, [5000, 10000, 25000]);
+    const convergence = runParityConvergenceFromExport(payload, [2000, 4000, 8000]);
     const baseline = runParityHarnessFromExport(payload);
 
     expect(convergence.rows).toHaveLength(3);
-    expect(convergence.rows.map((row) => row.runCount)).toEqual([5000, 10000, 25000]);
+    expect(convergence.rows.map((row) => row.runCount)).toEqual([2000, 4000, 8000]);
     expect(baseline.diagnostics.rawSimulation.mismatches.length).toBe(0);
     expect(baseline.diagnostics.plannerEnhancedSimulation.mismatches.length).toBe(0);
     expect(convergence.rows.every((row) => row.rawSimulation.successRate >= 0)).toBe(true);

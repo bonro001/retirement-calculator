@@ -715,7 +715,8 @@ function buildTrustPanel(input: {
     !homeSale ||
     (homeSale.taxTreatment === 'primary_home_sale' &&
       typeof homeSale.costBasis === 'number' &&
-      typeof homeSale.liquidityAmount === 'number');
+      (typeof homeSale.liquidityAmount === 'number' ||
+        typeof homeSale.replacementHomeCost === 'number'));
   checks.push({
     id: 'home_sale_modeling',
     title: 'Home-sale modeling completeness',
@@ -723,8 +724,8 @@ function buildTrustPanel(input: {
     detail: !homeSale
       ? 'No home-sale event is modeled.'
       : homeSaleModeled
-        ? 'Home-sale tax basis and net liquidity are explicitly modeled.'
-        : 'Home-sale event exists but is missing cost basis and/or net liquidity modeling.',
+        ? 'Home-sale tax basis and downsizing liquidity are explicitly modeled.'
+        : 'Home-sale event exists but is missing cost basis and/or downsizing liquidity modeling.',
   });
 
   const inheritance = input.plan.data.income.windfalls.find((item) => item.name === 'inheritance');

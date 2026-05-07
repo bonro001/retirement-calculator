@@ -69,6 +69,7 @@ import {
   formatBuildInfo,
   getLocalBuildInfo,
 } from './build-info';
+import { resolveEngineRuntime } from './engine-runtime';
 import type {
   MiningJobBatch,
   MiningJobResult,
@@ -134,8 +135,7 @@ const PLATFORM_DESCRIPTOR =
   process.env.HOST_PLATFORM_DESCRIPTOR ??
   `${platform()}-${arch()}-${cpus().length}cpu`;
 
-const HOST_ENGINE_RUNTIME =
-  process.env.ENGINE_RUNTIME ?? process.env.ENGINE_RUNTIME_DEFAULT ?? 'ts';
+const HOST_ENGINE_RUNTIME = resolveEngineRuntime(process.env);
 const HOST_BUILD_INFO = getLocalBuildInfo();
 const HOST_AUTO_UPDATE =
   process.env.HOST_AUTO_UPDATE === '1' ||
@@ -1482,14 +1482,13 @@ function gracefulShutdown(signal: string): void {
   void shutdownPool().then(() => process.exit(0));
 }
 
-process.on('SIGINT', () => gracefulShutdown('SIGINT'));
-process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
-
 // Detect whether this file was invoked directly (vs imported by the smoke
 // test). When invoked directly via `tsx cluster/host.ts`, bootstrap.
 const invokedPath = fileURLToPath(import.meta.url);
 const isMain = process.argv[1] === invokedPath;
 if (isMain) {
+  process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+  process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
   log('info', 'host starting', {
     name: HOST_DISPLAY_NAME,
     workers: HOST_WORKER_COUNT,

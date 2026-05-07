@@ -99,6 +99,24 @@ export function buildProbeChecklist(input: BuildProbeChecklistInput): ProbeCheck
       : null;
   const homeSaleTaxableGain =
     homeSaleGain === null ? null : Math.max(0, homeSaleGain - homeSaleExclusion);
+  const homeReplacementCost =
+    homeSale && typeof homeSale.replacementHomeCost === 'number'
+      ? Math.max(0, homeSale.replacementHomeCost)
+      : null;
+  const homeSaleSellingCost =
+    homeSale && typeof homeSale.sellingCostPercent === 'number'
+      ? Math.max(0, homeSale.amount * homeSale.sellingCostPercent)
+      : 0;
+  const homePurchaseCost =
+    homeReplacementCost === null
+      ? null
+      : homeReplacementCost +
+        homeReplacementCost * Math.max(0, homeSale?.purchaseClosingCostPercent ?? 0) +
+        Math.max(0, homeSale?.movingCost ?? 0);
+  const computedHomeSaleLiquidity =
+    homeSale && homePurchaseCost !== null
+      ? Math.max(0, homeSale.amount - homeSaleSellingCost - homePurchaseCost)
+      : null;
 
   const runway = calculateRunwayGapMetrics({
     data: input.data,
@@ -154,7 +172,7 @@ export function buildProbeChecklist(input: BuildProbeChecklistInput): ProbeCheck
       status:
         !homeSale
           ? 'missing'
-          : typeof homeSale.liquidityAmount === 'number'
+          : typeof homeSale.liquidityAmount === 'number' || computedHomeSaleLiquidity !== null
             ? 'modeled'
             : 'partial',
       summary: !homeSale
@@ -169,7 +187,13 @@ export function buildProbeChecklist(input: BuildProbeChecklistInput): ProbeCheck
               currency: 'USD',
               maximumFractionDigits: 0,
             })}).`
-          : 'Model currently assumes full home sale proceeds are available as plan liquidity; set liquidity amount if part is reinvested.',
+          : computedHomeSaleLiquidity !== null
+            ? `Home downsizing liquidity is computed at ${computedHomeSaleLiquidity.toLocaleString('en-US', {
+                style: 'currency',
+                currency: 'USD',
+                maximumFractionDigits: 0,
+              })} after replacement-home and transaction-cost assumptions.`
+            : 'Model currently assumes full home sale proceeds are available as plan liquidity; set liquidity amount or replacement-home cost if part is reinvested.',
     },
     {
       id: 'social-security-taxation',

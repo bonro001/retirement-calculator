@@ -43,6 +43,7 @@
 import { createServer, type IncomingMessage } from 'node:http';
 import { createHash } from 'node:crypto';
 import { hostname } from 'node:os';
+import { pathToFileURL } from 'node:url';
 import { WebSocketServer, type WebSocket } from 'ws';
 import {
   DEFAULT_DISPATCHER_PORT,
@@ -2418,9 +2419,14 @@ function startDispatcher(port: number, host?: string): void {
 
 const portEnv = process.env.DISPATCHER_PORT;
 const port = portEnv ? Number(portEnv) : DEFAULT_DISPATCHER_PORT;
-if (!Number.isFinite(port) || port <= 0 || port > 65_535) {
-  // eslint-disable-next-line no-console
-  console.error(`invalid DISPATCHER_PORT="${portEnv}"`);
-  process.exit(1);
+const isDirectEntrypoint =
+  typeof process.argv[1] === 'string' &&
+  import.meta.url === pathToFileURL(process.argv[1]).href;
+if (isDirectEntrypoint) {
+  if (!Number.isFinite(port) || port <= 0 || port > 65_535) {
+    // eslint-disable-next-line no-console
+    console.error(`invalid DISPATCHER_PORT="${portEnv}"`);
+    process.exit(1);
+  }
+  startDispatcher(port, process.env.DISPATCHER_HOST);
 }
-startDispatcher(port, process.env.DISPATCHER_HOST);

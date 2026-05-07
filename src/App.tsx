@@ -280,6 +280,12 @@ const EMPTY_SIMULATION_DIAGNOSTICS: PathResult['simulationDiagnostics'] = {
   rothConversionEligibilityPath: [],
   rothConversionDecisionSummary: {
     executedYearCount: 0,
+    safeRoomExecutedYearCount: 0,
+    strategicExtraExecutedYearCount: 0,
+    annualPolicyMaxBindingYearCount: 0,
+    totalSafeRoomUsed: 0,
+    totalStrategicExtraUsed: 0,
+    totalSafeRoomUnusedDueToAnnualPolicyMax: 0,
     blockedYearCount: 0,
     noEconomicBenefitYearCount: 0,
     notEligibleYearCount: 0,

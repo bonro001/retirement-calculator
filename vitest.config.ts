@@ -11,5 +11,6 @@ export default defineConfig({
     // Keep test execution deterministic and avoid worker RPC heartbeat timeouts
     // during long Monte Carlo suites.
     maxWorkers: 1,
+    pool: 'forks',
   },
 });

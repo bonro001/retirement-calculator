@@ -103,6 +103,25 @@ function yearsUntil(dateIso: string, asOf: Date): number {
   return Math.max(0, (target.valueOf() - asOf.valueOf()) / msPerYear);
 }
 
+function estimateWindfallLiquidity(
+  windfall: SeedData['income']['windfalls'][number],
+) {
+  if (typeof windfall.liquidityAmount === 'number') {
+    return Math.max(0, windfall.liquidityAmount);
+  }
+  if (windfall.name !== 'home_sale') {
+    return Math.max(0, windfall.amount);
+  }
+  const gross = Math.max(0, windfall.amount);
+  const sellingCost = gross * Math.max(0, Math.min(1, windfall.sellingCostPercent ?? 0));
+  const replacementHomeCost = Math.max(0, windfall.replacementHomeCost ?? 0);
+  const replacementCost =
+    replacementHomeCost +
+    replacementHomeCost * Math.max(0, Math.min(1, windfall.purchaseClosingCostPercent ?? 0)) +
+    Math.max(0, windfall.movingCost ?? 0);
+  return Math.max(0, gross - sellingCost - replacementCost);
+}
+
 function deriveCurrentContributionRates(
   settings: PreRetirementContributionSettings | undefined,
   salaryAnnual: number,
@@ -158,6 +177,7 @@ export function buildPreRetirementOptimizerRecommendation(
     projectionYear: now.getFullYear(),
     filingStatus: seedData.household.filingStatus,
     settings: seedData.income.preRetirementContributions,
+    limitSettings: seedData.rules.contributionLimits,
   });
 
   const limit401k = contribution.employee401kAnnualLimit;
@@ -260,7 +280,7 @@ export function buildPreRetirementOptimizerRecommendation(
     return BRIDGE_ELIGIBLE_TREATMENTS.has(treatment);
   });
   const bridgeWindowWindfallTotal = bridgeWindfalls.reduce(
-    (sum, windfall) => sum + (windfall.liquidityAmount ?? windfall.amount),
+    (sum, windfall) => sum + estimateWindfallLiquidity(windfall),
     0,
   );
   const bridgeWindowWindfallNames = bridgeWindfalls.map((windfall) => windfall.name);

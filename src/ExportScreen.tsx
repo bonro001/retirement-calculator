@@ -75,32 +75,24 @@ const AUDIT_COLUMNS: AuditColumn[] = [
   },
   // Income
   { key: 'salary', label: 'Salary (adj wages)', format: 'currency', pick: (y) => y.medianAdjustedWages },
-  {
-    // SS = total income − wages − windfall cash − rmd. Engine does the
-    // additive math; we reverse-derive so the column reads cleanly.
-    key: 'social_security',
-    label: 'Social Security',
-    format: 'currency',
-    derive: (y) =>
-      Math.max(
-        0,
-        y.medianIncome -
-          y.medianAdjustedWages -
-          y.medianWindfallCashInflow -
-          y.medianRmdAmount,
-      ),
-  },
+  { key: 'social_security', label: 'Social Security', format: 'currency', pick: (y) => y.medianSocialSecurityIncome },
+  { key: 'social_security_rob', label: '· SS Rob', format: 'currency', pick: (y) => y.medianSocialSecurityRob },
+  { key: 'social_security_debbie', label: '· SS Debbie', format: 'currency', pick: (y) => y.medianSocialSecurityDebbie },
+  { key: 'social_security_inflation_index', label: '· SS inflation index', format: 'string', derive: (y) => y.medianSocialSecurityInflationIndex.toFixed(4) },
   { key: 'windfall_cash', label: 'Windfall cash', format: 'currency', pick: (y) => y.medianWindfallCashInflow },
   { key: 'income_total', label: 'Income total', format: 'currency', pick: (y) => y.medianIncome },
   // Spending
   { key: 'spend_total', label: 'Spend total', format: 'currency', pick: (y) => y.medianSpending },
-  { key: 'spend_aca', label: '· ACA premium', format: 'currency', pick: (y) => y.medianAcaPremiumEstimate },
+  { key: 'spend_aca_gross', label: '· Gross ACA premium', format: 'currency', pick: (y) => y.medianAcaPremiumEstimate },
+  { key: 'spend_aca_subsidy', label: '· ACA subsidy', format: 'currency', pick: (y) => y.medianAcaSubsidyEstimate },
+  { key: 'spend_aca_net', label: '· Net ACA cost', format: 'currency', pick: (y) => y.medianNetAcaCost },
   { key: 'spend_medicare', label: '· Medicare premium', format: 'currency', pick: (y) => y.medianMedicarePremiumEstimate },
   { key: 'spend_irmaa', label: '· IRMAA surcharge', format: 'currency', pick: (y) => y.medianIrmaaSurcharge },
   { key: 'spend_ltc', label: '· LTC cost', format: 'currency', pick: (y) => y.medianLtcCost },
   { key: 'spend_hsa_offset', label: '· HSA offset', format: 'currency', pick: (y) => y.medianHsaOffsetUsed },
   // Tax
   { key: 'fed_tax', label: 'Federal tax', format: 'currency', pick: (y) => y.medianFederalTax },
+  { key: 'total_cash_outflow', label: 'Spend + federal tax', format: 'currency', pick: (y) => y.medianTotalCashOutflow },
   { key: 'taxable_income', label: 'Taxable income', format: 'currency', pick: (y) => y.medianTaxableIncome },
   { key: 'magi', label: 'MAGI', format: 'currency', pick: (y) => y.medianMagi },
   { key: 'irmaa_tier', label: 'IRMAA tier', format: 'string', derive: (y) => y.dominantIrmaaTier ?? '' },
@@ -116,6 +108,8 @@ const AUDIT_COLUMNS: AuditColumn[] = [
   { key: 'withdraw_taxable', label: 'Withdraw taxable', format: 'currency', pick: (y) => y.medianWithdrawalTaxable },
   { key: 'withdraw_roth', label: 'Withdraw Roth', format: 'currency', pick: (y) => y.medianWithdrawalRoth },
   { key: 'withdraw_cash', label: 'Withdraw cash', format: 'currency', pick: (y) => y.medianWithdrawalCash },
+  { key: 'withdraw_total', label: 'Withdraw total', format: 'currency', pick: (y) => y.medianWithdrawalTotal },
+  { key: 'unresolved_gap', label: 'Unresolved funding gap', format: 'currency', pick: (y) => y.medianUnresolvedFundingGap },
   // Balances (end-of-year)
   { key: 'bal_pretax', label: 'Bal pretax', format: 'currency', pick: (y) => y.medianPretaxBalance },
   { key: 'bal_taxable', label: 'Bal taxable', format: 'currency', pick: (y) => y.medianTaxableBalance },

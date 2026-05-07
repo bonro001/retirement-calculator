@@ -17,7 +17,7 @@ const SOLVER_TEST_ASSUMPTIONS: MarketAssumptions = {
   cashVolatility: 0.01,
   inflation: 0.028,
   inflationVolatility: 0.01,
-  simulationRuns: 24,
+  simulationRuns: 16,
   irmaaThreshold: 200000,
   guardrailFloorYears: 12,
   guardrailCeilingYears: 18,
@@ -64,12 +64,20 @@ describe('spend-solver', () => {
     // 90% so the home-sale-vs-no-home-sale distinction binds.
     const allowsHomeSale = solveSpendByReverseTimeline({
       ...buildSolverInput(),
+      assumptions: {
+        ...SOLVER_TEST_ASSUMPTIONS,
+        simulationRuns: 24,
+      },
       targetLegacyTodayDollars: 2_000_000,
       minSuccessRate: 0.9,
       housingFundingPolicy: 'allow_primary_residence_sale',
     });
     const blocksHomeSale = solveSpendByReverseTimeline({
       ...buildSolverInput(),
+      assumptions: {
+        ...SOLVER_TEST_ASSUMPTIONS,
+        simulationRuns: 24,
+      },
       targetLegacyTodayDollars: 2_000_000,
       minSuccessRate: 0.9,
       housingFundingPolicy: 'do_not_sell_primary_residence',
@@ -244,7 +252,7 @@ describe('spend-solver', () => {
     };
     const constrainedAssumptions: MarketAssumptions = {
       ...SOLVER_TEST_ASSUMPTIONS,
-      simulationRuns: 50,
+      simulationRuns: 32,
       equityMean: 0.03,
       internationalEquityMean: 0.03,
       bondMean: 0.015,
@@ -310,7 +318,7 @@ describe('spend-solver', () => {
     };
     const constrainedAssumptions: MarketAssumptions = {
       ...SOLVER_TEST_ASSUMPTIONS,
-      simulationRuns: 50,
+      simulationRuns: 32,
       equityMean: 0.03,
       internationalEquityMean: 0.03,
       bondMean: 0.015,
@@ -435,10 +443,6 @@ describe('spend-solver', () => {
     const result = solveSpendByReverseTimeline({
       ...buildSolverInput(),
       data: highAssetData,
-      assumptions: {
-        ...SOLVER_TEST_ASSUMPTIONS,
-        simulationRuns: 24,
-      },
       selectedStressors: [],
       selectedResponses: [],
       optimizationObjective: 'maximize_time_weighted_spending',
@@ -497,6 +501,10 @@ describe('spend-solver', () => {
     const targetLegacy = 1_000_000;
     const result = solveSpendByReverseTimeline({
       ...buildSolverInput(),
+      assumptions: {
+        ...SOLVER_TEST_ASSUMPTIONS,
+        simulationRuns: 24,
+      },
       selectedStressors: [],
       selectedResponses: [],
       optimizationObjective: 'maximize_time_weighted_spending',

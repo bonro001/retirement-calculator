@@ -2,6 +2,7 @@ import type {
   AccountBucketType,
   ClosedLoopConvergenceThresholds,
   FutureReturnModelExtensionPoint,
+  HousingAfterDownsizePolicy,
   MarketAssumptions,
   PathResult,
   PathYearResult,
@@ -52,9 +53,15 @@ import {
   DEFAULT_IRMAA_CONFIG,
   getRmdStartAgeForBirthYear,
 } from './retirement-rules';
-import { calculatePreRetirementContributions } from './contribution-engine';
+import {
+  calculatePreRetirementContributions,
+  calculateProratedSalary,
+} from './contribution-engine';
 import { calculateHealthcarePremiums } from './healthcare-premium-engine';
-import { computeAnnualHouseholdSocialSecurity } from './social-security';
+import {
+  computeAnnualHouseholdSocialSecurity,
+  computeAnnualHouseholdSocialSecurityBreakdown,
+} from './social-security';
 import {
   deriveAssetClassMappingAssumptionsFromAccounts,
   getHoldingExposure,
@@ -84,6 +91,9 @@ interface SimWindfall {
   liquidityAmount?: number;
   costBasis?: number;
   sellingCostPercent?: number;
+  replacementHomeCost?: number;
+  purchaseClosingCostPercent?: number;
+  movingCost?: number;
   exclusionAmount?: number;
   distributionYears?: number;
 }
@@ -99,6 +109,7 @@ interface SimPlan {
   taxesInsuranceAnnual: number;
   travelAnnual: number;
   travelPhaseYears: number;
+  housingAfterDownsizePolicy?: HousingAfterDownsizePolicy;
   socialSecurity: SocialSecurityEntry[];
   windfalls: SimWindfall[];
   assetClassMappingAssumptions: Required<AssetClassMappingAssumptions>;
@@ -117,6 +128,13 @@ interface SimPlan {
     maxAnnualDollars: number;
     maxPretaxBalancePercent: number;
     magiBufferDollars: number;
+    lowIncomeBracketFill: {
+      enabled: boolean;
+      startYear: number | null;
+      endYear: number | null;
+      annualTargetDollars: number;
+      requireNoWageIncome: boolean;
+    };
     source: 'rules' | 'default';
   };
   healthcarePremiums: {
@@ -126,6 +144,7 @@ interface SimPlan {
   };
   hsaStrategy: {
     enabled: boolean;
+    withdrawalMode: 'high_magi_years' | 'ongoing_qualified_expenses' | 'ltc_reserve';
     annualQualifiedExpenseWithdrawalCap: number;
     prioritizeHighMagiYears: boolean;
     highMagiThreshold: number;
@@ -146,8 +165,19 @@ interface RunTrace {
   year: number;
   totalAssets: number;
   income: number;
+  socialSecurityIncome: number;
+  socialSecurityRob: number;
+  socialSecurityDebbie: number;
+  socialSecurityInflationIndex: number;
+  robSocialSecurityClaimFactor: number;
+  debbieSocialSecurityClaimFactor: number;
+  robSocialSecuritySpousalFloorMonthly: number;
+  debbieSocialSecuritySpousalFloorMonthly: number;
   spending: number;
   federalTax: number;
+  totalCashOutflow: number;
+  withdrawalTotal: number;
+  unresolvedFundingGap: number;
   rmdAmount: number;
   withdrawalCash: number;
   withdrawalTaxable: number;
@@ -156,8 +186,16 @@ interface RunTrace {
   rothConversion: number;
   rothConversionReason: string;
   rothConversionMotive: 'none' | 'opportunistic_headroom' | 'defensive_pressure';
+  rothConversionKind: 'none' | 'safe_room' | 'strategic_extra';
   rothConversionOpportunisticAmount: number;
   rothConversionDefensiveAmount: number;
+  rothConversionSafeRoomAvailable: number;
+  rothConversionSafeRoomUsed: number;
+  rothConversionStrategicExtraAvailable: number;
+  rothConversionStrategicExtraUsed: number;
+  rothConversionAnnualPolicyMax: number | null;
+  rothConversionAnnualPolicyMaxBinding: boolean;
+  rothConversionSafeRoomUnusedDueToAnnualPolicyMax: number;
   rothConversionSimulationModeUsed: SimulationStrategyMode;
   rothConversionPlannerLogicActiveAtConversion: boolean;
   rothConversionEngineInvoked: boolean;
@@ -230,7 +268,14 @@ interface RunTrace {
   windfallCashInflow: number;
   windfallOrdinaryIncome: number;
   windfallLtcgIncome: number;
+  homeSaleGrossProceeds: number;
+  homeSaleSellingCosts: number;
+  homeReplacementPurchaseCost: number;
+  homeDownsizeNetLiquidity: number;
   hsaOffsetUsed: number;
+  hsaLtcOffsetUsed: number;
+  ltcCostRemainingAfterHsa: number;
+  hsaBalanceEnd: number;
   ltcCost: number;
   withdrawalRationale: string;
   withdrawalScoreSpendingNeed: number;
@@ -254,6 +299,7 @@ interface SummaryYearTrace {
   totalAssets: number;
   spending: number;
   federalTax: number;
+  totalCashOutflow: number;
 }
 
 interface RandomTapeReferenceTrace {
@@ -386,8 +432,16 @@ interface RothConversionTrace {
   amount: number;
   reason: string;
   motive: 'none' | 'opportunistic_headroom' | 'defensive_pressure';
+  conversionKind: 'none' | 'safe_room' | 'strategic_extra';
   opportunisticAmount: number;
   defensiveAmount: number;
+  safeRoomAvailable: number;
+  safeRoomUsed: number;
+  strategicExtraAvailable: number;
+  strategicExtraUsed: number;
+  annualPolicyMax: number | null;
+  annualPolicyMaxBinding: boolean;
+  safeRoomUnusedDueToAnnualPolicyMax: number;
   simulationModeUsedForConversion: SimulationStrategyMode;
   plannerLogicActiveAtConversion: boolean;
   conversionEngineInvoked: boolean;
@@ -728,6 +782,23 @@ function buildPlan(
         ? DEFAULT_ROTH_CONVERSION_MAGI_BUFFER
         : configuredRothPolicy?.magiBufferDollars ?? DEFAULT_ROTH_CONVERSION_MAGI_BUFFER,
     ),
+    lowIncomeBracketFill: {
+      enabled: configuredRothPolicy?.lowIncomeBracketFill?.enabled ?? false,
+      startYear:
+        typeof configuredRothPolicy?.lowIncomeBracketFill?.startYear === 'number'
+          ? Math.floor(configuredRothPolicy.lowIncomeBracketFill.startYear)
+          : null,
+      endYear:
+        typeof configuredRothPolicy?.lowIncomeBracketFill?.endYear === 'number'
+          ? Math.floor(configuredRothPolicy.lowIncomeBracketFill.endYear)
+          : null,
+      annualTargetDollars: Math.max(
+        0,
+        configuredRothPolicy?.lowIncomeBracketFill?.annualTargetDollars ?? 0,
+      ),
+      requireNoWageIncome:
+        configuredRothPolicy?.lowIncomeBracketFill?.requireNoWageIncome ?? true,
+    },
     source: configuredRothPolicy ? 'rules' : 'default',
   } as const;
 
@@ -742,6 +813,9 @@ function buildPlan(
     taxesInsuranceAnnual: rawTaxesInsuranceAnnual * spendMultiplier,
     travelAnnual: rawTravelAnnual * spendMultiplier,
     travelPhaseYears: assumptions.travelPhaseYears,
+    housingAfterDownsizePolicy: data.rules.housingAfterDownsizePolicy
+      ? { ...data.rules.housingAfterDownsizePolicy }
+      : undefined,
     socialSecurity: data.income.socialSecurity.map((entry) => ({ ...entry })),
     windfalls: data.income.windfalls.map((item) => {
       // When `presentValueGrowthRate` is set, the entered amount is in
@@ -760,6 +834,9 @@ function buildPlan(
         liquidityAmount:
           item.liquidityAmount != null ? item.liquidityAmount * factor : undefined,
         costBasis: item.costBasis != null ? item.costBasis * factor : undefined,
+        replacementHomeCost:
+          item.replacementHomeCost != null ? item.replacementHomeCost * factor : undefined,
+        movingCost: item.movingCost != null ? item.movingCost * factor : undefined,
         // Drop the field on the sim copy so no caller can re-apply it.
         presentValueGrowthRate: undefined,
       };
@@ -808,6 +885,11 @@ function buildPlan(
     },
     hsaStrategy: {
       enabled: data.rules.hsaStrategy?.enabled ?? false,
+      withdrawalMode:
+        data.rules.hsaStrategy?.withdrawalMode ??
+        (data.rules.hsaStrategy?.prioritizeHighMagiYears
+          ? 'high_magi_years'
+          : 'ongoing_qualified_expenses'),
       annualQualifiedExpenseWithdrawalCap:
         data.rules.hsaStrategy?.annualQualifiedExpenseWithdrawalCap ??
         Number.POSITIVE_INFINITY,
@@ -926,6 +1008,9 @@ function applyResponses(
     ...plan,
     socialSecurity: plan.socialSecurity.map((entry) => ({ ...entry })),
     windfalls: plan.windfalls.map((entry) => ({ ...entry })),
+    housingAfterDownsizePolicy: plan.housingAfterDownsizePolicy
+      ? { ...plan.housingAfterDownsizePolicy }
+      : undefined,
     accounts: {
       pretax: { ...plan.accounts.pretax },
       roth: { ...plan.accounts.roth },
@@ -946,11 +1031,18 @@ function applyResponses(
     }
 
     if (response.id === 'sell_home_early') {
+      const saleYear = CURRENT_YEAR + (response.triggerYear ?? 3);
       nextPlan.windfalls = nextPlan.windfalls.map((item) =>
         item.name === 'home_sale'
-          ? { ...item, year: CURRENT_YEAR + (response.triggerYear ?? 3) }
+          ? { ...item, year: saleYear }
           : item,
       );
+      if (nextPlan.housingAfterDownsizePolicy?.mode === 'own_replacement_home') {
+        nextPlan.housingAfterDownsizePolicy = {
+          ...nextPlan.housingAfterDownsizePolicy,
+          startYear: saleYear,
+        };
+      }
     }
 
     if (response.id === 'delay_retirement') {
@@ -1093,19 +1185,62 @@ function getDefenseScore(
   return getOrBuildFlatBucketExposure(allocation, assumptions).defenseScore;
 }
 
+function getTaxesInsuranceAnnualForYear(plan: SimPlan, year: number) {
+  const policy = plan.housingAfterDownsizePolicy;
+  if (
+    policy?.mode !== 'own_replacement_home' ||
+    typeof policy.startYear !== 'number' ||
+    year < policy.startYear
+  ) {
+    return plan.taxesInsuranceAnnual;
+  }
+
+  if (
+    typeof policy.postSaleAnnualTaxesInsurance === 'number' &&
+    Number.isFinite(policy.postSaleAnnualTaxesInsurance)
+  ) {
+    return Math.max(0, policy.postSaleAnnualTaxesInsurance);
+  }
+
+  const replacementHomeCost = Math.max(0, policy.replacementHomeCost ?? 0);
+  if (!(replacementHomeCost > 0)) {
+    return plan.taxesInsuranceAnnual;
+  }
+
+  const homeSaleAmount = plan.windfalls.find((item) => item.name === 'home_sale')?.amount ?? 0;
+  const valueRatio = homeSaleAmount > 0 ? replacementHomeCost / homeSaleAmount : 1;
+  return plan.taxesInsuranceAnnual * Math.max(0, valueRatio);
+}
+
 function getSalaryForYear(plan: SimPlan, year: number) {
-  const endDate = new Date(plan.salaryEndDate);
-  const endYear = endDate.getFullYear();
-  if (year < endYear) {
-    return plan.salaryAnnual;
+  return calculateProratedSalary({
+    salaryAnnual: plan.salaryAnnual,
+    retirementDate: plan.salaryEndDate,
+    projectionYear: year,
+    rule: 'month_fraction',
+  });
+}
+
+function buildPretaxRmdSourceAccounts(
+  data: SeedData,
+  pretaxBalanceForRmd: number,
+) {
+  const sourceAccounts = data.accounts.pretax.sourceAccounts ?? [];
+  const ownedTotal = sourceAccounts.reduce(
+    (sum, account) => sum + (account.owner ? Math.max(0, account.balance) : 0),
+    0,
+  );
+  if (ownedTotal <= 0) {
+    return [];
   }
 
-  if (year > endYear) {
-    return 0;
-  }
-
-  const monthFraction = endDate.getMonth() / 12;
-  return plan.salaryAnnual * monthFraction;
+  return sourceAccounts
+    .filter((account) => account.owner && account.balance > 0)
+    .map((account) => ({
+      id: account.id,
+      owner: account.owner,
+      balance: pretaxBalanceForRmd * (Math.max(0, account.balance) / ownedTotal),
+    }));
 }
 
 export function getSocialSecurityBenefitFactor(claimAge: number) {
@@ -1210,10 +1345,65 @@ function getSocialSecurityIncome(
   return annualHouseholdTodayDollars * inflationIndex;
 }
 
+function getSocialSecurityBreakdown(
+  plan: SimPlan,
+  ages: { rob: number; debbie: number },
+  inflationIndex: number,
+  mortality?: { robDeathAge?: number; debbieDeathAge?: number },
+) {
+  const robEntry = plan.socialSecurity.find((e) => e.person === 'rob');
+  const debbieEntry = plan.socialSecurity.find((e) => e.person === 'debbie');
+  const FRA_DEFAULT = 67;
+  if (!robEntry || !debbieEntry) {
+    const total = getSocialSecurityIncome(plan, 0, ages, inflationIndex, mortality);
+    return {
+      householdAnnual: total,
+      robAnnual: robEntry ? total : 0,
+      debbieAnnual: debbieEntry ? total : 0,
+      robClaimFactor: 0,
+      debbieClaimFactor: 0,
+      robSpousalFloorMonthly: 0,
+      debbieSpousalFloorMonthly: 0,
+      inflationIndex,
+    };
+  }
+
+  const breakdown = computeAnnualHouseholdSocialSecurityBreakdown(
+    {
+      fraMonthly: robEntry.fraMonthly,
+      claimAge: robEntry.claimAge ?? FRA_DEFAULT,
+      currentAge: ages.rob,
+      assumedDeathAge: mortality?.robDeathAge,
+    },
+    {
+      fraMonthly: debbieEntry.fraMonthly,
+      claimAge: debbieEntry.claimAge ?? FRA_DEFAULT,
+      currentAge: ages.debbie,
+      assumedDeathAge: mortality?.debbieDeathAge,
+    },
+    FRA_DEFAULT,
+  );
+
+  return {
+    householdAnnual: breakdown.householdAnnual * inflationIndex,
+    robAnnual: breakdown.earner1Annual * inflationIndex,
+    debbieAnnual: breakdown.earner2Annual * inflationIndex,
+    robClaimFactor: breakdown.earner1ClaimFactor,
+    debbieClaimFactor: breakdown.earner2ClaimFactor,
+    robSpousalFloorMonthly: breakdown.earner1SpousalFloorMonthly * inflationIndex,
+    debbieSpousalFloorMonthly: breakdown.earner2SpousalFloorMonthly * inflationIndex,
+    inflationIndex,
+  };
+}
+
 interface WindfallRealization {
   cashInflow: number;
   ordinaryIncome: number;
   ltcgIncome: number;
+  homeSaleGrossProceeds: number;
+  homeSaleSellingCosts: number;
+  homeReplacementPurchaseCost: number;
+  homeDownsizeNetLiquidity: number;
 }
 
 function inferWindfallTaxTreatment(windfall: SimWindfall): WindfallTaxTreatment {
@@ -1233,6 +1423,18 @@ function getDefaultPrimaryHomeSaleExclusion(filingStatus: string) {
   return filingStatus === 'married_filing_jointly' ? 500_000 : 250_000;
 }
 
+function emptyWindfallRealization(): WindfallRealization {
+  return {
+    cashInflow: 0,
+    ordinaryIncome: 0,
+    ltcgIncome: 0,
+    homeSaleGrossProceeds: 0,
+    homeSaleSellingCosts: 0,
+    homeReplacementPurchaseCost: 0,
+    homeDownsizeNetLiquidity: 0,
+  };
+}
+
 function buildWindfallRealizationForYear(
   windfall: SimWindfall,
   year: number,
@@ -1240,30 +1442,56 @@ function buildWindfallRealizationForYear(
 ): WindfallRealization {
   const treatment = inferWindfallTaxTreatment(windfall);
   const amount = Math.max(0, windfall.amount);
-  const modeledSellingCost = windfall.name === 'home_sale'
+  const isHomeSale = windfall.name === 'home_sale';
+  const modeledSellingCost = isHomeSale
     ? amount * Math.max(0, Math.min(1, windfall.sellingCostPercent ?? 0))
     : 0;
-  const defaultLiquidity = Math.max(0, amount - modeledSellingCost);
+  const replacementHomeCost = isHomeSale
+    ? Math.max(0, windfall.replacementHomeCost ?? 0)
+    : 0;
+  const replacementClosingCost = replacementHomeCost *
+    Math.max(0, Math.min(1, windfall.purchaseClosingCostPercent ?? 0));
+  const movingCost = isHomeSale ? Math.max(0, windfall.movingCost ?? 0) : 0;
+  const homeReplacementPurchaseCost =
+    replacementHomeCost + replacementClosingCost + movingCost;
+  const defaultLiquidity = Math.max(
+    0,
+    amount - modeledSellingCost - homeReplacementPurchaseCost,
+  );
   const liquidityAmount = Math.max(0, windfall.liquidityAmount ?? defaultLiquidity);
+  const homeSaleDiagnostics = isHomeSale
+    ? {
+        homeSaleGrossProceeds: amount,
+        homeSaleSellingCosts: modeledSellingCost,
+        homeReplacementPurchaseCost,
+        homeDownsizeNetLiquidity: liquidityAmount,
+      }
+    : {
+        homeSaleGrossProceeds: 0,
+        homeSaleSellingCosts: 0,
+        homeReplacementPurchaseCost: 0,
+        homeDownsizeNetLiquidity: 0,
+      };
   if (amount <= 0) {
-    return { cashInflow: 0, ordinaryIncome: 0, ltcgIncome: 0 };
+    return emptyWindfallRealization();
   }
 
   if (treatment === 'inherited_ira_10y') {
     const distributionYears = Math.max(1, Math.round(windfall.distributionYears ?? 10));
     if (year < windfall.year || year >= windfall.year + distributionYears) {
-      return { cashInflow: 0, ordinaryIncome: 0, ltcgIncome: 0 };
+      return emptyWindfallRealization();
     }
     const annualDistribution = amount / distributionYears;
     return {
       cashInflow: annualDistribution,
       ordinaryIncome: annualDistribution,
       ltcgIncome: 0,
+      ...homeSaleDiagnostics,
     };
   }
 
   if (year !== windfall.year) {
-    return { cashInflow: 0, ordinaryIncome: 0, ltcgIncome: 0 };
+    return emptyWindfallRealization();
   }
 
   if (treatment === 'ordinary_income') {
@@ -1271,6 +1499,7 @@ function buildWindfallRealizationForYear(
       cashInflow: liquidityAmount,
       ordinaryIncome: amount,
       ltcgIncome: 0,
+      ...homeSaleDiagnostics,
     };
   }
 
@@ -1281,6 +1510,7 @@ function buildWindfallRealizationForYear(
       cashInflow: liquidityAmount,
       ordinaryIncome: 0,
       ltcgIncome: taxableGain,
+      ...homeSaleDiagnostics,
     };
   }
 
@@ -1295,6 +1525,7 @@ function buildWindfallRealizationForYear(
       cashInflow: liquidityAmount,
       ordinaryIncome: 0,
       ltcgIncome: Math.max(0, realizedGain - exclusion),
+      ...homeSaleDiagnostics,
     };
   }
 
@@ -1302,6 +1533,7 @@ function buildWindfallRealizationForYear(
     cashInflow: liquidityAmount,
     ordinaryIncome: 0,
     ltcgIncome: 0,
+    ...homeSaleDiagnostics,
   };
 }
 
@@ -1352,21 +1584,31 @@ function calculateHsaOffsetForYear(input: {
   plan: SimPlan;
   hsaBalance: number;
   magi: number;
-  healthcareAndLtcCost: number;
+  healthcareCost: number;
+  ltcCost: number;
 }) {
-  if (!input.plan.hsaStrategy.enabled || input.hsaBalance <= 0 || input.healthcareAndLtcCost <= 0) {
+  const qualifiedExpenseNeed = Math.max(0, input.healthcareCost) + Math.max(0, input.ltcCost);
+  if (!input.plan.hsaStrategy.enabled || input.hsaBalance <= 0 || qualifiedExpenseNeed <= 0) {
+    return 0;
+  }
+  const withdrawalMode = input.plan.hsaStrategy.withdrawalMode;
+  const eligibleNeed =
+    withdrawalMode === 'ltc_reserve'
+      ? Math.max(0, input.ltcCost)
+      : qualifiedExpenseNeed;
+  if (eligibleNeed <= 0) {
     return 0;
   }
   if (
-    input.plan.hsaStrategy.prioritizeHighMagiYears &&
+    withdrawalMode === 'high_magi_years' &&
     input.magi < input.plan.hsaStrategy.highMagiThreshold
   ) {
     return 0;
   }
   const cap = Math.max(0, input.plan.hsaStrategy.annualQualifiedExpenseWithdrawalCap);
   const cappedNeed = Number.isFinite(cap)
-    ? Math.min(input.healthcareAndLtcCost, cap)
-    : input.healthcareAndLtcCost;
+    ? Math.min(eligibleNeed, cap)
+    : eligibleNeed;
   return Math.min(input.hsaBalance, cappedNeed);
 }
 
@@ -1921,6 +2163,33 @@ function sumBalances(balances: Record<AccountBucketType, number>) {
   return SIM_BUCKETS.reduce((total, bucket) => total + balances[bucket], 0);
 }
 
+function removeProtectedHsaFromPretax(
+  balances: Record<AccountBucketType, number>,
+  hsaBalance: number,
+) {
+  const protectedHsaBalance = Math.min(
+    Math.max(0, hsaBalance),
+    Math.max(0, balances.pretax),
+  );
+  return {
+    protectedHsaBalance,
+    spendableBalances: {
+      ...balances,
+      pretax: Math.max(0, balances.pretax - protectedHsaBalance),
+    },
+  };
+}
+
+function restoreProtectedHsaToPretax(
+  balances: Record<AccountBucketType, number>,
+  protectedHsaBalance: number,
+) {
+  return {
+    ...balances,
+    pretax: balances.pretax + Math.max(0, protectedHsaBalance),
+  };
+}
+
 const DEFAULT_TAXABLE_WITHDRAWAL_LTCG_RATIO = 0.25;
 const DEFAULT_BASELINE_ACA_PREMIUM_ANNUAL = 14_400;
 const DEFAULT_BASELINE_MEDICARE_PREMIUM_ANNUAL = 2_220;
@@ -2427,6 +2696,7 @@ function withdrawForNeed(
 }
 
 function applyProactiveRothConversion(input: {
+  year: number;
   balances: Record<AccountBucketType, number>;
   withdrawalResult: ReturnType<typeof withdrawForNeed>;
   strategy: StrategyBehavior;
@@ -2539,6 +2809,15 @@ function applyProactiveRothConversion(input: {
   };
   const magiBaseline = input.withdrawalResult.taxResult.MAGI;
   const pretaxBalanceBaseline = input.balances.pretax;
+  const emptyConversionRoom = {
+    safeRoomAvailable: 0,
+    safeRoomUsed: 0,
+    strategicExtraAvailable: 0,
+    strategicExtraUsed: 0,
+    annualPolicyMax: null,
+    annualPolicyMaxBinding: false,
+    safeRoomUnusedDueToAnnualPolicyMax: 0,
+  };
 	  const noConversion = (
 	    reason: string,
 	    overrides?: Partial<Omit<RothConversionTrace, 'amount' | 'reason'>>,
@@ -2546,8 +2825,10 @@ function applyProactiveRothConversion(input: {
 	    amount: 0,
 	    reason,
 	    motive: 'none',
+	    conversionKind: 'none',
 	    opportunisticAmount: 0,
 	    defensiveAmount: 0,
+	    ...emptyConversionRoom,
 	    simulationModeUsedForConversion: input.strategy.mode,
     plannerLogicActiveAtConversion: input.strategy.plannerLogicActive,
     conversionEngineInvoked: true,
@@ -2626,10 +2907,24 @@ function applyProactiveRothConversion(input: {
     : 0;
   const acaThreshold = input.acaFriendlyMagiCeiling;
   const alreadyAboveIrmaaThreshold = irmaaThreshold !== null && magiBefore > irmaaThreshold;
+  const bracketFillPolicy = input.plan.rothConversionPolicy.lowIncomeBracketFill;
+  const bracketFillWindowActive =
+    bracketFillPolicy.enabled &&
+    bracketFillPolicy.annualTargetDollars > 0 &&
+    (bracketFillPolicy.startYear === null || input.year >= bracketFillPolicy.startYear) &&
+    (bracketFillPolicy.endYear === null || input.year <= bracketFillPolicy.endYear) &&
+    (!bracketFillPolicy.requireNoWageIncome ||
+      input.withdrawalResult.taxInputs.wages <= 1);
 
   const baselineBalanceCap =
     Math.max(0, input.balances.pretax) * input.plan.rothConversionPolicy.maxPretaxBalancePercent;
   let effectiveBalanceCap = baselineBalanceCap;
+  if (bracketFillWindowActive) {
+    effectiveBalanceCap = Math.max(
+      effectiveBalanceCap,
+      bracketFillPolicy.annualTargetDollars,
+    );
+  }
   const yearsUntilRmdStart = input.yearsUntilRmdStart;
   if (yearsUntilRmdStart !== null && yearsUntilRmdStart <= 8) {
     const targetDepletionYears = Math.max(2, yearsUntilRmdStart + 3);
@@ -2650,6 +2945,14 @@ function applyProactiveRothConversion(input: {
   const annualPolicyMax = Number.isFinite(input.plan.rothConversionPolicy.maxAnnualDollars)
     ? input.plan.rothConversionPolicy.maxAnnualDollars
     : Number.POSITIVE_INFINITY;
+  const rawConversionBudgetBeforeAnnualMax = Math.min(
+    effectiveBalanceCap,
+    Math.max(0, input.balances.pretax),
+  );
+  const annualPolicyMaxBinding =
+    Number.isFinite(annualPolicyMax) &&
+    annualPolicyMax + 0.01 < rawConversionBudgetBeforeAnnualMax;
+  const annualPolicyMaxForTrace = Number.isFinite(annualPolicyMax) ? annualPolicyMax : null;
   const totalConversionBudget = Math.min(
     Math.max(0, annualPolicyMax),
     effectiveBalanceCap,
@@ -2661,6 +2964,14 @@ function applyProactiveRothConversion(input: {
       (input.yearsUntilRmdStart !== null &&
         input.yearsUntilRmdStart <= 3 &&
         input.balances.pretax > 500_000));
+  const roundConversionRoom = (value: number) => Math.round(value * 100) / 100;
+  const safeRoomAvailable = roundConversionRoom(availableHeadroom);
+  const strategicExtraAvailable = defensivePressureAvailable
+    ? roundConversionRoom(Math.max(0, rawConversionBudgetBeforeAnnualMax - availableHeadroom))
+    : 0;
+  const safeRoomUnusedDueToAnnualPolicyMax = annualPolicyMaxBinding
+    ? roundConversionRoom(Math.max(0, availableHeadroom - annualPolicyMax))
+    : 0;
 
   if (availableHeadroom <= 0 && !defensivePressureAvailable) {
     return noConversion(
@@ -2673,6 +2984,11 @@ function applyProactiveRothConversion(input: {
         magiAfter: magiBefore,
         pretaxBalanceBefore,
         balanceCap: effectiveBalanceCap,
+        safeRoomAvailable,
+        strategicExtraAvailable,
+        annualPolicyMax: annualPolicyMaxForTrace,
+        annualPolicyMaxBinding,
+        safeRoomUnusedDueToAnnualPolicyMax,
         eligibilityBlockedReason: 'no_headroom',
         conversionSuppressedReason: 'no_headroom',
       },
@@ -2736,6 +3052,9 @@ function applyProactiveRothConversion(input: {
       availableHeadroom * FRACTIONS_FOR_CONVERSION[i],
       'opportunistic_headroom',
     );
+  }
+  if (bracketFillWindowActive) {
+    pushCandidateAmount(bracketFillPolicy.annualTargetDollars, 'opportunistic_headroom');
   }
   if (defensivePressureAvailable) {
     for (let i = 0; i < FRACTIONS_FOR_CONVERSION.length; i += 1) {
@@ -2857,6 +3176,11 @@ function applyProactiveRothConversion(input: {
         magiAfter: magiBefore,
         pretaxBalanceBefore,
         balanceCap: effectiveBalanceCap,
+        safeRoomAvailable,
+        strategicExtraAvailable,
+        annualPolicyMax: annualPolicyMaxForTrace,
+        annualPolicyMaxBinding,
+        safeRoomUnusedDueToAnnualPolicyMax,
         evaluatedCandidateAmounts,
         candidateAmountsGenerated,
         bestCandidateAmount,
@@ -2888,6 +3212,11 @@ function applyProactiveRothConversion(input: {
         magiAfter: magiBefore,
         pretaxBalanceBefore,
         balanceCap: effectiveBalanceCap,
+        safeRoomAvailable,
+        strategicExtraAvailable,
+        annualPolicyMax: annualPolicyMaxForTrace,
+        annualPolicyMaxBinding,
+        safeRoomUnusedDueToAnnualPolicyMax,
         evaluatedCandidateAmounts,
         candidateAmountsGenerated,
         bestCandidateAmount,
@@ -2915,8 +3244,11 @@ function applyProactiveRothConversion(input: {
 	  const conversionMotive = bestCandidate!.motive;
 	  conversionReason =
 	    conversionMotive === 'defensive_pressure'
-	      ? 'executed_defensive_rmd_pressure'
-	      : conversionReason;
+	      ? 'executed_strategic_extra_conversion'
+	      : 'executed_safe_room_conversion';
+  const conversionKind = conversionMotive === 'defensive_pressure'
+    ? 'strategic_extra'
+    : 'safe_room';
 
 	  input.balances.pretax -= conversionAmount;
   input.balances.roth += conversionAmount;
@@ -2937,10 +3269,20 @@ function applyProactiveRothConversion(input: {
 	    amount: conversionAmount,
 	    reason: conversionReason,
 	    motive: conversionMotive,
+	    conversionKind,
 	    opportunisticAmount:
 	      conversionMotive === 'opportunistic_headroom' ? conversionAmount : 0,
 	    defensiveAmount:
 	      conversionMotive === 'defensive_pressure' ? conversionAmount : 0,
+	    safeRoomAvailable,
+	    safeRoomUsed:
+	      conversionMotive === 'opportunistic_headroom' ? conversionAmount : 0,
+	    strategicExtraAvailable,
+	    strategicExtraUsed:
+	      conversionMotive === 'defensive_pressure' ? conversionAmount : 0,
+	    annualPolicyMax: annualPolicyMaxForTrace,
+	    annualPolicyMaxBinding,
+	    safeRoomUnusedDueToAnnualPolicyMax,
 	    simulationModeUsedForConversion: input.strategy.mode,
     plannerLogicActiveAtConversion: input.strategy.plannerLogicActive,
     conversionEngineInvoked: true,
@@ -2994,8 +3336,16 @@ function buildInactiveRothConversionTrace(input: {
 	    amount: 0,
 	    reason: 'simulation_mode_raw',
 	    motive: 'none',
+	    conversionKind: 'none',
 	    opportunisticAmount: 0,
 	    defensiveAmount: 0,
+	    safeRoomAvailable: 0,
+	    safeRoomUsed: 0,
+	    strategicExtraAvailable: 0,
+	    strategicExtraUsed: 0,
+	    annualPolicyMax: null,
+	    annualPolicyMaxBinding: false,
+	    safeRoomUnusedDueToAnnualPolicyMax: 0,
 	    simulationModeUsedForConversion: input.strategy.mode,
     plannerLogicActiveAtConversion: input.strategy.plannerLogicActive,
     conversionEngineInvoked: false,
@@ -3119,9 +3469,10 @@ function buildSimulationConfigurationSnapshot({
         : null,
       maxPretaxBalancePercent: plan.rothConversionPolicy.maxPretaxBalancePercent,
       magiBufferDollars: plan.rothConversionPolicy.magiBufferDollars,
+      lowIncomeBracketFill: plan.rothConversionPolicy.lowIncomeBracketFill,
       source: plan.rothConversionPolicy.source,
       description: strategy.plannerLogicActive
-        ? 'Planner-enhanced simulation applies deterministic Roth conversion headroom rules in-year.'
+        ? 'Planner-enhanced simulation automatically uses safe Roth conversion room in-year and separately labels strategic-extra conversions beyond clean MAGI room.'
         : 'Raw simulation mode does not run proactive Roth conversions.',
     },
     liquidityFloorBehavior: {
@@ -3186,6 +3537,12 @@ function buildSimulationModeDiagnostics({
     : 0;
   let rothDecisionYearCount = 0;
   let rothExecutedYearCount = 0;
+  let rothSafeRoomExecutedYearCount = 0;
+  let rothStrategicExtraExecutedYearCount = 0;
+  let rothAnnualPolicyMaxBindingYearCount = 0;
+  let totalSafeRoomUsed = 0;
+  let totalStrategicExtraUsed = 0;
+  let totalSafeRoomUnusedDueToAnnualPolicyMax = 0;
   let rothBlockedYearCount = 0;
   let rothNoEconomicBenefitYearCount = 0;
   let rothNotEligibleYearCount = 0;
@@ -3199,6 +3556,14 @@ function buildSimulationModeDiagnostics({
       );
       if (trace.rothConversion > 0) {
         rothExecutedYearCount += 1;
+        if (trace.rothConversionKind === 'safe_room') {
+          rothSafeRoomExecutedYearCount += 1;
+        }
+        if (trace.rothConversionKind === 'strategic_extra') {
+          rothStrategicExtraExecutedYearCount += 1;
+        }
+        totalSafeRoomUsed += trace.rothConversionSafeRoomUsed;
+        totalStrategicExtraUsed += trace.rothConversionStrategicExtraUsed;
       } else if (trace.rothConversionReason.startsWith('no_economic_benefit')) {
         rothNoEconomicBenefitYearCount += 1;
       } else if (trace.rothConversionReason.startsWith('not_eligible')) {
@@ -3206,6 +3571,11 @@ function buildSimulationModeDiagnostics({
       } else {
         rothBlockedYearCount += 1;
       }
+      if (trace.rothConversionAnnualPolicyMaxBinding) {
+        rothAnnualPolicyMaxBindingYearCount += 1;
+      }
+      totalSafeRoomUnusedDueToAnnualPolicyMax +=
+        trace.rothConversionSafeRoomUnusedDueToAnnualPolicyMax;
     });
   });
   const rothDecisionReasons = [...rothDecisionReasonCounts.entries()]
@@ -3250,9 +3620,17 @@ function buildSimulationModeDiagnostics({
         notEligibleRunRate: 0,
 	        representativeAmount: 0,
 	        representativeReason: 'simulation_mode_raw',
-	        representativeMotive: 'none',
+	        representativeMotive: 'none' as const,
+	        representativeConversionKind: 'none' as const,
 	        representativeOpportunisticAmount: 0,
 	        representativeDefensiveAmount: 0,
+	        safeRoomAvailable: 0,
+	        safeRoomUsed: 0,
+	        strategicExtraAvailable: 0,
+	        strategicExtraUsed: 0,
+	        annualPolicyMax: null,
+	        annualPolicyMaxBinding: false,
+	        safeRoomUnusedDueToAnnualPolicyMax: 0,
 	        representativeMagiEffect: 0,
         representativeTaxEffect: 0,
         representativeAcaEffect: 0,
@@ -3365,8 +3743,12 @@ function buildSimulationModeDiagnostics({
           : dominantValue(yearTraces.map((trace) => trace.rothConversionReason)),
       representativeMotive:
         executedTraces.length > 0
-          ? dominantValue(executedTraces.map((trace) => trace.rothConversionMotive), 'none')
-          : dominantValue(yearTraces.map((trace) => trace.rothConversionMotive), 'none'),
+          ? dominantValue(executedTraces.map((trace) => trace.rothConversionMotive), 'none') as RunTrace['rothConversionMotive']
+          : dominantValue(yearTraces.map((trace) => trace.rothConversionMotive), 'none') as RunTrace['rothConversionMotive'],
+      representativeConversionKind:
+        executedTraces.length > 0
+          ? dominantValue(executedTraces.map((trace) => trace.rothConversionKind), 'none') as RunTrace['rothConversionKind']
+          : dominantValue(yearTraces.map((trace) => trace.rothConversionKind), 'none') as RunTrace['rothConversionKind'],
       representativeOpportunisticAmount:
         executedTraces.length > 0
           ? median(executedTraces.map((trace) => trace.rothConversionOpportunisticAmount))
@@ -3375,6 +3757,32 @@ function buildSimulationModeDiagnostics({
         executedTraces.length > 0
           ? median(executedTraces.map((trace) => trace.rothConversionDefensiveAmount))
           : 0,
+      safeRoomAvailable: median(
+        representativeSet.map((trace) => trace.rothConversionSafeRoomAvailable),
+      ),
+      safeRoomUsed:
+        executedTraces.length > 0
+          ? median(executedTraces.map((trace) => trace.rothConversionSafeRoomUsed))
+          : 0,
+      strategicExtraAvailable: median(
+        representativeSet.map((trace) => trace.rothConversionStrategicExtraAvailable),
+      ),
+      strategicExtraUsed:
+        executedTraces.length > 0
+          ? median(executedTraces.map((trace) => trace.rothConversionStrategicExtraUsed))
+          : 0,
+      annualPolicyMax: (() => {
+        const values = representativeSet
+          .map((trace) => trace.rothConversionAnnualPolicyMax)
+          .filter((value): value is number => typeof value === 'number' && Number.isFinite(value));
+        return values.length > 0 ? median(values) : null;
+      })(),
+      annualPolicyMaxBinding:
+        representativeSet.filter((trace) => trace.rothConversionAnnualPolicyMaxBinding).length /
+          representativeSet.length >= 0.5,
+      safeRoomUnusedDueToAnnualPolicyMax: median(
+        representativeSet.map((trace) => trace.rothConversionSafeRoomUnusedDueToAnnualPolicyMax),
+      ),
       representativeMagiEffect:
         executedTraces.length > 0
           ? median(executedTraces.map((trace) => trace.rothConversionMagiEffect))
@@ -3589,8 +3997,19 @@ function buildSimulationModeDiagnostics({
         | 'none'
         | 'opportunistic_headroom'
         | 'defensive_pressure',
+      conversionKind: point.representativeConversionKind as
+        | 'none'
+        | 'safe_room'
+        | 'strategic_extra',
       opportunisticAmount: point.representativeOpportunisticAmount,
       defensiveAmount: point.representativeDefensiveAmount,
+      safeRoomAvailable: point.safeRoomAvailable,
+      safeRoomUsed: point.safeRoomUsed,
+      strategicExtraAvailable: point.strategicExtraAvailable,
+      strategicExtraUsed: point.strategicExtraUsed,
+      annualPolicyMax: point.annualPolicyMax,
+      annualPolicyMaxBinding: point.annualPolicyMaxBinding,
+      safeRoomUnusedDueToAnnualPolicyMax: point.safeRoomUnusedDueToAnnualPolicyMax,
       simulationModeUsedForConversion: point.simulationModeUsedForConversion,
       plannerLogicActiveAtConversion: point.plannerLogicActiveAtConversion,
       conversionEngineInvoked: point.conversionEngineInvoked,
@@ -3630,6 +4049,14 @@ function buildSimulationModeDiagnostics({
     rothConversionEligibilityPath,
     rothConversionDecisionSummary: {
       executedYearCount: rothExecutedYearCount,
+      safeRoomExecutedYearCount: rothSafeRoomExecutedYearCount,
+      strategicExtraExecutedYearCount: rothStrategicExtraExecutedYearCount,
+      annualPolicyMaxBindingYearCount: rothAnnualPolicyMaxBindingYearCount,
+      totalSafeRoomUsed: roundSeriesValue(totalSafeRoomUsed),
+      totalStrategicExtraUsed: roundSeriesValue(totalStrategicExtraUsed),
+      totalSafeRoomUnusedDueToAnnualPolicyMax: roundSeriesValue(
+        totalSafeRoomUnusedDueToAnnualPolicyMax,
+      ),
       blockedYearCount: rothBlockedYearCount,
       noEconomicBenefitYearCount: rothNoEconomicBenefitYearCount,
       notEligibleYearCount: rothNotEligibleYearCount,
@@ -3694,6 +4121,12 @@ function emptySimulationModeDiagnostics(
     rothConversionEligibilityPath: [],
     rothConversionDecisionSummary: {
       executedYearCount: 0,
+      safeRoomExecutedYearCount: 0,
+      strategicExtraExecutedYearCount: 0,
+      annualPolicyMaxBindingYearCount: 0,
+      totalSafeRoomUsed: 0,
+      totalStrategicExtraUsed: 0,
+      totalSafeRoomUnusedDueToAnnualPolicyMax: 0,
       blockedYearCount: 0,
       noEconomicBenefitYearCount: 0,
       notEligibleYearCount: 0,
@@ -3733,9 +4166,10 @@ function summaryOnlyPathYearResult(input: {
   year: number;
   medianAssets: number;
   tenthPercentileAssets: number;
-  medianSpending: number;
-  medianFederalTax: number;
-}): PathYearResult {
+	  medianSpending: number;
+	  medianFederalTax: number;
+	  medianTotalCashOutflow?: number;
+	}): PathYearResult {
   return {
     year: input.year,
     medianAssets: input.medianAssets,
@@ -3744,10 +4178,22 @@ function summaryOnlyPathYearResult(input: {
     medianRothBalance: 0,
     medianCashBalance: 0,
     tenthPercentileAssets: input.tenthPercentileAssets,
-    medianIncome: 0,
-    medianSpending: input.medianSpending,
-    medianFederalTax: input.medianFederalTax,
-    medianRmdAmount: 0,
+	    medianIncome: 0,
+	    medianSocialSecurityIncome: 0,
+	    medianSocialSecurityRob: 0,
+	    medianSocialSecurityDebbie: 0,
+	    medianSocialSecurityInflationIndex: 0,
+	    robSocialSecurityClaimFactor: 0,
+	    debbieSocialSecurityClaimFactor: 0,
+	    robSocialSecuritySpousalFloorMonthly: 0,
+	    debbieSocialSecuritySpousalFloorMonthly: 0,
+	    medianSpending: input.medianSpending,
+	    medianFederalTax: input.medianFederalTax,
+	    medianTotalCashOutflow:
+	      input.medianTotalCashOutflow ?? input.medianSpending + input.medianFederalTax,
+	    medianWithdrawalTotal: 0,
+	    medianUnresolvedFundingGap: 0,
+	    medianRmdAmount: 0,
     medianWithdrawalCash: 0,
     medianWithdrawalTaxable: 0,
     medianWithdrawalIra401k: 0,
@@ -3782,7 +4228,14 @@ function summaryOnlyPathYearResult(input: {
     medianWindfallCashInflow: 0,
     medianWindfallOrdinaryIncome: 0,
     medianWindfallLtcgIncome: 0,
+    medianHomeSaleGrossProceeds: 0,
+    medianHomeSaleSellingCosts: 0,
+    medianHomeReplacementPurchaseCost: 0,
+    medianHomeDownsizeNetLiquidity: 0,
     medianHsaOffsetUsed: 0,
+    medianHsaLtcOffsetUsed: 0,
+    medianLtcCostRemainingAfterHsa: 0,
+    medianHsaBalance: 0,
     medianLtcCost: 0,
     dominantWithdrawalRationale: 'summary_only',
     medianWithdrawalScoreSpendingNeed: 0,
@@ -3970,7 +4423,7 @@ function simulatePath(
           marketPath[yearOffset] ??
           getStressAdjustedReturns(effectivePlan, assumptions, yearOffset, random, undefined, gaussian4);
         const { inflation, assetReturns, marketState } = marketPoint;
-        const pretaxBalanceForRmd = balances.pretax;
+        const pretaxBalanceForRmd = Math.max(0, balances.pretax - hsaBalance);
 
         const totalAssetsAtStart = sumBalances(balances);
         const rothBalanceStartForYear = balances.roth;
@@ -3985,8 +4438,12 @@ function simulatePath(
         // retirement (when the household enters slow-go years).
         const inTravelPhase =
           yearsIntoRetirement < effectivePlan.travelPhaseYears;
+        const taxesInsuranceAnnualForYear = getTaxesInsuranceAnnualForYear(
+          effectivePlan,
+          year,
+        );
         const fixedSpendAnnual =
-          effectivePlan.essentialAnnual + effectivePlan.taxesInsuranceAnnual;
+          effectivePlan.essentialAnnual + taxesInsuranceAnnualForYear;
         const baselineDiscretionaryAnnual =
           effectivePlan.optionalAnnual + (inTravelPhase ? effectivePlan.travelAnnual : 0);
         const scheduledAnnualSpend = getScheduledAnnualSpendForYear(
@@ -4029,7 +4486,7 @@ function simulatePath(
         const optionalSpend = optionalAnnualForYear * cutMultiplier;
         const travelSpend = travelAnnualForYear * cutMultiplier;
         const spendingBeforeHealthcare =
-          (effectivePlan.essentialAnnual + optionalSpend + effectivePlan.taxesInsuranceAnnual + travelSpend) *
+          (effectivePlan.essentialAnnual + optionalSpend + taxesInsuranceAnnualForYear + travelSpend) *
           inflationIndex;
 
         const salary = getSalaryForYear(effectivePlan, year);
@@ -4039,8 +4496,10 @@ function simulatePath(
           salaryThisYear: salary,
           retirementDate: effectivePlan.salaryEndDate,
           projectionYear: year,
+          salaryProrationRule: data.rules.payrollModel?.salaryProrationRule,
           filingStatus: data.household.filingStatus,
           settings: data.income.preRetirementContributions,
+          limitSettings: data.rules.contributionLimits,
           accountBalances: {
             pretax: balances.pretax,
             roth: balances.roth,
@@ -4062,16 +4521,28 @@ function simulatePath(
             debbieDeathAge: assumptions.debbieDeathAge,
           },
         );
+        const socialSecurityBreakdown = getSocialSecurityBreakdown(
+          effectivePlan,
+          { rob: robAge, debbie: debbieAge },
+          inflationIndex,
+          {
+            robDeathAge: assumptions.robDeathAge,
+            debbieDeathAge: assumptions.debbieDeathAge,
+          },
+        );
         const rmdResult = calculateRequiredMinimumDistribution({
           pretaxBalance: pretaxBalanceForRmd,
+          sourceAccounts: buildPretaxRmdSourceAccounts(data, pretaxBalanceForRmd),
           members: [
             {
+              owner: 'rob',
               birthDate: data.household.robBirthDate,
               age: robAge,
               accountShare: 0.5,
               startAgeOverride: data.rules.rmdPolicy?.startAgeOverride,
             },
             {
+              owner: 'debbie',
               birthDate: data.household.debbieBirthDate,
               age: debbieAge,
               accountShare: 0.5,
@@ -4087,15 +4558,26 @@ function simulatePath(
           }))
           .filter(
             ({ realized }) =>
-              realized.cashInflow > 0 || realized.ordinaryIncome > 0 || realized.ltcgIncome > 0,
+              realized.cashInflow > 0 ||
+              realized.ordinaryIncome > 0 ||
+              realized.ltcgIncome > 0 ||
+              realized.homeSaleGrossProceeds > 0,
           );
         let windfallCashInflow = 0;
         let windfallOrdinaryIncome = 0;
         let windfallLtcgIncome = 0;
+        let homeSaleGrossProceeds = 0;
+        let homeSaleSellingCosts = 0;
+        let homeReplacementPurchaseCost = 0;
+        let homeDownsizeNetLiquidity = 0;
         for (const entry of windfallRealizations) {
           windfallCashInflow += entry.realized.cashInflow;
           windfallOrdinaryIncome += entry.realized.ordinaryIncome;
           windfallLtcgIncome += entry.realized.ltcgIncome;
+          homeSaleGrossProceeds += entry.realized.homeSaleGrossProceeds;
+          homeSaleSellingCosts += entry.realized.homeSaleSellingCosts;
+          homeReplacementPurchaseCost += entry.realized.homeReplacementPurchaseCost;
+          homeDownsizeNetLiquidity += entry.realized.homeDownsizeNetLiquidity;
         }
 
         windfallRealizations.forEach(({ item, realized }) => {
@@ -4128,6 +4610,14 @@ function simulatePath(
         SIM_BUCKETS.forEach((bucket) => {
           balances[bucket] *= 1 + bucketReturns[bucket];
         });
+        if (data.accounts.hsa && hsaBalance > 0) {
+          const hsaReturn = getBucketReturn(
+            data.accounts.hsa.targetAllocation,
+            assetReturns,
+            effectivePlan.assetClassMappingAssumptions,
+          );
+          hsaBalance *= 1 + hsaReturn;
+        }
         const rothMarketGainLossForYear = balances.roth - rothBalanceBeforeReturnsForYear;
 
         balances.cash += windfallCashInflow;
@@ -4156,7 +4646,11 @@ function simulatePath(
             : null;
 
         const runWithdrawalAttempt = (needed: number) => {
-          const attemptBalances = { ...balancesBeforeWithdrawal };
+          const { protectedHsaBalance, spendableBalances } = removeProtectedHsaFromPretax(
+            balancesBeforeWithdrawal,
+            hsaBalance,
+          );
+          const attemptBalances = { ...spendableBalances };
           const attemptResult = withdrawForNeed(
             effectivePlan,
             attemptBalances,
@@ -4169,7 +4663,10 @@ function simulatePath(
             acaFriendlyMagiCeilingForYear,
           );
           return {
-            endingBalances: attemptBalances,
+            endingBalances: restoreProtectedHsaToPretax(
+              attemptBalances,
+              protectedHsaBalance,
+            ),
             result: attemptResult,
             acaFriendlyMagiCeiling: acaFriendlyMagiCeilingForYear,
           };
@@ -4237,13 +4734,14 @@ function simulatePath(
             plan: effectivePlan,
             hsaBalance,
             magi,
-            healthcareAndLtcCost:
-              healthcareForPass.totalHealthcarePremiumCost + ltcCostForYear,
+            healthcareCost: healthcareForPass.totalHealthcarePremiumCost,
+            ltcCost: ltcCostForYear,
           });
           const nextNeeded = Math.max(
             0,
             shortfallBeforeHealthcare +
               healthcareForPass.totalHealthcarePremiumCost +
+              attempt.result.taxResult.federalTax +
               ltcCostForYear -
               hsaOffsetForPass,
           );
@@ -4334,8 +4832,8 @@ function simulatePath(
             plan: effectivePlan,
             hsaBalance,
             magi: fallbackMagi,
-            healthcareAndLtcCost:
-              fallbackHealthcare.totalHealthcarePremiumCost + ltcCostForYear,
+            healthcareCost: fallbackHealthcare.totalHealthcarePremiumCost,
+            ltcCost: ltcCostForYear,
           });
           return {
             attempt: fallback.result,
@@ -4349,6 +4847,7 @@ function simulatePath(
               0,
               shortfallBeforeHealthcare +
                 fallbackHealthcare.totalHealthcarePremiumCost +
+                fallback.result.taxResult.federalTax +
                 ltcCostForYear -
                 fallbackHsaOffset,
             ),
@@ -4360,9 +4859,14 @@ function simulatePath(
           withdrawalResult.remaining >= MIN_FAILURE_SHORTFALL_DOLLARS
             ? withdrawalResult.remaining
             : 0;
+        const {
+          protectedHsaBalance: protectedHsaBalanceForConversion,
+          spendableBalances: conversionBalances,
+        } = removeProtectedHsaFromPretax(resolvedClosedLoopState.endingBalances, hsaBalance);
         const rothConversionTrace = strategyBehavior.plannerLogicActive
           ? applyProactiveRothConversion({
-              balances: resolvedClosedLoopState.endingBalances,
+              year,
+              balances: conversionBalances,
               withdrawalResult,
               strategy: strategyBehavior,
               plan: effectivePlan,
@@ -4374,10 +4878,14 @@ function simulatePath(
               medicareEligibleCount,
             })
           : buildInactiveRothConversionTrace({
-              balances: resolvedClosedLoopState.endingBalances,
+              balances: conversionBalances,
               withdrawalResult,
               strategy: strategyBehavior,
             });
+        const balancesAfterConversion = restoreProtectedHsaToPretax(
+          conversionBalances,
+          protectedHsaBalanceForConversion,
+        );
         let magiForYear = withdrawalResult.taxResult.MAGI;
         let irmaaReferenceMagi =
           magiHistory.get(year - DEFAULT_IRMAA_CONFIG.lookbackYears) ?? magiForYear;
@@ -4391,8 +4899,10 @@ function simulatePath(
           plan: effectivePlan,
           hsaBalance,
           magi: magiForYear,
-          healthcareAndLtcCost: healthcarePremiums.totalHealthcarePremiumCost + ltcCostForYear,
+          healthcareCost: healthcarePremiums.totalHealthcarePremiumCost,
+          ltcCost: ltcCostForYear,
         });
+        let hsaLtcOffsetUsed = Math.min(hsaOffsetUsed, ltcCostForYear);
         const closedLoopConvergedBeforeMaxPasses =
           closedLoopConverged && closedLoopPassesUsed < DEFAULT_MAX_CLOSED_LOOP_PASSES;
         closedLoopYearsEvaluated += 1;
@@ -4414,15 +4924,18 @@ function simulatePath(
           closedLoopLastDeltas.healthcarePremium,
         );
 
-        balances.pretax = resolvedClosedLoopState.endingBalances.pretax;
-        balances.roth = resolvedClosedLoopState.endingBalances.roth;
-        balances.taxable = resolvedClosedLoopState.endingBalances.taxable;
-        balances.cash = resolvedClosedLoopState.endingBalances.cash;
+        balances.pretax = balancesAfterConversion.pretax;
+        balances.roth = balancesAfterConversion.roth;
+        balances.taxable = balancesAfterConversion.taxable;
+        balances.cash = balancesAfterConversion.cash;
         if (hsaOffsetUsed > 0) {
           const appliedOffset = Math.min(hsaOffsetUsed, hsaBalance, balances.pretax);
           hsaBalance = Math.max(0, hsaBalance - appliedOffset);
           balances.pretax = Math.max(0, balances.pretax - appliedOffset);
+          hsaOffsetUsed = appliedOffset;
+          hsaLtcOffsetUsed = Math.min(hsaOffsetUsed, ltcCostForYear);
         }
+        const ltcCostRemainingAfterHsa = Math.max(0, ltcCostForYear - hsaLtcOffsetUsed);
 
         const federalTaxForYear = withdrawalResult.taxResult.federalTax;
         magiHistory.set(year, magiForYear);
@@ -4431,6 +4944,12 @@ function simulatePath(
           healthcarePremiums.totalHealthcarePremiumCost +
           ltcCostForYear -
           hsaOffsetUsed;
+        const withdrawalTotal =
+          withdrawalResult.withdrawals.cash +
+          withdrawalResult.withdrawals.taxable +
+          withdrawalResult.withdrawals.pretax +
+          withdrawalResult.withdrawals.roth;
+        const totalCashOutflow = spending + federalTaxForYear;
         marketPoint.cashflow = {
           adjustedWages,
           spendingCutActive: optionalCutActive,
@@ -4441,10 +4960,17 @@ function simulatePath(
           rothContributionFlow: rothContributionFlowForYear,
           socialSecurityIncome,
           windfallCashInflow,
+          homeSaleGrossProceeds,
+          homeSaleSellingCosts,
+          homeReplacementPurchaseCost,
+          homeDownsizeNetLiquidity,
           spendingBeforeHealthcare,
           healthcarePremiumCost: healthcarePremiums.totalHealthcarePremiumCost,
           ltcCost: ltcCostForYear,
           hsaOffsetUsed,
+          hsaLtcOffsetUsed,
+          ltcCostRemainingAfterHsa,
+          hsaBalanceEnd: hsaBalance,
           federalTax: federalTaxForYear,
           irmaaTier: irmaaTier.tier,
           rmdWithdrawn: withdrawalResult.rmdWithdrawn,
@@ -4493,6 +5019,7 @@ function simulatePath(
           totalAssets: roundSeriesValue(endingAssets),
           spending: roundSeriesValue(spending),
           federalTax: roundSeriesValue(federalTaxForYear),
+          totalCashOutflow: roundSeriesValue(totalCashOutflow),
         };
         if (!summaryYearlyBuckets.has(year)) {
           summaryYearlyBuckets.set(year, []);
@@ -4513,11 +5040,26 @@ function simulatePath(
           totalAssets: summaryTrace.totalAssets,
           pretaxBalanceEnd: roundSeriesValue(balances.pretax),
           taxableBalanceEnd: roundSeriesValue(balances.taxable),
-          cashBalanceEnd: roundSeriesValue(balances.cash),
-          income: roundSeriesValue(income),
-          spending: summaryTrace.spending,
-          federalTax: summaryTrace.federalTax,
-          rmdAmount: roundSeriesValue(withdrawalResult.rmdWithdrawn),
+	          cashBalanceEnd: roundSeriesValue(balances.cash),
+	          income: roundSeriesValue(income),
+	          socialSecurityIncome: roundSeriesValue(socialSecurityBreakdown.householdAnnual),
+	          socialSecurityRob: roundSeriesValue(socialSecurityBreakdown.robAnnual),
+	          socialSecurityDebbie: roundSeriesValue(socialSecurityBreakdown.debbieAnnual),
+	          socialSecurityInflationIndex: socialSecurityBreakdown.inflationIndex,
+	          robSocialSecurityClaimFactor: socialSecurityBreakdown.robClaimFactor,
+	          debbieSocialSecurityClaimFactor: socialSecurityBreakdown.debbieClaimFactor,
+	          robSocialSecuritySpousalFloorMonthly: roundSeriesValue(
+	            socialSecurityBreakdown.robSpousalFloorMonthly,
+	          ),
+	          debbieSocialSecuritySpousalFloorMonthly: roundSeriesValue(
+	            socialSecurityBreakdown.debbieSpousalFloorMonthly,
+	          ),
+	          spending: summaryTrace.spending,
+	          federalTax: summaryTrace.federalTax,
+	          totalCashOutflow: roundSeriesValue(totalCashOutflow),
+	          withdrawalTotal: roundSeriesValue(withdrawalTotal),
+	          unresolvedFundingGap: roundSeriesValue(unresolvedWithdrawalNeed),
+	          rmdAmount: roundSeriesValue(withdrawalResult.rmdWithdrawn),
           withdrawalCash: roundSeriesValue(withdrawalResult.withdrawals.cash),
           withdrawalTaxable: roundSeriesValue(withdrawalResult.withdrawals.taxable),
           withdrawalIra401k: roundSeriesValue(withdrawalResult.withdrawals.pretax),
@@ -4525,11 +5067,31 @@ function simulatePath(
 	          rothConversion: roundSeriesValue(rothConversionTrace.amount),
 	          rothConversionReason: rothConversionTrace.reason,
 	          rothConversionMotive: rothConversionTrace.motive,
+	          rothConversionKind: rothConversionTrace.conversionKind,
 	          rothConversionOpportunisticAmount: roundSeriesValue(
 	            rothConversionTrace.opportunisticAmount,
 	          ),
 	          rothConversionDefensiveAmount: roundSeriesValue(
 	            rothConversionTrace.defensiveAmount,
+	          ),
+	          rothConversionSafeRoomAvailable: roundSeriesValue(
+	            rothConversionTrace.safeRoomAvailable,
+	          ),
+	          rothConversionSafeRoomUsed: roundSeriesValue(rothConversionTrace.safeRoomUsed),
+	          rothConversionStrategicExtraAvailable: roundSeriesValue(
+	            rothConversionTrace.strategicExtraAvailable,
+	          ),
+	          rothConversionStrategicExtraUsed: roundSeriesValue(
+	            rothConversionTrace.strategicExtraUsed,
+	          ),
+	          rothConversionAnnualPolicyMax:
+	            rothConversionTrace.annualPolicyMax === null
+	              ? null
+	              : roundSeriesValue(rothConversionTrace.annualPolicyMax),
+	          rothConversionAnnualPolicyMaxBinding:
+	            rothConversionTrace.annualPolicyMaxBinding,
+	          rothConversionSafeRoomUnusedDueToAnnualPolicyMax: roundSeriesValue(
+	            rothConversionTrace.safeRoomUnusedDueToAnnualPolicyMax,
 	          ),
 	          rothConversionSimulationModeUsed:
             rothConversionTrace.simulationModeUsedForConversion,
@@ -4627,7 +5189,14 @@ function simulatePath(
           windfallCashInflow: roundSeriesValue(windfallCashInflow),
           windfallOrdinaryIncome: roundSeriesValue(windfallOrdinaryIncome),
           windfallLtcgIncome: roundSeriesValue(windfallLtcgIncome),
+          homeSaleGrossProceeds: roundSeriesValue(homeSaleGrossProceeds),
+          homeSaleSellingCosts: roundSeriesValue(homeSaleSellingCosts),
+          homeReplacementPurchaseCost: roundSeriesValue(homeReplacementPurchaseCost),
+          homeDownsizeNetLiquidity: roundSeriesValue(homeDownsizeNetLiquidity),
           hsaOffsetUsed: roundSeriesValue(hsaOffsetUsed),
+          hsaLtcOffsetUsed: roundSeriesValue(hsaLtcOffsetUsed),
+          ltcCostRemainingAfterHsa: roundSeriesValue(ltcCostRemainingAfterHsa),
+          hsaBalanceEnd: roundSeriesValue(hsaBalance),
           ltcCost: roundSeriesValue(ltcCostForYear),
           withdrawalRationale: withdrawalResult.decisionTrace.rationale,
           withdrawalScoreSpendingNeed:
@@ -4680,7 +5249,7 @@ function simulatePath(
           failureReason =
             spending <=
             effectivePlan.essentialAnnual * inflationIndex +
-              effectivePlan.taxesInsuranceAnnual * inflationIndex +
+              taxesInsuranceAnnualForYear * inflationIndex +
               healthcarePremiums.totalHealthcarePremiumCost +
               ltcCostForYear -
               hsaOffsetUsed
@@ -4798,7 +5367,10 @@ function simulatePath(
           ),
           medianSpending: median(traces.map((trace) => trace.spending)),
           medianFederalTax: median(traces.map((trace) => trace.federalTax)),
-        }),
+          medianTotalCashOutflow:
+            median(traces.map((trace) => trace.spending)) +
+            median(traces.map((trace) => trace.federalTax)),
+	        }),
       )
     : [...yearlyBuckets.entries()].map(([year, traces]) => ({
         year,
@@ -4810,11 +5382,38 @@ function simulatePath(
         tenthPercentileAssets: percentile(
           traces.map((trace) => trace.totalAssets),
           0.1,
-        ),
-        medianIncome: median(traces.map((trace) => trace.income)),
+	        ),
+	        medianIncome: median(traces.map((trace) => trace.income)),
+	        medianSocialSecurityIncome: median(traces.map((trace) => trace.socialSecurityIncome)),
+	        medianSocialSecurityRob: median(traces.map((trace) => trace.socialSecurityRob)),
+	        medianSocialSecurityDebbie: median(traces.map((trace) => trace.socialSecurityDebbie)),
+	        medianSocialSecurityInflationIndex: median(
+	          traces.map((trace) => trace.socialSecurityInflationIndex),
+	        ),
+	        robSocialSecurityClaimFactor: median(
+	          traces.map((trace) => trace.robSocialSecurityClaimFactor),
+	        ),
+	        debbieSocialSecurityClaimFactor: median(
+	          traces.map((trace) => trace.debbieSocialSecurityClaimFactor),
+	        ),
+	        robSocialSecuritySpousalFloorMonthly: median(
+	          traces.map((trace) => trace.robSocialSecuritySpousalFloorMonthly),
+	        ),
+	        debbieSocialSecuritySpousalFloorMonthly: median(
+	          traces.map((trace) => trace.debbieSocialSecuritySpousalFloorMonthly),
+	        ),
         medianSpending: median(traces.map((trace) => trace.spending)),
         medianFederalTax: median(traces.map((trace) => trace.federalTax)),
-        medianRmdAmount: median(traces.map((trace) => trace.rmdAmount)),
+        medianTotalCashOutflow:
+          median(traces.map((trace) => trace.spending)) +
+          median(traces.map((trace) => trace.federalTax)),
+        medianWithdrawalTotal:
+          median(traces.map((trace) => trace.withdrawalCash)) +
+          median(traces.map((trace) => trace.withdrawalTaxable)) +
+          median(traces.map((trace) => trace.withdrawalIra401k)) +
+          median(traces.map((trace) => trace.withdrawalRoth)),
+	        medianUnresolvedFundingGap: median(traces.map((trace) => trace.unresolvedFundingGap)),
+	        medianRmdAmount: median(traces.map((trace) => trace.rmdAmount)),
         medianWithdrawalCash: median(traces.map((trace) => trace.withdrawalCash)),
         medianWithdrawalTaxable: median(traces.map((trace) => trace.withdrawalTaxable)),
         medianWithdrawalIra401k: median(traces.map((trace) => trace.withdrawalIra401k)),
@@ -4880,7 +5479,24 @@ function simulatePath(
           traces.map((trace) => trace.windfallOrdinaryIncome),
         ),
         medianWindfallLtcgIncome: median(traces.map((trace) => trace.windfallLtcgIncome)),
+        medianHomeSaleGrossProceeds: median(
+          traces.map((trace) => trace.homeSaleGrossProceeds),
+        ),
+        medianHomeSaleSellingCosts: median(
+          traces.map((trace) => trace.homeSaleSellingCosts),
+        ),
+        medianHomeReplacementPurchaseCost: median(
+          traces.map((trace) => trace.homeReplacementPurchaseCost),
+        ),
+        medianHomeDownsizeNetLiquidity: median(
+          traces.map((trace) => trace.homeDownsizeNetLiquidity),
+        ),
         medianHsaOffsetUsed: median(traces.map((trace) => trace.hsaOffsetUsed)),
+        medianHsaLtcOffsetUsed: median(traces.map((trace) => trace.hsaLtcOffsetUsed)),
+        medianLtcCostRemainingAfterHsa: median(
+          traces.map((trace) => trace.ltcCostRemainingAfterHsa),
+        ),
+        medianHsaBalance: median(traces.map((trace) => trace.hsaBalanceEnd)),
         medianLtcCost: median(traces.map((trace) => trace.ltcCost)),
         dominantWithdrawalRationale: dominantValue(
           traces.map((trace) => trace.withdrawalRationale),

@@ -132,11 +132,20 @@ npm run engine:compare -- \
 Supported rules are `tax_bracket_waterfall`, `reverse_waterfall`,
 `proportional`, and `guyton_klinger`.
 
-## Cluster Shadow And Dry-Run Modes
+## Cluster Runtime Modes
 
-Node hosts understand three engine runtimes:
+See `docs/rust-promotion-audit.md` for the current source-of-truth boundary
+between promoted Rust paths and retained TypeScript reference paths.
 
-- `ENGINE_RUNTIME=ts`: TypeScript-only authoritative evaluation.
+Node hosts now default to `rust-native-compact`; TypeScript is retained as an
+explicit reference/rollback runtime instead of the implicit source of truth.
+
+Node hosts understand these engine runtimes:
+
+- unset / `ENGINE_RUNTIME_DEFAULT=rust-native-compact`: Rust authoritative
+  evaluation through the native compact runtime.
+- `ENGINE_RUNTIME=ts`: TypeScript-only reference evaluation for rollback or
+  diagnosis.
 - `ENGINE_RUNTIME=rust-shadow`: TypeScript remains authoritative; Rust summary
   runs beside it and only mismatches/errors/skips are logged.
 - `ENGINE_RUNTIME=rust-dry-run`: TypeScript remains authoritative; every policy
@@ -276,7 +285,8 @@ Expected gate:
 
 Default-runtime threshold:
 
-Do not make Rust the default cluster runtime until all of these are boring:
+Rust is the default cluster runtime. Re-run this gate after engine changes that
+could move policy-mining semantics or native replay performance:
 
 1. `npm run engine:rust-parity:matrix -- --policies 120 --trials 160 --workers 2`
    passes with zero mismatches/errors/skips.
@@ -286,16 +296,13 @@ Do not make Rust the default cluster runtime until all of these are boring:
 5. `npm run test:calibration` passes.
 
 Rollback path is intentionally simple: set `ENGINE_RUNTIME=ts` on cluster hosts.
-The TypeScript engine remains the calibrated fallback and the replay/shadow
-tools remain available for diagnosis.
+The TypeScript engine remains the calibrated reference fallback and the
+replay/shadow tools remain available for diagnosis.
 
 Default-runtime switch:
 
-Hosts still default to TypeScript when no runtime is configured. After the
-gate above has stayed green, set `ENGINE_RUNTIME_DEFAULT=rust-native-compact`
-on cluster hosts to opt the fleet into Rust without removing the emergency
-override. `ENGINE_RUNTIME=ts` wins over the default and remains the immediate
-rollback.
+Hosts default to `rust-native-compact` when no runtime is configured.
+`ENGINE_RUNTIME=ts` wins over the default and remains the immediate rollback.
 
 Real dispatcher smoke:
 
@@ -305,7 +312,7 @@ to connect.
 
 ```bash
 npm run cluster:dispatcher:local
-npm run cluster:host:rust
+npm run cluster:host
 npm run cluster:start-session:rust-local
 ```
 

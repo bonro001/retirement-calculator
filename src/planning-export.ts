@@ -55,6 +55,44 @@ type HousingFundingPolicy = 'baseline' | 'home_sale_accelerated';
 type WithdrawalPreference = 'standard' | 'preserve_roth';
 type CashBufferPolicy = 'baseline' | 'increased';
 
+export interface FlightPathConversionScheduleEntry {
+  year: number;
+  recommendedAmount: number;
+  conversionKind: 'none' | 'safe_room' | 'strategic_extra';
+  safeRoomAvailable: number;
+  safeRoomUsed: number;
+  strategicExtraAvailable: number;
+  strategicExtraUsed: number;
+  annualPolicyMax: number | null;
+  annualPolicyMaxBinding: boolean;
+  safeRoomUnusedDueToAnnualPolicyMax: number;
+  reason: string;
+  medianMagiBefore: number;
+  medianMagiAfter: number;
+  medianTargetMagiCeiling: number | null;
+}
+
+export interface FlightPathConversionScheduleStatus {
+  status:
+    | 'active'
+    | 'empty_no_room'
+    | 'empty_missing_target'
+    | 'empty_not_eligible'
+    | 'empty_no_economic_benefit'
+    | 'empty_policy_disabled'
+    | 'empty_no_pretax'
+    | 'empty_unknown';
+  scheduledYearCount: number;
+  safeRoomScheduledYearCount: number;
+  strategicExtraScheduledYearCount: number;
+  annualPolicyMaxBindingYearCount: number;
+  totalRecommendedAmount: number;
+  totalSafeRoomUsed: number;
+  totalStrategicExtraUsed: number;
+  totalSafeRoomUnusedDueToAnnualPolicyMax: number;
+  primaryReason: string;
+}
+
 const RETURN_GENERATION_ASSUMPTIONS: SimulationConfigurationSnapshot['returnGeneration'] = {
   model: 'bounded_normal_by_asset_class',
   boundsByAssetClass: {
@@ -167,6 +205,8 @@ export interface PlanningExportSnapshot {
       rothConversionPolicy: SeedData['rules']['rothConversionPolicy'];
       rmdPolicy: SeedData['rules']['rmdPolicy'];
       payrollModel: SeedData['rules']['payrollModel'];
+      contributionLimits: SeedData['rules']['contributionLimits'];
+      housingAfterDownsizePolicy: SeedData['rules']['housingAfterDownsizePolicy'];
       irmaaThreshold: number;
       healthcarePremiums: {
         baselineAcaPremiumAnnual: number | null;
@@ -278,6 +318,8 @@ export interface PlanningStateExport {
     strategicPrepPolicy: FlightPathPolicyResult;
     executiveSummary: ExecutiveFlightSummary;
     phasePlaybook: FlightPathPhasePlaybook;
+    conversionSchedule: FlightPathConversionScheduleEntry[];
+    conversionScheduleStatus: FlightPathConversionScheduleStatus;
     trustPanel: PlanEvaluation['trustPanel'] | null;
     recommendationLedger: {
       strategicPrep: FlightPathPolicyResult['recommendations'];
@@ -599,6 +641,103 @@ function getFirstExecutedConversion(outcome: PathResult) {
     firstConversionYear: firstExecutedConversion?.year ?? null,
     firstConversionAmount: firstExecutedConversion?.amount ?? null,
     firstConversionMode: firstExecutedConversion?.simulationModeUsedForConversion ?? null,
+  };
+}
+
+function buildFlightPathConversionSchedule(
+  plannerOutcome: PathResult,
+): FlightPathConversionScheduleEntry[] {
+  return plannerOutcome.simulationDiagnostics.rothConversionEligibilityPath
+    .filter(
+      (entry) =>
+        entry.representativeAmount > 0 ||
+        entry.safeRoomAvailable > 0 ||
+        entry.strategicExtraAvailable > 0 ||
+        entry.annualPolicyMaxBinding,
+    )
+    .map((entry) => ({
+      year: entry.year,
+      recommendedAmount: entry.representativeAmount,
+      conversionKind: entry.representativeConversionKind,
+      safeRoomAvailable: entry.safeRoomAvailable,
+      safeRoomUsed: entry.safeRoomUsed,
+      strategicExtraAvailable: entry.strategicExtraAvailable,
+      strategicExtraUsed: entry.strategicExtraUsed,
+      annualPolicyMax: entry.annualPolicyMax,
+      annualPolicyMaxBinding: entry.annualPolicyMaxBinding,
+      safeRoomUnusedDueToAnnualPolicyMax: entry.safeRoomUnusedDueToAnnualPolicyMax,
+      reason: entry.representativeReason,
+      medianMagiBefore: entry.medianMagiBefore,
+      medianMagiAfter: entry.medianMagiAfter,
+      medianTargetMagiCeiling: entry.medianTargetMagiCeiling,
+    }));
+}
+
+function classifyEmptyConversionScheduleStatus(reason: string): FlightPathConversionScheduleStatus['status'] {
+  if (reason.includes('target_unavailable')) {
+    return 'empty_missing_target';
+  }
+  if (reason === 'not_eligible_pre_retirement') {
+    return 'empty_not_eligible';
+  }
+  if (reason.startsWith('no_economic_benefit')) {
+    return 'empty_no_economic_benefit';
+  }
+  if (reason === 'blocked_by_other_planner_constraint_policy_disabled') {
+    return 'empty_policy_disabled';
+  }
+  if (reason === 'blocked_by_available_pretax_balance') {
+    return 'empty_no_pretax';
+  }
+  if (reason === 'blocked_by_irmaa_threshold' || reason.includes('no_headroom')) {
+    return 'empty_no_room';
+  }
+  return 'empty_unknown';
+}
+
+function buildFlightPathConversionScheduleStatus(
+  plannerOutcome: PathResult,
+  conversionSchedule: FlightPathConversionScheduleEntry[],
+): FlightPathConversionScheduleStatus {
+  const summary = plannerOutcome.simulationDiagnostics.rothConversionDecisionSummary;
+  const actionableSchedule = conversionSchedule.filter((entry) => entry.recommendedAmount > 0);
+  const primaryReason = summary.reasons[0]?.reason ?? 'unknown';
+  const totalRecommendedAmount = actionableSchedule.reduce(
+    (total, entry) => total + entry.recommendedAmount,
+    0,
+  );
+  const safeRoomScheduled = actionableSchedule.filter(
+    (entry) => entry.conversionKind === 'safe_room',
+  );
+  const strategicExtraScheduled = actionableSchedule.filter(
+    (entry) => entry.conversionKind === 'strategic_extra',
+  );
+
+  return {
+    status:
+      actionableSchedule.length > 0
+        ? 'active'
+        : classifyEmptyConversionScheduleStatus(primaryReason),
+    scheduledYearCount: actionableSchedule.length,
+    safeRoomScheduledYearCount: safeRoomScheduled.length,
+    strategicExtraScheduledYearCount: strategicExtraScheduled.length,
+    annualPolicyMaxBindingYearCount: actionableSchedule.filter(
+      (entry) => entry.annualPolicyMaxBinding,
+    ).length,
+    totalRecommendedAmount: roundMoney(totalRecommendedAmount),
+    totalSafeRoomUsed: roundMoney(
+      actionableSchedule.reduce((total, entry) => total + entry.safeRoomUsed, 0),
+    ),
+    totalStrategicExtraUsed: roundMoney(
+      actionableSchedule.reduce((total, entry) => total + entry.strategicExtraUsed, 0),
+    ),
+    totalSafeRoomUnusedDueToAnnualPolicyMax: roundMoney(
+      actionableSchedule.reduce(
+        (total, entry) => total + entry.safeRoomUnusedDueToAnnualPolicyMax,
+        0,
+      ),
+    ),
+    primaryReason,
   };
 }
 
@@ -1523,6 +1662,8 @@ function buildFaithfulUpgradeAction(input: ModelFidelityInput) {
   switch (input.id) {
     case 'inferred_rmd_start_timing':
       return 'Provide an explicit RMD start-age policy override in rules.rmdPolicy.';
+    case 'pretax_rmd_account_ownership':
+      return 'Add owner metadata to each accounts.pretax.sourceAccounts entry.';
     case 'opaque_holdings_mapping':
       return 'Provide explicit look-through mapping plus assetClassMappingEvidence for ambiguous sleeves.';
     case 'payroll_take_home_estimate':
@@ -1532,7 +1673,7 @@ function buildFaithfulUpgradeAction(input: ModelFidelityInput) {
     case 'uncertain_inheritance':
       return 'Provide inheritance certainty metadata (certainty/timingUncertaintyYears/amountUncertaintyPercent).';
     case 'simplified_home_sale_assumptions':
-      return 'Provide full home-sale inputs (costBasis, liquidityAmount, exclusionAmount, sellingCostPercent).';
+      return 'Provide full home downsizing inputs (costBasis, exclusionAmount, sellingCostPercent, replacementHomeCost, purchaseClosingCostPercent, movingCost, or explicit liquidityAmount).';
     default:
       return 'Replace inferred/estimated input with explicit data for faithful classification.';
   }
@@ -1657,6 +1798,7 @@ function buildRecommendationAvailabilityHeadline(input: {
 }
 
 function buildExportQualityGate(input: {
+  executiveSummary: ExecutiveFlightSummary;
   strategicPrepPolicy: FlightPathPolicyResult;
   recommendationLedger: PlanningStateExport['flightPath']['recommendationLedger'];
   scenarioSensitivity: PlanningStateExport['scenarioSensitivity'];
@@ -1760,6 +1902,29 @@ function buildExportQualityGate(input: {
     detail: canonicalScorecardConsistencyPass
       ? 'Canonical success/completeness/dependence metrics are aligned across summary, trust, and diagnostics sections.'
       : 'One or more canonical scorecard metrics are inconsistent across export sections.',
+  });
+
+  const canonicalSuccessRate = input.planScorecard.canonical.successRate;
+  const executiveSuccessRate = input.executiveSummary.planHealth.successRate;
+  const activeSuccessRate = roundRate(input.simulationOutcomes.plannerEnhancedSimulation.successRate);
+  const narrativeSuccessToken = `${Number((canonicalSuccessRate * 100).toFixed(1))}% success`;
+  const narrativeSuccessAligned =
+    input.executiveSummary.narrative.whereThingsStand.includes(narrativeSuccessToken) ||
+    input.executiveSummary.narrative.whereThingsStand.includes(
+      `${Math.round(canonicalSuccessRate * 100)}% success`,
+    );
+  const headlineSuccessRateConsistencyPass =
+    executiveSuccessRate !== null &&
+    Math.abs(executiveSuccessRate - canonicalSuccessRate) <= 0.0001 &&
+    Math.abs(activeSuccessRate - canonicalSuccessRate) <= 0.0001 &&
+    narrativeSuccessAligned;
+  checks.push({
+    id: 'headline_success_rate_consistency',
+    label: 'Headline success rate is aligned across narrative, scorecard, and active outcome',
+    status: headlineSuccessRateConsistencyPass ? 'pass' : 'fail',
+    detail: headlineSuccessRateConsistencyPass
+      ? `Headline success rate is consistently ${(canonicalSuccessRate * 100).toFixed(1)}%.`
+      : 'Narrative success text, executive summary, scorecard, or active simulation outcome disagree.',
   });
 
   const scenarioCompletenessPass =
@@ -2231,6 +2396,23 @@ function buildSimulationProfile({
       Math.min(1, rothConversionPolicy?.maxPretaxBalancePercent ?? 0.12),
     ),
     magiBufferDollars: Math.max(0, rothConversionPolicy?.magiBufferDollars ?? 2_000),
+    lowIncomeBracketFill: {
+      enabled: rothConversionPolicy?.lowIncomeBracketFill?.enabled ?? false,
+      startYear:
+        typeof rothConversionPolicy?.lowIncomeBracketFill?.startYear === 'number'
+          ? Math.floor(rothConversionPolicy.lowIncomeBracketFill.startYear)
+          : null,
+      endYear:
+        typeof rothConversionPolicy?.lowIncomeBracketFill?.endYear === 'number'
+          ? Math.floor(rothConversionPolicy.lowIncomeBracketFill.endYear)
+          : null,
+      annualTargetDollars: Math.max(
+        0,
+        rothConversionPolicy?.lowIncomeBracketFill?.annualTargetDollars ?? 0,
+      ),
+      requireNoWageIncome:
+        rothConversionPolicy?.lowIncomeBracketFill?.requireNoWageIncome ?? true,
+    },
     source: rothConversionPolicy ? 'rules' : 'default',
   } as const;
 
@@ -2264,9 +2446,10 @@ function buildSimulationProfile({
         : null,
       maxPretaxBalancePercent: resolvedRothConversionPolicy.maxPretaxBalancePercent,
       magiBufferDollars: resolvedRothConversionPolicy.magiBufferDollars,
+      lowIncomeBracketFill: resolvedRothConversionPolicy.lowIncomeBracketFill,
       source: resolvedRothConversionPolicy.source,
       description: plannerLogicActive
-        ? 'Planner-enhanced simulation applies deterministic Roth conversion headroom rules in-year.'
+        ? 'Planner-enhanced simulation automatically uses safe Roth conversion room in-year and separately labels strategic-extra conversions beyond clean MAGI room.'
         : 'Raw simulation mode does not run proactive Roth conversions.',
     },
     liquidityFloorBehavior: {
@@ -2415,6 +2598,12 @@ function buildSnapshot(
         : undefined,
       rmdPolicy: data.rules.rmdPolicy ? clone(data.rules.rmdPolicy) : undefined,
       payrollModel: data.rules.payrollModel ? clone(data.rules.payrollModel) : undefined,
+      contributionLimits: data.rules.contributionLimits
+        ? clone(data.rules.contributionLimits)
+        : undefined,
+      housingAfterDownsizePolicy: data.rules.housingAfterDownsizePolicy
+        ? clone(data.rules.housingAfterDownsizePolicy)
+        : undefined,
       irmaaThreshold: assumptions.irmaaThreshold,
       healthcarePremiums: {
         baselineAcaPremiumAnnual:
@@ -2478,6 +2667,41 @@ function applyDecisionGradeInputOverlay(data: SeedData) {
       next.rules.payrollModel?.salaryProrationSource ?? 'assumed_month_fraction',
   };
 
+  const homeSaleForPolicy = next.income.windfalls.find((windfall) => windfall.name === 'home_sale');
+  if (homeSaleForPolicy) {
+    const replacementHomeCost =
+      homeSaleForPolicy.replacementHomeCost ??
+      next.rules.housingAfterDownsizePolicy?.replacementHomeCost ??
+      0;
+    const sellingCostPercent = homeSaleForPolicy.sellingCostPercent ?? 0.06;
+    const purchaseClosingCostPercent = homeSaleForPolicy.purchaseClosingCostPercent ?? 0;
+    const movingCost = homeSaleForPolicy.movingCost ?? 0;
+    const netLiquidityTarget =
+      next.rules.housingAfterDownsizePolicy?.netLiquidityTarget ??
+      Math.max(
+        0,
+        homeSaleForPolicy.amount * (1 - sellingCostPercent) -
+          replacementHomeCost -
+          replacementHomeCost * purchaseClosingCostPercent -
+          movingCost,
+      );
+    next.rules.housingAfterDownsizePolicy = {
+      mode: 'own_replacement_home',
+      startYear: next.rules.housingAfterDownsizePolicy?.startYear ?? homeSaleForPolicy.year,
+      replacementHomeCost,
+      netLiquidityTarget,
+      postSaleAnnualTaxesInsurance:
+        next.rules.housingAfterDownsizePolicy?.postSaleAnnualTaxesInsurance,
+      certainty:
+        next.rules.housingAfterDownsizePolicy?.certainty ??
+        homeSaleForPolicy.certainty ??
+        'estimated',
+      assumptionSource:
+        next.rules.housingAfterDownsizePolicy?.assumptionSource ??
+        'normalized_from_home_sale_downsize_inputs',
+    };
+  }
+
   next.income.windfalls = next.income.windfalls.map((windfall) => {
     if (windfall.name === 'inheritance') {
       return {
@@ -2493,17 +2717,30 @@ function applyDecisionGradeInputOverlay(data: SeedData) {
         windfall.exclusionAmount ??
         getDefaultHomeSaleExclusionByFilingStatus(next.household.filingStatus);
       const sellingCostPercent = windfall.sellingCostPercent ?? 0.08;
+      const replacementHomeCost = windfall.replacementHomeCost ?? 0;
+      const purchaseClosingCostPercent = windfall.purchaseClosingCostPercent ?? 0;
+      const movingCost = windfall.movingCost ?? 0;
+      const replacementCost =
+        replacementHomeCost +
+        replacementHomeCost * purchaseClosingCostPercent +
+        movingCost;
+      const policyNetLiquidityTarget = next.rules.housingAfterDownsizePolicy?.netLiquidityTarget;
       const liquidityAmount =
-        windfall.liquidityAmount ?? Math.max(0, windfall.amount * (1 - sellingCostPercent));
+        windfall.liquidityAmount ??
+        policyNetLiquidityTarget ??
+        Math.max(0, windfall.amount * (1 - sellingCostPercent) - replacementCost);
       const costBasis = windfall.costBasis ?? Math.max(0, windfall.amount - exclusionAmount);
       return {
         ...windfall,
         taxTreatment: windfall.taxTreatment ?? 'primary_home_sale',
-        certainty: windfall.certainty ?? 'certain',
+        certainty: windfall.certainty ?? (replacementHomeCost > 0 ? 'estimated' : 'certain'),
         timingUncertaintyYears: windfall.timingUncertaintyYears ?? 0,
         amountUncertaintyPercent: windfall.amountUncertaintyPercent ?? 0,
         exclusionAmount,
         sellingCostPercent,
+        replacementHomeCost,
+        purchaseClosingCostPercent,
+        movingCost,
         liquidityAmount,
         costBasis,
       };
@@ -2692,6 +2929,11 @@ export function buildPlanningStateExport(
     plannerEnhancedSimulationOutcome.simulationDiagnostics.rothConversionEligibilityPath;
   const rawConversionDiagnostics =
     rawSimulationOutcome.simulationDiagnostics.rothConversionEligibilityPath;
+  const conversionSchedule = buildFlightPathConversionSchedule(plannerEnhancedSimulationOutcome);
+  const conversionScheduleStatus = buildFlightPathConversionScheduleStatus(
+    plannerEnhancedSimulationOutcome,
+    conversionSchedule,
+  );
 
   if (effectiveInputs.simulationSettings.mode === 'planner_enhanced') {
     const plannerModeMismatch = plannerConversionDiagnostics.find(
@@ -2746,6 +2988,8 @@ export function buildPlanningStateExport(
     assumptions: input.assumptions,
     selectedStressors: activeStressorIds,
     selectedResponses: activeResponseIds,
+    executedSimulationOutcome: plannerEnhancedSimulationOutcome,
+    unmitigatedSimulationOutcome: rawSimulationOutcome,
   });
   const recommendationLedger = {
     strategicPrep: strategicPrepPolicy.recommendations,
@@ -2764,11 +3008,13 @@ export function buildPlanningStateExport(
   const recommendationAvailabilityHeadline = buildRecommendationAvailabilityHeadline({
     summary: recommendationEvidenceSummary,
   });
+  const canonicalPlannerSuccessRate = roundRate(plannerEnhancedSimulationOutcome.successRate);
   const executiveSummary = buildExecutiveFlightSummary({
     data: effectiveData,
     evaluation: unifiedPlanEvaluation,
     phasePlaybook,
     strategicPrepRecommendations: strategicPrepPolicy.recommendations,
+    canonicalSuccessRate: canonicalPlannerSuccessRate,
   });
   const playbookInferredAssumptions = collectPlaybookInferredAssumptions(phasePlaybook);
   const baseModelFidelity = buildModelFidelityAssessment({
@@ -2780,8 +3026,6 @@ export function buildPlanningStateExport(
     inferredAssumptions: playbookInferredAssumptions,
   });
   const flightPathModelCompleteness = modelFidelity.modelCompleteness as PlaybookModelCompleteness;
-  const canonicalPlannerSuccessRate = roundRate(plannerEnhancedSimulationOutcome.successRate);
-  executiveSummary.planHealth.successRate = canonicalPlannerSuccessRate;
   const evaluationContextInferredAssumptions = uniqueNonEmpty(
     modelFidelity.inputs
       .filter((inputItem) => inputItem.status !== 'exact')
@@ -2820,6 +3064,7 @@ export function buildPlanningStateExport(
   const modelTrust = buildModelTrustSection(modelFidelity);
   const exportTimestamp = new Date().toISOString();
   const exportQualityGate = buildExportQualityGate({
+    executiveSummary,
     strategicPrepPolicy,
     recommendationLedger,
     scenarioSensitivity,
@@ -2884,6 +3129,8 @@ export function buildPlanningStateExport(
       strategicPrepPolicy,
       executiveSummary,
       phasePlaybook,
+      conversionSchedule,
+      conversionScheduleStatus,
       trustPanel: exportAlignedTrustPanel,
       recommendationLedger,
       recommendationEvidenceSummary,

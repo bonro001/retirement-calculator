@@ -174,12 +174,18 @@ function applyContributionSettingsPatchToData(
         maxEmployeeContributionPercentOfSalary:
           patchMatch.maxEmployeeContributionPercentOfSalary ??
           currentMatch.maxEmployeeContributionPercentOfSalary,
+        assumptionSource:
+          patchMatch.assumptionSource ?? currentMatch.assumptionSource,
+        verificationStatus:
+          patchMatch.verificationStatus ?? currentMatch.verificationStatus,
       }
     : current.employerMatch
       ? {
           matchRate: currentMatch.matchRate,
           maxEmployeeContributionPercentOfSalary:
             currentMatch.maxEmployeeContributionPercentOfSalary,
+          assumptionSource: currentMatch.assumptionSource,
+          verificationStatus: currentMatch.verificationStatus,
         }
       : {
         ...DEFAULT_EMPLOYER_MATCH,
@@ -204,6 +210,8 @@ function normalizeEmployerMatch(
     maxEmployeeContributionPercentOfSalary:
       value.maxEmployeeContributionPercentOfSalary ??
       DEFAULT_EMPLOYER_MATCH.maxEmployeeContributionPercentOfSalary,
+    assumptionSource: value.assumptionSource,
+    verificationStatus: value.verificationStatus,
   };
 }
 
@@ -337,6 +345,10 @@ interface AppState {
       | 'amount'
       | 'costBasis'
       | 'exclusionAmount'
+      | 'sellingCostPercent'
+      | 'replacementHomeCost'
+      | 'purchaseClosingCostPercent'
+      | 'movingCost'
       | 'distributionYears'
       | 'liquidityAmount',
     value: number,

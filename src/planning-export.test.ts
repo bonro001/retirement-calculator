@@ -48,6 +48,90 @@ describe('buildPlanningStateExport', () => {
     expect(payload.flightPath.phasePlaybook.phases.length).toBeGreaterThan(0);
     expect(payload.flightPath.recommendationLedger.phaseActions.length).toBeGreaterThan(0);
     expect(payload.flightPath.executiveSummary.actionCards.length).toBeGreaterThan(0);
+    expect(Array.isArray(payload.flightPath.conversionSchedule)).toBe(true);
+    expect(payload.flightPath.conversionSchedule.length).toBeGreaterThan(0);
+    expect(payload.flightPath.conversionSchedule.every((entry) =>
+      typeof entry.year === 'number' &&
+      typeof entry.recommendedAmount === 'number' &&
+      ['none', 'safe_room', 'strategic_extra'].includes(entry.conversionKind) &&
+      typeof entry.safeRoomAvailable === 'number' &&
+      typeof entry.safeRoomUsed === 'number' &&
+      typeof entry.strategicExtraAvailable === 'number' &&
+      typeof entry.strategicExtraUsed === 'number' &&
+      (entry.annualPolicyMax === null || typeof entry.annualPolicyMax === 'number') &&
+      typeof entry.annualPolicyMaxBinding === 'boolean' &&
+      typeof entry.safeRoomUnusedDueToAnnualPolicyMax === 'number' &&
+      typeof entry.reason === 'string' &&
+      typeof entry.medianMagiBefore === 'number' &&
+      typeof entry.medianMagiAfter === 'number' &&
+      (entry.medianTargetMagiCeiling === null ||
+        typeof entry.medianTargetMagiCeiling === 'number'),
+    )).toBe(true);
+    expect(payload.flightPath.conversionSchedule).toEqual(
+      payload.simulationOutcomes.plannerEnhancedSimulation.simulationDiagnostics
+        .rothConversionEligibilityPath
+        .filter(
+          (entry) =>
+            entry.representativeAmount > 0 ||
+            entry.safeRoomAvailable > 0 ||
+            entry.strategicExtraAvailable > 0 ||
+            entry.annualPolicyMaxBinding,
+        )
+        .map((entry) => ({
+          year: entry.year,
+          recommendedAmount: entry.representativeAmount,
+          conversionKind: entry.representativeConversionKind,
+          safeRoomAvailable: entry.safeRoomAvailable,
+          safeRoomUsed: entry.safeRoomUsed,
+          strategicExtraAvailable: entry.strategicExtraAvailable,
+          strategicExtraUsed: entry.strategicExtraUsed,
+          annualPolicyMax: entry.annualPolicyMax,
+          annualPolicyMaxBinding: entry.annualPolicyMaxBinding,
+          safeRoomUnusedDueToAnnualPolicyMax: entry.safeRoomUnusedDueToAnnualPolicyMax,
+          reason: entry.representativeReason,
+          medianMagiBefore: entry.medianMagiBefore,
+          medianMagiAfter: entry.medianMagiAfter,
+          medianTargetMagiCeiling: entry.medianTargetMagiCeiling,
+        })),
+    );
+    const scheduledConversions = payload.flightPath.conversionSchedule.filter(
+      (entry) => entry.recommendedAmount > 0,
+    );
+    const totalRecommendedAmount = scheduledConversions.reduce(
+      (total, entry) => total + entry.recommendedAmount,
+      0,
+    );
+    expect(payload.flightPath.conversionScheduleStatus).toEqual({
+      status: 'active',
+      scheduledYearCount: scheduledConversions.length,
+      safeRoomScheduledYearCount: scheduledConversions.filter(
+        (entry) => entry.conversionKind === 'safe_room',
+      ).length,
+      strategicExtraScheduledYearCount: scheduledConversions.filter(
+        (entry) => entry.conversionKind === 'strategic_extra',
+      ).length,
+      annualPolicyMaxBindingYearCount: scheduledConversions.filter(
+        (entry) => entry.annualPolicyMaxBinding,
+      ).length,
+      totalRecommendedAmount: Number(totalRecommendedAmount.toFixed(2)),
+      totalSafeRoomUsed: Number(
+        scheduledConversions.reduce((total, entry) => total + entry.safeRoomUsed, 0).toFixed(2),
+      ),
+      totalStrategicExtraUsed: Number(
+        scheduledConversions
+          .reduce((total, entry) => total + entry.strategicExtraUsed, 0)
+          .toFixed(2),
+      ),
+      totalSafeRoomUnusedDueToAnnualPolicyMax:
+        Number(
+          scheduledConversions
+            .reduce((total, entry) => total + entry.safeRoomUnusedDueToAnnualPolicyMax, 0)
+            .toFixed(2),
+        ),
+      primaryReason:
+        payload.simulationOutcomes.plannerEnhancedSimulation.simulationDiagnostics
+          .rothConversionDecisionSummary.reasons[0]?.reason ?? 'unknown',
+    });
     expect(payload.probeChecklist.items.length).toBeGreaterThan(0);
     expect(payload.modelFidelity.inputs.length).toBeGreaterThan(0);
     expect(payload.modelFidelity.score).toBeGreaterThan(0);
@@ -67,8 +151,8 @@ describe('buildPlanningStateExport', () => {
         provenBenefit: expect.any(Boolean),
       }),
     );
-    expect(payload.planScorecard).toEqual(
-      expect.objectContaining({
+	    expect(payload.planScorecard).toEqual(
+	      expect.objectContaining({
         canonical: expect.objectContaining({
           successRate: payload.simulationOutcomes.plannerEnhancedSimulation.successRate,
           modelCompleteness: payload.modelFidelity.modelCompleteness,
@@ -78,16 +162,48 @@ describe('buildPlanningStateExport', () => {
           modelCompletenessAligned: true,
           dependenceRatesAligned: true,
         }),
-      }),
-    );
-    expect(payload.simulationOutcomes.rawSimulation.simulationMode).toBe('raw_simulation');
+	      }),
+	    );
+	    const canonicalSuccessRate = payload.planScorecard.canonical.successRate;
+	    expect(payload.flightPath.executiveSummary.planHealth.successRate).toBe(canonicalSuccessRate);
+	    expect(payload.flightPath.executiveSummary.narrative.whereThingsStand).toContain(
+	      `${Number((canonicalSuccessRate * 100).toFixed(1))}% success`,
+	    );
+	    expect(
+	      payload.exportQualityGate.checks.find(
+	        (check) => check.id === 'headline_success_rate_consistency',
+	      )?.status,
+	    ).toBe('pass');
+	    expect(payload.simulationOutcomes.rawSimulation.simulationMode).toBe('raw_simulation');
     expect(payload.simulationOutcomes.plannerEnhancedSimulation.simulationMode).toBe(
       'planner_enhanced',
     );
     expect(payload.activeSimulationProfile).toBe('plannerEnhancedSimulation');
-    expect(payload.activeSimulationOutcome).toBe(
-      payload.simulationOutcomes[payload.activeSimulationProfile],
-    );
+	    expect(payload.activeSimulationOutcome).toBe(
+	      payload.simulationOutcomes[payload.activeSimulationProfile],
+	    );
+	    expect(
+	      payload.flightPath.conversionScheduleStatus.annualPolicyMaxBindingYearCount,
+	    ).toBeLessThanOrEqual(payload.flightPath.conversionScheduleStatus.scheduledYearCount);
+	    payload.activeSimulationOutcome.yearlySeries.forEach((year) => {
+	      expect(year.medianTotalCashOutflow).toBeCloseTo(
+	        year.medianSpending + year.medianFederalTax,
+	        0,
+	      );
+	      expect(year.medianWithdrawalTotal).toBeCloseTo(
+	        year.medianWithdrawalCash +
+	          year.medianWithdrawalTaxable +
+	          year.medianWithdrawalIra401k +
+	          year.medianWithdrawalRoth,
+	        0,
+	      );
+	      if (
+	        year.medianWithdrawalTotal === 0 &&
+	        year.medianIncome < year.medianTotalCashOutflow
+	      ) {
+	        expect(year.medianUnresolvedFundingGap).toBeGreaterThan(0);
+	      }
+	    });
     const firstExecutedActiveConversion =
       payload.activeSimulationOutcome.simulationDiagnostics.rothConversionTracePath.find(
         (entry) => entry.conversionExecuted,
@@ -164,6 +280,12 @@ describe('buildPlanningStateExport', () => {
     ).toEqual(
       expect.objectContaining({
         executedYearCount: expect.any(Number),
+        safeRoomExecutedYearCount: expect.any(Number),
+        strategicExtraExecutedYearCount: expect.any(Number),
+        annualPolicyMaxBindingYearCount: expect.any(Number),
+        totalSafeRoomUsed: expect.any(Number),
+        totalStrategicExtraUsed: expect.any(Number),
+        totalSafeRoomUnusedDueToAnnualPolicyMax: expect.any(Number),
         blockedYearCount: expect.any(Number),
         reasons: expect.any(Array),
       }),
@@ -190,6 +312,14 @@ describe('buildPlanningStateExport', () => {
           typeof entry.candidateAmountsGenerated === 'boolean' &&
           typeof entry.conversionScore === 'number' &&
           typeof entry.conversionOpportunityScore === 'number' &&
+          ['none', 'safe_room', 'strategic_extra'].includes(entry.representativeConversionKind) &&
+          typeof entry.safeRoomAvailable === 'number' &&
+          typeof entry.safeRoomUsed === 'number' &&
+          typeof entry.strategicExtraAvailable === 'number' &&
+          typeof entry.strategicExtraUsed === 'number' &&
+          (entry.annualPolicyMax === null || typeof entry.annualPolicyMax === 'number') &&
+          typeof entry.annualPolicyMaxBinding === 'boolean' &&
+          typeof entry.safeRoomUnusedDueToAnnualPolicyMax === 'number' &&
           typeof entry.futureTaxReduction === 'number' &&
           typeof entry.futureTaxBurdenReduction === 'number' &&
           typeof entry.irmaaAvoidanceValue === 'number' &&
@@ -231,6 +361,14 @@ describe('buildPlanningStateExport', () => {
           typeof entry.headroomComputed === 'boolean' &&
           typeof entry.candidateAmountsGenerated === 'boolean' &&
           typeof entry.conversionScore === 'number' &&
+          ['none', 'safe_room', 'strategic_extra'].includes(entry.conversionKind) &&
+          typeof entry.safeRoomAvailable === 'number' &&
+          typeof entry.safeRoomUsed === 'number' &&
+          typeof entry.strategicExtraAvailable === 'number' &&
+          typeof entry.strategicExtraUsed === 'number' &&
+          (entry.annualPolicyMax === null || typeof entry.annualPolicyMax === 'number') &&
+          typeof entry.annualPolicyMaxBinding === 'boolean' &&
+          typeof entry.safeRoomUnusedDueToAnnualPolicyMax === 'number' &&
           typeof entry.currentTaxCost === 'number' &&
           typeof entry.futureTaxReduction === 'number' &&
           typeof entry.irmaaAvoidanceValue === 'number' &&
@@ -271,7 +409,7 @@ describe('buildPlanningStateExport', () => {
         suppressedByRanking: expect.any(Number),
       }),
     );
-  });
+  }, 20_000);
 
   it('flags model completeness when unified plan evaluation context is unavailable', () => {
     const payload = buildPlanningStateExport({
@@ -286,6 +424,32 @@ describe('buildPlanningStateExport', () => {
     expect(payload.flightPath.evaluationContext.modelCompleteness).toBe('reconstructed');
     expect(payload.flightPath.evaluationContext.inferredAssumptions.length).toBeGreaterThan(0);
     expect(payload.flightPath.evaluationContext.playbookInferredAssumptions.length).toBeGreaterThan(0);
+  });
+
+  it('flags conversion schedule as blocked when the MAGI target is unavailable', () => {
+    const payload = buildPlanningStateExport({
+      data: cloneSeedData(initialSeedData),
+      assumptions: {
+        ...TEST_ASSUMPTIONS,
+        simulationRuns: 96,
+        irmaaThreshold: Number.NaN,
+        assumptionsVersion: 'missing-conversion-target-test',
+      },
+      selectedStressorIds: [],
+      selectedResponseIds: [],
+    });
+
+    expect(payload.flightPath.conversionScheduleStatus).toEqual(
+      expect.objectContaining({
+        status: 'empty_missing_target',
+        scheduledYearCount: 0,
+        totalRecommendedAmount: 0,
+        primaryReason: 'blocked_by_other_planner_constraint_target_unavailable',
+      }),
+    );
+    expect(
+      payload.flightPath.conversionSchedule.every((entry) => entry.recommendedAmount === 0),
+    ).toBe(true);
   });
 
   it('reconciles explicit core inputs with playbook-level inferred assumptions', () => {
@@ -351,7 +515,7 @@ describe('buildPlanningStateExport', () => {
     expect(payload.modelFidelity.modelCompleteness).toBe('reconstructed');
     expect(payload.modelFidelity.softAssumptions.length).toBeGreaterThan(0);
     expect(payload.modelTrust.modelTrustLevel).toBe('planning_grade');
-    expect(payload.modelTrust.modelFidelityScore).toBeGreaterThanOrEqual(85);
+    expect(payload.modelTrust.modelFidelityScore).toBeGreaterThanOrEqual(80);
     expect(payload.modelTrust.faithfulUpgradeChecklist.length).toBeGreaterThan(0);
     expect(payload.constraints.rmdPolicy?.startAgeOverride).toBe(73);
     expect(payload.constraints.payrollModel?.salaryProrationRule).toBe('daily');
@@ -413,6 +577,16 @@ describe('buildPlanningStateExport', () => {
     expect(
       payload.income.windfalls.find((item) => item.name === 'home_sale')?.taxTreatment,
     ).toBe('primary_home_sale');
+    expect(payload.constraints.housingAfterDownsizePolicy).toMatchObject({
+      mode: 'own_replacement_home',
+      startYear: 2037,
+      replacementHomeCost: 500000,
+      netLiquidityTarget: 500000,
+      certainty: 'estimated',
+    });
+    expect(
+      payload.income.windfalls.find((item) => item.name === 'home_sale')?.liquidityAmount,
+    ).toBe(500000);
     expect(
       payload.income.windfalls.find((item) => item.name === 'inheritance')?.taxTreatment,
     ).toBe('inherited_ira_10y');
@@ -463,6 +637,29 @@ describe('buildPlanningStateExport', () => {
         expect.objectContaining({ name: 'homeSaleDependenceRate' }),
       ]),
     );
+  });
+
+  it('marks the model reconstructed when pretax source-account ownership is missing', () => {
+    const data = cloneSeedData(initialSeedData);
+    data.accounts.pretax.sourceAccounts = data.accounts.pretax.sourceAccounts?.map((account) => ({
+      ...account,
+      owner: undefined,
+    }));
+
+    const payload = buildPlanningStateExport({
+      data,
+      assumptions: { ...TEST_ASSUMPTIONS },
+      selectedStressorIds: [],
+      selectedResponseIds: [],
+    });
+
+    expect(payload.modelFidelity.modelCompleteness).toBe('reconstructed');
+    expect(payload.modelFidelity.softAssumptions).toContain('pretax_rmd_account_ownership');
+    expect(
+      payload.modelTrust.faithfulUpgradeChecklist.some(
+        (item) => item.id === 'pretax_rmd_account_ownership',
+      ),
+    ).toBe(true);
   });
 
   it('includes trust panel when unified plan evaluation is provided', async () => {

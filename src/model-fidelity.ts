@@ -161,8 +161,8 @@ function buildSpecificReliabilityChecks(input: BuildModelFidelityInput): ModelFi
   const explicitPayrollTakeHomeFactor = input.data.rules.payrollModel?.takeHomeFactor;
   const explicitPayrollProrationRule = input.data.rules.payrollModel?.salaryProrationRule;
 
-  checks.push({
-    id: 'inferred_rmd_start_timing',
+	  checks.push({
+	    id: 'inferred_rmd_start_timing',
     label: 'RMD start timing',
     status: typeof explicitRmdStartAge === 'number' ? 'exact' : 'inferred',
     reliabilityImpact: 'medium',
@@ -170,9 +170,28 @@ function buildSpecificReliabilityChecks(input: BuildModelFidelityInput): ModelFi
     detail: typeof explicitRmdStartAge === 'number'
       ? `RMD start age explicitly provided (${Math.floor(explicitRmdStartAge)}).`
       : 'RMD start timing is inferred from birth-year legislation rules; no explicit user-provided override exists.',
-  });
+	  });
 
-  checks.push({
+	  const pretaxSourceAccounts = input.data.accounts.pretax.sourceAccounts ?? [];
+	  const missingPretaxOwners = pretaxSourceAccounts.filter(
+	    (account) => !account.owner || !account.owner.trim(),
+	  );
+	  checks.push({
+	    id: 'pretax_rmd_account_ownership',
+	    label: 'Pre-tax account RMD ownership',
+	    status:
+	      pretaxSourceAccounts.length > 0 && missingPretaxOwners.length === 0
+	        ? 'exact'
+	        : 'inferred',
+	    reliabilityImpact: 'high',
+	    blocking: false,
+	    detail:
+	      pretaxSourceAccounts.length > 0 && missingPretaxOwners.length === 0
+	        ? 'Each pre-tax source account has explicit owner metadata for RMD divisor selection.'
+	        : 'One or more pre-tax source accounts are missing owner metadata, so RMD ownership would be inferred.',
+	  });
+
+	  checks.push({
     id: 'opaque_holdings_mapping',
     label: 'Opaque holdings asset mapping',
     status: ambiguousMappings.length === 0
@@ -242,11 +261,14 @@ function buildSpecificReliabilityChecks(input: BuildModelFidelityInput): ModelFi
   });
 
   const homeSale = input.data.income.windfalls.find((item) => item.name === 'home_sale');
+  const homeSaleLiquidityModeled =
+    typeof homeSale?.liquidityAmount === 'number' ||
+    typeof homeSale?.replacementHomeCost === 'number';
   const homeSaleFullyModeled =
     homeSale &&
     homeSale.taxTreatment === 'primary_home_sale' &&
     typeof homeSale.costBasis === 'number' &&
-    typeof homeSale.liquidityAmount === 'number' &&
+    homeSaleLiquidityModeled &&
     typeof homeSale.sellingCostPercent === 'number' &&
     typeof homeSale.exclusionAmount === 'number';
   checks.push({
@@ -255,7 +277,9 @@ function buildSpecificReliabilityChecks(input: BuildModelFidelityInput): ModelFi
     status: !homeSale
       ? 'exact'
       : homeSaleFullyModeled
-        ? 'exact'
+        ? homeSale.certainty === 'estimated' || homeSale.certainty === 'uncertain'
+          ? 'estimated'
+          : 'exact'
         : homeSale.taxTreatment
           ? 'estimated'
           : 'inferred',
@@ -264,8 +288,10 @@ function buildSpecificReliabilityChecks(input: BuildModelFidelityInput): ModelFi
     detail: !homeSale
       ? 'No home sale event included in the base plan.'
       : homeSaleFullyModeled
-        ? 'Home sale includes tax treatment, basis, and net liquidity assumptions.'
-        : 'Home sale is modeled with simplified net-proceeds assumptions (basis and/or explicit liquidity missing).',
+        ? homeSale.certainty === 'estimated' || homeSale.certainty === 'uncertain'
+          ? 'Home downsizing is explicitly modeled, but sale amount/timing/replacement home are marked as estimates.'
+          : 'Home sale includes tax treatment, basis, and net liquidity/downsize assumptions.'
+        : 'Home sale is modeled with simplified net-proceeds assumptions (basis, replacement home, and/or explicit liquidity missing).',
   });
 
   return checks;

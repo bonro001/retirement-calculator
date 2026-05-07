@@ -261,6 +261,145 @@ function phaseActionAnchorId(phaseId: string, actionId: string) {
   return `phase-action-${toAnchorSlug(phaseId)}-${toAnchorSlug(actionId)}`;
 }
 
+function roundMoneyForUi(value: number) {
+  return Number(value.toFixed(2));
+}
+
+function buildRothConversionUiSchedule(path: PathResult | null): RothConversionUiScheduleEntry[] {
+  if (!path) {
+    return [];
+  }
+  return path.simulationDiagnostics.rothConversionEligibilityPath
+    .filter(
+      (entry) =>
+        entry.representativeAmount > 0 ||
+        entry.safeRoomAvailable > 0 ||
+        entry.strategicExtraAvailable > 0 ||
+        entry.annualPolicyMaxBinding,
+    )
+    .map((entry) => ({
+      year: entry.year,
+      recommendedAmount: entry.representativeAmount,
+      conversionKind: entry.representativeConversionKind,
+      safeRoomUsed: entry.safeRoomUsed,
+      strategicExtraUsed: entry.strategicExtraUsed,
+      annualPolicyMaxBinding: entry.annualPolicyMaxBinding,
+      reason: entry.representativeReason,
+      medianMagiAfter: entry.medianMagiAfter,
+      medianTargetMagiCeiling: entry.medianTargetMagiCeiling,
+    }));
+}
+
+function classifyEmptyRothConversionUiStatus(
+  reason: string,
+): RothConversionUiScheduleStatus['status'] {
+  if (reason.includes('target_unavailable')) {
+    return 'empty_missing_target';
+  }
+  if (reason === 'not_eligible_pre_retirement') {
+    return 'empty_not_eligible';
+  }
+  if (reason.startsWith('no_economic_benefit')) {
+    return 'empty_no_economic_benefit';
+  }
+  if (reason === 'blocked_by_other_planner_constraint_policy_disabled') {
+    return 'empty_policy_disabled';
+  }
+  if (reason === 'blocked_by_available_pretax_balance') {
+    return 'empty_no_pretax';
+  }
+  if (reason === 'blocked_by_irmaa_threshold' || reason.includes('no_headroom')) {
+    return 'empty_no_room';
+  }
+  return 'empty_unknown';
+}
+
+function buildRothConversionUiScheduleStatus(
+  path: PathResult | null,
+  schedule: RothConversionUiScheduleEntry[],
+): RothConversionUiScheduleStatus {
+  const summary = path?.simulationDiagnostics.rothConversionDecisionSummary;
+  const actionableSchedule = schedule.filter((entry) => entry.recommendedAmount > 0);
+  const primaryReason = summary?.reasons[0]?.reason ?? 'unknown';
+  const totalRecommendedAmount = actionableSchedule.reduce(
+    (total, entry) => total + entry.recommendedAmount,
+    0,
+  );
+
+  return {
+    status:
+      actionableSchedule.length > 0
+        ? 'active'
+        : classifyEmptyRothConversionUiStatus(primaryReason),
+    scheduledYearCount: actionableSchedule.length,
+    safeRoomScheduledYearCount: actionableSchedule.filter(
+      (entry) => entry.conversionKind === 'safe_room',
+    ).length,
+    strategicExtraScheduledYearCount: actionableSchedule.filter(
+      (entry) => entry.conversionKind === 'strategic_extra',
+    ).length,
+    annualPolicyMaxBindingYearCount: summary?.annualPolicyMaxBindingYearCount ?? 0,
+    totalRecommendedAmount: roundMoneyForUi(totalRecommendedAmount),
+    totalSafeRoomUsed: summary?.totalSafeRoomUsed ?? 0,
+    totalStrategicExtraUsed: summary?.totalStrategicExtraUsed ?? 0,
+    totalSafeRoomUnusedDueToAnnualPolicyMax:
+      summary?.totalSafeRoomUnusedDueToAnnualPolicyMax ?? 0,
+    primaryReason,
+  };
+}
+
+function rothConversionUiStatusLabel(status: RothConversionUiScheduleStatus['status']) {
+  switch (status) {
+    case 'active':
+      return 'Safe room active';
+    case 'empty_missing_target':
+      return 'Needs MAGI target';
+    case 'empty_no_room':
+      return 'No clean room';
+    case 'empty_not_eligible':
+      return 'Not eligible yet';
+    case 'empty_no_economic_benefit':
+      return 'No modeled benefit';
+    case 'empty_policy_disabled':
+      return 'Policy disabled';
+    case 'empty_no_pretax':
+      return 'No pretax fuel';
+    default:
+      return 'No schedule';
+  }
+}
+
+function rothConversionUiStatusClasses(status: RothConversionUiScheduleStatus['status']) {
+  if (status === 'active') {
+    return 'bg-emerald-100 text-emerald-700';
+  }
+  if (status === 'empty_missing_target' || status === 'empty_policy_disabled') {
+    return 'bg-rose-100 text-rose-700';
+  }
+  return 'bg-stone-100 text-stone-700';
+}
+
+function rothConversionUiStatusDetail(status: RothConversionUiScheduleStatus) {
+  switch (status.status) {
+    case 'active':
+      return 'Safe-room Roth conversions are already baked into the modeled path; optional extra conversions remain a separate recommendation layer.';
+    case 'empty_missing_target':
+      return 'The conversion engine could not compute a MAGI ceiling. Check IRMAA or ACA target assumptions before treating this as a real no-conversion answer.';
+    case 'empty_no_room':
+      return 'The modeled MAGI path has no clean conversion room after buffers.';
+    case 'empty_not_eligible':
+      return 'The planner is waiting for the retirement bridge before opening proactive conversions.';
+    case 'empty_no_economic_benefit':
+      return 'Candidates were evaluated, but the modeled after-tax benefit was not positive.';
+    case 'empty_policy_disabled':
+      return 'Roth conversion policy is disabled in the current rules.';
+    case 'empty_no_pretax':
+      return 'There is no modeled pretax balance available to convert.';
+    default:
+      return `No actionable conversion schedule is visible. Primary reason: ${status.primaryReason}.`;
+  }
+}
+
 function buildVerdictExplanation(input: {
   verdict: 'Strong' | 'Moderate' | 'Fragile';
   successRate: number;
@@ -359,12 +498,51 @@ function buildStrategicPrepShadowComparison(input: {
 interface FlightPathTimelineEvent {
   id: string;
   when: Date;
-  category: 'retirement' | 'medicare' | 'social_security' | 'irmaa' | 'rmd';
+  category:
+    | 'retirement'
+    | 'medicare'
+    | 'social_security'
+    | 'irmaa'
+    | 'rmd'
+    | 'roth_conversion';
   title: string;
   why: string;
   prepLeadMonths: number;
   actionNow: string;
   ageLabel?: string;
+}
+
+interface RothConversionUiScheduleEntry {
+  year: number;
+  recommendedAmount: number;
+  conversionKind: 'none' | 'safe_room' | 'strategic_extra';
+  safeRoomUsed: number;
+  strategicExtraUsed: number;
+  annualPolicyMaxBinding: boolean;
+  reason: string;
+  medianMagiAfter: number;
+  medianTargetMagiCeiling: number | null;
+}
+
+interface RothConversionUiScheduleStatus {
+  status:
+    | 'active'
+    | 'empty_no_room'
+    | 'empty_missing_target'
+    | 'empty_not_eligible'
+    | 'empty_no_economic_benefit'
+    | 'empty_policy_disabled'
+    | 'empty_no_pretax'
+    | 'empty_unknown';
+  scheduledYearCount: number;
+  safeRoomScheduledYearCount: number;
+  strategicExtraScheduledYearCount: number;
+  annualPolicyMaxBindingYearCount: number;
+  totalRecommendedAmount: number;
+  totalSafeRoomUsed: number;
+  totalStrategicExtraUsed: number;
+  totalSafeRoomUnusedDueToAnnualPolicyMax: number;
+  primaryReason: string;
 }
 
 interface SavedAppliedScenario {
@@ -413,6 +591,11 @@ const FLIGHT_PATH_EVENT_VISUAL: Record<
     label: 'RMD',
     markerClassName: 'bg-rose-600',
     softClassName: 'bg-rose-100 text-rose-700',
+  },
+  roth_conversion: {
+    label: 'Roth Conversion',
+    markerClassName: 'bg-violet-600',
+    softClassName: 'bg-violet-100 text-violet-700',
   },
 };
 
@@ -961,6 +1144,23 @@ function formatWindfallLabel(value: string) {
     .split('_')
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(' ');
+}
+
+function estimateWindfallLiquidity(entry: WindfallEntry): number {
+  if (typeof entry.liquidityAmount === 'number') {
+    return Math.max(0, entry.liquidityAmount);
+  }
+  if (entry.name !== 'home_sale') {
+    return Math.max(0, entry.amount);
+  }
+  const gross = Math.max(0, entry.amount);
+  const sellingCost = gross * Math.max(0, Math.min(1, entry.sellingCostPercent ?? 0));
+  const replacementHomeCost = Math.max(0, entry.replacementHomeCost ?? 0);
+  const replacementCost =
+    replacementHomeCost +
+    replacementHomeCost * Math.max(0, Math.min(1, entry.purchaseClosingCostPercent ?? 0)) +
+    Math.max(0, entry.movingCost ?? 0);
+  return Math.max(0, gross - sellingCost - replacementCost);
 }
 
 function parseCurrencyText(value: string): number {
@@ -2208,6 +2408,20 @@ export function UnifiedPlanScreen({
         (year) => year.acaStatus === 'Above subsidy range' || year.acaStatus === 'Bridge breached',
       ).length
     : 0;
+  const conversionPathSource = primaryPath ?? currentEvaluation?.raw.baselinePath ?? null;
+  const rothConversionSchedule = useMemo(
+    () => buildRothConversionUiSchedule(conversionPathSource),
+    [conversionPathSource],
+  );
+  const rothConversionScheduleStatus = useMemo(
+    () => buildRothConversionUiScheduleStatus(conversionPathSource, rothConversionSchedule),
+    [conversionPathSource, rothConversionSchedule],
+  );
+  const firstScheduledRothConversion =
+    rothConversionSchedule.find((entry) => entry.recommendedAmount > 0) ?? null;
+  const firstThreeScheduledRothConversions = rothConversionSchedule
+    .filter((entry) => entry.recommendedAmount > 0)
+    .slice(0, 3);
   const flightPathTimeline = useMemo(() => {
     const now = new Date();
     const nowMs = now.getTime();
@@ -2371,6 +2585,18 @@ export function UnifiedPlanScreen({
       }
     }
 
+    if (firstScheduledRothConversion) {
+      pushEvent({
+        id: `roth-conversion-${firstScheduledRothConversion.year}`,
+        when: new Date(firstScheduledRothConversion.year, 0, 1),
+        category: 'roth_conversion',
+        title: 'Roth conversion window opens',
+        why: `Planner path starts with ${formatCurrency(firstScheduledRothConversion.recommendedAmount)} of ${firstScheduledRothConversion.conversionKind === 'safe_room' ? 'safe-room' : 'strategic-extra'} Roth conversion capacity.`,
+        prepLeadMonths: 3,
+        actionNow: 'Keep MAGI targets current and treat this as already modeled unless choosing optional extra conversions.',
+      });
+    }
+
     const uniqueSortedEvents = events
       .filter((event, index, collection) =>
         index === collection.findIndex((candidate) => candidate.id === event.id),
@@ -2413,7 +2639,7 @@ export function UnifiedPlanScreen({
       rangeEndLabel: formatMonthYear(new Date(timelineEndMs)),
       nowPositionPct: clampPercent(((nowMs - timelineStartMs) / timelineSpanMs) * 100),
     };
-  }, [currentEvaluation, data.household, data.income]);
+  }, [currentEvaluation, data.household, data.income, firstScheduledRothConversion]);
   const strategicPrepPolicy = useMemo(
     () =>
       buildFlightPathStrategicPrepRecommendations({
@@ -2731,13 +2957,19 @@ export function UnifiedPlanScreen({
             .
           </p>
           <p className="mt-1 text-xs text-stone-600">
-            Yellow starts within {formatCurrency(acaBridgeMetrics.guardrailBufferDollars)} of the
-            ceiling; red means projected MAGI is above the modeled ceiling.
+            Guardrail target{' '}
+            {acaBridgeMetrics.targetMagiCeilingWithBuffer === null
+              ? 'not modeled'
+              : formatCurrency(acaBridgeMetrics.targetMagiCeilingWithBuffer)}
+            ; required reduction with buffer {formatCurrency(acaBridgeMetrics.requiredMagiReductionWithBuffer)}.
+            {acaBridgeMetrics.estimatedAcaPremiumAtRisk > 0
+              ? ` Estimated premium at risk ${formatCurrency(acaBridgeMetrics.estimatedAcaPremiumAtRisk)}.`
+              : ''}
           </p>
           {subsidyRecoveryModeActive ? (
             <p className="mt-2 rounded-md bg-rose-50 px-2 py-1 text-xs text-rose-800">
               Flight path auto-adjusted: subsidy recovery mode is active. ACA bridge actions are now prioritized to close an estimated{' '}
-              {formatCurrency(acaGuardrailAdjustment.requiredMagiReduction)} MAGI gap.{' '}
+              {formatCurrency(acaBridgeMetrics.requiredMagiReductionWithBuffer)} buffered MAGI gap.{' '}
               {prioritizedPayrollRateRecommendation ? (
                 <>
                   Current pre-tax 401(k) rate {formatPercent(prioritizedPayrollRateRecommendation.currentRate)}; recommended target{' '}
@@ -2994,6 +3226,81 @@ export function UnifiedPlanScreen({
                   </div>
                 ))}
               </div>
+            </div>
+            <div className="mt-3 rounded-lg border border-stone-200 bg-white p-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="text-xs uppercase tracking-[0.12em] text-stone-500">
+                  Roth Conversion Execution
+                </p>
+                <span
+                  className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] ${rothConversionUiStatusClasses(
+                    rothConversionScheduleStatus.status,
+                  )}`}
+                >
+                  {rothConversionUiStatusLabel(rothConversionScheduleStatus.status)}
+                </span>
+              </div>
+              <p className="mt-2 text-xs text-stone-700">
+                {rothConversionUiStatusDetail(rothConversionScheduleStatus)}
+              </p>
+              <div className="mt-2 grid gap-2 md:grid-cols-4">
+                <div className="rounded-md border border-stone-200 bg-stone-50 px-2 py-2">
+                  <p className="text-[10px] uppercase tracking-[0.12em] text-stone-500">Years scheduled</p>
+                  <p className="mt-1 text-sm font-semibold text-stone-900">
+                    {rothConversionScheduleStatus.scheduledYearCount}
+                  </p>
+                </div>
+                <div className="rounded-md border border-stone-200 bg-stone-50 px-2 py-2">
+                  <p className="text-[10px] uppercase tracking-[0.12em] text-stone-500">Total modeled</p>
+                  <p className="mt-1 text-sm font-semibold text-stone-900">
+                    {formatCurrency(rothConversionScheduleStatus.totalRecommendedAmount)}
+                  </p>
+                </div>
+                <div className="rounded-md border border-stone-200 bg-stone-50 px-2 py-2">
+                  <p className="text-[10px] uppercase tracking-[0.12em] text-stone-500">Safe-room years</p>
+                  <p className="mt-1 text-sm font-semibold text-emerald-700">
+                    {rothConversionScheduleStatus.safeRoomScheduledYearCount}
+                  </p>
+                </div>
+                <div className="rounded-md border border-stone-200 bg-stone-50 px-2 py-2">
+                  <p className="text-[10px] uppercase tracking-[0.12em] text-stone-500">Extra years</p>
+                  <p className="mt-1 text-sm font-semibold text-violet-700">
+                    {rothConversionScheduleStatus.strategicExtraScheduledYearCount}
+                  </p>
+                </div>
+              </div>
+              {firstThreeScheduledRothConversions.length ? (
+                <div className="mt-2 overflow-x-auto">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="text-left text-stone-500">
+                        <th className="py-1 pr-3 font-medium">Year</th>
+                        <th className="py-1 pr-3 font-medium">Conversion</th>
+                        <th className="py-1 pr-3 font-medium">Kind</th>
+                        <th className="py-1 pr-3 font-medium">MAGI after</th>
+                        <th className="py-1 pr-3 font-medium">Ceiling</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {firstThreeScheduledRothConversions.map((entry) => (
+                        <tr key={entry.year} className="border-t border-stone-100">
+                          <td className="py-1 pr-3 font-semibold text-stone-900">{entry.year}</td>
+                          <td className="py-1 pr-3">{formatCurrency(entry.recommendedAmount)}</td>
+                          <td className="py-1 pr-3">
+                            {entry.conversionKind === 'safe_room' ? 'Safe room' : 'Strategic extra'}
+                          </td>
+                          <td className="py-1 pr-3">{formatCurrency(entry.medianMagiAfter)}</td>
+                          <td className="py-1 pr-3">
+                            {entry.medianTargetMagiCeiling === null
+                              ? 'Not modeled'
+                              : formatCurrency(entry.medianTargetMagiCeiling)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : null}
             </div>
             <div className="mt-3 grid gap-2 lg:grid-cols-3">
               {executiveSummary.actionCards.map((card) => {
@@ -3320,6 +3627,18 @@ export function UnifiedPlanScreen({
                             {phase.acaMetrics.headroomToCeiling === null
                               ? 'not modeled'
                               : formatCurrency(phase.acaMetrics.headroomToCeiling)}
+                            .
+                          </p>
+                          <p className="mt-1">
+                            Buffered target{' '}
+                            {phase.acaMetrics.targetMagiCeilingWithBuffer === null
+                              ? 'not modeled'
+                              : formatCurrency(phase.acaMetrics.targetMagiCeilingWithBuffer)}
+                            {' '}· reduction needed{' '}
+                            {formatCurrency(phase.acaMetrics.requiredMagiReductionWithBuffer)}
+                            {phase.acaMetrics.estimatedAcaPremiumAtRisk > 0
+                              ? ` · premium at risk ${formatCurrency(phase.acaMetrics.estimatedAcaPremiumAtRisk)}`
+                              : ''}
                             .
                           </p>
                           {phase.acaMetrics.inferredAssumptions.length ? (
@@ -4648,7 +4967,7 @@ export function UnifiedPlanScreen({
                           </p>
                           <p className="text-xs text-stone-500">
                             {windfall.year} ·{' '}
-                            {formatCurrency(windfall.liquidityAmount ?? windfall.amount)} net cash
+                            {formatCurrency(estimateWindfallLiquidity(windfall))} net cash
                           </p>
                         </div>
                         <button

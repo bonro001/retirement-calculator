@@ -25,10 +25,17 @@ export interface RandomTapeMarketYear {
     rothContributionFlow: number;
     socialSecurityIncome: number;
     windfallCashInflow: number;
+    homeSaleGrossProceeds: number;
+    homeSaleSellingCosts: number;
+    homeReplacementPurchaseCost: number;
+    homeDownsizeNetLiquidity: number;
     spendingBeforeHealthcare: number;
     healthcarePremiumCost: number;
     ltcCost: number;
     hsaOffsetUsed: number;
+    hsaLtcOffsetUsed: number;
+    ltcCostRemainingAfterHsa: number;
+    hsaBalanceEnd: number;
     federalTax: number;
     irmaaTier: number;
     rmdWithdrawn: number;

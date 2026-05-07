@@ -150,6 +150,21 @@ function fromSnapshotToSeedData(
       irmaaAware: snapshot.constraints.irmaaAware,
       replaceModeImports: snapshot.constraints.replaceModeImports,
       assetClassMappingAssumptions: snapshot.constraints.assetClassMappingAssumptions,
+      contributionLimits: snapshot.constraints.contributionLimits
+        ? JSON.parse(JSON.stringify(snapshot.constraints.contributionLimits))
+        : undefined,
+      housingAfterDownsizePolicy: snapshot.constraints.housingAfterDownsizePolicy
+        ? JSON.parse(JSON.stringify(snapshot.constraints.housingAfterDownsizePolicy))
+        : undefined,
+      rothConversionPolicy: snapshot.constraints.rothConversionPolicy
+        ? JSON.parse(JSON.stringify(snapshot.constraints.rothConversionPolicy))
+        : undefined,
+      rmdPolicy: snapshot.constraints.rmdPolicy
+        ? { ...snapshot.constraints.rmdPolicy }
+        : undefined,
+      payrollModel: snapshot.constraints.payrollModel
+        ? { ...snapshot.constraints.payrollModel }
+        : undefined,
       healthcarePremiums: {
         baselineAcaPremiumAnnual:
           snapshot.constraints.healthcarePremiums.baselineAcaPremiumAnnual ?? 14_400,
@@ -161,6 +176,7 @@ function fromSnapshotToSeedData(
       hsaStrategy: snapshot.constraints.hsaStrategy
         ? {
             enabled: snapshot.constraints.hsaStrategy.enabled,
+            withdrawalMode: snapshot.constraints.hsaStrategy.withdrawalMode,
             annualQualifiedExpenseWithdrawalCap:
               snapshot.constraints.hsaStrategy.annualQualifiedExpenseWithdrawalCap,
             prioritizeHighMagiYears: snapshot.constraints.hsaStrategy.prioritizeHighMagiYears,
