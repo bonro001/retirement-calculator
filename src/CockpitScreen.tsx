@@ -40,7 +40,7 @@ interface PlanOptimizationOutput {
   spendResult: SpendOptimizationResult | null;
   rothResult: RothOptimizationResult | null;
   /** Full engine path at the optimized plan (recommended SS + spend +
-   *  Roth ceiling). Drives the Cockpit's year-by-year details, the
+   *  Roth max). Drives the Cockpit's year-by-year details, the
    *  trajectory chart, and the actions-due tile — keeping every panel
    *  consistent with the Trust headline. */
   optimizedPath: PathResult | null;
@@ -305,7 +305,7 @@ function usePlanOptimization(
         if (runIdRef.current !== myRunId) return;
         setSpendResult(spend);
 
-        // Stage 3: Roth ceiling optimizer. Sweeps 6 ceiling levels at
+        // Stage 3: Roth max optimizer. Sweeps 6 annual max levels at
         // the joint plan (recommended SS + recommended spend already
         // applied via clone + spend override) and picks the ceiling
         // that maximizes p50 EW subject to both constraints.
@@ -334,19 +334,20 @@ function usePlanOptimization(
         if (runIdRef.current !== myRunId) return;
         setRothResult(roth);
 
-        // Apply the recommended Roth ceiling to the clone before the
+        // Apply the recommended Roth max to the clone before the
         // final projection.
         if (roth.recommended && clone.rules) {
           clone.rules.rothConversionPolicy = {
             ...(clone.rules.rothConversionPolicy ?? {}),
             enabled: roth.recommended.ceilingTodayDollars > 0,
             minAnnualDollars: 0,
-            magiBufferDollars: roth.recommended.ceilingTodayDollars,
+            maxAnnualDollars: roth.recommended.ceilingTodayDollars,
+            magiBufferDollars: clone.rules.rothConversionPolicy?.magiBufferDollars ?? 2_000,
           };
         }
 
         // Stage 4: build the optimizedPath. Run the full engine ONCE
-        // at the joint plan (recommended SS + spend + Roth ceiling all
+        // at the joint plan (recommended SS + spend + Roth max all
         // applied). This becomes the canonical projection for every
         // Cockpit panel below the Trust card — year-by-year tiles,
         // trajectory chart, actions due.
@@ -1573,11 +1574,25 @@ function YearColumn({
         />
         <Row label="MAGI" value={formatCurrencyExact(yr.medianMagi / div)} />
         {yr.medianRothConversion > 0 && !monthly && (
-          <Row
-            label="Roth convert"
-            value={formatCurrencyExact(yr.medianRothConversion)}
-            valueClass="text-emerald-700"
-          />
+          <>
+            <Row
+              label="Roth convert"
+              value={formatCurrencyExact(yr.medianRothConversion)}
+              valueClass="text-emerald-700"
+            />
+            {(yr.medianRothConversionOpportunistic > 0 ||
+              yr.medianRothConversionDefensive > 0) && (
+              <Row
+                label="Roth split"
+                value={`Headroom ${formatCurrencyExact(
+                  yr.medianRothConversionOpportunistic,
+                )} · pressure ${formatCurrencyExact(
+                  yr.medianRothConversionDefensive,
+                )}`}
+                valueClass="text-[10px] text-stone-500"
+              />
+            )}
+          </>
         )}
         {yr.medianRmdAmount > 0 && !monthly && (
           <Row
@@ -2977,7 +2992,7 @@ function MaxSustainableSpendCard({
 }
 
 /**
- * Recommended Roth conversion ceiling card. Companion to the SS and
+ * Recommended Roth conversion max card. Companion to the SS and
  * spend optimizer cards: at the engine-recommended SS strategy + max
  * spend, sweeps the Roth-conversion-ceiling axis and picks the level
  * that maximizes p50 ending wealth (today's $) subject to both north
@@ -3016,11 +3031,11 @@ function RecommendedRothCeilingCard({
       <div className="flex items-start justify-between gap-3">
         <div>
           <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-violet-700">
-            Recommended Roth ceiling · engine output
+            Recommended Roth max · engine output
           </p>
           <p className="mt-1 text-[12px] text-stone-600">
             How aggressively to convert pretax → Roth each year. Engine
-            evaluates at your recommended SS + spend, picks the ceiling
+            evaluates at your recommended SS + spend, picks the annual max
             that maximizes p50 ending wealth in today's $ while still
             meeting both north stars.
           </p>
@@ -3040,7 +3055,7 @@ function RecommendedRothCeilingCard({
 
       {!result && !error && (
         <p className="mt-3 text-[12px] text-stone-500">
-          Sweeping 6 ceiling levels ($0 – $200k/yr) at 500 trials each.
+          Sweeping 6 annual max levels ($0 – $200k/yr) at 500 trials each.
           ~15–20s; cached after.
         </p>
       )}
@@ -3104,7 +3119,7 @@ function RecommendedRothCeilingCard({
               </>
             ) : (
               <p className="mt-2 text-[12px] text-stone-500">
-                Seed ceiling is outside the searched grid — adopt the
+                Seed Roth max is outside the searched grid — adopt the
                 recommendation to apply.
               </p>
             )}
@@ -3113,12 +3128,12 @@ function RecommendedRothCeilingCard({
           <div className="md:col-span-2 rounded-xl border border-violet-200/60 bg-white p-3 text-[12px]">
             {isSameCeiling ? (
               <p className="text-stone-700">
-                Your seed's Roth ceiling already matches the recommendation —
+                Your seed's Roth max already matches the recommendation —
                 no change indicated.
               </p>
             ) : ewDelta !== null && ewDelta > 0 ? (
               <p className="text-stone-700">
-                Switching to the recommended ceiling lifts p50 ending wealth
+                Switching to the recommended Roth max lifts p50 ending wealth
                 by{' '}
                 <span className="font-semibold text-violet-700 tabular-nums">
                   +{formatCurrency(ewDelta)}
@@ -3127,7 +3142,7 @@ function RecommendedRothCeilingCard({
               </p>
             ) : ewDelta !== null && ewDelta < 0 ? (
               <p className="text-amber-800">
-                The recommended ceiling lowers p50 ending wealth by{' '}
+                The recommended Roth max lowers p50 ending wealth by{' '}
                 <span className="font-semibold tabular-nums">
                   {formatCurrency(ewDelta)}
                 </span>{' '}
@@ -3137,16 +3152,16 @@ function RecommendedRothCeilingCard({
               </p>
             ) : (
               <p className="text-stone-700">
-                {result.feasibleCount} of {result.ranked.length} ceilings
+                {result.feasibleCount} of {result.ranked.length} annual maxes
                 meet both north stars.
               </p>
             )}
             <p className="mt-1 text-[11px] text-stone-400">
-              Sweep · 6 ceiling levels · {result.trialCount} trials each.
+              Sweep · 6 annual max levels · {result.trialCount} trials each.
               Ranking: feasibility (north stars) → max p50 EW (today $) →
               lower median federal tax. The engine's per-year IRMAA-
               and bracket-aware Roth logic still operates within this
-              ceiling.
+              max.
             </p>
           </div>
         </div>
@@ -3241,7 +3256,9 @@ export function CockpitScreen() {
     planOpt.stage === 'roth';
   const planOptError = planOpt.error;
   const currentSeedRothCeiling =
-    data?.rules?.rothConversionPolicy?.magiBufferDollars ?? null;
+    data?.rules?.rothConversionPolicy?.maxAnnualDollars ??
+    data?.rules?.rothConversionPolicy?.magiBufferDollars ??
+    null;
 
   // Drive every panel below the Trust card off the authoritative path:
   // mined/adopted policy projection when a corpus pick exists, otherwise
@@ -3440,7 +3457,7 @@ export function CockpitScreen() {
                 ? 'searching Social Security claim ages'
                 : planOpt.stage === 'spend'
                   ? 'finding sustainable spending level'
-                  : 'tuning Roth conversion ceiling'}
+                  : 'tuning Roth conversion max'}
               . Numbers below will update when it finishes.
             </span>
             <span className="tabular-nums text-blue-700">
@@ -3656,7 +3673,7 @@ export function CockpitScreen() {
                     {formatCurrencyExact(optimizedSpend)}/yr,
                     SS {recommendedPrimarySsAge ?? '—'}/{recommendedSpouseSsAge ?? '—'}
                     {recommendedRothCeiling != null && (
-                      <>, Roth ≤ {formatCurrencyExact(recommendedRothCeiling)}/yr</>
+                      <>, Roth max {formatCurrencyExact(recommendedRothCeiling)}/yr</>
                     )}
                     {recommendedWithdrawalRule && (
                       <>, {recommendedWithdrawalRule.replace(/_/g, ' ')}</>
@@ -3760,7 +3777,7 @@ export function CockpitScreen() {
                 </span>
               </div>
               <div className="text-stone-600">
-                Roth ceiling{' '}
+                Roth max{' '}
                 <span className="font-semibold text-stone-900">
                   {formatCurrencyExact(displayedPolicy.rothConversionAnnualCeiling)}/yr
                 </span>
@@ -3790,6 +3807,19 @@ export function CockpitScreen() {
               <p className="text-[11px] text-stone-500">
                 {thisYear.dominantRothConversionReason || 'Recommended by withdrawal optimizer.'}
               </p>
+              {(thisYear.medianRothConversionOpportunistic > 0 ||
+                thisYear.medianRothConversionDefensive > 0) && (
+                <p className="text-[11px] text-stone-500">
+                  Headroom{' '}
+                  <span className="tabular-nums">
+                    {formatCurrencyExact(thisYear.medianRothConversionOpportunistic)}
+                  </span>
+                  {' · '}pressure{' '}
+                  <span className="tabular-nums">
+                    {formatCurrencyExact(thisYear.medianRothConversionDefensive)}
+                  </span>
+                </p>
+              )}
             </div>
           ) : thisYear && thisYear.medianRmdAmount > 0 ? (
             <div className="space-y-1 text-[12px]">

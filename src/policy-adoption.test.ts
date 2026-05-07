@@ -92,14 +92,15 @@ describe('buildAdoptedSeedData', () => {
     expect(adopted.income.socialSecurity[1]?.claimAge).toBe(68);
   });
 
-  it('sets the Roth ceiling fields exactly the way the miner did', () => {
+  it('sets the Roth max fields exactly the way the miner did', () => {
     const adopted = buildAdoptedSeedData(
       initialSeedData,
       makePolicy({ rothConversionAnnualCeiling: 40_000 }),
     );
     expect(adopted.rules?.rothConversionPolicy?.enabled).toBe(true);
     expect(adopted.rules?.rothConversionPolicy?.minAnnualDollars).toBe(0);
-    expect(adopted.rules?.rothConversionPolicy?.magiBufferDollars).toBe(40_000);
+    expect(adopted.rules?.rothConversionPolicy?.maxAnnualDollars).toBe(40_000);
+    expect(adopted.rules?.rothConversionPolicy?.magiBufferDollars).toBe(2_000);
   });
 
   it('disables Roth conversion when the ceiling is 0', () => {
@@ -201,7 +202,8 @@ function seedWith(opts: {
       ...(seed.rules.rothConversionPolicy ?? {}),
       enabled: opts.rothCeiling > 0,
       minAnnualDollars: 0,
-      magiBufferDollars: opts.rothCeiling,
+      maxAnnualDollars: opts.rothCeiling,
+      magiBufferDollars: 2_000,
     };
   }
   return seed;

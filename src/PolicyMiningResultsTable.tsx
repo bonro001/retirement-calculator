@@ -75,7 +75,7 @@ interface CurrentPlanReference {
   primarySocialSecurityClaimAge?: number | null;
   /** Current plan's spouse SS claim age, for diff column. Null = no spouse. */
   spouseSocialSecurityClaimAge?: number | null;
-  /** Current Roth conversion ceiling, for diff column. */
+  /** Current Roth conversion max, for diff column. */
   rothConversionAnnualCeiling?: number | null;
   /** Current plan's median bequest in today's $, for bequest-diff column. */
   p50EndingWealthTodayDollars?: number | null;
@@ -844,7 +844,7 @@ export function PolicyMiningResultsTable({
                       ? 'primary SS claim age'
                       : sort.key === 'spouseSs'
                         ? 'spouse SS claim age'
-                        : 'Roth conversion ceiling'}
+                        : 'Roth conversion max'}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
@@ -1000,7 +1000,7 @@ export function PolicyMiningResultsTable({
                   className="cursor-pointer py-2 pr-3 hover:text-stone-700"
                   onClick={() => toggleSort('roth')}
                 >
-                  Roth cap{sortIndicator('roth')}
+                  Roth max{sortIndicator('roth')}
                 </th>
                 <th
                   className="cursor-pointer py-2 pr-3 hover:text-stone-700"

@@ -114,6 +114,7 @@ interface SimPlan {
     enabled: boolean;
     strategy: 'aca_then_irmaa_headroom' | 'irmaa_headroom_only';
     minAnnualDollars: number;
+    maxAnnualDollars: number;
     maxPretaxBalancePercent: number;
     magiBufferDollars: number;
     source: 'rules' | 'default';
@@ -154,6 +155,9 @@ interface RunTrace {
   withdrawalRoth: number;
   rothConversion: number;
   rothConversionReason: string;
+  rothConversionMotive: 'none' | 'opportunistic_headroom' | 'defensive_pressure';
+  rothConversionOpportunisticAmount: number;
+  rothConversionDefensiveAmount: number;
   rothConversionSimulationModeUsed: SimulationStrategyMode;
   rothConversionPlannerLogicActiveAtConversion: boolean;
   rothConversionEngineInvoked: boolean;
@@ -381,6 +385,9 @@ interface WithdrawalDecisionTrace {
 interface RothConversionTrace {
   amount: number;
   reason: string;
+  motive: 'none' | 'opportunistic_headroom' | 'defensive_pressure';
+  opportunisticAmount: number;
+  defensiveAmount: number;
   simulationModeUsedForConversion: SimulationStrategyMode;
   plannerLogicActiveAtConversion: boolean;
   conversionEngineInvoked: boolean;
@@ -460,17 +467,17 @@ const percentFormatter = new Intl.NumberFormat('en-US', {
   maximumFractionDigits: 0,
 });
 
-const dominantValue = (values: string[]) => {
+const dominantValue = <T extends string>(values: T[], fallback: T = 'Tier 1' as T): T => {
   if (!values.length) {
-    return 'Tier 1';
+    return fallback;
   }
 
-  const counts = new Map<string, number>();
+  const counts = new Map<T, number>();
   values.forEach((value) => {
     counts.set(value, (counts.get(value) ?? 0) + 1);
   });
 
-  return [...counts.entries()].sort((left, right) => right[1] - left[1])[0]?.[0] ?? 'Tier 1';
+  return [...counts.entries()].sort((left, right) => right[1] - left[1])[0]?.[0] ?? fallback;
 };
 
 export function formatCurrency(value: number) {
@@ -690,12 +697,22 @@ function buildPlan(
     data.rules.assetClassMappingAssumptions,
   );
   const configuredRothPolicy = data.rules.rothConversionPolicy;
+  const legacyRothCeilingProxy =
+    configuredRothPolicy &&
+    configuredRothPolicy.maxAnnualDollars === undefined &&
+    configuredRothPolicy.magiBufferDollars !== undefined &&
+    configuredRothPolicy.minAnnualDollars === 0;
   const rothConversionPolicy = {
     enabled: configuredRothPolicy?.enabled ?? true,
     strategy: configuredRothPolicy?.strategy ?? 'aca_then_irmaa_headroom',
     minAnnualDollars: Math.max(
       0,
       configuredRothPolicy?.minAnnualDollars ?? DEFAULT_ROTH_CONVERSION_MIN_DOLLARS,
+    ),
+    maxAnnualDollars: Math.max(
+      0,
+      configuredRothPolicy?.maxAnnualDollars ??
+        (legacyRothCeilingProxy ? configuredRothPolicy.magiBufferDollars ?? 0 : Number.POSITIVE_INFINITY),
     ),
     maxPretaxBalancePercent: Math.max(
       0,
@@ -707,7 +724,9 @@ function buildPlan(
     ),
     magiBufferDollars: Math.max(
       0,
-      configuredRothPolicy?.magiBufferDollars ?? DEFAULT_ROTH_CONVERSION_MAGI_BUFFER,
+      legacyRothCeilingProxy
+        ? DEFAULT_ROTH_CONVERSION_MAGI_BUFFER
+        : configuredRothPolicy?.magiBufferDollars ?? DEFAULT_ROTH_CONVERSION_MAGI_BUFFER,
     ),
     source: configuredRothPolicy ? 'rules' : 'default',
   } as const;
@@ -2520,13 +2539,16 @@ function applyProactiveRothConversion(input: {
   };
   const magiBaseline = input.withdrawalResult.taxResult.MAGI;
   const pretaxBalanceBaseline = input.balances.pretax;
-  const noConversion = (
-    reason: string,
-    overrides?: Partial<Omit<RothConversionTrace, 'amount' | 'reason'>>,
-  ): RothConversionTrace => ({
-    amount: 0,
-    reason,
-    simulationModeUsedForConversion: input.strategy.mode,
+	  const noConversion = (
+	    reason: string,
+	    overrides?: Partial<Omit<RothConversionTrace, 'amount' | 'reason'>>,
+	  ): RothConversionTrace => ({
+	    amount: 0,
+	    reason,
+	    motive: 'none',
+	    opportunisticAmount: 0,
+	    defensiveAmount: 0,
+	    simulationModeUsedForConversion: input.strategy.mode,
     plannerLogicActiveAtConversion: input.strategy.plannerLogicActive,
     conversionEngineInvoked: true,
     evaluatedCandidateAmounts: [],
@@ -2625,8 +2647,22 @@ function applyProactiveRothConversion(input: {
     effectiveBalanceCap,
     Math.max(0, input.balances.pretax),
   );
+  const annualPolicyMax = Number.isFinite(input.plan.rothConversionPolicy.maxAnnualDollars)
+    ? input.plan.rothConversionPolicy.maxAnnualDollars
+    : Number.POSITIVE_INFINITY;
+  const totalConversionBudget = Math.min(
+    Math.max(0, annualPolicyMax),
+    effectiveBalanceCap,
+    Math.max(0, input.balances.pretax),
+  );
+  const defensivePressureAvailable =
+    totalConversionBudget > availableHeadroom + 1 &&
+    (input.requiredRmdAmount > 0 ||
+      (input.yearsUntilRmdStart !== null &&
+        input.yearsUntilRmdStart <= 3 &&
+        input.balances.pretax > 500_000));
 
-  if (availableHeadroom <= 0) {
+  if (availableHeadroom <= 0 && !defensivePressureAvailable) {
     return noConversion(
       'blocked_by_irmaa_threshold',
       {
@@ -2667,19 +2703,47 @@ function applyProactiveRothConversion(input: {
   // (worst case 16 comparisons — trivial vs the allocator cost).
   const balancePretaxFloor = Math.max(0, input.balances.pretax);
   const evaluatedCandidateAmounts: number[] = [];
+  const candidateMotives = new Map<number, 'opportunistic_headroom' | 'defensive_pressure'>();
   const FRACTIONS_FOR_CONVERSION = [0.25, 0.5, 0.75, 1] as const;
-  for (let i = 0; i < FRACTIONS_FOR_CONVERSION.length; i += 1) {
-    let amount = availableHeadroom * FRACTIONS_FOR_CONVERSION[i];
-    if (amount > effectiveBalanceCap) amount = effectiveBalanceCap;
+  const pushCandidateAmount = (
+    rawAmount: number,
+    motive: 'opportunistic_headroom' | 'defensive_pressure',
+  ) => {
+    let amount = rawAmount;
+    if (amount > totalConversionBudget) amount = totalConversionBudget;
     if (amount > balancePretaxFloor) amount = balancePretaxFloor;
     // Match the original cent-precision rounding (was Number(x.toFixed(2))).
     amount = Math.round(amount * 100) / 100;
-    if (amount <= 0) continue;
+    if (amount <= 0) return;
     let isDup = false;
     for (let j = 0; j < evaluatedCandidateAmounts.length; j += 1) {
-      if (evaluatedCandidateAmounts[j] === amount) { isDup = true; break; }
+      if (evaluatedCandidateAmounts[j] === amount) {
+        isDup = true;
+        const previousMotive = candidateMotives.get(amount);
+        if (previousMotive === 'defensive_pressure' && motive === 'opportunistic_headroom') {
+          candidateMotives.set(amount, motive);
+        }
+        break;
+      }
     }
-    if (!isDup) evaluatedCandidateAmounts.push(amount);
+    if (!isDup) {
+      evaluatedCandidateAmounts.push(amount);
+      candidateMotives.set(amount, motive);
+    }
+  };
+  for (let i = 0; i < FRACTIONS_FOR_CONVERSION.length; i += 1) {
+    pushCandidateAmount(
+      availableHeadroom * FRACTIONS_FOR_CONVERSION[i],
+      'opportunistic_headroom',
+    );
+  }
+  if (defensivePressureAvailable) {
+    for (let i = 0; i < FRACTIONS_FOR_CONVERSION.length; i += 1) {
+      pushCandidateAmount(
+        totalConversionBudget * FRACTIONS_FOR_CONVERSION[i],
+        'defensive_pressure',
+      );
+    }
   }
   // Fractions ascend, but cap-clipping can reorder: if amount[i+1] hits
   // the cap before amount[i] does, ordering needs a final sort. Tiny array
@@ -2717,6 +2781,7 @@ function applyProactiveRothConversion(input: {
   // the scan is trivial; the win is in the per-Full-mine allocator volume.
   type CandidateResult = {
     amount: number;
+    motive: 'opportunistic_headroom' | 'defensive_pressure';
     taxAfterConversion: ReturnType<typeof calculateFederalTax>;
     evaluation: ReturnType<typeof evaluateConversionScore>;
   };
@@ -2728,15 +2793,28 @@ function applyProactiveRothConversion(input: {
     const amount = evaluatedCandidateAmounts[i];
     if (amount < minAnnualDollars) continue;
     const taxAfterConversion = calculateTaxForConversion(amount);
+    const candidateMotive = candidateMotives.get(amount) ?? 'opportunistic_headroom';
+    const crossesAcaCeiling =
+      input.acaFriendlyMagiCeiling !== null &&
+      taxAfterConversion.MAGI > input.acaFriendlyMagiCeiling + MAGI_TOLERANCE_DOLLARS;
+    if (crossesAcaCeiling && acaOverageBefore <= MAGI_TOLERANCE_DOLLARS) {
+      continue;
+    }
     if (
       targetMagiCeiling !== null &&
       !skipCeilingCheck &&
+      candidateMotive !== 'defensive_pressure' &&
       taxAfterConversion.MAGI > targetMagiCeiling + MAGI_TOLERANCE_DOLLARS
     ) {
       continue;
     }
     const evaluation = evaluateConversionScore(amount, taxAfterConversion);
-    const result: CandidateResult = { amount, taxAfterConversion, evaluation };
+    const result: CandidateResult = {
+      amount,
+      motive: candidateMotive,
+      taxAfterConversion,
+      evaluation,
+    };
     candidateResults.push(result);
     if (!bestCandidate || evaluation.conversionScore > bestCandidate.evaluation.conversionScore) {
       bestCandidate = result;
@@ -2832,10 +2910,15 @@ function applyProactiveRothConversion(input: {
     });
   }
 
-  const conversionAmount = bestCandidateAmount;
-  const taxAfterConversion = bestCandidate!.taxAfterConversion;
+	  const conversionAmount = bestCandidateAmount;
+	  const taxAfterConversion = bestCandidate!.taxAfterConversion;
+	  const conversionMotive = bestCandidate!.motive;
+	  conversionReason =
+	    conversionMotive === 'defensive_pressure'
+	      ? 'executed_defensive_rmd_pressure'
+	      : conversionReason;
 
-  input.balances.pretax -= conversionAmount;
+	  input.balances.pretax -= conversionAmount;
   input.balances.roth += conversionAmount;
   input.withdrawalResult.taxInputs.ira401kWithdrawals += conversionAmount;
   input.withdrawalResult.taxResult = taxAfterConversion;
@@ -2850,10 +2933,15 @@ function applyProactiveRothConversion(input: {
     ? Math.max(0, magiAfter - input.assumptions.irmaaThreshold)
     : 0;
 
-  return {
-    amount: conversionAmount,
-    reason: conversionReason,
-    simulationModeUsedForConversion: input.strategy.mode,
+	  return {
+	    amount: conversionAmount,
+	    reason: conversionReason,
+	    motive: conversionMotive,
+	    opportunisticAmount:
+	      conversionMotive === 'opportunistic_headroom' ? conversionAmount : 0,
+	    defensiveAmount:
+	      conversionMotive === 'defensive_pressure' ? conversionAmount : 0,
+	    simulationModeUsedForConversion: input.strategy.mode,
     plannerLogicActiveAtConversion: input.strategy.plannerLogicActive,
     conversionEngineInvoked: true,
     evaluatedCandidateAmounts,
@@ -2902,10 +2990,13 @@ function buildInactiveRothConversionTrace(input: {
 }): RothConversionTrace {
   const rawMAGI = Math.max(0, input.withdrawalResult.taxResult.MAGI);
   const pretaxBalanceBefore = Math.max(0, input.balances.pretax);
-  return {
-    amount: 0,
-    reason: 'simulation_mode_raw',
-    simulationModeUsedForConversion: input.strategy.mode,
+	  return {
+	    amount: 0,
+	    reason: 'simulation_mode_raw',
+	    motive: 'none',
+	    opportunisticAmount: 0,
+	    defensiveAmount: 0,
+	    simulationModeUsedForConversion: input.strategy.mode,
     plannerLogicActiveAtConversion: input.strategy.plannerLogicActive,
     conversionEngineInvoked: false,
     evaluatedCandidateAmounts: [],
@@ -3023,6 +3114,9 @@ function buildSimulationConfigurationSnapshot({
       proactiveConversionsEnabled: strategy.plannerLogicActive,
       strategy: plan.rothConversionPolicy.strategy,
       minAnnualDollars: plan.rothConversionPolicy.minAnnualDollars,
+      maxAnnualDollars: Number.isFinite(plan.rothConversionPolicy.maxAnnualDollars)
+        ? plan.rothConversionPolicy.maxAnnualDollars
+        : null,
       maxPretaxBalancePercent: plan.rothConversionPolicy.maxPretaxBalancePercent,
       magiBufferDollars: plan.rothConversionPolicy.magiBufferDollars,
       source: plan.rothConversionPolicy.source,
@@ -3154,9 +3248,12 @@ function buildSimulationModeDiagnostics({
         blockedRunRate: 0,
         noEconomicBenefitRunRate: 0,
         notEligibleRunRate: 0,
-        representativeAmount: 0,
-        representativeReason: 'simulation_mode_raw',
-        representativeMagiEffect: 0,
+	        representativeAmount: 0,
+	        representativeReason: 'simulation_mode_raw',
+	        representativeMotive: 'none',
+	        representativeOpportunisticAmount: 0,
+	        representativeDefensiveAmount: 0,
+	        representativeMagiEffect: 0,
         representativeTaxEffect: 0,
         representativeAcaEffect: 0,
         representativeIrmaaEffect: 0,
@@ -3266,6 +3363,18 @@ function buildSimulationModeDiagnostics({
         executedTraces.length > 0
           ? dominantValue(executedTraces.map((trace) => trace.rothConversionReason))
           : dominantValue(yearTraces.map((trace) => trace.rothConversionReason)),
+      representativeMotive:
+        executedTraces.length > 0
+          ? dominantValue(executedTraces.map((trace) => trace.rothConversionMotive), 'none')
+          : dominantValue(yearTraces.map((trace) => trace.rothConversionMotive), 'none'),
+      representativeOpportunisticAmount:
+        executedTraces.length > 0
+          ? median(executedTraces.map((trace) => trace.rothConversionOpportunisticAmount))
+          : 0,
+      representativeDefensiveAmount:
+        executedTraces.length > 0
+          ? median(executedTraces.map((trace) => trace.rothConversionDefensiveAmount))
+          : 0,
       representativeMagiEffect:
         executedTraces.length > 0
           ? median(executedTraces.map((trace) => trace.rothConversionMagiEffect))
@@ -3476,6 +3585,12 @@ function buildSimulationModeDiagnostics({
       year: point.year,
       amount: point.representativeAmount,
       reason: point.representativeReason,
+      motive: point.representativeMotive as
+        | 'none'
+        | 'opportunistic_headroom'
+        | 'defensive_pressure',
+      opportunisticAmount: point.representativeOpportunisticAmount,
+      defensiveAmount: point.representativeDefensiveAmount,
       simulationModeUsedForConversion: point.simulationModeUsedForConversion,
       plannerLogicActiveAtConversion: point.plannerLogicActiveAtConversion,
       conversionEngineInvoked: point.conversionEngineInvoked,
@@ -3639,6 +3754,9 @@ function summaryOnlyPathYearResult(input: {
     medianWithdrawalRoth: 0,
     medianRothConversion: 0,
     dominantRothConversionReason: 'summary_only',
+    dominantRothConversionMotive: 'none',
+    medianRothConversionOpportunistic: 0,
+    medianRothConversionDefensive: 0,
     medianRothConversionMagiEffect: 0,
     medianRothConversionTaxEffect: 0,
     medianRothConversionAcaEffect: 0,
@@ -4403,10 +4521,17 @@ function simulatePath(
           withdrawalCash: roundSeriesValue(withdrawalResult.withdrawals.cash),
           withdrawalTaxable: roundSeriesValue(withdrawalResult.withdrawals.taxable),
           withdrawalIra401k: roundSeriesValue(withdrawalResult.withdrawals.pretax),
-          withdrawalRoth: roundSeriesValue(withdrawalResult.withdrawals.roth),
-          rothConversion: roundSeriesValue(rothConversionTrace.amount),
-          rothConversionReason: rothConversionTrace.reason,
-          rothConversionSimulationModeUsed:
+	          withdrawalRoth: roundSeriesValue(withdrawalResult.withdrawals.roth),
+	          rothConversion: roundSeriesValue(rothConversionTrace.amount),
+	          rothConversionReason: rothConversionTrace.reason,
+	          rothConversionMotive: rothConversionTrace.motive,
+	          rothConversionOpportunisticAmount: roundSeriesValue(
+	            rothConversionTrace.opportunisticAmount,
+	          ),
+	          rothConversionDefensiveAmount: roundSeriesValue(
+	            rothConversionTrace.defensiveAmount,
+	          ),
+	          rothConversionSimulationModeUsed:
             rothConversionTrace.simulationModeUsedForConversion,
           rothConversionPlannerLogicActiveAtConversion:
             rothConversionTrace.plannerLogicActiveAtConversion,
@@ -4697,6 +4822,16 @@ function simulatePath(
         medianRothConversion: median(traces.map((trace) => trace.rothConversion)),
         dominantRothConversionReason: dominantValue(
           traces.map((trace) => trace.rothConversionReason),
+        ),
+        dominantRothConversionMotive: dominantValue(
+          traces.map((trace) => trace.rothConversionMotive),
+          'none',
+        ),
+        medianRothConversionOpportunistic: median(
+          traces.map((trace) => trace.rothConversionOpportunisticAmount),
+        ),
+        medianRothConversionDefensive: median(
+          traces.map((trace) => trace.rothConversionDefensiveAmount),
         ),
         medianRothConversionMagiEffect: median(
           traces.map((trace) => trace.rothConversionMagiEffect),

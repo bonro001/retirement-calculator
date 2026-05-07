@@ -177,6 +177,9 @@ export interface RulesData {
     enabled?: boolean;
     strategy?: 'aca_then_irmaa_headroom' | 'irmaa_headroom_only';
     minAnnualDollars?: number;
+    /** Annual Roth conversion maximum. Older saved plans may not have it;
+     *  those are migrated from the former magi-buffer proxy in buildPlan. */
+    maxAnnualDollars?: number;
     maxPretaxBalancePercent?: number;
     magiBufferDollars?: number;
   };
@@ -397,6 +400,9 @@ export interface PathYearResult {
   medianWithdrawalRoth: number;
   medianRothConversion: number;
   dominantRothConversionReason: string;
+  dominantRothConversionMotive: 'none' | 'opportunistic_headroom' | 'defensive_pressure';
+  medianRothConversionOpportunistic: number;
+  medianRothConversionDefensive: number;
   medianRothConversionMagiEffect: number;
   medianRothConversionTaxEffect: number;
   medianRothConversionAcaEffect: number;
@@ -535,6 +541,7 @@ export interface SimulationConfigurationSnapshot {
     proactiveConversionsEnabled: boolean;
     strategy: 'aca_then_irmaa_headroom' | 'irmaa_headroom_only';
     minAnnualDollars: number;
+    maxAnnualDollars: number | null;
     maxPretaxBalancePercent: number;
     magiBufferDollars: number;
     source: 'rules' | 'default';
@@ -591,6 +598,9 @@ export interface SimulationModeDiagnostics {
     year: number;
     amount: number;
     reason: string;
+    motive: 'none' | 'opportunistic_headroom' | 'defensive_pressure';
+    opportunisticAmount: number;
+    defensiveAmount: number;
     simulationModeUsedForConversion: SimulationStrategyMode;
     plannerLogicActiveAtConversion: boolean;
     conversionEngineInvoked: boolean;

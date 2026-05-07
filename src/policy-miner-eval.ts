@@ -158,12 +158,11 @@ export function buildPolicyMiningReplayInput(
  * Apply a Policy to a SeedData baseline. Mutates the *clone*, not the
  * original — caller must clone first.
  *
- * Knobs not (yet) honored end-to-end:
- *   - rothConversionAnnualCeiling: stored in `seed.rules.rothConversionPolicy`
- *     but the engine's policy module reads `maxPretaxBalancePercent` /
- *     `magiBufferDollars` rather than a flat dollar ceiling. We convert
- *     by setting the floor to 0 and using `magiBufferDollars` as a proxy
- *     ceiling for V1 — full ceiling support is a small engine PR for V1.1.
+ * Roth conversion policy:
+ *   - `maxAnnualDollars` is the visible annual Roth max/mining knob.
+ *   - `magiBufferDollars` is threshold safety room around ACA/IRMAA.
+ * Older corpora used the buffer as a proxy; new policy application
+ * writes both explicitly.
  */
 export function applyPolicyToSeed(seed: SeedData, policy: Policy): SeedData {
   // Adjust SS claim ages. SeedData.income.socialSecurity is an array
@@ -179,7 +178,7 @@ export function applyPolicyToSeed(seed: SeedData, policy: Policy): SeedData {
     seed.income.socialSecurity[1].claimAge =
       policy.spouseSocialSecurityClaimAge;
   }
-  // Roth conversion ceiling: see caveat above.
+  // Roth conversion max: see caveat above.
   if (!seed.rules) {
     // SeedData.rules is required by the type, but be defensive.
     return seed;
@@ -188,9 +187,8 @@ export function applyPolicyToSeed(seed: SeedData, policy: Policy): SeedData {
     ...(seed.rules.rothConversionPolicy ?? {}),
     enabled: policy.rothConversionAnnualCeiling > 0,
     minAnnualDollars: 0,
-    // Use the ceiling as a magi-buffer proxy. V1.1 will swap this for
-    // a real per-year cap.
-    magiBufferDollars: policy.rothConversionAnnualCeiling,
+    maxAnnualDollars: policy.rothConversionAnnualCeiling,
+    magiBufferDollars: seed.rules.rothConversionPolicy?.magiBufferDollars ?? 2_000,
   };
   return seed;
 }

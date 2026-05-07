@@ -12,7 +12,7 @@ import type { Policy, PolicyAxes, PolicyEvaluation } from './policy-miner-types'
  *
  * Why this exists: the V1 policy axes (`buildDefaultPolicyAxes` in
  * `policy-axis-enumerator.ts`) are heuristic — 8 spend levels × 6 SS
- * ages × 6 SS ages × 6 Roth caps = 1,728 candidates. After a mine
+ * ages × 6 SS ages × 6 Roth maxes = 1,728 candidates. After a mine
  * completes, the household sees recommendations pinned at axis
  * extremes (e.g. recommended spend = $80k bottom of grid → "should I
  * actually spend less?"). They have no signal that the BOTTOM of the
@@ -313,7 +313,7 @@ export function summarizeAxisPruning(
           ? 'primary SS ages'
           : d.axis === 'spouseSocialSecurityClaimAge'
             ? 'spouse SS ages'
-            : 'Roth ceilings';
+            : 'Roth maxes';
     const sample = d.dropped.slice(0, 3).join(', ');
     const tail = d.dropped.length > 3 ? ', …' : '';
     return `${d.dropped.length} ${label} (${sample}${tail})`;

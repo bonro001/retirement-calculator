@@ -312,6 +312,7 @@ describe('Roth conversion behavior', () => {
       expect(debugYear).toBeDefined();
       expect(year.conversionScore).toBeGreaterThan(0);
       if (
+        year.motive !== 'defensive_pressure' &&
         debugYear &&
         debugYear.medianTargetMagiCeiling !== null &&
         debugYear.medianMagiBefore <= debugYear.medianTargetMagiCeiling + 1

@@ -2225,6 +2225,7 @@ function buildSimulationProfile({
     enabled: rothConversionPolicy?.enabled ?? true,
     strategy: rothConversionPolicy?.strategy ?? 'aca_then_irmaa_headroom',
     minAnnualDollars: Math.max(0, rothConversionPolicy?.minAnnualDollars ?? 500),
+    maxAnnualDollars: Math.max(0, rothConversionPolicy?.maxAnnualDollars ?? Number.POSITIVE_INFINITY),
     maxPretaxBalancePercent: Math.max(
       0,
       Math.min(1, rothConversionPolicy?.maxPretaxBalancePercent ?? 0.12),
@@ -2258,6 +2259,9 @@ function buildSimulationProfile({
       proactiveConversionsEnabled: plannerLogicActive && resolvedRothConversionPolicy.enabled,
       strategy: resolvedRothConversionPolicy.strategy,
       minAnnualDollars: resolvedRothConversionPolicy.minAnnualDollars,
+      maxAnnualDollars: Number.isFinite(resolvedRothConversionPolicy.maxAnnualDollars)
+        ? resolvedRothConversionPolicy.maxAnnualDollars
+        : null,
       maxPretaxBalancePercent: resolvedRothConversionPolicy.maxPretaxBalancePercent,
       magiBufferDollars: resolvedRothConversionPolicy.magiBufferDollars,
       source: resolvedRothConversionPolicy.source,

@@ -335,6 +335,7 @@ const EMPTY_SIMULATION_CONFIGURATION: PathResult['simulationConfiguration'] = {
     proactiveConversionsEnabled: false,
     strategy: 'aca_then_irmaa_headroom',
     minAnnualDollars: 500,
+    maxAnnualDollars: null,
     maxPretaxBalancePercent: 0.12,
     magiBufferDollars: 2000,
     source: 'default',

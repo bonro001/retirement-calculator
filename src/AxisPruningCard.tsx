@@ -202,7 +202,7 @@ export function AxisPruningCard({
                       ? 'Primary SS ages'
                       : axisName === 'spouseSocialSecurityClaimAge'
                         ? 'Spouse SS ages'
-                        : 'Roth ceilings'}
+                        : 'Roth maxes'}
                 </p>
                 <p className="mt-1 tabular-nums text-stone-600">
                   {ax.recommendedValues.join(', ')}

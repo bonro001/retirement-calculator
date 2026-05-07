@@ -130,7 +130,7 @@ export function PolicyAdoptionModal({
           {baselineMismatch && (
             <p className="mb-3 rounded-md bg-amber-50 px-3 py-2 text-[12px] text-amber-800">
               This session was mined against a different baseline than your
-              current plan. The policy choice (spend, SS ages, Roth ceiling)
+              current plan. The policy choice (spend, SS ages, Roth max)
               still adopts cleanly, but the bequest numbers in the table may
               not transfer exactly — re-run Plan Analysis to see your
               real-baseline result.

@@ -360,7 +360,7 @@ interface AppState {
   /**
    * Adopt a mined policy into the draft and applied plan. Scales spending categories
    * proportionally to hit the policy's annual-spend target, writes SS
-   * claim ages, and writes the Roth conversion ceiling. Does NOT touch
+   * claim ages, and writes the Roth conversion max. Does NOT touch
    * accounts. Stores the previous draft/applied snapshots in
    * `lastPolicyAdoption` so the change is undoable.
    */

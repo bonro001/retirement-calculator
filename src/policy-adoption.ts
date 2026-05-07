@@ -3,7 +3,7 @@
  *
  * The mining engine evaluates each policy by cloning the household's
  * SeedData and applying the policy's axes (spend target, SS claim ages,
- * Roth conversion ceiling) before running the simulation. Adoption is
+ * Roth conversion max) before running the simulation. Adoption is
  * the same operation, but durable: write the policy's axes into the
  * household's draft SeedData so subsequent Run Plan Analysis runs
  * reflect the adopted choice.
@@ -169,7 +169,7 @@ function scaleSpendingProportional(
  *   - `income.socialSecurity[1].claimAge`: spouse's claim age (if
  *      household has a spouse and the policy specifies one).
  *   - `rules.rothConversionPolicy.{enabled, minAnnualDollars,
- *      magiBufferDollars}`: matches `applyPolicyToSeed` so the
+ *      maxAnnualDollars}`: matches `applyPolicyToSeed` so the
  *      adopted plan behaves identically to what the miner simulated.
  */
 export function buildAdoptedSeedData(seed: SeedData, policy: Policy): SeedData {
@@ -197,10 +197,9 @@ export function buildAdoptedSeedData(seed: SeedData, policy: Policy): SeedData {
     next.income = { ...seed.income, socialSecurity: ssNext };
   }
 
-  // Roth conversion: same convention as the miner's `applyPolicyToSeed`
-  // — `magiBufferDollars` proxies for the per-year ceiling. V1.1 of the
-  // engine is expected to introduce a real per-year cap field; when
-  // that lands, this mapping needs to follow.
+  // Roth conversion: same convention as the miner's `applyPolicyToSeed`.
+  // The visible policy knob is the annual max conversion budget; MAGI
+  // buffer remains a separate safety room around ACA/IRMAA thresholds.
   if (seed.rules) {
     next.rules = {
       ...seed.rules,
@@ -208,7 +207,8 @@ export function buildAdoptedSeedData(seed: SeedData, policy: Policy): SeedData {
         ...(seed.rules.rothConversionPolicy ?? {}),
         enabled: policy.rothConversionAnnualCeiling > 0,
         minAnnualDollars: 0,
-        magiBufferDollars: policy.rothConversionAnnualCeiling,
+        maxAnnualDollars: policy.rothConversionAnnualCeiling,
+        magiBufferDollars: seed.rules.rothConversionPolicy?.magiBufferDollars ?? 2_000,
       },
     };
   }
@@ -256,7 +256,9 @@ export function diffAdoption(seed: SeedData, policy: Policy): AdoptionDiff {
   const currentPrimarySs = seed.income?.socialSecurity?.[0]?.claimAge ?? null;
   const currentSpouseSs = seed.income?.socialSecurity?.[1]?.claimAge ?? null;
   const currentRothCeiling =
-    seed.rules?.rothConversionPolicy?.magiBufferDollars ?? 0;
+    seed.rules?.rothConversionPolicy?.maxAnnualDollars ??
+    seed.rules?.rothConversionPolicy?.magiBufferDollars ??
+    0;
 
   const hasSpouse = (seed.income?.socialSecurity?.length ?? 0) >= 2;
 
@@ -297,7 +299,7 @@ export function diffAdoption(seed: SeedData, policy: Policy): AdoptionDiff {
 
   rows.push({
     key: 'roth',
-    label: 'Roth conversion ceiling',
+    label: 'Roth conversion max',
     currentLabel: formatCurrency(currentRothCeiling),
     proposedLabel: formatCurrency(policy.rothConversionAnnualCeiling),
     changed:
@@ -450,7 +452,9 @@ export function explainAdoption(
   const currentSpouseSs = previousData.income?.socialSecurity?.[1]?.claimAge ?? null;
   const hasSpouse = (previousData.income?.socialSecurity?.length ?? 0) >= 2;
   const currentRothCeiling =
-    previousData.rules?.rothConversionPolicy?.magiBufferDollars ?? 0;
+    previousData.rules?.rothConversionPolicy?.maxAnnualDollars ??
+    previousData.rules?.rothConversionPolicy?.magiBufferDollars ??
+    0;
 
   const candidates: LeverChange[] = [];
 
@@ -493,7 +497,7 @@ export function explainAdoption(
   if (Math.abs(rothDelta) >= 5_000) {
     candidates.push({
       kind: 'roth',
-      // $10k of Roth-ceiling change ≈ one year of SS delay in long-run
+      // $10k of Roth-max change ≈ one year of SS delay in long-run
       // tax savings — this is a rough heuristic, but keeps the ranking
       // honest without overclaiming a precise comparison.
       weight: Math.abs(rothDelta) / 1_250,
@@ -536,7 +540,7 @@ function ssDelaySentence(
 
 function rothSentence(fromCeiling: number, toCeiling: number): string {
   if (toCeiling > fromCeiling) {
-    return `The biggest lever is raising the Roth conversion ceiling from ${formatCurrency(fromCeiling)} to ${formatCurrency(toCeiling)} — more dollars move into tax-free growth before RMDs and IRMAA brackets bite.`;
+    return `The biggest lever is raising the Roth conversion max from ${formatCurrency(fromCeiling)} to ${formatCurrency(toCeiling)} — more dollars move into tax-free growth before RMDs and IRMAA brackets bite.`;
   }
-  return `The biggest lever is lowering the Roth conversion ceiling from ${formatCurrency(fromCeiling)} to ${formatCurrency(toCeiling)} — smaller conversions keep MAGI down and avoid triggering IRMAA brackets in the years ahead.`;
+  return `The biggest lever is lowering the Roth conversion max from ${formatCurrency(fromCeiling)} to ${formatCurrency(toCeiling)} — smaller conversions keep MAGI down and avoid triggering IRMAA brackets in the years ahead.`;
 }
