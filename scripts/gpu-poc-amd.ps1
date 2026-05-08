@@ -34,7 +34,11 @@ param(
     [switch]$SkipBuild
 )
 
-$ErrorActionPreference = "Stop"
+# Native commands like `cargo` and `git` write normal progress to stderr.
+# In Windows PowerShell, ErrorActionPreference=Stop can turn that progress
+# into a terminating NativeCommandError even when the native exit code is 0.
+# Keep native stderr as output and gate success with $LASTEXITCODE instead.
+$ErrorActionPreference = "Continue"
 
 function Write-Step {
     param([string]$Message)
