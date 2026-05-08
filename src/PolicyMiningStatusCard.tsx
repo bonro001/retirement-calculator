@@ -718,7 +718,18 @@ export function PolicyMiningStatusCard({
     const elapsedMs = Date.now() - new Date(stats.sessionStartedAtIso).getTime();
     if (elapsedMs <= 0 || stats.policiesEvaluated === 0) return '—';
     const perMin = (stats.policiesEvaluated / elapsedMs) * 60_000;
+    if (activeTrialCount && activeTrialCount > 0) {
+      return `${formatTrialWork(perMin * activeTrialCount)}/min`;
+    }
     return `${perMin.toFixed(0)}/min`;
+  })();
+  const policyThroughputLabel = (() => {
+    if (!stats || !sessionRunning) return null;
+    if (!stats.sessionStartedAtIso) return null;
+    const elapsedMs = Date.now() - new Date(stats.sessionStartedAtIso).getTime();
+    if (elapsedMs <= 0 || stats.policiesEvaluated === 0) return null;
+    const perMin = (stats.policiesEvaluated / elapsedMs) * 60_000;
+    return `${perMin.toFixed(0)} policies/min`;
   })();
 
   const progressPct =
@@ -1372,7 +1383,7 @@ export function PolicyMiningStatusCard({
           <p className="mt-1 text-[11px] text-stone-500">
             {trialWorkLabel ??
               (stats && stats.meanMsPerPolicy > 0
-                ? `cluster mean ${(stats.meanMsPerPolicy / 1000).toFixed(1)}s/policy${
+                ? `${policyThroughputLabel ? `${policyThroughputLabel} · ` : ''}cluster mean ${(stats.meanMsPerPolicy / 1000).toFixed(1)}s/policy${
                   activeTrialCount
                     ? ` · ${activeTrialCount.toLocaleString()} trials/policy`
                     : ''
