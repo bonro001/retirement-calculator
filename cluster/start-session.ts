@@ -410,6 +410,7 @@ async function main(): Promise<void> {
         const sessionEngineVersion = buildPolicyMinerRunEngineVersion(
           POLICY_MINER_ENGINE_VERSION,
           cfg.explorationSeed,
+          cfg.trialCount,
         );
         const config: PolicyMiningSessionConfig = {
           baselineFingerprint,

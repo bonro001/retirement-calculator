@@ -22,6 +22,10 @@ import {
   SOLVENCY_DEFENSE_FLOOR,
 } from './policy-ranker';
 import {
+  POLICY_MINING_REFINEMENT_MAX_WINDOW_DOLLARS,
+  POLICY_MINING_REFINEMENT_TRIAL_COUNT,
+} from './policy-mining-config';
+import {
   buildPeerViewList,
   formatAgo,
   formatEngineRuntime,
@@ -110,6 +114,38 @@ function makeUiMiningSessionSeed(): number {
     return 1 + (values[0] % max);
   }
   return 1 + (Math.floor(Date.now() + Math.random() * max) % max);
+}
+
+function maxContiguousSpendWindow(spends: readonly number[]): number {
+  if (spends.length < 2) return 0;
+  const sorted = Array.from(new Set(spends)).sort((a, b) => a - b);
+  let start = sorted[0]!;
+  let end = sorted[0]!;
+  let maxWindow = 0;
+  for (let i = 1; i < sorted.length; i += 1) {
+    const spend = sorted[i]!;
+    if (spend === end + 1_000) {
+      end = spend;
+      continue;
+    }
+    maxWindow = Math.max(maxWindow, end - start);
+    start = spend;
+    end = spend;
+  }
+  return Math.max(maxWindow, end - start);
+}
+
+function choosePass2TrialCount(
+  baseTrialCount: number | undefined,
+  hasCliff: boolean,
+  spends: readonly number[],
+): number | undefined {
+  if (!hasCliff) return baseTrialCount;
+  const window = maxContiguousSpendWindow(spends);
+  if (window > POLICY_MINING_REFINEMENT_MAX_WINDOW_DOLLARS) {
+    return baseTrialCount;
+  }
+  return Math.max(baseTrialCount ?? 0, POLICY_MINING_REFINEMENT_TRIAL_COUNT);
 }
 
 function formatDuration(ms: number): string {
@@ -376,6 +412,20 @@ export function PolicyMiningStatusCard({
         }
         setPipelinePass2Total(recommendation.estimatedPass2Candidates);
         setPipelinePhase('refining');
+        const pass2TrialCount = choosePass2TrialCount(
+          ctrls2.trialCount,
+          recommendation.hasCliff,
+          recommendation.axes.annualSpendTodayDollars,
+        );
+        if (pipelineExplorationSeedRef.current !== null && pass2TrialCount) {
+          setCorpusEngineVersion(
+            buildPolicyMinerRunEngineVersion(
+              engineVersion,
+              pipelineExplorationSeedRef.current,
+              pass2TrialCount,
+            ),
+          );
+        }
         try {
           clusterRef.current.startSession({
             baseline: ctrls2.baseline,
@@ -385,7 +435,7 @@ export function PolicyMiningStatusCard({
             feasibilityThreshold:
               ctrls2.feasibilityThreshold ?? LEGACY_ATTAINMENT_FLOOR,
             maxPoliciesPerSession: recommendation.estimatedPass2Candidates,
-            trialCount: ctrls2.trialCount,
+            trialCount: pass2TrialCount,
             axesOverride: recommendation.axes,
             explorationSeed: pipelineExplorationSeedRef.current ?? undefined,
           });
@@ -403,7 +453,7 @@ export function PolicyMiningStatusCard({
         setPipelinePhase('done');
         setStartError(err instanceof Error ? err.message : 'pipeline corpus load failed');
       });
-  }, [currentSessionId, baselineFingerprint, corpusEngineVersion]);
+  }, [currentSessionId, baselineFingerprint, corpusEngineVersion, engineVersion]);
   // Best-policy display in the 'done' segment — surface whatever the
   // corpus's top record is at the time the pipeline ends.
   useEffect(() => {
@@ -540,7 +590,11 @@ export function PolicyMiningStatusCard({
       sessionSize === 'full' && !axesOverride;
     const explorationSeed = makeUiMiningSessionSeed();
     setCorpusEngineVersion(
-      buildPolicyMinerRunEngineVersion(engineVersion, explorationSeed),
+      buildPolicyMinerRunEngineVersion(
+        engineVersion,
+        explorationSeed,
+        controls.trialCount,
+      ),
     );
     pipelineExplorationSeedRef.current = enablePipeline ? explorationSeed : null;
     if (enablePipeline) {

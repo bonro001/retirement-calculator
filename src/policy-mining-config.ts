@@ -10,3 +10,10 @@
  * top-20 preservation and Spearman 0.9997 across a 90-policy grid.
  */
 export const POLICY_MINING_TRIAL_COUNT = 1000;
+
+/**
+ * Once the search has narrowed to the spend cliff, compute is better
+ * spent reducing Monte Carlo error than sweeping far-away spend levels.
+ */
+export const POLICY_MINING_REFINEMENT_TRIAL_COUNT = 5000;
+export const POLICY_MINING_REFINEMENT_MAX_WINDOW_DOLLARS = 10_000;

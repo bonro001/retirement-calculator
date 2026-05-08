@@ -143,15 +143,34 @@ function formatCurrency(amount: number): string {
   return `$${Math.round(amount)}`;
 }
 
-function formatSpendStep(levels: number[]): string | null {
-  if (levels.length < 2) return null;
-  let step: number | null = null;
+function formatSpendLevels(levels: number[]): string | null {
+  if (levels.length === 0) return null;
+  const windows: Array<{ start: number; end: number }> = [];
+  let start = levels[0]!;
+  let end = levels[0]!;
+  let minStep: number | null = null;
   for (let i = 1; i < levels.length; i += 1) {
-    const diff = levels[i]! - levels[i - 1]!;
-    if (diff <= 0) continue;
-    step = step === null ? diff : Math.min(step, diff);
+    const level = levels[i]!;
+    const diff = level - levels[i - 1]!;
+    if (diff > 0) minStep = minStep === null ? diff : Math.min(minStep, diff);
+    if (diff === 1_000) {
+      end = level;
+      continue;
+    }
+    windows.push({ start, end });
+    start = level;
+    end = level;
   }
-  return step !== null ? `${formatCurrency(step)} steps` : null;
+  windows.push({ start, end });
+
+  const rangeText = windows
+    .map((w) =>
+      w.start === w.end
+        ? `${formatCurrency(w.start)}/yr`
+        : `${formatCurrency(w.start)}-${formatCurrency(w.end)}/yr`,
+    )
+    .join(' + ');
+  return minStep ? `${rangeText} · ${formatCurrency(minStep)} steps` : rangeText;
 }
 
 function formatPct(rate: number | null): string {
@@ -369,12 +388,7 @@ export function PolicyMiningResultsTable({
     return Array.from(new Set(sourceLevels)).sort((a, b) => a - b);
   }, [selectedSession, source, evaluations]);
   const spendRangeLabel = useMemo(() => {
-    if (spendLevels.length === 0) return null;
-    const min = spendLevels[0]!;
-    const max = spendLevels[spendLevels.length - 1]!;
-    const step = formatSpendStep(spendLevels);
-    if (min === max) return `${formatCurrency(min)}/yr`;
-    return `${formatCurrency(min)}-${formatCurrency(max)}/yr${step ? ` · ${step}` : ''}`;
+    return formatSpendLevels(spendLevels);
   }, [spendLevels]);
 
   useEffect(() => {

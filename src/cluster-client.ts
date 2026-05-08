@@ -640,6 +640,7 @@ export function createClusterClient(config: ClusterClientConfig): ClusterClient 
     const sessionEngineVersion = buildPolicyMinerRunEngineVersion(
       POLICY_MINER_ENGINE_VERSION,
       sessionSeed,
+      trialCount,
     );
     const assumptionsWithTrials: MarketAssumptions = {
       ...opts.assumptions,

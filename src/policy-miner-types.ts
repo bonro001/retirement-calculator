@@ -40,8 +40,11 @@ export const POLICY_MINER_ENGINE_VERSION = 'policy-miner-v2-2026-05-01';
 export function buildPolicyMinerRunEngineVersion(
   baseEngineVersion: string,
   explorationSeed: number,
+  trialCount?: number,
 ): string {
-  return `${baseEngineVersion}+seed-${explorationSeed}`;
+  return `${baseEngineVersion}+seed-${explorationSeed}${
+    trialCount ? `+trials-${trialCount}` : ''
+  }`;
 }
 
 /**

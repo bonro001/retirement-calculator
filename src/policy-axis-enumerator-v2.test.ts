@@ -113,4 +113,19 @@ describe('policy axis V2.1 (single-rule pass-1)', () => {
       policyId(policy, 'fp', seedTwoEngine),
     );
   });
+
+  it('policy id changes when the same seed is certified at a higher trial count', () => {
+    const policy = {
+      annualSpendTodayDollars: 117_000,
+      primarySocialSecurityClaimAge: 68.5,
+      spouseSocialSecurityClaimAge: 67,
+      rothConversionAnnualCeiling: 80_000,
+      withdrawalRule: 'tax_bracket_waterfall' as const,
+    };
+    expect(
+      policyId(policy, 'fp', buildPolicyMinerRunEngineVersion('eng', 111, 1000)),
+    ).not.toBe(
+      policyId(policy, 'fp', buildPolicyMinerRunEngineVersion('eng', 111, 5000)),
+    );
+  });
 });
