@@ -69,6 +69,7 @@ import {
   formatBuildInfo,
   getLocalBuildInfo,
 } from './build-info';
+import { resolveEngineRuntime } from './engine-runtime';
 import type {
   MiningJobBatch,
   MiningJobResult,
@@ -134,8 +135,7 @@ const PLATFORM_DESCRIPTOR =
   process.env.HOST_PLATFORM_DESCRIPTOR ??
   `${platform()}-${arch()}-${cpus().length}cpu`;
 
-const HOST_ENGINE_RUNTIME =
-  process.env.ENGINE_RUNTIME ?? process.env.ENGINE_RUNTIME_DEFAULT ?? 'ts';
+const HOST_ENGINE_RUNTIME = resolveEngineRuntime(process.env);
 const HOST_BUILD_INFO = getLocalBuildInfo();
 const HOST_AUTO_UPDATE =
   process.env.HOST_AUTO_UPDATE === '1' ||
@@ -168,6 +168,9 @@ function log(
 // flowing back from worker_threads) and per-worker idle gaps, and logs one
 // summary line per window. Removable in one diff.
 const MINE_PERF = process.env.MINE_PERF === '1';
+const HOST_VERBOSE_LOGS =
+  process.env.HOST_VERBOSE_LOGS === '1' ||
+  process.env.HOST_VERBOSE_LOGS === 'true';
 const PERF_WINDOW_MS = 10_000;
 const perfIdleGapsMs: number[] = [];
 let perfBatches = 0;
@@ -1310,11 +1313,13 @@ async function handleBatchAssign(
     }
     pendingBatchQueue.push({ message, receivedAtMs });
     inFlightBatchIds.add(batch.batchId);
-    log('info', 'queued batch — workers busy', {
-      batchId: batch.batchId,
-      policies: batch.policies.length,
-      queueDepth: pendingBatchQueue.length,
-    });
+    if (HOST_VERBOSE_LOGS || MINE_PERF) {
+      log('info', 'queued batch — workers busy', {
+        batchId: batch.batchId,
+        policies: batch.policies.length,
+        queueDepth: pendingBatchQueue.length,
+      });
+    }
     return;
   }
 
@@ -1380,15 +1385,20 @@ async function handleBatchAssign(
   recordBatchPerf(shadowStats);
   sendBatchResult(sessionId, result);
 
-  // Per-batch heartbeat on the host terminal. The dispatcher and the
-  // browser status card already have the cluster-wide view; this is for
-  // the operator who's SSH'd into a worker box and wants to see "yes,
-  // it's chewing through batches" without cracking open the UI. Skip
-  // on partialFailure — that path already emitted a warn above with
-  // the relevant diagnostics, and re-logging at info would just clutter.
   if (!partialFailure && evaluations.length > 0) {
     sessionBatchesCompleted += 1;
     sessionPoliciesCompleted += evaluations.length;
+  }
+
+  // Per-batch terminal logging is useful while debugging host behavior,
+  // but at refine-pass speeds it can become visible stdout overhead,
+  // especially in Windows PowerShell. Keep normal runs quiet; MINE_PERF
+  // already emits aggregated 10s summaries when deeper timing is needed.
+  if (
+    !partialFailure &&
+    evaluations.length > 0 &&
+    (HOST_VERBOSE_LOGS || MINE_PERF)
+  ) {
     const msPerPolicy = result.batchDurationMs / evaluations.length;
     log('info', 'batch done', {
       batchId: batch.batchId,
@@ -1482,14 +1492,13 @@ function gracefulShutdown(signal: string): void {
   void shutdownPool().then(() => process.exit(0));
 }
 
-process.on('SIGINT', () => gracefulShutdown('SIGINT'));
-process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
-
 // Detect whether this file was invoked directly (vs imported by the smoke
 // test). When invoked directly via `tsx cluster/host.ts`, bootstrap.
 const invokedPath = fileURLToPath(import.meta.url);
 const isMain = process.argv[1] === invokedPath;
 if (isMain) {
+  process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+  process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
   log('info', 'host starting', {
     name: HOST_DISPLAY_NAME,
     workers: HOST_WORKER_COUNT,

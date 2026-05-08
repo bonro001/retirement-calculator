@@ -97,7 +97,15 @@ function buildMockPlaybook(): FlightPathPhasePlaybook {
           projectedMagi: 87591,
           acaFriendlyMagiCeiling: 84969,
           headroomToCeiling: -2622,
+          requiredMagiReduction: 2622,
+          unmitigatedProjectedMagi: 87591,
+          unmitigatedRequiredMagiReduction: 2622,
+          acaMitigationDelta: 0,
+          acaStatus: 'breach',
           guardrailBufferDollars: 5000,
+          targetMagiCeilingWithBuffer: 79969,
+          requiredMagiReductionWithBuffer: 7622,
+          estimatedAcaPremiumAtRisk: 25000,
           subsidyRiskBand: 'red',
           modelCompleteness: 'faithful',
           inferredAssumptions: [],
@@ -116,7 +124,7 @@ function buildMockPlaybook(): FlightPathPhasePlaybook {
             whyNow: 'Above ceiling.',
             tradeInstructions: [],
             contributionSettingsPatch: {
-              employee401kPreTaxAnnualAmount: 36723,
+              employee401kPreTaxAnnualAmount: 32500,
             },
             fullGoalDollars: 2622,
             estimatedImpact: {
@@ -444,5 +452,52 @@ describe('buildExecutiveFlightSummary', () => {
     });
 
     expect(result.actionCards.some((card) => card.category === 'runway')).toBe(false);
+  });
+
+  it('labels ACA as mitigated when the executed path is under the cliff but baseline risk remains', () => {
+    const data = cloneData(initialSeedData);
+    const evaluation = buildMockEvaluation();
+    evaluation.calibration.supportedMonthlySpendNow = 11387;
+    evaluation.calibration.userTargetMonthlySpendNow = 9667;
+    evaluation.calibration.spendGapNowMonthly = 1720;
+
+    const playbook = buildMockPlaybook();
+    const acaPhase = playbook.phases.find((phase) => phase.id === 'aca_bridge');
+    if (!acaPhase?.acaMetrics) {
+      throw new Error('Mock ACA phase missing');
+    }
+    acaPhase.acaMetrics = {
+      ...acaPhase.acaMetrics,
+      projectedMagi: 72993,
+      headroomToCeiling: 11976,
+      requiredMagiReduction: 0,
+      unmitigatedProjectedMagi: 87591,
+      unmitigatedRequiredMagiReduction: 2622,
+      acaMitigationDelta: 14598,
+      acaStatus: 'mitigated',
+      subsidyRiskBand: 'green',
+    };
+
+    const result = buildExecutiveFlightSummary({
+      data,
+      evaluation,
+      phasePlaybook: playbook,
+      strategicPrepRecommendations: buildMockRecommendations(),
+    });
+
+    expect(result.planHealth.acaProjectedMagi).toBe(72993);
+    expect(result.planHealth.acaUnmitigatedProjectedMagi).toBe(87591);
+    expect(result.planHealth.acaUnmitigatedRequiredReduction).toBe(2622);
+    expect(result.planHealth.acaStatus).toBe('mitigated');
+    expect(result.planHealth.acaMitigationActionIds).toEqual(
+      expect.arrayContaining(['planner-roth-conversion-cap']),
+    );
+
+    const acaCard = result.actionCards.find((card) => card.category === 'aca');
+    expect(acaCard).toBeDefined();
+    expect(acaCard?.urgency).not.toBe('act_now');
+    expect(acaCard?.detail).toContain('executed planner path');
+    expect(result.actionCards[0]?.category).toBe('runway');
+    expect(result.actionCards.some((card) => card.category === 'spending')).toBe(false);
   });
 });

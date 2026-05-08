@@ -140,7 +140,7 @@ export function buildSensitivitySweepAxes(
         : [adopted.spouseSocialSecurityClaimAge];
   }
 
-  // Roth ceiling axis.
+  // Roth max axis.
   const rothIdx = nearestIndex(
     defaults.rothConversionAnnualCeiling,
     adopted.rothConversionAnnualCeiling,
@@ -351,7 +351,7 @@ export function extractSensitivityArms(
   arms.push(
     buildArm(
       'rothConversionAnnualCeiling',
-      'Roth conversion ceiling',
+      'Roth conversion max',
       '$ ceiling',
     ),
   );

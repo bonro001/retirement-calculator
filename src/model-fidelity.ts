@@ -160,9 +160,36 @@ function buildSpecificReliabilityChecks(input: BuildModelFidelityInput): ModelFi
   const explicitRmdStartAge = input.data.rules.rmdPolicy?.startAgeOverride;
   const explicitPayrollTakeHomeFactor = input.data.rules.payrollModel?.takeHomeFactor;
   const explicitPayrollProrationRule = input.data.rules.payrollModel?.salaryProrationRule;
+  const symbolShare = (bucket: SeedData['accounts'][keyof SeedData['accounts']], symbol: string) => {
+    if (!bucket) {
+      return 0;
+    }
+    const normalized = symbol.toUpperCase();
+    const sourceAccounts = bucket?.sourceAccounts ?? [];
+    const sourceHoldingsValue = sourceAccounts.reduce(
+      (total, account) =>
+        total +
+        (account.holdings ?? [])
+          .filter((holding) => holding.symbol.toUpperCase() === normalized)
+          .reduce((sum, holding) => sum + Math.max(0, holding.value), 0),
+      0,
+    );
+    if (sourceHoldingsValue > 0 && bucket.balance > 0) {
+      return sourceHoldingsValue / bucket.balance;
+    }
+    return bucket?.targetAllocation?.[normalized] ?? 0;
+  };
+  const schdTotalShare = [
+    input.data.accounts.pretax,
+    input.data.accounts.roth,
+    input.data.accounts.taxable,
+    input.data.accounts.hsa,
+  ].reduce((total, bucket) => total + (bucket ? symbolShare(bucket, 'SCHD') : 0), 0);
+  const fcntxRothShare = symbolShare(input.data.accounts.roth, 'FCNTX');
+  const mubTaxableShare = symbolShare(input.data.accounts.taxable, 'MUB');
 
-  checks.push({
-    id: 'inferred_rmd_start_timing',
+	  checks.push({
+	    id: 'inferred_rmd_start_timing',
     label: 'RMD start timing',
     status: typeof explicitRmdStartAge === 'number' ? 'exact' : 'inferred',
     reliabilityImpact: 'medium',
@@ -170,9 +197,28 @@ function buildSpecificReliabilityChecks(input: BuildModelFidelityInput): ModelFi
     detail: typeof explicitRmdStartAge === 'number'
       ? `RMD start age explicitly provided (${Math.floor(explicitRmdStartAge)}).`
       : 'RMD start timing is inferred from birth-year legislation rules; no explicit user-provided override exists.',
-  });
+	  });
 
-  checks.push({
+	  const pretaxSourceAccounts = input.data.accounts.pretax.sourceAccounts ?? [];
+	  const missingPretaxOwners = pretaxSourceAccounts.filter(
+	    (account) => !account.owner || !account.owner.trim(),
+	  );
+	  checks.push({
+	    id: 'pretax_rmd_account_ownership',
+	    label: 'Pre-tax account RMD ownership',
+	    status:
+	      pretaxSourceAccounts.length > 0 && missingPretaxOwners.length === 0
+	        ? 'exact'
+	        : 'inferred',
+	    reliabilityImpact: 'high',
+	    blocking: false,
+	    detail:
+	      pretaxSourceAccounts.length > 0 && missingPretaxOwners.length === 0
+	        ? 'Each pre-tax source account has explicit owner metadata for RMD divisor selection.'
+	        : 'One or more pre-tax source accounts are missing owner metadata, so RMD ownership would be inferred.',
+	  });
+
+	  checks.push({
     id: 'opaque_holdings_mapping',
     label: 'Opaque holdings asset mapping',
     status: ambiguousMappings.length === 0
@@ -217,6 +263,34 @@ function buildSpecificReliabilityChecks(input: BuildModelFidelityInput): ModelFi
       : 'Payroll effects rely on monthly proration and retirement-date timing assumptions rather than paycheck-level calendars.',
   });
 
+  const recommendationTrustRisks = [
+    schdTotalShare > 0
+      ? `SCHD exposure is mapped to broad equity returns; dividend/factor concentration is not separately priced in the headline simulation.`
+      : null,
+    fcntxRothShare > 0.25
+      ? `FCNTX is ${round(fcntxRothShare * 100)}% of Roth exposure; manager/style concentration affects recommendation trust, not the Monte Carlo success-rate math.`
+      : null,
+    mubTaxableShare > 0
+      ? `MUB in taxable is treated through broad bond/taxable-account mechanics; state/AMT/after-tax muni nuances are recommendation-trust risks.`
+      : null,
+    ambiguousMappings.includes('TRP_2030')
+      ? 'TRP_2030 is modeled through asset-class look-through/proxy mapping; fund-manager glidepath risk is not separately priced.'
+      : null,
+    ambiguousMappings.includes('CENTRAL_MANAGED')
+      ? 'CENTRAL_MANAGED is modeled through asset-class look-through/proxy mapping; manager/security-selection risk is not separately priced.'
+      : null,
+  ].filter((item): item is string => item !== null);
+  checks.push({
+    id: 'recommendation_trust_risk_classification',
+    label: 'Recommendation trust risk classification',
+    status: recommendationTrustRisks.length > 0 ? 'estimated' : 'exact',
+    reliabilityImpact: recommendationTrustRisks.length > 0 ? 'medium' : 'low',
+    blocking: false,
+    detail: recommendationTrustRisks.length > 0
+      ? `Headline math uses broad asset-class mappings; these risks are surfaced for recommendation trust rather than treated as priced Monte Carlo factors: ${recommendationTrustRisks.join(' ')}`
+      : 'No concentration, opaque-manager, or tax-location recommendation-trust risks detected.',
+  });
+
   const inheritance = input.data.income.windfalls.find((item) => item.name === 'inheritance');
   checks.push({
     id: 'uncertain_inheritance',
@@ -242,11 +316,14 @@ function buildSpecificReliabilityChecks(input: BuildModelFidelityInput): ModelFi
   });
 
   const homeSale = input.data.income.windfalls.find((item) => item.name === 'home_sale');
+  const homeSaleLiquidityModeled =
+    typeof homeSale?.liquidityAmount === 'number' ||
+    typeof homeSale?.replacementHomeCost === 'number';
   const homeSaleFullyModeled =
     homeSale &&
     homeSale.taxTreatment === 'primary_home_sale' &&
     typeof homeSale.costBasis === 'number' &&
-    typeof homeSale.liquidityAmount === 'number' &&
+    homeSaleLiquidityModeled &&
     typeof homeSale.sellingCostPercent === 'number' &&
     typeof homeSale.exclusionAmount === 'number';
   checks.push({
@@ -255,7 +332,9 @@ function buildSpecificReliabilityChecks(input: BuildModelFidelityInput): ModelFi
     status: !homeSale
       ? 'exact'
       : homeSaleFullyModeled
-        ? 'exact'
+        ? homeSale.certainty === 'estimated' || homeSale.certainty === 'uncertain'
+          ? 'estimated'
+          : 'exact'
         : homeSale.taxTreatment
           ? 'estimated'
           : 'inferred',
@@ -264,8 +343,10 @@ function buildSpecificReliabilityChecks(input: BuildModelFidelityInput): ModelFi
     detail: !homeSale
       ? 'No home sale event included in the base plan.'
       : homeSaleFullyModeled
-        ? 'Home sale includes tax treatment, basis, and net liquidity assumptions.'
-        : 'Home sale is modeled with simplified net-proceeds assumptions (basis and/or explicit liquidity missing).',
+        ? homeSale.certainty === 'estimated' || homeSale.certainty === 'uncertain'
+          ? 'Home downsizing is explicitly modeled, but sale amount/timing/replacement home are marked as estimates.'
+          : 'Home sale includes tax treatment, basis, and net liquidity/downsize assumptions.'
+        : 'Home sale is modeled with simplified net-proceeds assumptions (basis, replacement home, and/or explicit liquidity missing).',
   });
 
   return checks;

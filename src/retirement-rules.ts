@@ -1,4 +1,5 @@
 import type { FilingStatus } from './tax-engine';
+import { CURRENT_LAW_2026_RULE_PACK } from './rule-packs';
 
 export interface IrmaaBracket {
   maxMagi: number;
@@ -34,15 +35,23 @@ export interface RmdConfig {
 }
 
 export interface RmdHouseholdMemberInput {
+  owner?: string;
   birthDate: string;
   age: number;
   accountShare?: number;
   startAgeOverride?: number;
 }
 
+export interface RmdSourceAccountInput {
+  id?: string;
+  owner?: string;
+  balance: number;
+}
+
 export interface RmdCalculationInput {
   pretaxBalance: number;
   members: RmdHouseholdMemberInput[];
+  sourceAccounts?: RmdSourceAccountInput[];
 }
 
 export interface RmdCalculationDetail {
@@ -58,42 +67,10 @@ export interface RmdCalculationResult {
   details: RmdCalculationDetail[];
 }
 
-const IRMAA_INF = Number.POSITIVE_INFINITY;
-
 export const DEFAULT_IRMAA_CONFIG: IrmaaConfig = {
-  taxYear: 2026,
-  lookbackYears: 2,
-  brackets: {
-    single: [
-      { maxMagi: 109_000, partBSurchargeMonthly: 0, partDSurchargeMonthly: 0 },
-      { maxMagi: 137_000, partBSurchargeMonthly: 81.2, partDSurchargeMonthly: 14.5 },
-      { maxMagi: 171_000, partBSurchargeMonthly: 202.9, partDSurchargeMonthly: 37.5 },
-      { maxMagi: 205_000, partBSurchargeMonthly: 324.6, partDSurchargeMonthly: 60.4 },
-      { maxMagi: 500_000, partBSurchargeMonthly: 446.3, partDSurchargeMonthly: 83.3 },
-      { maxMagi: IRMAA_INF, partBSurchargeMonthly: 487.0, partDSurchargeMonthly: 91.0 },
-    ],
-    head_of_household: [
-      { maxMagi: 109_000, partBSurchargeMonthly: 0, partDSurchargeMonthly: 0 },
-      { maxMagi: 137_000, partBSurchargeMonthly: 81.2, partDSurchargeMonthly: 14.5 },
-      { maxMagi: 171_000, partBSurchargeMonthly: 202.9, partDSurchargeMonthly: 37.5 },
-      { maxMagi: 205_000, partBSurchargeMonthly: 324.6, partDSurchargeMonthly: 60.4 },
-      { maxMagi: 500_000, partBSurchargeMonthly: 446.3, partDSurchargeMonthly: 83.3 },
-      { maxMagi: IRMAA_INF, partBSurchargeMonthly: 487.0, partDSurchargeMonthly: 91.0 },
-    ],
-    married_filing_jointly: [
-      { maxMagi: 218_000, partBSurchargeMonthly: 0, partDSurchargeMonthly: 0 },
-      { maxMagi: 274_000, partBSurchargeMonthly: 81.2, partDSurchargeMonthly: 14.5 },
-      { maxMagi: 342_000, partBSurchargeMonthly: 202.9, partDSurchargeMonthly: 37.5 },
-      { maxMagi: 410_000, partBSurchargeMonthly: 324.6, partDSurchargeMonthly: 60.4 },
-      { maxMagi: 750_000, partBSurchargeMonthly: 446.3, partDSurchargeMonthly: 83.3 },
-      { maxMagi: IRMAA_INF, partBSurchargeMonthly: 487.0, partDSurchargeMonthly: 91.0 },
-    ],
-    married_filing_separately: [
-      { maxMagi: 109_000, partBSurchargeMonthly: 0, partDSurchargeMonthly: 0 },
-      { maxMagi: 391_000, partBSurchargeMonthly: 446.3, partDSurchargeMonthly: 83.3 },
-      { maxMagi: IRMAA_INF, partBSurchargeMonthly: 487.0, partDSurchargeMonthly: 91.0 },
-    ],
-  },
+  taxYear: CURRENT_LAW_2026_RULE_PACK.irmaa.premiumYear,
+  lookbackYears: CURRENT_LAW_2026_RULE_PACK.irmaa.lookbackYears,
+  brackets: CURRENT_LAW_2026_RULE_PACK.irmaa.brackets,
 };
 
 export const DEFAULT_RMD_CONFIG: RmdConfig = {
@@ -186,6 +163,30 @@ function normalizeShare(index: number, memberCount: number, explicitShares: numb
   return explicitShares[index] / totalExplicit;
 }
 
+function normalizeOwner(value: string | undefined) {
+  return value?.trim().toLowerCase() ?? '';
+}
+
+function balanceForMember(input: {
+  member: RmdHouseholdMemberInput;
+  index: number;
+  memberCount: number;
+  explicitShares: number[];
+  pretaxBalance: number;
+  sourceAccounts: RmdSourceAccountInput[];
+}) {
+  if (input.sourceAccounts.length > 0) {
+    const owner = normalizeOwner(input.member.owner);
+    const ownedBalance = input.sourceAccounts
+      .filter((account) => normalizeOwner(account.owner) === owner)
+      .reduce((sum, account) => sum + Math.max(0, account.balance), 0);
+    return owner ? ownedBalance : 0;
+  }
+
+  const share = normalizeShare(input.index, input.memberCount, input.explicitShares);
+  return input.pretaxBalance * share;
+}
+
 function getUniformLifetimeDivisor(age: number, config: RmdConfig) {
   const normalizedAge = Math.max(72, Math.min(120, Math.floor(age)));
   return config.uniformLifetimeTable[normalizedAge] ?? config.uniformLifetimeTable[120];
@@ -196,6 +197,9 @@ export function calculateRequiredMinimumDistribution(
   config: RmdConfig = DEFAULT_RMD_CONFIG,
 ): RmdCalculationResult {
   const pretaxBalance = Math.max(0, input.pretaxBalance);
+  const sourceAccounts = (input.sourceAccounts ?? []).filter(
+    (account) => account.balance > 0,
+  );
   const explicitShares = input.members
     .map((member) => member.accountShare ?? 0)
     .filter((value) => value > 0);
@@ -213,9 +217,29 @@ export function calculateRequiredMinimumDistribution(
       return;
     }
 
-    const share = normalizeShare(index, input.members.length, explicitShares);
+    const share = sourceAccounts.length > 0
+      ? (pretaxBalance > 0
+        ? balanceForMember({
+          member,
+          index,
+          memberCount: input.members.length,
+          explicitShares,
+          pretaxBalance,
+          sourceAccounts,
+        }) / pretaxBalance
+        : 0)
+      : normalizeShare(index, input.members.length, explicitShares);
     const divisor = getUniformLifetimeDivisor(member.age, config);
-    const memberBalance = pretaxBalance * share;
+    const memberBalance = sourceAccounts.length > 0
+      ? balanceForMember({
+        member,
+        index,
+        memberCount: input.members.length,
+        explicitShares,
+        pretaxBalance,
+        sourceAccounts,
+      })
+      : pretaxBalance * share;
     const memberRmd = divisor > 0 ? memberBalance / divisor : 0;
 
     amount += memberRmd;

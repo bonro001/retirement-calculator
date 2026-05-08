@@ -6,7 +6,7 @@ import type { SeedData } from './types';
  * cartesian product of `Policy` candidates.
  *
  * Why this lives in its own module: the V1 axis defaults are heuristics
- * (16 spend levels, ages 62..70 for SS, 6 Roth caps). Households or the
+ * (16 spend levels, ages 62..70 for SS, 6 Roth maxes). Households or the
  * advisor layer may override them per session — by isolating enumeration
  * here, we can test the math, swap the defaults, and add new axes without
  * touching the miner.

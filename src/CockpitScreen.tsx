@@ -40,7 +40,7 @@ interface PlanOptimizationOutput {
   spendResult: SpendOptimizationResult | null;
   rothResult: RothOptimizationResult | null;
   /** Full engine path at the optimized plan (recommended SS + spend +
-   *  Roth ceiling). Drives the Cockpit's year-by-year details, the
+   *  Roth max). Drives the Cockpit's year-by-year details, the
    *  trajectory chart, and the actions-due tile — keeping every panel
    *  consistent with the Trust headline. */
   optimizedPath: PathResult | null;
@@ -123,11 +123,18 @@ function persistPlanCacheToLocalStorage(
   }
 }
 
-// Module-level cache, hydrated from localStorage on module import. A
-// page refresh now restores the optimizer result instantly instead of
-// triggering a fresh ~12s recompute. Survives across the entire session
-// AND across hard refreshes; cleared implicitly when fingerprint changes.
-const planOptimizationCache = loadPlanCacheFromLocalStorage();
+// Module-level cache, hydrated lazily. Cockpit is lazy-loaded and the
+// legacy optimizer is usually skipped now that mining is authoritative;
+// loading/parsing old optimizer payloads during module import can freeze
+// the Cockpit fallback before any buttons are clickable.
+let planOptimizationCache: Map<string, CachedPlanOptimization> | null = null;
+
+function getPlanOptimizationCache(): Map<string, CachedPlanOptimization> {
+  if (!planOptimizationCache) {
+    planOptimizationCache = loadPlanCacheFromLocalStorage();
+  }
+  return planOptimizationCache;
+}
 
 function usePlanOptimization(
   data: SeedData | null,
@@ -198,7 +205,8 @@ function usePlanOptimization(
     // restore the result synchronously and skip the async chain.
     // This is the big perf win — tab swaps used to trigger a fresh
     // ~30-50s optimization; now it's instant.
-    const cached = planOptimizationCache.get(fingerprint);
+    const cache = getPlanOptimizationCache();
+    const cached = cache.get(fingerprint);
     if (cached) {
       lastKeyRef.current = fingerprint;
       setSsResult(cached.ssResult);
@@ -297,7 +305,7 @@ function usePlanOptimization(
         if (runIdRef.current !== myRunId) return;
         setSpendResult(spend);
 
-        // Stage 3: Roth ceiling optimizer. Sweeps 6 ceiling levels at
+        // Stage 3: Roth max optimizer. Sweeps 6 annual max levels at
         // the joint plan (recommended SS + recommended spend already
         // applied via clone + spend override) and picks the ceiling
         // that maximizes p50 EW subject to both constraints.
@@ -326,19 +334,20 @@ function usePlanOptimization(
         if (runIdRef.current !== myRunId) return;
         setRothResult(roth);
 
-        // Apply the recommended Roth ceiling to the clone before the
+        // Apply the recommended Roth max to the clone before the
         // final projection.
         if (roth.recommended && clone.rules) {
           clone.rules.rothConversionPolicy = {
             ...(clone.rules.rothConversionPolicy ?? {}),
             enabled: roth.recommended.ceilingTodayDollars > 0,
             minAnnualDollars: 0,
-            magiBufferDollars: roth.recommended.ceilingTodayDollars,
+            maxAnnualDollars: roth.recommended.ceilingTodayDollars,
+            magiBufferDollars: clone.rules.rothConversionPolicy?.magiBufferDollars ?? 2_000,
           };
         }
 
         // Stage 4: build the optimizedPath. Run the full engine ONCE
-        // at the joint plan (recommended SS + spend + Roth ceiling all
+        // at the joint plan (recommended SS + spend + Roth max all
         // applied). This becomes the canonical projection for every
         // Cockpit panel below the Trust card — year-by-year tiles,
         // trajectory chart, actions due.
@@ -352,7 +361,7 @@ function usePlanOptimization(
         // swap returns to instant load. Keyed on fingerprint; old
         // entries naturally fall out of relevance when the seed
         // changes (the fingerprint becomes a different key).
-        planOptimizationCache.set(fingerprint, {
+        cache.set(fingerprint, {
           ssResult: ss,
           spendResult: spend,
           rothResult: roth,
@@ -362,7 +371,7 @@ function usePlanOptimization(
         // Persist to localStorage so a hard refresh / new browser tab
         // restores the result instantly instead of running another
         // ~12s optimizer chain.
-        persistPlanCacheToLocalStorage(planOptimizationCache);
+        persistPlanCacheToLocalStorage(cache);
         // Auto-log prediction record. Captures (timestamp,
         // planFingerprint, full inputs snapshot, headline outputs,
         // yearly trajectory) so the reconciliation layer can diff
@@ -1405,6 +1414,7 @@ function YearColumn({
   policyTargetSpend,
   spendBuckets,
   salaryEndDate,
+  missingMessage,
 }: {
   eyebrow: string;
   year: number;
@@ -1433,11 +1443,15 @@ function YearColumn({
    *  engine projects salary in this year so the household sees the
    *  exact value to fix. */
   salaryEndDate?: string | null;
+  /** Copy shown when the full yearly trace is not available yet. */
+  missingMessage?: string;
 }) {
   if (!yr) {
     return (
       <CockpitTile eyebrow={eyebrow} subtitle={`Year ${year}`}>
-        <p className="text-stone-400">No projection yet — adopt a plan and run it.</p>
+        <p className="text-stone-400">
+          {missingMessage ?? 'No projection yet — adopt a plan and run it.'}
+        </p>
       </CockpitTile>
     );
   }
@@ -1560,11 +1574,25 @@ function YearColumn({
         />
         <Row label="MAGI" value={formatCurrencyExact(yr.medianMagi / div)} />
         {yr.medianRothConversion > 0 && !monthly && (
-          <Row
-            label="Roth convert"
-            value={formatCurrencyExact(yr.medianRothConversion)}
-            valueClass="text-emerald-700"
-          />
+          <>
+            <Row
+              label="Roth convert"
+              value={formatCurrencyExact(yr.medianRothConversion)}
+              valueClass="text-emerald-700"
+            />
+            {(yr.medianRothConversionOpportunistic > 0 ||
+              yr.medianRothConversionDefensive > 0) && (
+              <Row
+                label="Roth split"
+                value={`Headroom ${formatCurrencyExact(
+                  yr.medianRothConversionOpportunistic,
+                )} · pressure ${formatCurrencyExact(
+                  yr.medianRothConversionDefensive,
+                )}`}
+                valueClass="text-[10px] text-stone-500"
+              />
+            )}
+          </>
         )}
         {yr.medianRmdAmount > 0 && !monthly && (
           <Row
@@ -2872,7 +2900,7 @@ function MaxSustainableSpendCard({
             </dl>
           </div>
 
-          {/* Current seed spending */}
+          {/* Current lifestyle input */}
           <div className="rounded-xl bg-white/60 p-3 shadow-sm">
             <p className="text-[11px] font-semibold uppercase tracking-wider text-stone-500">
               Your current lifestyle
@@ -2903,7 +2931,7 @@ function MaxSustainableSpendCard({
               </>
             ) : (
               <p className="mt-2 text-[12px] text-stone-500">
-                Seed has no spending configured.
+                No lifestyle spending input is configured.
               </p>
             )}
           </div>
@@ -2964,12 +2992,12 @@ function MaxSustainableSpendCard({
 }
 
 /**
- * Recommended Roth conversion ceiling card. Companion to the SS and
+ * Recommended Roth conversion max card. Companion to the SS and
  * spend optimizer cards: at the engine-recommended SS strategy + max
  * spend, sweeps the Roth-conversion-ceiling axis and picks the level
  * that maximizes p50 ending wealth (today's $) subject to both north
- * stars. The current household value is read from the seed's
- * `rules.rothConversionPolicy.magiBufferDollars` proxy.
+ * stars. The current household value is an input-policy comparison, not
+ * the answer; the recommended ceiling is the engine output.
  */
 function RecommendedRothCeilingCard({
   result,
@@ -3003,11 +3031,11 @@ function RecommendedRothCeilingCard({
       <div className="flex items-start justify-between gap-3">
         <div>
           <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-violet-700">
-            Recommended Roth ceiling · engine output
+            Recommended Roth max · engine output
           </p>
           <p className="mt-1 text-[12px] text-stone-600">
             How aggressively to convert pretax → Roth each year. Engine
-            evaluates at your recommended SS + spend, picks the ceiling
+            evaluates at your recommended SS + spend, picks the annual max
             that maximizes p50 ending wealth in today's $ while still
             meeting both north stars.
           </p>
@@ -3027,7 +3055,7 @@ function RecommendedRothCeilingCard({
 
       {!result && !error && (
         <p className="mt-3 text-[12px] text-stone-500">
-          Sweeping 6 ceiling levels ($0 – $200k/yr) at 500 trials each.
+          Sweeping 6 annual max levels ($0 – $200k/yr) at 500 trials each.
           ~15–20s; cached after.
         </p>
       )}
@@ -3063,7 +3091,7 @@ function RecommendedRothCeilingCard({
 
           <div className="rounded-xl bg-white/60 p-3 shadow-sm">
             <p className="text-[11px] font-semibold uppercase tracking-wider text-stone-500">
-              Your current seed
+              Current policy input
             </p>
             {currentInRanked ? (
               <>
@@ -3091,7 +3119,7 @@ function RecommendedRothCeilingCard({
               </>
             ) : (
               <p className="mt-2 text-[12px] text-stone-500">
-                Seed ceiling is outside the searched grid — adopt the
+                Current Roth max is outside the searched grid — adopt the
                 recommendation to apply.
               </p>
             )}
@@ -3100,12 +3128,12 @@ function RecommendedRothCeilingCard({
           <div className="md:col-span-2 rounded-xl border border-violet-200/60 bg-white p-3 text-[12px]">
             {isSameCeiling ? (
               <p className="text-stone-700">
-                Your seed's Roth ceiling already matches the recommendation —
+                Your current Roth max already matches the recommendation —
                 no change indicated.
               </p>
             ) : ewDelta !== null && ewDelta > 0 ? (
               <p className="text-stone-700">
-                Switching to the recommended ceiling lifts p50 ending wealth
+                Switching to the recommended Roth max lifts p50 ending wealth
                 by{' '}
                 <span className="font-semibold text-violet-700 tabular-nums">
                   +{formatCurrency(ewDelta)}
@@ -3114,26 +3142,26 @@ function RecommendedRothCeilingCard({
               </p>
             ) : ewDelta !== null && ewDelta < 0 ? (
               <p className="text-amber-800">
-                The recommended ceiling lowers p50 ending wealth by{' '}
+                The recommended Roth max lowers p50 ending wealth by{' '}
                 <span className="font-semibold tabular-nums">
                   {formatCurrency(ewDelta)}
                 </span>{' '}
-                vs your seed — that's because your seed sits at a more
+                vs your current input — that's because it sits at a more
                 aggressive level than the engine prefers under the
                 constraints. Use either; this is an information signal.
               </p>
             ) : (
               <p className="text-stone-700">
-                {result.feasibleCount} of {result.ranked.length} ceilings
+                {result.feasibleCount} of {result.ranked.length} annual maxes
                 meet both north stars.
               </p>
             )}
             <p className="mt-1 text-[11px] text-stone-400">
-              Sweep · 6 ceiling levels · {result.trialCount} trials each.
+              Sweep · 6 annual max levels · {result.trialCount} trials each.
               Ranking: feasibility (north stars) → max p50 EW (today $) →
               lower median federal tax. The engine's per-year IRMAA-
               and bracket-aware Roth logic still operates within this
-              ceiling.
+              max.
             </p>
           </div>
         </div>
@@ -3162,6 +3190,7 @@ export function CockpitScreen() {
   // bisection chain — Phase 2 retires that and rewires TRUST to the
   // corpus directly.
   const cluster = useClusterSession();
+  const [projectDetailsRequested, setProjectDetailsRequested] = useState(false);
   const recommendation = useRecommendedPolicy(
     data ?? null,
     assumptions ?? null,
@@ -3202,7 +3231,7 @@ export function CockpitScreen() {
   const corpusRecommendation =
     recommendation.state === 'fresh' ? recommendation.policy : null;
   const useCorpusPick = corpusRecommendation != null;
-  const autoProjectRecommendedPath = useCorpusPick;
+  const autoProjectRecommendedPath = useCorpusPick && projectDetailsRequested;
 
   const recommendedPath = useRecommendedPath(
     data ?? null,
@@ -3210,6 +3239,7 @@ export function CockpitScreen() {
     autoProjectRecommendedPath ? corpusRecommendation : null,
     selectedStressors ?? [],
     selectedResponses ?? [],
+    { autoCompute: false },
   );
 
   // Plan-optimization chain (SS → spend → Roth → optimizedPath).
@@ -3226,7 +3256,9 @@ export function CockpitScreen() {
     planOpt.stage === 'roth';
   const planOptError = planOpt.error;
   const currentSeedRothCeiling =
-    data?.rules?.rothConversionPolicy?.magiBufferDollars ?? null;
+    data?.rules?.rothConversionPolicy?.maxAnnualDollars ??
+    data?.rules?.rothConversionPolicy?.magiBufferDollars ??
+    null;
 
   // Drive every panel below the Trust card off the authoritative path:
   // mined/adopted policy projection when a corpus pick exists, otherwise
@@ -3244,6 +3276,10 @@ export function CockpitScreen() {
   // baselinePath while the optimizer is still running.
   const yearlySeries =
     planPath?.yearlySeries ?? [];
+  const projectionDetailsCold = useCorpusPick && !planPath;
+  const missingProjectionMessage = projectionDetailsCold
+    ? 'Mined policy is loaded. Build the detailed projection to populate this tile.'
+    : undefined;
   const currentYear = new Date().getFullYear();
   const yearIndex = Math.max(
     0,
@@ -3261,6 +3297,8 @@ export function CockpitScreen() {
   const irmaaNextYear = nextYear ? findActiveIrmaaTier(nextYear.medianMagi) : null;
 
   const adopted = lastPolicyAdoption?.policy ?? null;
+  const displayedPolicy = adopted ?? (useCorpusPick ? corpusRecommendation?.policy ?? null : null);
+  const displayedPolicyIsPersisted = adopted != null;
   const legacyTarget = data?.goals?.legacyTargetTodayDollars;
 
   // Legacy attainment — second half of the north star ("leave money").
@@ -3323,6 +3361,7 @@ export function CockpitScreen() {
       // solvency ≥ 70%) — feasibility is implicit in the recommendation.
       true
     : (spendOptResult?.feasible ?? null);
+  const hasTrustHeadline = optimizedSolventRate !== null || planPath !== null;
   // Banner triggers only when the legacy bisection chain runs and
   // declares the plan infeasible. Corpus path never sets this — when
   // no record clears the ranker's gates, `recommendation.policy` is
@@ -3392,8 +3431,10 @@ export function CockpitScreen() {
         <p className="text-xs text-stone-400">
           {planPath
             ? `${yearlySeries.length}-year horizon`
-            : recommendedPath.computing && useCorpusPick
-              ? 'Projecting adopted plan'
+            : useCorpusPick
+              ? 'Mined policy loaded'
+              : recommendedPath.computing
+                ? 'Projecting adopted plan'
               : 'Run a plan to populate'}
         </p>
       </div>
@@ -3416,7 +3457,7 @@ export function CockpitScreen() {
                 ? 'searching Social Security claim ages'
                 : planOpt.stage === 'spend'
                   ? 'finding sustainable spending level'
-                  : 'tuning Roth conversion ceiling'}
+                  : 'tuning Roth conversion max'}
               . Numbers below will update when it finishes.
             </span>
             <span className="tabular-nums text-blue-700">
@@ -3558,7 +3599,7 @@ export function CockpitScreen() {
           <p className="text-[11px] font-medium uppercase tracking-[0.2em] text-stone-400">
             Trust
           </p>
-          {planPath ? (
+          {hasTrustHeadline ? (
             <>
               {/* The Trust card now reads from the OPTIMIZED plan when
                *  available — i.e., the projection at (recommended SS,
@@ -3570,7 +3611,7 @@ export function CockpitScreen() {
                 const useOpt = optimizedSolventRate !== null;
                 const solventForDisplay = useOpt
                   ? optimizedSolventRate!
-                  : planPath.successRate;
+                  : (planPath?.successRate ?? 0);
                 const legacyForDisplay = useOpt
                   ? optimizedLegacyRate
                   : legacyAttainmentRate;
@@ -3632,7 +3673,7 @@ export function CockpitScreen() {
                     {formatCurrencyExact(optimizedSpend)}/yr,
                     SS {recommendedPrimarySsAge ?? '—'}/{recommendedSpouseSsAge ?? '—'}
                     {recommendedRothCeiling != null && (
-                      <>, Roth ≤ {formatCurrencyExact(recommendedRothCeiling)}/yr</>
+                      <>, Roth max {formatCurrencyExact(recommendedRothCeiling)}/yr</>
                     )}
                     {recommendedWithdrawalRule && (
                       <>, {recommendedWithdrawalRule.replace(/_/g, ' ')}</>
@@ -3712,30 +3753,40 @@ export function CockpitScreen() {
         </div>
 
         <CockpitTile eyebrow="Adopted policy">
-          {adopted ? (
+          {displayedPolicy ? (
             <div className="space-y-1.5 text-[13px]">
+              {!displayedPolicyIsPersisted && (
+                <p className="pb-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-blue-700">
+                  Mined policy loaded
+                </p>
+              )}
               <div>
                 Spend{' '}
                 <span className="font-semibold text-stone-900">
-                  {formatCurrencyExact(adopted.annualSpendTodayDollars)}/yr
+                  {formatCurrencyExact(displayedPolicy.annualSpendTodayDollars)}/yr
                 </span>
               </div>
               <div className="text-stone-600">
                 Rob SS @{' '}
                 <span className="font-semibold text-stone-900">
-                  {adopted.primarySocialSecurityClaimAge}
+                  {displayedPolicy.primarySocialSecurityClaimAge}
                 </span>
                 , Debbie SS @{' '}
                 <span className="font-semibold text-stone-900">
-                  {adopted.spouseSocialSecurityClaimAge ?? '—'}
+                  {displayedPolicy.spouseSocialSecurityClaimAge ?? '—'}
                 </span>
               </div>
               <div className="text-stone-600">
-                Roth ceiling{' '}
+                Roth max{' '}
                 <span className="font-semibold text-stone-900">
-                  {formatCurrencyExact(adopted.rothConversionAnnualCeiling)}/yr
+                  {formatCurrencyExact(displayedPolicy.rothConversionAnnualCeiling)}/yr
                 </span>
               </div>
+              {!displayedPolicyIsPersisted && (
+                <p className="pt-1 text-[11px] leading-snug text-stone-500">
+                  Re-adopt from Policy Mining once to pin this exact policy after refresh.
+                </p>
+              )}
             </div>
           ) : (
             <p className="text-stone-400 text-sm">
@@ -3756,6 +3807,19 @@ export function CockpitScreen() {
               <p className="text-[11px] text-stone-500">
                 {thisYear.dominantRothConversionReason || 'Recommended by withdrawal optimizer.'}
               </p>
+              {(thisYear.medianRothConversionOpportunistic > 0 ||
+                thisYear.medianRothConversionDefensive > 0) && (
+                <p className="text-[11px] text-stone-500">
+                  Headroom{' '}
+                  <span className="tabular-nums">
+                    {formatCurrencyExact(thisYear.medianRothConversionOpportunistic)}
+                  </span>
+                  {' · '}pressure{' '}
+                  <span className="tabular-nums">
+                    {formatCurrencyExact(thisYear.medianRothConversionDefensive)}
+                  </span>
+                </p>
+              )}
             </div>
           ) : thisYear && thisYear.medianRmdAmount > 0 ? (
             <div className="space-y-1 text-[12px]">
@@ -3813,7 +3877,11 @@ export function CockpitScreen() {
           Lazy-mounted: UncertaintyRangeTile runs its OWN sensitivity
           sweep (~5s); deferring it lets the Trust card paint first. */}
       {planPath && assumptions && data && (
-        <MountWhenVisible minHeight="240px" eagerAfterMs={Infinity}>
+        <MountWhenVisible
+          minHeight="240px"
+          eagerAfterMs={Infinity}
+          rootMargin="0px"
+        >
           <CalibrationDashboard
             seedData={data}
             assumptions={assumptions}
@@ -3844,31 +3912,51 @@ export function CockpitScreen() {
       )}
 
       {/* Three time horizons */}
+      {projectionDetailsCold && (
+        <div className="flex flex-col gap-3 rounded-2xl border border-blue-200 bg-blue-50/80 p-4 text-sm text-blue-950 md:flex-row md:items-center md:justify-between">
+          <p>
+            <span className="font-semibold">Mined policy loaded.</span>{' '}
+            The year-by-year detail is not cached yet, so the lower tiles are
+            waiting on one explicit projection run.
+          </p>
+          <button
+            type="button"
+            onClick={() => setProjectDetailsRequested(true)}
+            disabled={recommendedPath.computing}
+            className="self-start rounded-xl bg-blue-700 px-4 py-2 text-sm font-semibold text-white shadow-sm disabled:cursor-wait disabled:bg-blue-400 md:self-auto"
+          >
+            {recommendedPath.computing ? 'Projecting…' : 'Project details'}
+          </button>
+        </div>
+      )}
       <div className="grid gap-3 lg:grid-cols-3">
         <YearColumn
           eyebrow="This month (≈)"
           year={currentYear}
           yr={thisYear}
           monthly
-          policyTargetSpend={adopted?.annualSpendTodayDollars ?? null}
+          policyTargetSpend={displayedPolicy?.annualSpendTodayDollars ?? null}
           spendBuckets={spendBuckets}
           salaryEndDate={data?.income?.salaryEndDate ?? null}
+          missingMessage={missingProjectionMessage}
         />
         <YearColumn
           eyebrow="This year"
           year={currentYear}
           yr={thisYear}
-          policyTargetSpend={adopted?.annualSpendTodayDollars ?? null}
+          policyTargetSpend={displayedPolicy?.annualSpendTodayDollars ?? null}
           spendBuckets={spendBuckets}
           salaryEndDate={data?.income?.salaryEndDate ?? null}
+          missingMessage={missingProjectionMessage}
         />
         <YearColumn
           eyebrow="Next year"
           year={currentYear + 1}
           yr={nextYear}
-          policyTargetSpend={adopted?.annualSpendTodayDollars ?? null}
+          policyTargetSpend={displayedPolicy?.annualSpendTodayDollars ?? null}
           spendBuckets={spendBuckets}
           salaryEndDate={data?.income?.salaryEndDate ?? null}
+          missingMessage={missingProjectionMessage}
         />
       </div>
 

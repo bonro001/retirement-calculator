@@ -50,6 +50,19 @@ export interface PolicyFullTraceOptions {
   useHistoricalBootstrap?: boolean;
 }
 
+export interface PolicyMiningDeterminismCheck {
+  passed: boolean;
+  policyId: string;
+  seed: number;
+  trialCount: number;
+  comparedFields: string[];
+  firstDifference: {
+    field: string;
+    first: number;
+    second: number;
+  } | null;
+}
+
 export function buildPolicyEvaluationFromSummary(input: {
   policy: Policy;
   summary: PolicyMiningSummary;
@@ -154,16 +167,78 @@ export function buildPolicyMiningReplayInput(
   };
 }
 
+export function runPolicyMiningDeterminismCheck(input: {
+  policy: Policy;
+  baseline: SeedData;
+  assumptions: MarketAssumptions;
+  baselineFingerprint: string;
+  engineVersion: string;
+  cloner: SeedDataCloner;
+  trialCount?: number;
+}): PolicyMiningDeterminismCheck {
+  const trialCount = Math.max(1, Math.floor(input.trialCount ?? 32));
+  const policyAssumptions = assumptionsForPolicy(
+    {
+      ...input.assumptions,
+      simulationRuns: trialCount,
+    },
+    input.policy,
+  );
+  const runOne = () => {
+    const seed = applyPolicyToSeed(input.cloner(input.baseline), input.policy);
+    const [path] = buildPathResults(seed, policyAssumptions, [], [], {
+      annualSpendTarget: input.policy.annualSpendTodayDollars,
+      pathMode: 'selected_only',
+      outputLevel: 'policy_mining_summary',
+    });
+    if (!path) {
+      throw new Error('runPolicyMiningDeterminismCheck: engine returned no path results');
+    }
+    const summary = pathToPolicyMiningSummary(path);
+    return {
+      successRate: summary.successRate,
+      medianEndingWealth: summary.medianEndingWealth,
+      tenthPercentileEndingWealth: summary.endingWealthPercentiles.p10,
+      annualFederalTaxEstimate: summary.annualFederalTaxEstimate,
+      bequestP50: summary.endingWealthPercentiles.p50,
+    };
+  };
+  const first = runOne();
+  const second = runOne();
+  const comparedFields = Object.keys(first);
+  const firstDifference =
+    comparedFields
+      .map((field) => {
+        const key = field as keyof typeof first;
+        return first[key] === second[key]
+          ? null
+          : {
+              field,
+              first: first[key],
+              second: second[key],
+            };
+      })
+      .find((item): item is NonNullable<typeof item> => item !== null) ?? null;
+
+  return {
+    passed: firstDifference === null,
+    policyId: policyId(input.policy, input.baselineFingerprint, input.engineVersion),
+    seed: policyAssumptions.simulationSeed ?? 20260416,
+    trialCount,
+    comparedFields,
+    firstDifference,
+  };
+}
+
 /**
  * Apply a Policy to a SeedData baseline. Mutates the *clone*, not the
  * original — caller must clone first.
  *
- * Knobs not (yet) honored end-to-end:
- *   - rothConversionAnnualCeiling: stored in `seed.rules.rothConversionPolicy`
- *     but the engine's policy module reads `maxPretaxBalancePercent` /
- *     `magiBufferDollars` rather than a flat dollar ceiling. We convert
- *     by setting the floor to 0 and using `magiBufferDollars` as a proxy
- *     ceiling for V1 — full ceiling support is a small engine PR for V1.1.
+ * Roth conversion policy:
+ *   - `maxAnnualDollars` is the visible annual Roth max/mining knob.
+ *   - `magiBufferDollars` is threshold safety room around ACA/IRMAA.
+ * Older corpora used the buffer as a proxy; new policy application
+ * writes both explicitly.
  */
 export function applyPolicyToSeed(seed: SeedData, policy: Policy): SeedData {
   // Adjust SS claim ages. SeedData.income.socialSecurity is an array
@@ -179,7 +254,7 @@ export function applyPolicyToSeed(seed: SeedData, policy: Policy): SeedData {
     seed.income.socialSecurity[1].claimAge =
       policy.spouseSocialSecurityClaimAge;
   }
-  // Roth conversion ceiling: see caveat above.
+  // Roth conversion max: see caveat above.
   if (!seed.rules) {
     // SeedData.rules is required by the type, but be defensive.
     return seed;
@@ -188,9 +263,8 @@ export function applyPolicyToSeed(seed: SeedData, policy: Policy): SeedData {
     ...(seed.rules.rothConversionPolicy ?? {}),
     enabled: policy.rothConversionAnnualCeiling > 0,
     minAnnualDollars: 0,
-    // Use the ceiling as a magi-buffer proxy. V1.1 will swap this for
-    // a real per-year cap.
-    magiBufferDollars: policy.rothConversionAnnualCeiling,
+    maxAnnualDollars: policy.rothConversionAnnualCeiling,
+    magiBufferDollars: seed.rules.rothConversionPolicy?.magiBufferDollars ?? 2_000,
   };
   return seed;
 }

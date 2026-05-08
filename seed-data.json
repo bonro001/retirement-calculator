@@ -10,19 +10,51 @@
     "salaryAnnual": 210000,
     "salaryEndDate": "2027-07-01",
     "socialSecurity": [
-      { "person": "rob", "fraMonthly": 4100 },
-      { "person": "debbie", "fraMonthly": 1444 }
+      {
+        "person": "rob",
+        "fraMonthly": 4100
+      },
+      {
+        "person": "debbie",
+        "fraMonthly": 1444
+      }
     ],
     "windfalls": [
-      { "name": "inheritance", "year": 2028, "amount": 500000, "taxTreatment": "cash_non_taxable" },
-      { "name": "home_sale", "year": 2037, "amount": 500000, "taxTreatment": "primary_home_sale" }
+      {
+        "name": "inheritance",
+        "year": 2028,
+        "amount": 500000,
+        "taxTreatment": "cash_non_taxable"
+      },
+      {
+        "name": "home_sale",
+        "year": 2037,
+        "amount": 1000000,
+        "taxTreatment": "primary_home_sale",
+        "certainty": "estimated",
+        "timingUncertaintyYears": 2,
+        "amountUncertaintyPercent": 0.3,
+        "costBasis": 500000,
+        "exclusionAmount": 500000,
+        "sellingCostPercent": 0.06,
+        "replacementHomeCost": 500000,
+        "purchaseClosingCostPercent": 0.02,
+        "movingCost": 20000,
+        "liquidityAmount": 500000
+      }
     ],
     "preRetirementContributions": {
       "employee401kPreTaxPercentOfSalary": 0.1499,
       "employee401kRothPercentOfSalary": 0,
+      "priorYearFicaWagesFromEmployer": 210000,
+      "employerPlanSupportsRothDeferrals": true,
+      "employerPlanSupportsSuperCatchUp": true,
+      "planFeatureAssumptionSource": "estimated_pending_plan_document",
       "employerMatch": {
-        "matchRate": 0,
-        "maxEmployeeContributionPercentOfSalary": 0.06
+        "matchRate": 0.5,
+        "maxEmployeeContributionPercentOfSalary": 0.06,
+        "assumptionSource": "user_confirmed_athenahealth_50_percent_of_first_6_percent_pending_document_verification",
+        "verificationStatus": "user_confirmed_pending_document"
       },
       "hsaPercentOfSalary": 0.0159,
       "hsaCoverageType": "family"
@@ -41,138 +73,413 @@
   },
   "accounts": {
     "pretax": {
-      "balance": 379204.72,
+      "balance": 382925.53,
       "targetAllocation": {
-        "SCHD": 0.4844,
-        "BND": 0.3249,
-        "VTI": 0.1569,
-        "TRP_2030": 0.031,
-        "CASH": 0.0028
+        "CASH": 0.0031,
+        "BND": 0.3185,
+        "SCHD": 0.4876,
+        "TRP_2030": 0.0342,
+        "VTI": 0.1566
       },
       "sourceAccounts": [
         {
           "id": "267425112",
           "name": "Rollover IRA",
-          "balance": 367438.54,
+          "owner": "rob",
+          "balance": 369811.56,
           "holdings": [
-            { "symbol": "CASH", "name": "Held in money market", "value": 1053.63 },
-            { "symbol": "BND", "name": "Vanguard Total Bond Market", "value": 123208.59 },
-            { "symbol": "FAGIX", "name": "Fidelity Capital & Income", "value": 0.82 },
-            { "symbol": "FSRIX", "name": "Fidelity Advisor Strategic Income", "value": 0.68 },
-            { "symbol": "SCHD", "name": "Schwab US Dividend Equity ETF", "value": 183682.02 },
-            { "symbol": "VTI", "name": "Vanguard Total Stock Market ETF", "value": 59492.8 }
+            {
+              "symbol": "CASH",
+              "name": "Held in money market",
+              "value": 1189.34
+            },
+            {
+              "symbol": "BND",
+              "name": "Vanguard Bd Index Fds Total Bnd Mrkt",
+              "value": 121957.49
+            },
+            {
+              "symbol": "FAGIX",
+              "name": "Fidelity Capital & Income",
+              "value": 0.82
+            },
+            {
+              "symbol": "FSRIX",
+              "name": "Fidelity Advisor Strategic Inc Cl I",
+              "value": 0.68
+            },
+            {
+              "symbol": "SCHD",
+              "name": "Schwab Us Dividend Equity Etf",
+              "value": 186702.92
+            },
+            {
+              "symbol": "VTI",
+              "name": "Vanguard Index Fds Vanguard Total Stk Mkt Etf",
+              "value": 59960.31
+            }
           ]
         },
         {
           "id": "19098",
           "name": "ATHENAHEALTH 401(k)",
-          "balance": 11766.18,
+          "owner": "rob",
+          "balance": 13113.97,
           "holdings": [
-            { "symbol": "TRP_2030", "name": "T. Rowe Price Retirement 2030 Fund", "value": 11766.18 }
+            {
+              "symbol": "TRP_2030",
+              "name": "T. Rowe Price Retirement 2030 Fund",
+              "value": 13113.97
+            }
           ]
         }
       ]
     },
     "roth": {
-      "balance": 307104.63,
+      "balance": 306278.09,
       "targetAllocation": {
-        "FCNTX": 0.8408,
-        "VTI": 0.1023,
-        "VXUS": 0.0564,
-        "CASH": 0.0005
+        "CASH": 0.0006,
+        "FCNTX": 0.8398,
+        "VTI": 0.1033,
+        "VXUS": 0.0563
       },
       "sourceAccounts": [
         {
           "id": "262307959",
           "name": "ROTH IRA",
-          "balance": 48878.93,
+          "balance": 49072.22,
           "holdings": [
-            { "symbol": "CASH", "name": "Held in money market", "value": 166.59 },
-            { "symbol": "VTI", "name": "Vanguard Total Stock Market ETF", "value": 31406.44 },
-            { "symbol": "VXUS", "name": "Vanguard Total International Stock ETF", "value": 17305.9 }
+            {
+              "symbol": "CASH",
+              "name": "Held in money market",
+              "value": 184.32
+            },
+            {
+              "symbol": "VTI",
+              "name": "Vanguard Index Fds Vanguard Total Stk Mkt Etf",
+              "value": 31653.24
+            },
+            {
+              "symbol": "VXUS",
+              "name": "Vanguard Total International Stock Index Fund",
+              "value": 17234.66
+            }
           ]
         },
         {
           "id": "194312991",
           "name": "Authorized ROTH IRA",
-          "balance": 258225.7,
+          "balance": 257205.87,
           "holdings": [
-            { "symbol": "CASH", "name": "Held in money market", "value": 1.89 },
-            { "symbol": "FCNTX", "name": "Fidelity Contrafund", "value": 258223.81 }
+            {
+              "symbol": "CASH",
+              "name": "Held in money market",
+              "value": 1.9
+            },
+            {
+              "symbol": "FCNTX",
+              "name": "Fidelity Contrafund",
+              "value": 257203.97
+            }
           ]
         }
       ]
     },
     "taxable": {
-      "balance": 138350.72,
+      "balance": 138606.71,
       "targetAllocation": {
-        "CENTRAL_MANAGED": 0.6041,
-        "FXAIX": 0.137,
-        "IEFA": 0.0771,
-        "FDGRX": 0.0531,
-        "IJH": 0.0419,
-        "MUB": 0.0264,
-        "FDLO": 0.0227,
-        "IEMG": 0.0188,
-        "SCHH": 0.0146,
-        "FELV": 0.0025,
-        "HAIN": 0.0016,
-        "CASH": 0.0002
+        "CASH": 0.0001,
+        "CENTRAL_MANAGED": 0.6036,
+        "FDGRX": 0.054,
+        "FDLO": 0.0228,
+        "FELV": 0.0026,
+        "FXAIX": 0.138,
+        "HAIN": 0.0011,
+        "IEFA": 0.0761,
+        "IEMG": 0.0189,
+        "IJH": 0.0416,
+        "MUB": 0.0262,
+        "SCHH": 0.0149
       },
       "sourceAccounts": [
         {
           "id": "Z30728530",
           "name": "Joint WROS - TOD",
-          "balance": 54778.49,
+          "balance": 54941.95,
           "holdings": [
-            { "symbol": "CASH", "name": "Held in money market", "value": 20.14 },
-            { "symbol": "FDGRX", "name": "Fidelity Growth Company", "value": 7349.79 },
-            { "symbol": "FDLO", "name": "Fidelity Low Volatility Factor ETF", "value": 3137.71 },
-            { "symbol": "FELV", "name": "Fidelity Enhanced Large Cap Value ETF", "value": 350.09 },
-            { "symbol": "FXAIX", "name": "Fidelity 500 Index Fund", "value": 18956.0 },
-            { "symbol": "HAIN", "name": "Hain Celestial Group", "value": 225.27 },
-            { "symbol": "IEFA", "name": "iShares Core MSCI EAFE ETF", "value": 10664.02 },
-            { "symbol": "IEMG", "name": "iShares Core MSCI Emerging Markets ETF", "value": 2598.74 },
-            { "symbol": "IJH", "name": "iShares Core S&P Mid-Cap ETF", "value": 5795.21 },
-            { "symbol": "MUB", "name": "iShares National Muni Bond ETF", "value": 3656.05 },
-            { "symbol": "SCHH", "name": "Schwab US REIT ETF", "value": 2025.47 }
+            {
+              "symbol": "CASH",
+              "name": "Held in money market",
+              "value": 20.19
+            },
+            {
+              "symbol": "FDGRX",
+              "name": "Fidelity Growth Company",
+              "value": 7483.24
+            },
+            {
+              "symbol": "FDLO",
+              "name": "Fidelity Low Volatility Factor Etf",
+              "value": 3163.88
+            },
+            {
+              "symbol": "FELV",
+              "name": "Fidelity Enhanced Large Cap Value Etf",
+              "value": 357.39
+            },
+            {
+              "symbol": "FXAIX",
+              "name": "Fidelity 500 Index Fund",
+              "value": 19126.41
+            },
+            {
+              "symbol": "HAIN",
+              "name": "Hain Celestial Group Inc",
+              "value": 158.6
+            },
+            {
+              "symbol": "IEFA",
+              "name": "Ishares Trust Core Msci Eafe Etf",
+              "value": 10541.97
+            },
+            {
+              "symbol": "IEMG",
+              "name": "Ishares Core Msci Emerging Markets Etf",
+              "value": 2621.42
+            },
+            {
+              "symbol": "IJH",
+              "name": "Ishares Core S&P Mid-Cap Etf",
+              "value": 5772.08
+            },
+            {
+              "symbol": "MUB",
+              "name": "Ishares National Muni Bond Etf",
+              "value": 3634.92
+            },
+            {
+              "symbol": "SCHH",
+              "name": "Schwab Strategic Tr Us Reit Etf",
+              "value": 2061.85
+            }
           ]
         },
         {
           "id": "Y81720699",
           "name": "Joint WROS - TOD (Managed)",
-          "balance": 83572.23,
+          "balance": 83664.76,
           "managed": true,
           "holdings": [
-            { "symbol": "CENTRAL_MANAGED", "name": "Central Investment Positions", "value": 83572.23 }
+            {
+              "symbol": "CASH",
+              "name": "Held in money market",
+              "value": 1421.33
+            },
+            {
+              "symbol": "DFEVX",
+              "name": "Dimensional Emerging Mkts Val Prtf Instl",
+              "value": 4159.17
+            },
+            {
+              "symbol": "DIS",
+              "name": "Disney Walt Co Com",
+              "value": 1207.61
+            },
+            {
+              "symbol": "FDGRX",
+              "name": "Fidelity Growth Company",
+              "value": 1163.07
+            },
+            {
+              "symbol": "FDIVX",
+              "name": "Fidelity Diversified International",
+              "value": 1674.71
+            },
+            {
+              "symbol": "FDSSX",
+              "name": "Fidelity Stock Selector Fund",
+              "value": 3838.43
+            },
+            {
+              "symbol": "FELC",
+              "name": "Fidelity Enhanced Large Cap Core Etf",
+              "value": 590.67
+            },
+            {
+              "symbol": "FEMVX",
+              "name": "Fid Sai Emerging Mkt Value Index Fund",
+              "value": 2755.8
+            },
+            {
+              "symbol": "FENCX",
+              "name": "Fid Sai Enhanced Muni Income Fund",
+              "value": 2685.07
+            },
+            {
+              "symbol": "FENI",
+              "name": "Fidelity Enhanced International Etf",
+              "value": 538.5
+            },
+            {
+              "symbol": "FFSM",
+              "name": "Fidelity Fundamental Small-Mid Cap Etf",
+              "value": 488.32
+            },
+            {
+              "symbol": "FICQX",
+              "name": "Fidelity Intl Cap Appreciation Fund",
+              "value": 1734.37
+            },
+            {
+              "symbol": "FIWCX",
+              "name": "Fidelity Sai Int'L Value Index Fund",
+              "value": 1781.47
+            },
+            {
+              "symbol": "FMAGX",
+              "name": "Fidelity Magellan",
+              "value": 2676.08
+            },
+            {
+              "symbol": "FOSFX",
+              "name": "Fidelity Overseas",
+              "value": 262.64
+            },
+            {
+              "symbol": "FRESX",
+              "name": "Fidelity Real Estate Investment",
+              "value": 884.94
+            },
+            {
+              "symbol": "FSKLX",
+              "name": "Fid Sai Intnl Low Volatility Index Fd",
+              "value": 1164.45
+            },
+            {
+              "symbol": "FSMJX",
+              "name": "Fidelity Sai Conserv Income Muni Bond Fd",
+              "value": 325.44
+            },
+            {
+              "symbol": "FSMNX",
+              "name": "Fidelity Sai Municipal Income Fd",
+              "value": 21973.28
+            },
+            {
+              "symbol": "FSPGX",
+              "name": "Fidelity Large Cap Growth Index Fund",
+              "value": 1114.72
+            },
+            {
+              "symbol": "FSPSX",
+              "name": "Fidelity Internatl Index Fund",
+              "value": 1526.24
+            },
+            {
+              "symbol": "FSSNX",
+              "name": "Fidelity Small Cap Index Fund",
+              "value": 2855.8
+            },
+            {
+              "symbol": "FSTFX",
+              "name": "Fidelity Limited Term Muni Income Fd",
+              "value": 2203.41
+            },
+            {
+              "symbol": "FVAL",
+              "name": "Fidelity Value Factor Etf",
+              "value": 2625.77
+            },
+            {
+              "symbol": "FZALX",
+              "name": "Fidelity Advisor Mega Cap Stock Cl Z",
+              "value": 10457.46
+            },
+            {
+              "symbol": "HYD",
+              "name": "Vaneck Etf Trust High Yld Munietf",
+              "value": 1240.43
+            },
+            {
+              "symbol": "IJH",
+              "name": "Ishares Core S&P Mid-Cap Etf",
+              "value": 426.86
+            },
+            {
+              "symbol": "MTUM",
+              "name": "Ishares Tr Msci Usa Mmentm",
+              "value": 3087.38
+            },
+            {
+              "symbol": "PEMGX",
+              "name": "Principal Mid Cap Fund Class A",
+              "value": 669.21
+            },
+            {
+              "symbol": "QUAL",
+              "name": "Ishares Tr Msci Usa Qlt Fct",
+              "value": 3056.46
+            },
+            {
+              "symbol": "SCZ",
+              "name": "Ishares Tr Eafe Sml Cp Etf",
+              "value": 1130.92
+            },
+            {
+              "symbol": "USMV",
+              "name": "Ishares Tr Msci Usa Min Vol",
+              "value": 1944.75
+            }
           ]
         }
       ]
     },
     "cash": {
       "balance": 50000,
-      "targetAllocation": { "CASH": 1.0 }
+      "targetAllocation": {
+        "CASH": 1
+      }
     },
     "hsa": {
-      "balance": 49420.19,
+      "balance": 50182.61,
       "targetAllocation": {
-        "VTI": 0.4244,
-        "VXUS": 0.2475,
-        "SCHD": 0.2236,
-        "BND": 0.1013,
-        "CASH": 0.0031
+        "CASH": 0.0134,
+        "BND": 0.0988,
+        "SCHD": 0.2238,
+        "VTI": 0.4213,
+        "VXUS": 0.2428
       },
       "sourceAccounts": [
         {
           "id": "262675925",
           "name": "Health Savings Account",
-          "balance": 49420.19,
+          "balance": 50182.61,
           "holdings": [
-            { "symbol": "CASH", "name": "Held in money market", "value": 154.43 },
-            { "symbol": "BND", "name": "Vanguard Total Bond Market ETF", "value": 5007.78 },
-            { "symbol": "SCHD", "name": "Schwab US Dividend Equity ETF", "value": 11048.45 },
-            { "symbol": "VTI", "name": "Vanguard Total Stock Market ETF", "value": 20975.56 },
-            { "symbol": "VXUS", "name": "Vanguard Total International Stock ETF", "value": 12233.97 }
+            {
+              "symbol": "CASH",
+              "name": "Held in money market",
+              "value": 671.52
+            },
+            {
+              "symbol": "BND",
+              "name": "Vanguard Bd Index Fds Total Bnd Mrkt",
+              "value": 4956.93
+            },
+            {
+              "symbol": "SCHD",
+              "name": "Schwab Us Dividend Equity Etf",
+              "value": 11230.16
+            },
+            {
+              "symbol": "VTI",
+              "name": "Vanguard Index Fds Vanguard Total Stk Mkt Etf",
+              "value": 21140.39
+            },
+            {
+              "symbol": "VXUS",
+              "name": "Vanguard Total International Stock Index Fund",
+              "value": 12183.61
+            }
           ]
         }
       ]
@@ -182,12 +489,48 @@
     "withdrawalStyle": "guardrails",
     "irmaaAware": true,
     "replaceModeImports": true,
+    "payrollModel": {
+      "salaryProrationRule": "month_fraction",
+      "salaryProrationSource": "explicit_payroll_calendar"
+    },
+    "contributionLimits": {
+      "employee401kBaseLimit": 24500,
+      "employee401kCatchUpAge": 50,
+      "employee401kCatchUpLimit": 8000,
+      "employee401kSuperCatchUpAges": [60, 61, 62, 63],
+      "employee401kSuperCatchUpLimit": 11250,
+      "rothCatchUpWageThreshold": 150000,
+      "employee401kBaseLimitByYear": {
+        "2027": 25000
+      },
+      "hsaSelfLimit": 4400,
+      "hsaFamilyLimit": 8750,
+      "hsaCatchUpAge": 55,
+      "hsaCatchUpLimit": 1000,
+      "assumptionSource": "planning_estimate_for_2027_final_paycheck_window"
+    },
+    "housingAfterDownsizePolicy": {
+      "mode": "own_replacement_home",
+      "startYear": 2037,
+      "replacementHomeCost": 500000,
+      "netLiquidityTarget": 500000,
+      "certainty": "estimated",
+      "assumptionSource": "user_estimate_sell_1m_home_buy_500k_replacement_home"
+    },
     "rothConversionPolicy": {
       "enabled": true,
       "strategy": "aca_then_irmaa_headroom",
       "minAnnualDollars": 500,
+      "maxAnnualDollars": 70000,
       "maxPretaxBalancePercent": 0.12,
-      "magiBufferDollars": 2000
+      "magiBufferDollars": 2000,
+      "lowIncomeBracketFill": {
+        "enabled": true,
+        "startYear": 2028,
+        "endYear": 2030,
+        "annualTargetDollars": 70000,
+        "requireNoWageIncome": true
+      }
     },
     "healthcarePremiums": {
       "baselineAcaPremiumAnnual": 14400,
@@ -196,8 +539,9 @@
     },
     "hsaStrategy": {
       "enabled": true,
-      "annualQualifiedExpenseWithdrawalCap": 12000,
-      "prioritizeHighMagiYears": true,
+      "withdrawalMode": "ltc_reserve",
+      "annualQualifiedExpenseWithdrawalCap": 250000,
+      "prioritizeHighMagiYears": false,
       "highMagiThreshold": 190000
     },
     "ltcAssumptions": {
@@ -220,14 +564,22 @@
       "id": "market_down",
       "name": "Bad First 3 Years",
       "type": "market",
-      "equityReturns": [-0.18, -0.12, -0.08],
+      "equityReturns": [
+        -0.18,
+        -0.12,
+        -0.08
+      ],
       "recoveryYears": 5
     },
     {
       "id": "market_up",
       "name": "Strong Early Market (Upside Case)",
       "type": "market",
-      "equityReturns": [0.12, 0.10, 0.08]
+      "equityReturns": [
+        0.12,
+        0.1,
+        0.08
+      ]
     },
     {
       "id": "inflation",

@@ -18,7 +18,7 @@ import { approximateBequestAttainmentRate } from './plan-evaluation';
  *
  * Architectural intent: this runs AFTER the SS optimizer and the spend
  * optimizer, so the joint plan being evaluated is "recommended SS,
- * recommended max spend, sweep Roth ceiling". That isolates the Roth
+ * recommended max spend, sweep Roth max". That isolates the Roth
  * decision and gives the household a clean read on "given the rest of
  * my plan, how aggressively should I convert?"
  *
@@ -78,7 +78,7 @@ export interface RothOptimizationResult {
   /** `ranked[0]` — the recommended ceiling. */
   recommended: RothCeilingCandidate;
   /** Number of candidates that met BOTH constraints. When zero, no
-   *  Roth ceiling rescues the plan from constraint violation —
+   *  Roth max rescues the plan from constraint violation —
    *  Roth strategy alone isn't the lever. */
   feasibleCount: number;
   /** Inputs echoed back. */
@@ -109,9 +109,10 @@ function toTodayDollars(
 }
 
 /**
- * Apply a Roth conversion ceiling to a seed clone. Mirrors
+ * Apply a Roth conversion max to a seed clone. Mirrors
  * `applyPolicyToSeed` in `policy-miner-eval.ts` for the Roth knob —
- * uses `magiBufferDollars` as the V1 proxy for per-year ceiling.
+ * stores the visible policy knob as the annual conversion max while
+ * preserving MAGI threshold buffer as safety room.
  */
 function cloneSeedWithRothCeiling(
   seed: SeedData,
@@ -123,7 +124,8 @@ function cloneSeedWithRothCeiling(
     ...(clone.rules.rothConversionPolicy ?? {}),
     enabled: ceilingTodayDollars > 0,
     minAnnualDollars: 0,
-    magiBufferDollars: ceilingTodayDollars,
+    maxAnnualDollars: ceilingTodayDollars,
+    magiBufferDollars: clone.rules.rothConversionPolicy?.magiBufferDollars ?? 2_000,
   };
   return clone;
 }

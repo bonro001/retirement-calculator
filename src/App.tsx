@@ -280,6 +280,12 @@ const EMPTY_SIMULATION_DIAGNOSTICS: PathResult['simulationDiagnostics'] = {
   rothConversionEligibilityPath: [],
   rothConversionDecisionSummary: {
     executedYearCount: 0,
+    safeRoomExecutedYearCount: 0,
+    strategicExtraExecutedYearCount: 0,
+    annualPolicyMaxBindingYearCount: 0,
+    totalSafeRoomUsed: 0,
+    totalStrategicExtraUsed: 0,
+    totalSafeRoomUnusedDueToAnnualPolicyMax: 0,
     blockedYearCount: 0,
     noEconomicBenefitYearCount: 0,
     notEligibleYearCount: 0,
@@ -335,6 +341,7 @@ const EMPTY_SIMULATION_CONFIGURATION: PathResult['simulationConfiguration'] = {
     proactiveConversionsEnabled: false,
     strategy: 'aca_then_irmaa_headroom',
     minAnnualDollars: 500,
+    maxAnnualDollars: null,
     maxPretaxBalancePercent: 0.12,
     magiBufferDollars: 2000,
     source: 'default',
@@ -1694,7 +1701,7 @@ export function App() {
                 <SummaryStatCard
                   title="Starting runway"
                   value={isInitialLoad ? '—' : `${planPrimaryPath.yearsFunded} yrs`}
-                  description={`Current assets divided by current annual spending. Planning horizon is ${horizonYears} years.`}
+                  description={`Current assets divided by current lifestyle spending input. Planning horizon is ${horizonYears} years.`}
                 />
                 <SummaryStatCard
                   title="IRMAA exposure"
@@ -5526,7 +5533,7 @@ function OverviewScreen({
     <>
       <Panel
         title="Overview"
-        subtitle="This shell is built around the idea that retirement is a set of paths, not a single forecast. The current seed data shows where the plan looks resilient and where it still depends on favorable timing."
+        subtitle="This shell is built around the idea that retirement is a set of paths, not a single forecast. The current household inputs show where the plan looks resilient and where it still depends on favorable timing."
       >
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
           <MetricTile label="Rob age" value={`${currentAges.rob}`} />
@@ -7533,7 +7540,7 @@ function SimulationScreen({
     : 'starting monthly spend';
   const spendHeadline = showDelta
     ? `Your ${spendNumberLabel} ${verb} ${formatCurrency(Math.round(simMonthly))} (${formatDeltaCurrency(Math.round(monthlyDelta))}/mo, ${formatDeltaCurrency(Math.round(annualDelta))}/yr).`
-    : `Your current plan supports ${formatCurrency(Math.round(baseMonthly))}/mo (${formatCurrency(Math.round(baseMonthly * 12))}/yr) ${usingSolvedNumber ? `at ${formatPercent(successTarget)} success` : 'as a starting pace'}. Tick tweaks or solutions, then Run to see what changes.`;
+    : `This input run supports ${formatCurrency(Math.round(baseMonthly))}/mo (${formatCurrency(Math.round(baseMonthly * 12))}/yr) ${usingSolvedNumber ? `at ${formatPercent(successTarget)} success` : 'as a starting pace'}. Tick tweaks or solutions, then Run to see what changes.`;
 
   const successHeadline = showDelta
     ? `Flex success ${formatDeltaPercent(successDelta)} (now ${formatPercent(primaryPath.successRate)}).`

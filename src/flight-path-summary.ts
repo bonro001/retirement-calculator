@@ -1,5 +1,6 @@
 import type { StrategicPrepRecommendation } from './flight-path-policy';
 import type {
+  AcaBridgeStatus,
   FlightPathPhaseAction,
   FlightPathPhasePlaybook,
 } from './flight-path-action-playbook';
@@ -44,6 +45,11 @@ export interface ExecutiveFlightSummary {
     acaRequiredMagiReduction: number;
     acaProjectedMagi: number;
     acaFriendlyCeiling: number | null;
+    acaUnmitigatedProjectedMagi: number;
+    acaUnmitigatedRequiredReduction: number;
+    acaMitigationDelta: number;
+    acaMitigationActionIds: string[];
+    acaStatus: AcaBridgeStatus;
     runwayGapMonths: number;
   };
   narrative: {
@@ -58,6 +64,7 @@ interface BuildExecutiveFlightSummaryInput {
   evaluation: PlanEvaluation | null;
   phasePlaybook: FlightPathPhasePlaybook;
   strategicPrepRecommendations: StrategicPrepRecommendation[];
+  canonicalSuccessRate?: number | null;
 }
 
 const roundMoney = (value: number) => Number(value.toFixed(2));
@@ -184,22 +191,33 @@ function buildSpendingActionCard(input: {
 function buildAcaActionCard(input: {
   playbook: FlightPathPhasePlaybook;
   requiredMagiReduction: number;
+  unmitigatedRequiredMagiReduction: number;
+  mitigationDelta: number;
+  status: AcaBridgeStatus;
   bridgeYear: number | null;
   projectedMagi: number;
+  unmitigatedProjectedMagi: number;
   acaFriendlyCeiling: number | null;
 }): ExecutiveActionCard | null {
   const { phase, action } = findTopPhaseAction(input.playbook, 'aca_bridge');
-  if (!(input.requiredMagiReduction > 0) && !action) {
+  const hasUnmitigatedRisk = input.unmitigatedRequiredMagiReduction > 0;
+  if (!(input.requiredMagiReduction > 0) && !hasUnmitigatedRisk && !action) {
     return null;
   }
-  const urgency: ExecutiveActionUrgency =
-    input.requiredMagiReduction > 0 ? 'act_now' : action ? urgencyFromPriority(action.priority) : 'soon';
-  const score =
-    input.requiredMagiReduction > 0
-      ? 95 + input.requiredMagiReduction / 1000
+  const urgency: ExecutiveActionUrgency = input.status === 'breach'
+    ? 'act_now'
+    : input.status === 'mitigated' || input.status === 'watch'
+      ? 'soon'
       : action
-        ? 70 + action.rankScore
-        : 60;
+        ? urgencyFromPriority(action.priority)
+        : 'agenda';
+  const score = input.status === 'breach'
+    ? 95 + input.requiredMagiReduction / 1000
+    : input.status === 'mitigated'
+      ? 72 + Math.min(8, input.unmitigatedRequiredMagiReduction / 5000)
+      : action
+        ? 60 + action.rankScore
+        : 50;
   const impact = action?.estimatedImpact ?? null;
   const ceilingText =
     input.acaFriendlyCeiling === null
@@ -216,9 +234,27 @@ function buildAcaActionCard(input: {
     category: 'aca',
     urgency,
     score,
-    amountPrimary: roundMoney(input.requiredMagiReduction),
-    detail:
+    amountPrimary: roundMoney(
       input.requiredMagiReduction > 0
+        ? input.requiredMagiReduction
+        : input.unmitigatedRequiredMagiReduction,
+    ),
+    detail:
+      input.status === 'mitigated'
+        ? `Unmitigated bridge-year MAGI in ${input.bridgeYear ?? 'n/a'} is about ${roundMoney(
+          input.unmitigatedProjectedMagi,
+        ).toLocaleString('en-US', {
+          style: 'currency',
+          currency: 'USD',
+          maximumFractionDigits: 0,
+        })}, but the executed planner path is ${roundMoney(
+          input.projectedMagi,
+        ).toLocaleString('en-US', {
+          style: 'currency',
+          currency: 'USD',
+          maximumFractionDigits: 0,
+        })}; maintain the mitigation cushion under ${ceilingText}.`
+        : input.requiredMagiReduction > 0
         ? `Bridge year ${input.bridgeYear ?? 'n/a'} MAGI is about ${roundMoney(
           input.requiredMagiReduction,
         ).toLocaleString('en-US', {
@@ -234,7 +270,15 @@ function buildAcaActionCard(input: {
           maximumFractionDigits: 0,
         })}; keep a cushion under the ACA-friendly ceiling (${ceilingText}).`,
     whyItMatters:
-      'Managing MAGI in bridge years protects premium support and prevents avoidable healthcare-cost spikes.',
+      input.status === 'mitigated'
+        ? `Planner controls are reducing MAGI by about ${roundMoney(
+          input.mitigationDelta,
+        ).toLocaleString('en-US', {
+          style: 'currency',
+          currency: 'USD',
+          maximumFractionDigits: 0,
+        })}; keep conversion and payroll settings aligned so the subsidy cushion stays intact.`
+        : 'Managing MAGI in bridge years protects premium support and prevents avoidable healthcare-cost spikes.',
     expectedImpact: buildImpactSummary({
       successRateDelta: impact?.successRateDelta ?? null,
       supportedMonthlyDelta: impact?.supportedMonthlyDelta ?? null,
@@ -274,14 +318,14 @@ function buildRunwayActionCard(input: {
     amountPrimary: action.fullGoalDollars,
     detail: `Runway is short by about ${roundMoney(input.runwayGapMonths).toLocaleString('en-US', {
       maximumFractionDigits: 1,
-    })} months versus the 18-month target.`,
+    })} months versus the 18-month target; funding it can compete with final-paycheck 401(k) dollars unless sourced from taxable/cash repositioning.`,
     whyItMatters:
       'A stronger cash runway lowers sequence risk right as salary turns off and gives better control over taxable moves.',
     expectedImpact: buildImpactSummary({
       successRateDelta: impact.successRateDelta,
       supportedMonthlyDelta: impact.supportedMonthlyDelta,
     }),
-    confidence: confidenceFromStrategicRecommendation(input.recommendation),
+    confidence: 'medium',
     phaseAnchorTarget: {
       phaseId: phase.id,
       actionId: action.id,
@@ -299,14 +343,14 @@ function buildConversionActionCard(
   const confidence = confidenceFromStrategicRecommendation(recommendation);
   return {
     id: 'summary-roth-conversion',
-    title: 'Schedule the Roth conversion window',
+    title: 'Evaluate optional extra Roth conversions',
     category: 'conversion',
     urgency: confidence === 'low' ? 'agenda' : recommendation.priority === 'now' ? 'soon' : 'agenda',
     score: confidence === 'low' ? 40 : 55,
     amountPrimary: null,
-    detail: recommendation.action,
+    detail: `Safe-room conversions are already baked into the planner path when MAGI room exists. ${recommendation.action}`,
     whyItMatters:
-      'Conversions can reduce future RMD and IRMAA pressure, but they need careful year-by-year MAGI pacing.',
+      'Extra conversions beyond clean room can reduce future RMD and IRMAA pressure, but they are an optional tradeoff that needs year-by-year MAGI pacing.',
     expectedImpact: buildImpactSummary({
       successRateDelta: impact?.successRateDelta ?? null,
       supportedMonthlyDelta: impact?.supportedMonthlyDelta ?? null,
@@ -416,8 +460,25 @@ export function buildExecutiveFlightSummary(
   const spendShortfallMonthly = roundMoney(Math.max(0, -spendGapMonthlyRaw));
 
   const acaBridgeMetrics = input.phasePlaybook.phases.find((phase) => phase.id === 'aca_bridge')?.acaMetrics;
-  const requiredMagiReduction = roundMoney(
-    input.phasePlaybook.diagnostics.acaGuardrailAdjustment.requiredMagiReduction,
+  const requiredMagiReduction = roundMoney(acaBridgeMetrics?.requiredMagiReduction ?? 0);
+  const unmitigatedRequiredMagiReduction = roundMoney(
+    acaBridgeMetrics?.unmitigatedRequiredMagiReduction ?? requiredMagiReduction,
+  );
+  const acaMitigationDelta = roundMoney(acaBridgeMetrics?.acaMitigationDelta ?? 0);
+  const acaStatus: AcaBridgeStatus = acaBridgeMetrics?.acaStatus ?? 'unknown';
+  const acaPhase = input.phasePlaybook.phases.find((phase) => phase.id === 'aca_bridge') ?? null;
+  const acaMitigationActionIds = Array.from(
+    new Set([
+      ...(acaMitigationDelta > 0 ? ['planner-roth-conversion-cap'] : []),
+      ...(acaPhase?.actions ?? [])
+        .filter(
+          (action) =>
+            action.id.includes('aca') ||
+            action.id.includes('magi') ||
+            action.contributionSettingsPatch,
+        )
+        .map((action) => action.id),
+    ]),
   );
   const runwayGapMonths = roundMoney(input.phasePlaybook.diagnostics.acaGuardrailAdjustment.runwayGapMonths);
 
@@ -437,8 +498,13 @@ export function buildExecutiveFlightSummary(
     buildAcaActionCard({
       playbook: input.phasePlaybook,
       requiredMagiReduction,
+      unmitigatedRequiredMagiReduction,
+      mitigationDelta: acaMitigationDelta,
+      status: acaStatus,
       bridgeYear: acaBridgeMetrics?.bridgeYear ?? null,
       projectedMagi: acaBridgeMetrics?.projectedMagi ?? 0,
+      unmitigatedProjectedMagi:
+        acaBridgeMetrics?.unmitigatedProjectedMagi ?? acaBridgeMetrics?.projectedMagi ?? 0,
       acaFriendlyCeiling: acaBridgeMetrics?.acaFriendlyMagiCeiling ?? null,
     }),
     buildRunwayActionCard({
@@ -464,8 +530,8 @@ export function buildExecutiveFlightSummary(
       firstWindfallYear,
       socialSecurityAnnualAtClaim,
     },
-    planHealth: {
-      successRate: input.evaluation?.summary.successRate ?? null,
+	    planHealth: {
+	      successRate: input.canonicalSuccessRate ?? input.evaluation?.summary.successRate ?? null,
       targetMonthlySpend: roundMoney(userTargetMonthlySpend),
       supportedMonthlySpend: roundMoney(supportedMonthlySpend),
       spendShortfallMonthly,
@@ -473,6 +539,13 @@ export function buildExecutiveFlightSummary(
       acaRequiredMagiReduction: requiredMagiReduction,
       acaProjectedMagi: roundMoney(acaBridgeMetrics?.projectedMagi ?? 0),
       acaFriendlyCeiling: acaBridgeMetrics?.acaFriendlyMagiCeiling ?? null,
+      acaUnmitigatedProjectedMagi: roundMoney(
+        acaBridgeMetrics?.unmitigatedProjectedMagi ?? acaBridgeMetrics?.projectedMagi ?? 0,
+      ),
+      acaUnmitigatedRequiredReduction: unmitigatedRequiredMagiReduction,
+      acaMitigationDelta,
+      acaMitigationActionIds,
+      acaStatus,
       runwayGapMonths,
     },
     narrative: {

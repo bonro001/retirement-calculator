@@ -5,6 +5,9 @@ dist
 .cluster-update-request.json
 native-macos/**/.build/
 native-macos/**/DerivedData/
+.claude/
+backups/
+out/
 
 # secrets — never commit
 .env

@@ -23,6 +23,7 @@
  *   SESSION_MAX_POLICIES    cap on enumerated policies. Default = full corpus.
  *   SESSION_BASELINE_FILE   path to a SeedData JSON. Default = built-in initialSeedData.
  *   SESSION_ASSUMPTIONS_FILE  path to MarketAssumptions JSON. Default = built-in.
+ *   SESSION_EXPLORATION_SEED optional replay seed. Default = fresh random seed.
  *   SESSION_COARSE_TRIALS   Phase 2.C: trials for the coarse pre-screening
  *                           pass. Set to enable two-stage screening across
  *                           the cluster (1.5-1.8× wall-time win when the
@@ -37,7 +38,7 @@
  *                           Only used when SESSION_COARSE_TRIALS is set.
  */
 
-import { createHash } from 'node:crypto';
+import { createHash, randomInt } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { hostname } from 'node:os';
 import WebSocket from 'ws';
@@ -48,6 +49,7 @@ import {
   enumeratePolicies,
 } from '../src/policy-axis-enumerator';
 import {
+  buildPolicyMinerRunEngineVersion,
   POLICY_MINER_ENGINE_VERSION,
   type PolicyMiningSessionConfig,
 } from '../src/policy-miner-types';
@@ -138,9 +140,14 @@ interface ResolvedConfig {
   legacyTarget: number;
   feasibilityThreshold: number;
   maxPolicies: number | null;
+  explorationSeed: number;
   seed: SeedData;
   assumptions: MarketAssumptions;
   controllerName: string;
+}
+
+function makeExplorationSeed(): number {
+  return randomInt(1, 2_147_483_647);
 }
 
 function resolveConfig(): ResolvedConfig {
@@ -156,6 +163,9 @@ function resolveConfig(): ResolvedConfig {
   );
   const maxPoliciesEnv = process.env.SESSION_MAX_POLICIES;
   const maxPolicies = maxPoliciesEnv ? Number.parseInt(maxPoliciesEnv, 10) : null;
+  const explorationSeed = process.env.SESSION_EXPLORATION_SEED
+    ? Number.parseInt(process.env.SESSION_EXPLORATION_SEED, 10)
+    : makeExplorationSeed();
 
   const seed = process.env.SESSION_BASELINE_FILE
     ? (JSON.parse(readFileSync(process.env.SESSION_BASELINE_FILE, 'utf-8')) as SeedData)
@@ -167,8 +177,13 @@ function resolveConfig(): ResolvedConfig {
     : { ...DEFAULT_ASSUMPTIONS, simulationRuns: trialCount };
 
   // Even if the user supplied an assumptions file, force its trial count
-  // to match the env so the CLI is the single source of truth here.
+  // and exploration seed to match the env/defaults so the CLI is the
+  // single source of truth here.
   assumptions.simulationRuns = trialCount;
+  assumptions.simulationSeed = explorationSeed;
+  assumptions.assumptionsVersion = assumptions.assumptionsVersion
+    ? `${assumptions.assumptionsVersion}-session-seed-${explorationSeed}`
+    : `cluster-controller-session-seed-${explorationSeed}`;
 
   return {
     dispatcherUrl,
@@ -176,6 +191,7 @@ function resolveConfig(): ResolvedConfig {
     legacyTarget,
     feasibilityThreshold,
     maxPolicies,
+    explorationSeed,
     seed,
     assumptions,
     controllerName: process.env.HOST_DISPLAY_NAME ?? `controller-${hostname()}`,
@@ -269,6 +285,9 @@ async function main(): Promise<void> {
   ) {
     throw new Error(`invalid SESSION_FEASIBILITY=${cfg.feasibilityThreshold}`);
   }
+  if (!Number.isFinite(cfg.explorationSeed) || cfg.explorationSeed < 1) {
+    throw new Error(`invalid SESSION_EXPLORATION_SEED=${cfg.explorationSeed}`);
+  }
 
   const baselineFingerprint = computeBaselineFingerprint(cfg.seed);
   const axes = buildDefaultPolicyAxes(cfg.seed);
@@ -281,6 +300,7 @@ async function main(): Promise<void> {
     totalCandidates,
     cap,
     trialCount: cfg.trialCount,
+    explorationSeed: cfg.explorationSeed,
     feasibilityThreshold: cfg.feasibilityThreshold,
   });
 
@@ -387,9 +407,14 @@ async function main(): Promise<void> {
             totalCandidates,
           });
         }
+        const sessionEngineVersion = buildPolicyMinerRunEngineVersion(
+          POLICY_MINER_ENGINE_VERSION,
+          cfg.explorationSeed,
+          cfg.trialCount,
+        );
         const config: PolicyMiningSessionConfig = {
           baselineFingerprint,
-          engineVersion: POLICY_MINER_ENGINE_VERSION,
+          engineVersion: sessionEngineVersion,
           axes,
           feasibilityThreshold: cfg.feasibilityThreshold,
           maxPoliciesPerSession: cap,
@@ -405,7 +430,12 @@ async function main(): Promise<void> {
           from: message.peerId,
         };
         ws.send(encodeMessage(start));
-        log('start_session sent', { trialCount: cfg.trialCount, cap });
+        log('start_session sent', {
+          trialCount: cfg.trialCount,
+          cap,
+          explorationSeed: cfg.explorationSeed,
+          engineVersion: sessionEngineVersion,
+        });
         return;
       }
       case 'register_rejected': {

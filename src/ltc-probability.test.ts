@@ -82,4 +82,53 @@ describe('LTC probability modeling', () => {
     expect(alwaysLtc).toBe(10_000);
     expect(neverLtc).toBe(0);
   });
+
+  it('exposes LTC incidence, cost percentiles, and deterministic HSA audit traces', () => {
+    const data = buildBaseData();
+    if (!data.accounts.hsa) {
+      throw new Error('Expected seed data to include an HSA account');
+    }
+    data.accounts.hsa.balance = 15_000;
+    data.rules.hsaStrategy = {
+      enabled: true,
+      withdrawalMode: 'ltc_reserve',
+      annualQualifiedExpenseWithdrawalCap: 250_000,
+      prioritizeHighMagiYears: false,
+    };
+    data.rules.ltcAssumptions = {
+      ...data.rules.ltcAssumptions!,
+      annualCostToday: 10_000,
+      durationYears: 2,
+      eventProbability: 0.5,
+    };
+
+    const path = buildPathResults(data, TEST_ASSUMPTIONS, [], [], {
+      pathMode: 'selected_only',
+      strategyMode: 'planner_enhanced',
+    })[0];
+
+    const diagnostics = path.ltcHsaDiagnostics;
+    expect(diagnostics).toBeDefined();
+    expect(diagnostics!.monteCarlo.ltcEventIncidenceRate).toBeGreaterThan(0);
+    expect(diagnostics!.monteCarlo.ltcEventIncidenceRate).toBeLessThan(1);
+    expect(diagnostics!.monteCarlo.totalLtcCostPercentiles.p90).toBeGreaterThan(0);
+    expect(diagnostics!.monteCarlo.totalLtcCostRemainingAfterHsaPercentiles.p90).toBe(5_000);
+
+    const firstYearVisibility = path.yearlySeries.find((item) => item.year === 2026)
+      ?.ltcHsaPathVisibility;
+    expect(firstYearVisibility?.ltcEventTriggeredRate).toBe(
+      diagnostics!.monteCarlo.ltcEventIncidenceRate,
+    );
+    expect(firstYearVisibility?.ltcCostPercentiles.p90).toBe(10_000);
+    expect(firstYearVisibility?.hsaLtcOffsetUsedPercentiles.p90).toBe(10_000);
+
+    const noEventFirstYear = diagnostics!.deterministicAudit.noEvent[0];
+    const withEventFirstYear = diagnostics!.deterministicAudit.withEvent[0];
+    const expectedFirstYear = diagnostics!.deterministicAudit.expectedValue[0];
+    expect(noEventFirstYear.ltcCost).toBe(0);
+    expect(withEventFirstYear.ltcCost).toBe(10_000);
+    expect(withEventFirstYear.hsaBalanceEnd).toBe(5_000);
+    expect(expectedFirstYear.ltcCost).toBe(5_000);
+    expect(expectedFirstYear.hsaBalanceEnd).toBe(10_000);
+  });
 });

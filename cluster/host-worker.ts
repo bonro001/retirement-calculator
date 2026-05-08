@@ -21,6 +21,12 @@ import { RustEngineClient } from './rust-engine-client';
 import { NativeRustEngineClient } from './rust-engine-native-client';
 import { comparePolicyMiningSummaries } from '../src/policy-mining-summary-contract';
 import { candidateReplayPackageToRequest } from '../src/candidate-replay-package';
+import {
+  isShadowRuntime,
+  resolveEngineRuntime,
+  type EngineRuntime,
+  type TelemetryEngineRuntime,
+} from './engine-runtime';
 
 /**
  * Node-side policy-miner worker. Mirrors `src/policy-miner.worker.ts`
@@ -74,25 +80,7 @@ if (!parentPort) {
 const port = parentPort;
 const cancelledRequests = new Set<string>();
 const primedSessions = new Map<string, PrimedSession>();
-type EngineRuntime =
-  | 'ts'
-  | 'rust-shadow'
-  | 'rust-dry-run'
-  | 'rust-native-shadow'
-  | 'rust-native-compact-shadow'
-  | 'rust-native-compact';
-type ShadowEngineRuntime = Exclude<EngineRuntime, 'ts' | 'rust-native-compact'>;
-type TelemetryEngineRuntime = Exclude<EngineRuntime, 'ts'>;
-const configuredEngineRuntime =
-  process.env.ENGINE_RUNTIME ?? process.env.ENGINE_RUNTIME_DEFAULT;
-const engineRuntime: EngineRuntime =
-  configuredEngineRuntime === 'rust-shadow' ||
-  configuredEngineRuntime === 'rust-dry-run' ||
-  configuredEngineRuntime === 'rust-native-shadow' ||
-  configuredEngineRuntime === 'rust-native-compact-shadow' ||
-  configuredEngineRuntime === 'rust-native-compact'
-    ? configuredEngineRuntime
-    : 'ts';
+const engineRuntime: EngineRuntime = resolveEngineRuntime(process.env);
 const rustShadowLogPath = process.env.RUST_SHADOW_LOG_PATH;
 const explicitRustDryRunOutputPath = process.env.RUST_DRY_RUN_OUTPUT_PATH
   ? resolve(process.env.RUST_DRY_RUN_OUTPUT_PATH)
@@ -147,15 +135,6 @@ function cloneSeedData(value: SeedData): SeedData {
     );
   }
   return structuredClone(value);
-}
-
-function isShadowRuntime(runtime: EngineRuntime): runtime is ShadowEngineRuntime {
-  return (
-    runtime === 'rust-shadow' ||
-    runtime === 'rust-dry-run' ||
-    runtime === 'rust-native-shadow' ||
-    runtime === 'rust-native-compact-shadow'
-  );
 }
 
 function getRustClient(): RustSummaryClient {

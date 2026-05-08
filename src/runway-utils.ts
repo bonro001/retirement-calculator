@@ -29,10 +29,11 @@ export function calculateRunwayGapMetrics(input: {
   const essentialWithFixedMonthly =
     input.data.spending.essentialMonthly + input.data.spending.annualTaxesInsurance / 12;
   const targetCashRunway = essentialWithFixedMonthly * input.targetMonths;
+  const directCashBalance = roundMoney(input.data.accounts.cash.balance);
   const acceptableRunwayAssets = [
     {
       source: 'cash',
-      liquidityDollars: roundMoney(input.data.accounts.cash.balance),
+      liquidityDollars: directCashBalance,
       note: 'Direct cash bucket is fully eligible runway liquidity.',
     },
     ...(['pretax', 'roth', 'taxable', 'hsa'] as const).map((bucket) => ({
@@ -47,13 +48,16 @@ export function calculateRunwayGapMetrics(input: {
   const currentRunwayLiquidity = roundMoney(
     acceptableRunwayAssets.reduce((sum, asset) => sum + asset.liquidityDollars, 0),
   );
-  const cashGap = Math.max(0, targetCashRunway - currentRunwayLiquidity);
+  const investmentCashSleeves = roundMoney(currentRunwayLiquidity - directCashBalance);
+  const cashGap = Math.max(0, targetCashRunway - directCashBalance);
   const runwayGapMonths =
     essentialWithFixedMonthly > 0 ? roundMoney(cashGap / essentialWithFixedMonthly) : 0;
 
   return {
     essentialWithFixedMonthly: roundMoney(essentialWithFixedMonthly),
     targetCashRunway: roundMoney(targetCashRunway),
+    directCashBalance,
+    investmentCashSleeves,
     currentRunwayLiquidity,
     cashGap: roundMoney(cashGap),
     runwayGapMonths,

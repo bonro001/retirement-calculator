@@ -138,14 +138,12 @@ export function recommendCombinedPass2(
   }
   const spends = (() => {
     if (cliffSpendLevels.size === 0) return sweep.axes.annualSpendTodayDollars;
-    const sortedCliffSpends = Array.from(cliffSpendLevels).sort((a, b) => a - b);
-    const lowerCliffSpend = sortedCliffSpends[0]!;
-    const upperCliffSpend = sortedCliffSpends[sortedCliffSpends.length - 1]!;
-    const refined: number[] = [];
-    for (let spend = lowerCliffSpend; spend <= upperCliffSpend; spend += 1_000) {
-      refined.push(spend);
-    }
-    return refined;
+    // Keep cliff windows sparse. If legacy binds near $155k-$160k but
+    // solvency binds near $115k-$120k, filling the entire $115k-$160k
+    // interval burns most pass-2 compute on spends we already know are
+    // nowhere near the active cliff. The union preserves each local
+    // $1k window without mining the dead space between them.
+    return Array.from(cliffSpendLevels).sort((a, b) => a - b);
   })();
 
   // SS / Roth: always use the contender bounding box. Non-contender
@@ -194,7 +192,7 @@ export function recommendCombinedPass2(
     solvencyCliff.hasRecommendation && metric !== 'solvency' ? 'solvency' : null,
   ].filter(Boolean);
   const cliffNote = hasAnyCliff
-    ? `$1k spend resolution across the ${cliffLabels.join(' + ')} cliff${cliffLabels.length === 1 ? '' : 's'} ($${(lower / 1000).toFixed(0)}k–$${(upper / 1000).toFixed(0)}k)`
+    ? `$1k spend resolution across the ${cliffLabels.join(' + ')} cliff${cliffLabels.length === 1 ? '' : 's'} (${formatSpendWindows(spends)})`
     : `the contenders' spend range ($${(lower / 1000).toFixed(0)}k–$${(upper / 1000).toFixed(0)}k)`;
 
   return {
@@ -207,4 +205,29 @@ export function recommendCombinedPass2(
     spendUpperDollars: upper,
     rationale: `${sweep.contenderCount} contender${sweep.contenderCount === 1 ? '' : 's'} from pass-1. Pass-2 will refine ${cliffNote} across all four withdrawal rules — ~${estimated.toLocaleString()} candidates.`,
   };
+}
+
+function formatSpendWindows(spends: readonly number[]): string {
+  if (spends.length === 0) return 'no spend levels';
+  const windows: Array<{ start: number; end: number }> = [];
+  let start = spends[0]!;
+  let end = spends[0]!;
+  for (let i = 1; i < spends.length; i += 1) {
+    const spend = spends[i]!;
+    if (spend === end + 1_000) {
+      end = spend;
+      continue;
+    }
+    windows.push({ start, end });
+    start = spend;
+    end = spend;
+  }
+  windows.push({ start, end });
+  return windows
+    .map((w) =>
+      w.start === w.end
+        ? `$${(w.start / 1000).toFixed(0)}k`
+        : `$${(w.start / 1000).toFixed(0)}k-$${(w.end / 1000).toFixed(0)}k`,
+    )
+    .join(' + ');
 }

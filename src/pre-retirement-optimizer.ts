@@ -103,12 +103,31 @@ function yearsUntil(dateIso: string, asOf: Date): number {
   return Math.max(0, (target.valueOf() - asOf.valueOf()) / msPerYear);
 }
 
+function estimateWindfallLiquidity(
+  windfall: SeedData['income']['windfalls'][number],
+) {
+  if (typeof windfall.liquidityAmount === 'number') {
+    return Math.max(0, windfall.liquidityAmount);
+  }
+  if (windfall.name !== 'home_sale') {
+    return Math.max(0, windfall.amount);
+  }
+  const gross = Math.max(0, windfall.amount);
+  const sellingCost = gross * Math.max(0, Math.min(1, windfall.sellingCostPercent ?? 0));
+  const replacementHomeCost = Math.max(0, windfall.replacementHomeCost ?? 0);
+  const replacementCost =
+    replacementHomeCost +
+    replacementHomeCost * Math.max(0, Math.min(1, windfall.purchaseClosingCostPercent ?? 0)) +
+    Math.max(0, windfall.movingCost ?? 0);
+  return Math.max(0, gross - sellingCost - replacementCost);
+}
+
 function deriveCurrentContributionRates(
   settings: PreRetirementContributionSettings | undefined,
   salaryAnnual: number,
-): { current401kAnnual: number; currentHsaAnnual: number } {
+): { current401kAnnual: number; current401kPreTaxAnnual: number; currentHsaAnnual: number } {
   if (!settings) {
-    return { current401kAnnual: 0, currentHsaAnnual: 0 };
+    return { current401kAnnual: 0, current401kPreTaxAnnual: 0, currentHsaAnnual: 0 };
   }
   const preTaxPct =
     settings.employee401kPreTaxPercentOfSalary ??
@@ -118,16 +137,20 @@ function deriveCurrentContributionRates(
   const pretaxAmt = settings.employee401kPreTaxAnnualAmount ?? 0;
   const rothAmt = settings.employee401kRothAnnualAmount ?? 0;
   const legacyAmt = settings.employee401kAnnualAmount ?? 0;
-  const current401k =
-    Math.max(pretaxAmt, preTaxPct * salaryAnnual) +
-    Math.max(rothAmt, rothPct * salaryAnnual) +
-    legacyAmt;
+  const current401kPreTax =
+    Math.max(pretaxAmt, preTaxPct * salaryAnnual) + legacyAmt;
+  const current401kRoth = Math.max(rothAmt, rothPct * salaryAnnual);
+  const current401k = current401kPreTax + current401kRoth;
 
   const hsaPct = settings.hsaPercentOfSalary ?? 0;
   const hsaAmt = settings.hsaAnnualAmount ?? 0;
   const currentHsa = hsaAmt > 0 ? hsaAmt : hsaPct * salaryAnnual;
 
-  return { current401kAnnual: current401k, currentHsaAnnual: currentHsa };
+  return {
+    current401kAnnual: current401k,
+    current401kPreTaxAnnual: current401kPreTax,
+    currentHsaAnnual: currentHsa,
+  };
 }
 
 export function buildPreRetirementOptimizerRecommendation(
@@ -158,17 +181,22 @@ export function buildPreRetirementOptimizerRecommendation(
     projectionYear: now.getFullYear(),
     filingStatus: seedData.household.filingStatus,
     settings: seedData.income.preRetirementContributions,
+    limitSettings: seedData.rules.contributionLimits,
   });
 
   const limit401k = contribution.employee401kAnnualLimit;
   const limitHsa = contribution.hsaAnnualLimit;
 
-  const { current401kAnnual, currentHsaAnnual } = deriveCurrentContributionRates(
+  const { current401kAnnual, current401kPreTaxAnnual, currentHsaAnnual } = deriveCurrentContributionRates(
     seedData.income.preRetirementContributions,
     salaryAnnual,
   );
 
   const shortfall401k = Math.max(0, limit401k - current401kAnnual);
+  const preTaxShortfall401k = Math.max(
+    0,
+    contribution.employee401kPreTaxAnnualLimit - current401kPreTaxAnnual,
+  );
   const shortfallHsa = Math.max(0, limitHsa - currentHsaAnnual);
 
   const shortfalls: ContributionShortfall[] = [
@@ -181,7 +209,7 @@ export function buildPreRetirementOptimizerRecommendation(
       shortfallPct:
         limit401k > 0 ? current401kAnnual / limit401k : 0,
       estimatedMarginalFederalTaxSavedPerYear:
-        shortfall401k * marginalFederalRate,
+        preTaxShortfall401k * marginalFederalRate,
     },
     {
       bucket: 'hsa',
@@ -196,7 +224,7 @@ export function buildPreRetirementOptimizerRecommendation(
   ];
 
   // Cash-flow model assuming BOTH buckets are maxed (not current rates).
-  const preTaxAtMax = limit401k + limitHsa;
+  const preTaxAtMax = contribution.employee401kPreTaxAnnualLimit + limitHsa;
   const wagesAfterPreTax = salaryAnnual - preTaxAtMax;
   // Rough federal tax at these wages (standard deduction only, no SS yet).
   const estimatedTaxInputs: YearTaxInputs = {
@@ -260,7 +288,7 @@ export function buildPreRetirementOptimizerRecommendation(
     return BRIDGE_ELIGIBLE_TREATMENTS.has(treatment);
   });
   const bridgeWindowWindfallTotal = bridgeWindfalls.reduce(
-    (sum, windfall) => sum + (windfall.liquidityAmount ?? windfall.amount),
+    (sum, windfall) => sum + estimateWindfallLiquidity(windfall),
     0,
   );
   const bridgeWindowWindfallNames = bridgeWindfalls.map((windfall) => windfall.name);
@@ -293,15 +321,18 @@ export function buildPreRetirementOptimizerRecommendation(
 
   const hsaShortfallMaterial = shortfallHsa > 1_000;
   const the401kShortfallMaterial = shortfall401k > 1_000;
+  const preTax401kShortfallMaterial = preTaxShortfall401k > 1_000;
+  const rothOnly401kShortfall = Math.max(0, shortfall401k - preTaxShortfall401k);
+  const rothOnly401kShortfallMaterial = rothOnly401kShortfall > 1_000;
   const bothRecommendationsCompatible = estimatedAnnualSurplus > 0;
 
   const actionSteps: PreRetirementOptimizerRecommendation['actionSteps'] = [];
   let priority = 1;
-  if (the401kShortfallMaterial) {
+  if (preTax401kShortfallMaterial) {
     actionSteps.push({
       priority: priority++,
-      action: `Increase 401(k) contribution by $${Math.round(shortfall401k).toLocaleString()}/yr to hit the $${limit401k.toLocaleString()} limit (incl. catch-up).`,
-      impact: `Saves ~$${Math.round(shortfall401k * marginalFederalRate).toLocaleString()}/yr in current-year federal tax at ${Math.round(marginalFederalRate * 100)}% marginal rate.`,
+      action: `Increase pre-tax 401(k) contribution by $${Math.round(preTaxShortfall401k).toLocaleString()}/yr to hit the $${contribution.employee401kPreTaxAnnualLimit.toLocaleString()} MAGI-reducing limit.`,
+      impact: `Saves ~$${Math.round(preTaxShortfall401k * marginalFederalRate).toLocaleString()}/yr in current-year federal tax at ${Math.round(marginalFederalRate * 100)}% marginal rate.`,
     });
   }
   if (hsaShortfallMaterial) {
@@ -309,6 +340,13 @@ export function buildPreRetirementOptimizerRecommendation(
       priority: priority++,
       action: `Increase HSA contribution by $${Math.round(shortfallHsa).toLocaleString()}/yr to hit the $${limitHsa.toLocaleString()} limit (incl. 55+ catch-up if applicable).`,
       impact: `Saves ~$${Math.round(shortfallHsa * marginalFederalRate).toLocaleString()}/yr in current-year federal tax, plus future HSA withdrawals are tax-free when used for qualified medical expenses.`,
+    });
+  }
+  if (!preTax401kShortfallMaterial && the401kShortfallMaterial && rothOnly401kShortfallMaterial) {
+    actionSteps.push({
+      priority: priority++,
+      action: `Use the remaining $${Math.round(rothOnly401kShortfall).toLocaleString()}/yr of 401(k) room as Roth catch-up, if cash flow allows.`,
+      impact: `SECURE 2.0 requires this catch-up room to be Roth for high earners, so it does not lower current-year MAGI, ACA income, or federal taxable wages.`,
     });
   }
   if (bridgeCoverageGap > 10_000 && estimatedAnnualSurplus > 0) {

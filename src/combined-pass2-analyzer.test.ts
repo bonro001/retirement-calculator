@@ -100,6 +100,29 @@ describe('combined pass-2 analyzer', () => {
     ]);
   });
 
+  it('does not fill dead spend space between separate risk cliffs', () => {
+    const evaluations: PolicyEvaluation[] = [];
+    for (let spend = 100_000; spend <= 160_000; spend += 5_000) {
+      const legacy = spend <= 155_000 ? 0.90 : 0.70;
+      const solvency = spend <= 115_000 ? 0.90 : 0.70;
+      evaluations.push(makeEval({ annualSpendTodayDollars: spend }, legacy, solvency));
+    }
+    const result = recommendCombinedPass2(
+      evaluations,
+      seedFixture as SeedData,
+      0.85,
+      'legacy',
+      0.85,
+    );
+    expect(result.hasRecommendation).toBe(true);
+    expect(result.hasCliff).toBe(true);
+    expect(result.axes.annualSpendTodayDollars).toEqual([
+      115_000, 116_000, 117_000, 118_000, 119_000, 120_000,
+      155_000, 156_000, 157_000, 158_000, 159_000, 160_000,
+    ]);
+    expect(result.axes.annualSpendTodayDollars).not.toContain(130_000);
+  });
+
   it("falls back to contenders' spend bounding box when no cliff present", () => {
     // All-feasible corpus → no cliff. Pass-2 uses the contenders'
     // spend range instead of $1k zoom.

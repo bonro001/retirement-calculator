@@ -2,6 +2,30 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { initialSeedData } from './data';
 import { useAppStore } from './store';
 
+function installLocalStorageStub() {
+  const values = new Map<string, string>();
+  const localStorage = {
+    getItem: (key: string) => values.get(key) ?? null,
+    setItem: (key: string, value: string) => {
+      values.set(key, value);
+    },
+    removeItem: (key: string) => {
+      values.delete(key);
+    },
+    clear: () => {
+      values.clear();
+    },
+    key: (index: number) => Array.from(values.keys())[index] ?? null,
+    get length() {
+      return values.size;
+    },
+  } as Storage;
+  Object.defineProperty(globalThis, 'window', {
+    value: { localStorage },
+    configurable: true,
+  });
+}
+
 function resetStore() {
   useAppStore.setState((state) => ({
     ...state,
@@ -148,6 +172,8 @@ describe('store applyAccountTradeInstructions', () => {
 
 describe('store adoptMinedPolicy', () => {
   beforeEach(() => {
+    installLocalStorageStub();
+    window.localStorage.removeItem('retirement-calc:adopted-plan:v1');
     resetStore();
     useAppStore.setState({ unifiedPlanRerunNonce: 0, lastPolicyAdoption: null });
   });
@@ -188,6 +214,23 @@ describe('store adoptMinedPolicy', () => {
     expect(Math.abs(appliedSpend - 110_000)).toBeLessThanOrEqual(12);
   });
 
+  it('persists the adopted plan so a reload can hydrate the cockpit', () => {
+    useAppStore.getState().adoptMinedPolicy({
+      annualSpendTodayDollars: 116_000,
+      primarySocialSecurityClaimAge: 70,
+      spouseSocialSecurityClaimAge: 67,
+      rothConversionAnnualCeiling: 40_000,
+    });
+
+    const raw = window.localStorage.getItem('retirement-calc:adopted-plan:v1');
+    expect(raw).not.toBeNull();
+    const persisted = JSON.parse(raw ?? '{}');
+    expect(persisted.lastPolicyAdoption.policy.annualSpendTodayDollars).toBe(116_000);
+    expect(persisted.appliedData.spending.essentialMonthly).toBe(
+      useAppStore.getState().appliedData.spending.essentialMonthly,
+    );
+  });
+
   it('bumps the rerun nonce again on undo so the chart catches up', () => {
     const previousApplied = structuredClone(useAppStore.getState().appliedData);
     useAppStore.getState().adoptMinedPolicy({
@@ -202,5 +245,6 @@ describe('store adoptMinedPolicy', () => {
     expect(afterUndo.unifiedPlanRerunNonce).toBe(afterAdopt + 1);
     expect(afterUndo.lastPolicyAdoption).toBeNull();
     expect(afterUndo.appliedData).toEqual(previousApplied);
+    expect(window.localStorage.getItem('retirement-calc:adopted-plan:v1')).toBeNull();
   });
 });

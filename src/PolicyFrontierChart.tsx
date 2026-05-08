@@ -90,7 +90,7 @@ function formatPolicyAxes(p: Policy): string {
     parts.push(`spouse SS ${p.spouseSocialSecurityClaimAge}`);
   }
   if (p.rothConversionAnnualCeiling > 0) {
-    parts.push(`Roth ≤ ${formatSpend(p.rothConversionAnnualCeiling)}`);
+    parts.push(`Roth max ${formatSpend(p.rothConversionAnnualCeiling)}`);
   } else {
     parts.push('no Roth');
   }

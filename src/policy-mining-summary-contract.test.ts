@@ -7,6 +7,8 @@ import {
 } from './policy-mining-summary-contract';
 import { initialSeedData } from './data';
 import { DEFAULT_ENGINE_COMPARE_ASSUMPTIONS } from './engine-compare';
+import { buildDefaultPolicyAxes, enumeratePolicies } from './policy-axis-enumerator';
+import { runPolicyMiningDeterminismCheck } from './policy-miner-eval';
 import type { PathResult } from './types';
 import { buildPathResults } from './utils';
 
@@ -141,5 +143,31 @@ describe('policy mining summary contract', () => {
 
     expect(comparison.pass).toBe(true);
     expect(summaryOnlyPath.simulationDiagnostics.withdrawalPath).toHaveLength(0);
+  });
+
+  it('verifies a mining candidate is reproducible with the same seed before exploration', () => {
+    const [policy] = enumeratePolicies(buildDefaultPolicyAxes(initialSeedData));
+    if (!policy) {
+      throw new Error('Expected default mining axes to produce a policy');
+    }
+    const check = runPolicyMiningDeterminismCheck({
+      policy,
+      baseline: initialSeedData,
+      assumptions: {
+        ...DEFAULT_ENGINE_COMPARE_ASSUMPTIONS,
+        simulationRuns: 8,
+        simulationSeed: 123456,
+        assumptionsVersion: 'determinism-check-test',
+      },
+      baselineFingerprint: 'determinism-test',
+      engineVersion: 'determinism-test-engine',
+      cloner: (seed) => JSON.parse(JSON.stringify(seed)),
+      trialCount: 8,
+    });
+
+    expect(check.passed).toBe(true);
+    expect(check.seed).toBe(123456);
+    expect(check.comparedFields).toContain('successRate');
+    expect(check.firstDifference).toBeNull();
   });
 });

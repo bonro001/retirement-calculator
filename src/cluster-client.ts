@@ -67,12 +67,14 @@ import {
   unprimeMinerSession,
 } from './policy-miner-pool';
 import {
+  buildPolicyMinerRunEngineVersion,
   POLICY_MINER_ENGINE_VERSION,
   type MiningJobResult,
   type PolicyEvaluation,
   type PolicyMiningSessionConfig,
 } from './policy-miner-types';
-import { buildDefaultPolicyAxes } from './policy-axis-enumerator';
+import { buildDefaultPolicyAxes, enumeratePolicies } from './policy-axis-enumerator';
+import { runPolicyMiningDeterminismCheck } from './policy-miner-eval';
 import type { MarketAssumptions, SeedData } from './types';
 
 // ---------------------------------------------------------------------------
@@ -174,12 +176,49 @@ export interface StartSessionOptions {
     trialCount: number;
     feasibilityBuffer: number;
   };
+  /**
+   * One-shot trust guard before a mine starts. The controller re-runs a
+   * tiny same-policy / same-seed check twice and refuses to start if the
+   * engine produces different values. Default: enabled at 32 trials.
+   */
+  determinismCheck?: {
+    enabled?: boolean;
+    trialCount?: number;
+  };
+  /**
+   * Optional override for replay/debugging. When omitted, each new mining
+   * session gets a fresh session seed. All policies in that session share
+   * the seed so policy comparisons stay apples-to-apples.
+   */
+  explorationSeed?: number;
 }
 
 interface ClusterClientConfig {
   dispatcherUrl: string;
   /** Display name surfaced in the per-host stats panel. */
   displayName: string;
+}
+
+function makeMiningSessionSeed(): number {
+  const max = 2_147_483_647;
+  if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
+    const values = new Uint32Array(1);
+    crypto.getRandomValues(values);
+    return 1 + (values[0] % max);
+  }
+  return 1 + (Math.floor(Date.now() + Math.random() * max) % max);
+}
+
+function assumptionsVersionWithMiningSeed(
+  assumptions: MarketAssumptions,
+  seed: number,
+): string {
+  const base = assumptions.assumptionsVersion ?? 'mining';
+  return `${base}-session-seed-${seed}`;
+}
+
+function cloneSeedDataForDeterminism(seed: SeedData): SeedData {
+  return JSON.parse(JSON.stringify(seed)) as SeedData;
 }
 
 // ---------------------------------------------------------------------------
@@ -222,6 +261,7 @@ export function createClusterClient(config: ClusterClientConfig): ClusterClient 
 
   /** Per-session bookkeeping. Cleared on cancel / new session. */
   let activeSessionId: string | null = null;
+  let activeSessionEngineVersion: string | null = null;
   const inFlightBatchIds = new Set<string>();
 
   /** Mutate-and-broadcast helper. Always replaces the snapshot reference
@@ -369,6 +409,7 @@ export function createClusterClient(config: ClusterClientConfig): ClusterClient 
         cancelMinerSession();
         unprimeMinerSession(activeSessionId);
         activeSessionId = null;
+        activeSessionEngineVersion = null;
       }
       inFlightBatchIds.clear();
       if (intentionallyClosed) {
@@ -492,6 +533,7 @@ export function createClusterClient(config: ClusterClientConfig): ClusterClient 
       unprimeMinerSession(activeSessionId);
     }
     activeSessionId = sessionId;
+    activeSessionEngineVersion = message.config.engineVersion;
     primeMinerSession({
       sessionId,
       data: message.seedDataPayload as SeedData,
@@ -508,6 +550,7 @@ export function createClusterClient(config: ClusterClientConfig): ClusterClient 
     cancelMinerSession();
     unprimeMinerSession(activeSessionId);
     activeSessionId = null;
+    activeSessionEngineVersion = null;
     inFlightBatchIds.clear();
   }
 
@@ -517,7 +560,7 @@ export function createClusterClient(config: ClusterClientConfig): ClusterClient 
       sendNack(sessionId, batch.batchId, 'no_active_session');
       return;
     }
-    if (batch.engineVersion !== POLICY_MINER_ENGINE_VERSION) {
+    if (!activeSessionEngineVersion || batch.engineVersion !== activeSessionEngineVersion) {
       sendNack(sessionId, batch.batchId, 'engine_version_mismatch');
       return;
     }
@@ -592,9 +635,52 @@ export function createClusterClient(config: ClusterClientConfig): ClusterClient 
       throw new Error('cluster client not connected');
     }
     const axes = opts.axesOverride ?? buildDefaultPolicyAxes(opts.baseline);
+    const trialCount = opts.trialCount ?? 2000;
+    const sessionSeed = opts.explorationSeed ?? makeMiningSessionSeed();
+    const sessionEngineVersion = buildPolicyMinerRunEngineVersion(
+      POLICY_MINER_ENGINE_VERSION,
+      sessionSeed,
+      trialCount,
+    );
+    const assumptionsWithTrials: MarketAssumptions = {
+      ...opts.assumptions,
+      simulationRuns: trialCount,
+      simulationSeed: sessionSeed,
+      assumptionsVersion: assumptionsVersionWithMiningSeed(opts.assumptions, sessionSeed),
+    };
+    if (opts.determinismCheck?.enabled !== false) {
+      const checkPolicy = enumeratePolicies(axes)[0];
+      if (!checkPolicy) {
+        throw new Error('cluster client expected at least one policy for determinism check');
+      }
+      const check = runPolicyMiningDeterminismCheck({
+        policy: checkPolicy,
+        baseline: opts.baseline,
+        assumptions: assumptionsWithTrials,
+        baselineFingerprint: opts.baselineFingerprint,
+        engineVersion: sessionEngineVersion,
+        cloner: cloneSeedDataForDeterminism,
+        trialCount: opts.determinismCheck?.trialCount ?? Math.min(32, trialCount),
+      });
+      if (!check.passed) {
+        const diff = check.firstDifference;
+        throw new Error(
+          `Mining determinism check failed for seed ${check.seed}` +
+            (diff
+              ? `: ${diff.field} first=${diff.first} second=${diff.second}`
+              : ''),
+        );
+      }
+      // eslint-disable-next-line no-console
+      console.info('[mining] deterministic replay check passed', {
+        seed: check.seed,
+        trialCount: check.trialCount,
+        policyId: check.policyId,
+      });
+    }
     const config: PolicyMiningSessionConfig = {
       baselineFingerprint: opts.baselineFingerprint,
-      engineVersion: POLICY_MINER_ENGINE_VERSION,
+      engineVersion: sessionEngineVersion,
       axes,
       feasibilityThreshold: opts.feasibilityThreshold,
       maxPoliciesPerSession:
@@ -604,14 +690,6 @@ export function createClusterClient(config: ClusterClientConfig): ClusterClient 
       // set, the dispatcher pre-screens every policy at coarse trial
       // count and re-evaluates only survivors at full trialCount.
       coarseStage: opts.coarseStage,
-    };
-    // Pin trialCount onto the assumptions payload so a host that uses
-    // assumptions.simulationRuns ends up with the same number the
-    // controller asked for. Mirror the CLI's behavior.
-    const trialCount = opts.trialCount ?? 2000;
-    const assumptionsWithTrials: MarketAssumptions = {
-      ...opts.assumptions,
-      simulationRuns: trialCount,
     };
     const start: StartSessionMessage = {
       kind: 'start_session',

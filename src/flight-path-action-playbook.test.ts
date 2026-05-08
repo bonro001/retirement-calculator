@@ -121,7 +121,7 @@ describe('flight-path-action-playbook', () => {
       .filter((action) => action.id.includes('runway'));
 
     if (runwayActions.length === 0) {
-      expect(preRetirement?.actions.length ?? 0).toBe(0);
+      expect(preRetirement?.actions.some((action) => action.id.includes('runway'))).toBe(false);
       return;
     }
 
@@ -181,6 +181,12 @@ describe('flight-path-action-playbook', () => {
       ),
     ).toBe(true);
     expect(acaBridgePhase?.acaMetrics?.guardrailBufferDollars).toBe(5000);
+    expect(
+      acaBridgePhase?.acaMetrics?.requiredMagiReductionWithBuffer ?? 0,
+    ).toBeGreaterThanOrEqual(0);
+    expect(
+      acaBridgePhase?.acaMetrics?.estimatedAcaPremiumAtRisk ?? 0,
+    ).toBeGreaterThanOrEqual(0);
     expect(
       ['normal', 'watch', 'recovery', 'unknown'].includes(
         result.diagnostics.acaGuardrailAdjustment.mode,
@@ -243,6 +249,32 @@ describe('flight-path-action-playbook', () => {
       ),
     ).toBe(true);
     expect(result.diagnostics.inferredAssumptions.length).toBeGreaterThan(0);
+  });
+
+  it('surfaces final-year 401k room as a pre-retirement payroll action', () => {
+    const result = buildFlightPathPhasePlaybook({
+      evaluation: null,
+      data: structuredClone(initialSeedData),
+      assumptions: PLAYBOOK_TEST_ASSUMPTIONS,
+      selectedStressors: [],
+      selectedResponses: [],
+      nowYear: 2026,
+    });
+
+    const preRetirement = result.phases.find((phase) => phase.id === 'pre_retirement');
+    const action = preRetirement?.actions.find(
+      (item) => item.id === 'pre-retirement-final-year-401k-max-1',
+    );
+
+    expect(action).toBeDefined();
+    expect(action?.tradeInstructions.length).toBe(0);
+    expect(action?.contributionSettingsPatch?.employee401kPreTaxAnnualAmount).toBe(36250);
+    expect(Number(action?.intermediateCalculations.employee401kAnnualLimit)).toBe(36250);
+    expect(Number(action?.intermediateCalculations.employee401kRemainingRoom)).toBeCloseTo(
+      20510.5,
+      1,
+    );
+    expect(action?.objective).toMatch(/MAGI/);
   });
 
   it('is deterministic for repeated seeded runs', () => {
@@ -359,5 +391,117 @@ describe('flight-path-action-playbook', () => {
     expect(payrollAction?.contributionSettingsPatch?.employee401kPreTaxAnnualAmount).toBeGreaterThan(
       26000,
     );
+    expect(payrollAction?.contributionSettingsPatch?.employee401kPreTaxAnnualAmount).toBeLessThanOrEqual(
+      Number(payrollAction?.intermediateCalculations.employee401kAnnualLimit),
+    );
+    expect(
+      Number(payrollAction?.intermediateCalculations.acaBridgeMagiReductionNeededWithBuffer),
+    ).toBe(29000);
+    expect(
+      Number(payrollAction?.intermediateCalculations.remainingMagiReductionAfterPayroll),
+    ).toBeGreaterThan(0);
+    expect(
+      Number(payrollAction?.intermediateCalculations.mitigationAttributedToRothConversionCapping),
+    ).toBeGreaterThan(0);
+    expect(Number(payrollAction?.intermediateCalculations.estimatedAcaPremiumAtRisk)).toBeGreaterThan(
+      0,
+    );
+  });
+
+  it('distinguishes unmitigated ACA risk from the executed planner path', () => {
+    const data = structuredClone(initialSeedData);
+    const evaluation = {
+      raw: {
+        run: {
+          plan: {
+            modelCompleteness: 'faithful',
+            inferredAssumptions: [],
+          },
+          autopilot: {
+            years: [
+              {
+                year: 2027,
+                regime: 'aca_bridge',
+                estimatedMAGI: 87591,
+                acaFriendlyMagiCeiling: 84969,
+                withdrawalCash: 0,
+                withdrawalTaxable: 12000,
+                withdrawalIra401k: 0,
+                withdrawalRoth: 8000,
+                rmdAmount: 0,
+                irmaaStatus: 'not_applicable',
+                irmaaHeadroom: null,
+                robAge: 63,
+                debbieAge: 61,
+              },
+            ],
+          },
+        },
+      },
+    } as unknown as Parameters<typeof buildFlightPathPhasePlaybook>[0]['evaluation'];
+
+    const result = buildFlightPathPhasePlaybook({
+      evaluation,
+      data,
+      assumptions: PLAYBOOK_TEST_ASSUMPTIONS,
+      selectedStressors: [],
+      selectedResponses: [],
+      nowYear: 2026,
+      executedSimulationOutcome: {
+        yearlySeries: [
+          {
+            year: 2027,
+            medianMagi: 72993,
+            medianRothConversion: 11475,
+          },
+        ],
+      } as unknown as PathResult,
+      unmitigatedSimulationOutcome: {
+        yearlySeries: [
+          {
+            year: 2027,
+            medianMagi: 87591,
+            medianRothConversion: 40000,
+          },
+        ],
+      } as unknown as PathResult,
+    });
+
+    const acaMetrics = result.phases.find((phase) => phase.id === 'aca_bridge')?.acaMetrics;
+    expect(acaMetrics?.projectedMagi).toBe(72993);
+    expect(acaMetrics?.unmitigatedProjectedMagi).toBe(87591);
+    expect(acaMetrics?.requiredMagiReduction).toBe(0);
+    expect(acaMetrics?.unmitigatedRequiredMagiReduction).toBe(2622);
+    expect(acaMetrics?.acaMitigationDelta).toBe(14598);
+    expect(acaMetrics?.acaStatus).toBe('mitigated');
+    expect(result.diagnostics.acaGuardrailAdjustment.mode).toBe('normal');
+  });
+
+  it('surfaces a Roth FCNTX concentration reducer when the Roth bucket is dominated by one fund', () => {
+    const result = buildFlightPathPhasePlaybook({
+      evaluation: null,
+      data: structuredClone(initialSeedData),
+      assumptions: PLAYBOOK_TEST_ASSUMPTIONS,
+      selectedStressors: [],
+      selectedResponses: [],
+      nowYear: 2026,
+    });
+
+    const concentrationActions = result.phases
+      .flatMap((phase) => phase.actions)
+      .filter((action) => action.id.startsWith('roth-fcntx-concentration-'));
+
+    expect(concentrationActions.length).toBeGreaterThan(0);
+    const balancedAction = concentrationActions.find((action) =>
+      action.id.endsWith('-2'),
+    );
+    expect(balancedAction).toBeDefined();
+    expect(balancedAction?.tradeInstructions.length).toBeGreaterThan(0);
+    expect(
+      new Set(balancedAction?.tradeInstructions.map((instruction) => instruction.toSymbol)),
+    ).toEqual(new Set(['VTI', 'VXUS']));
+    expect(
+      Number(balancedAction?.intermediateCalculations.concentrationSharePercent),
+    ).toBeGreaterThan(75);
   });
 });

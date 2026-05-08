@@ -20,6 +20,251 @@ Execution protocol:
 
 ---
 
+## Active north-star issue loop — 2026-05-08
+
+North star: the engine determines the decision-grade household number from
+explicit assumptions. Static seed values, stale exports, and narrative memos are
+inputs or evidence only. The number must come from a reproducible, structured
+plan run with a visible assumptions pack, mode label, model-completeness status,
+and enough intermediate calculations to explain why it moved.
+
+This loop captures known issues that can distort, overstate, understate, or
+mislabel that number.
+
+23. [x] Capture known issue loop
+- Create the active remediation loop from the 2026-05-08 plan-validation review.
+- Classify each item by whether it changes the headline number directly, changes
+  recommendation trust, or changes export/trace explainability.
+  - Done: this section. The loop intentionally treats the seed as incidental; it
+    targets the engine path that computes supported spending / solvency under
+    explicit assumptions.
+  - Files: `VALIDATION_WORKPLAN.md`.
+
+24. [x] Remove seed-spending-as-answer framing
+- Stop treating the seed's current annual spending value (roughly `$140k` in
+  the current household inputs) as the meaningful number. It is an input,
+  scenario candidate, or current-lifestyle reference only.
+- Audit UI labels, exports, docs, and validation narratives for language that
+  implies the seed spending target is the plan answer or north star.
+- Acceptance: the product distinguishes:
+  - current lifestyle/input spending from `seed-data.json`;
+  - engine-supported spending from the optimizer/mining corpus;
+  - solvency/wealth results for a selected spending policy.
+- The seed value may remain as a household input where needed, but it must not
+  be presented as the decision-grade number we are trying to determine.
+  - Done: first cleanup pass kept the modern Cockpit's useful distinction
+    (`Your current lifestyle` vs frontier / adopted policy), renamed seed/Roth
+    comparison labels to input-policy language, changed legacy screen copy from
+    "current seed/current plan supports" to household-input / input-run wording,
+    and updated the retirement-plan inferred assumption so current stretch spend
+    is explicitly a scenario input, not an optimized recommendation.
+  - Files: `src/CockpitScreen.tsx`, `src/spend-optimizer.ts`,
+    `src/retirement-plan.ts`, `src/flight-path-policy.ts`, `src/App.tsx`.
+  - Do not delete the spending fields from `seed-data.json` yet; they are still
+    needed as household input/category structure. The removal is conceptual and
+    presentation-level first: no seed spending value should be promoted as the
+    north-star result.
+
+25. [x] Define the canonical north-star result contract
+- Add or formalize a structured result object that every UI/export uses for the
+  headline number.
+- Required fields: `generatedAtIso`, `planFingerprint`, `engineVersion`,
+  `assumptionsPackVersion`, `distributionMode`, `simulationSeed`,
+  `simulationRuns`, `supportedAnnualSpend`, `successRate`,
+  `medianEndingWealth`, `tenthPercentileEndingWealth`, `modelCompleteness`,
+  `inferredAssumptions`, `intermediateCalculations`, and sensitivity results.
+- Acceptance: no UI/export can present a headline without the mode label
+  (`forward-looking` vs `historical-precedent`) and the assumption provenance
+  used to compute it.
+  - Done: added `src/north-star-result.ts` with `NorthStarResult`,
+    `distributionMode`, fingerprint, engine/rule provenance, model completeness,
+    inferred assumptions, headline outputs, intermediate calculations, and
+    sensitivity-result slots. Planning export now includes `northStarResult`
+    built from the active planner-enhanced simulation.
+  - Files: `src/north-star-result.ts`, `src/north-star-result.test.ts`,
+    `src/planning-export.ts`.
+  - Verification: `npm run test -- src/north-star-result.test.ts`;
+    `npm run build`.
+
+26. [x] Centralize current-law rule packs with provenance
+- Create one explicit source of truth for plan-year federal tax, ACA, IRMAA,
+  401(k), HSA, RMD, and Social Security parameters.
+- Known drift to clean up:
+  - `DEFAULT_TAX_ENGINE_CONFIG` is labeled 2026 while still using 2024 bracket
+    values in several places.
+  - Contribution defaults still reflect old 401(k) limits unless the seed
+    overrides them.
+  - `docs/tax-engine-assumptions.md` and the prior ACA workplan notes still
+    describe the expired post-ARPA/IRA no-cliff regime, while current tests/code
+    now model the restored 400% FPL cliff.
+- Acceptance: tests pin the active rule pack against published 2026 values, and
+  docs/export metadata state the active law regime rather than relying on stale
+  comments.
+  - Done: added `CURRENT_LAW_2026_RULE_PACK` as the central source for 2026
+    federal tax, ACA, IRMAA, 401(k), HSA, RMD, and Social Security provenance.
+    Wired tax, contribution, healthcare, IRMAA, and north-star result metadata
+    to the active rule-pack version. Refreshed the tax fixture and assumptions
+    doc away from stale 2024 / post-ARPA language.
+  - Files: `src/rule-packs.ts`, `src/rule-packs.test.ts`,
+    `src/tax-engine.ts`, `src/contribution-engine.ts`,
+    `src/healthcare-premium-engine.ts`, `src/retirement-rules.ts`,
+    `src/north-star-result.ts`, `fixtures/tax_engine_scenarios.json`,
+    `docs/tax-engine-assumptions.md`.
+  - Verification: `npm run test -- src/rule-packs.test.ts
+    src/tax-engine-scenarios.test.ts src/contribution-engine.test.ts
+    src/aca-subsidy-boundaries.test.ts src/irmaa-tier-boundaries.test.ts
+    src/north-star-result.test.ts`; `npm run build`.
+
+27. [x] Model SECURE 2.0 high-earner Roth catch-up explicitly
+- Add explicit inputs for prior-year FICA wages and whether the employer plan
+  supports Roth deferrals / super catch-up.
+- For high earners, split 401(k) contributions into MAGI-reducing pre-tax base
+  and non-MAGI-reducing Roth catch-up.
+- Acceptance: 2026 age-60-63 cases show total employee room separately from
+  pre-tax MAGI reduction; ACA bridge recommendations cannot count Roth-required
+  catch-up dollars as ACA help.
+  - Done: contribution calculations now expose total employee 401(k) room,
+    pre-tax MAGI-reducing room, catch-up room, Roth-required catch-up room, and
+    Roth-unavailable catch-up diagnostics. Added explicit seed inputs for
+    prior-year FICA wages and employer Roth/super-catch-up support. The
+    pre-retirement optimizer now uses pre-tax 401(k) room plus HSA for MAGI /
+    ACA bridge math and labels high-earner catch-up as Roth-only.
+  - Files: `src/contribution-engine.ts`, `src/contribution-engine.test.ts`,
+    `src/pre-retirement-optimizer.ts`, `src/rule-packs.ts`,
+    `src/rule-packs.test.ts`, `src/types.ts`, `seed-data.json`,
+    `docs/tax-engine-assumptions.md`.
+  - Verification: `npm run test -- src/contribution-engine.test.ts
+    src/rule-packs.test.ts src/pre-retirement-optimizer-demo.test.ts
+    src/flight-path-pre-retirement-candidate.test.ts`; `npm run build`.
+
+28. [x] Re-verify ACA bridge guardrails under current law
+- Ensure the engine uses current-law 400% FPL subsidy eligibility, plan-year FPL,
+  retirement/employer-coverage gating, Medicare split-household treatment, and
+  premium-at-risk calculations.
+- Acceptance: bridge-year trace reports MAGI before/after payroll, HSA,
+  conversion, taxable-income, and withdrawal effects; Roth conversions are not
+  scheduled across the ACA cliff unless the plan explicitly accepts the premium
+  cost.
+  - Done: added `acaBridgeTrace` to bridge-year autopilot output with MAGI
+    before payroll, after pre-tax 401(k), after HSA, after Roth conversion,
+    after taxable income, and after final withdrawals. Trace includes ACA
+    ceiling/headroom, premium at risk, and explicit booleans for conversion
+    crossing/accepted-across-cliff. Added regression coverage that bridge-year
+    conversions do not cross the cliff.
+  - Files: `src/autopilot-timeline.ts`, `src/autopilot-timeline.test.ts`.
+  - Verification: `npm run test -- src/autopilot-timeline.test.ts`;
+    `npm run build`.
+
+29. [x] Promote Roth conversion ceiling from manual knob to optimized output
+- Treat the annual Roth conversion amount / ceiling as an engine-selected policy
+  bounded by ACA, IRMAA, tax bracket, liquidity, and model-completeness rules.
+- Surface unused safe room by reason: annual cap, ACA cliff, IRMAA cliff,
+  insufficient pre-tax balance, liquidity, or explicit user constraint.
+- Acceptance: conversion schedule includes base + perturbed sensitivity runs,
+  and changing the cap is no longer a hidden assumption that silently drives the
+  north-star number.
+  - Done: verified the Cockpit already routes the Roth ceiling through
+    `findOptimalRothCeilingAsync` before the final optimized projection, then
+    added export-level unused-safe-room diagnostics by reason so the annual cap
+    cannot silently explain away missed conversion room. The schedule/status
+    now breaks unused safe room into annual cap / ACA cliff / IRMAA cliff / tax
+    bracket / insufficient pretax / liquidity / explicit constraint / model
+    completeness buckets.
+  - Files: `src/planning-export.ts`, `src/planning-export.test.ts`.
+  - Verification: `npm run test -- src/planning-export.test.ts
+    src/roth-optimizer.test.ts`; `npm run build`.
+
+30. [x] Separate headline math from recommendation-trust risks
+- SCHD concentration, FCNTX concentration, MUB in taxable, and
+  CENTRAL_MANAGED/TRP_2030 look-through uncertainty should be classified
+  explicitly:
+  - If the engine prices the risk, it may affect the headline number.
+  - If the engine only maps the holding to broad asset classes, the number must
+    say the model is reconstructed for manager/factor/tax-location risk.
+- Acceptance: recommendations can flag the risks without pretending the
+  Monte Carlo success rate already prices single-fund or manager risk it does
+  not model.
+  - Done: added a model-fidelity trust-risk classification that explicitly
+    labels SCHD/FCNTX/MUB/TRP_2030/CENTRAL_MANAGED-style issues as
+    recommendation-trust risks when the headline simulation only prices broad
+    asset-class mappings. These risks affect model trust/completeness rather
+    than pretending to be priced in the Monte Carlo success rate.
+  - Files: `src/model-fidelity.ts`, `src/model-fidelity.test.ts`.
+  - Verification: `npm run test -- src/model-fidelity.test.ts
+    src/planning-export.test.ts`; `npm run build`.
+
+31. [x] Add a yearly cashflow reconciliation trace
+- Build a deterministic per-year audit view that reconciles spending, tax,
+  healthcare, ACA subsidy, IRMAA, contributions, conversions, withdrawals,
+  windfalls, and ending balances.
+- Known trigger: investigate anomalous low-spending years such as the reviewed
+  2028 line item by tracing the exact components rather than reading the export
+  narrative.
+- Acceptance: every year has equations that tie out from starting balances to
+  ending balances, with missing or inferred components flagged.
+  - Done: added an explicit per-year `cashflowReconciliation` trace to the path
+    yearly series. The trace separates income, adjusted wages, Social Security,
+    RMD/windfall inflows, account withdrawals, spending/tax/healthcare/LTC
+    outflows, surplus/gap, unresolved funding gap, and an equation check for
+    auditability. Notes clarify that withdrawals are funding sources and that
+    balance movement also reflects market returns/reallocation.
+  - Files: `src/types.ts`, `src/utils.ts`, `src/cashflow-accounting.test.ts`.
+  - Verification: `npm run test -- src/cashflow-accounting.test.ts
+    src/planning-export.test.ts`; `npm run build`.
+
+32. [x] Verify stochastic LTC/HSA path visibility
+- Prove the Monte Carlo path samples LTC event probability, cost inflation, event
+  duration, and HSA reserve behavior as explicit path state.
+- Acceptance: deterministic audit shows expected/no-event/with-event traces, and
+  Monte Carlo aggregate outputs expose LTC incidence and cost percentiles rather
+  than hiding them inside ending wealth.
+  - Done: added `ltcHsaDiagnostics` to path results with LTC event incidence,
+    event-run counts, total LTC/HSA offset/remaining-cost percentiles, annual
+    active-event rates, annual cost percentiles, and an isolated deterministic
+    no-event / with-event / expected-value LTC/HSA reserve trace. Yearly series
+    now also carries `ltcHsaPathVisibility` so LTC tail risk is visible beside
+    the cashflow and wealth path.
+  - Files: `src/types.ts`, `src/utils.ts`, `src/ltc-probability.test.ts`.
+  - Verification: `npm run test -- src/ltc-probability.test.ts
+    src/downsize-hsa-reserve.test.ts`; `npm run build`.
+
+33. [x] Add export freshness and replay checks
+- Every validation export should include `generatedAtIso`, `planFingerprint`,
+  `engineVersion`, rule-pack versions, distribution mode, and sensitivity mode.
+- Acceptance: opening an old export next to a new engine run can identify which
+  assumption/rule/code version changed the headline number.
+  - Done: added `exportFreshness` to planning exports with generated timestamp,
+    plan fingerprint, engine/assumptions version, current-law rule-pack version,
+    distribution mode, active/raw/planner simulation mode labels, selected
+    stressor/response sensitivity IDs, optimization objective, replay key,
+    seed/run metadata, replay checks, and change-detection identities for input,
+    rule, engine, stochastic, and scenario drift.
+  - Files: `src/planning-export.ts`, `src/planning-export.test.ts`.
+  - Verification: `npm run test -- src/planning-export.test.ts`;
+    `npm run build`.
+
+34. [x] Close with full north-star verification
+- Run both distribution modes plus perturbed sensitivity runs after steps 24-33.
+- Acceptance: `npm run test`, `npm run test:calibration`, and a generated
+  validation export all agree on the canonical north-star result object and its
+  intermediate calculations.
+  - Done: ran the full suite, the calibration suite, production build, and a
+    generated compact north-star validation export. The export includes
+    forward-looking and historical-precedent north-star results, six
+    perturbation sensitivity rows, freshness/replay metadata, active-path
+    intermediate checks, and LTC/HSA diagnostics.
+  - Files: `docs/exports/latest-north-star-validation.json`,
+    `src/decision-engine.test.ts`, `src/flight-path-action-playbook.test.ts`,
+    `src/flight-path-policy.test.ts`, `src/rust-engine-client-node-boundary.test.ts`,
+    `src/scenario-compare.test.ts`, `src/spend-solver.test.ts`,
+    `src/stressor-layoff-mechanic.test.ts`, `src/tax-engine.test.ts`,
+    `src/verification-scenarios.ts`, `vitest.config.ts`.
+  - Verification: `npm run test`; `npm run test:calibration`;
+    `npm run build`; generated `docs/exports/latest-north-star-validation.json`
+    with 5/5 validation checks passing.
+
+---
+
 ## Track A — Property tests
 
 1. [x] Catalog invariants

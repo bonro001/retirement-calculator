@@ -39,13 +39,23 @@ export async function loadCorpusEvaluations(
   if (dispatcherUrl) {
     try {
       const sessions = await loadClusterSessions(dispatcherUrl);
-      // Sessions are sorted most-recent-first by the server. Find the
-      // first one matching baseline + engine version.
-      const match = sessions.find(
+      // Sessions are sorted most-recent-first by the server. Prefer an
+      // exact baseline + engine match; randomized mining sessions embed
+      // the exploration seed in engineVersion, so fall back to the newest
+      // session for the same baseline when callers only know the base
+      // semantic engine version.
+      const exactMatch = sessions.find(
         (s) =>
           s.manifest?.config?.baselineFingerprint === baselineFingerprint &&
           s.manifest?.config?.engineVersion === engineVersion,
       );
+      const baselineMatch =
+        exactMatch ??
+        sessions.find(
+          (s) =>
+            s.manifest?.config?.baselineFingerprint === baselineFingerprint,
+        );
+      const match = exactMatch ?? baselineMatch;
       if (match) {
         const payload = await loadClusterEvaluations(
           dispatcherUrl,

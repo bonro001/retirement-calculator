@@ -28,6 +28,11 @@ const ACA_GUARDRAIL_BUFFER_DOLLARS = 5_000;
 const RUNWAY_TARGET_MONTHS = 18;
 const RUNWAY_GAP_MONTHS_FOR_PRIORITY_SHIFT = 6;
 const DEFAULT_PAYROLL_RUNWAY_ESTIMATED_TAKE_HOME_FACTOR = 0.72;
+const ROTH_CONCENTRATION_SYMBOL = 'FCNTX';
+const ROTH_CONCENTRATION_WATCH_SHARE = 0.5;
+const ROTH_CONCENTRATION_NOW_SHARE = 0.75;
+const ROTH_CONCENTRATION_SPLIT_TO_VTI = 0.75;
+const ROTH_CONCENTRATION_SPLIT_TO_VXUS = 0.25;
 
 export type PlaybookPriority = 'now' | 'soon' | 'watch';
 export type PlaybookPhaseId =
@@ -40,6 +45,7 @@ export type PlaybookPhaseStatus = 'active' | 'upcoming' | 'completed';
 export type PortfolioBucket = 'pretax' | 'roth' | 'taxable' | 'cash' | 'hsa';
 export type PlaybookModelCompleteness = 'faithful' | 'reconstructed';
 export type AcaSubsidyRiskBand = 'green' | 'yellow' | 'red' | 'unknown';
+export type AcaBridgeStatus = 'safe' | 'watch' | 'mitigated' | 'breach' | 'unknown';
 export type RetirementFlowRegime = 'standard' | 'aca_bridge' | 'unknown';
 
 export interface FlightPathTradeInstruction {
@@ -100,7 +106,15 @@ export interface FlightPathAcaMetrics {
   projectedMagi: number;
   acaFriendlyMagiCeiling: number | null;
   headroomToCeiling: number | null;
+  requiredMagiReduction: number;
   guardrailBufferDollars: number;
+  targetMagiCeilingWithBuffer: number | null;
+  requiredMagiReductionWithBuffer: number;
+  unmitigatedProjectedMagi: number;
+  unmitigatedRequiredMagiReduction: number;
+  acaMitigationDelta: number;
+  acaStatus: AcaBridgeStatus;
+  estimatedAcaPremiumAtRisk: number;
   subsidyRiskBand: AcaSubsidyRiskBand;
   modelCompleteness: PlaybookModelCompleteness;
   inferredAssumptions: string[];
@@ -193,6 +207,8 @@ export interface FlightPathPhasePlaybookInput {
   selectedStressors: string[];
   selectedResponses: string[];
   nowYear?: number;
+  executedSimulationOutcome?: PathResult | null;
+  unmitigatedSimulationOutcome?: PathResult | null;
 }
 
 interface HoldingPosition {
@@ -237,6 +253,12 @@ interface AcaBridgeYearSummary {
   regime: string;
   estimatedMAGI: number;
   acaFriendlyMagiCeiling: number | null;
+}
+
+interface AcaPathYearSummary {
+  year: number;
+  medianMagi: number;
+  medianRothConversion: number;
 }
 
 interface RetirementFlowSourceYear {
@@ -577,6 +599,30 @@ function buildTradeInstructionsFromPositions(input: {
   return instructions.filter((item) => item.dollarAmount > 0);
 }
 
+function buildSplitTradeInstructionsFromPositions(input: {
+  positions: HoldingPosition[];
+  splitTargets: Array<{ toSymbol: string; weight: number }>;
+  moveDollarsTotal: number;
+}) {
+  const normalizedTargets = input.splitTargets
+    .map((target) => ({
+      toSymbol: target.toSymbol.toUpperCase(),
+      weight: Math.max(0, target.weight),
+    }))
+    .filter((target) => target.weight > 0);
+  const totalWeight = normalizedTargets.reduce((sum, target) => sum + target.weight, 0);
+  if (!(totalWeight > 0)) {
+    return [];
+  }
+  return normalizedTargets.flatMap((target) =>
+    buildTradeInstructionsFromPositions({
+      positions: input.positions,
+      toSymbol: target.toSymbol,
+      moveDollarsTotal: input.moveDollarsTotal * (target.weight / totalWeight),
+    }),
+  );
+}
+
 function buildMoveSizeVariants(input: {
   baseMoveDollars: number;
   maxAvailableDollars: number;
@@ -658,6 +704,16 @@ function applyContributionSettingsPatchToData(
       patch.employee401kRothAnnualAmount ?? current.employee401kRothAnnualAmount,
     hsaAnnualAmount: patch.hsaAnnualAmount ?? current.hsaAnnualAmount,
   };
+  if (patch.employee401kPreTaxAnnualAmount !== undefined) {
+    delete next.income.preRetirementContributions.employee401kPreTaxAnnualAmountByYear;
+    delete next.income.preRetirementContributions.employee401kAnnualAmountByYear;
+  }
+  if (patch.employee401kRothAnnualAmount !== undefined) {
+    delete next.income.preRetirementContributions.employee401kRothAnnualAmountByYear;
+  }
+  if (patch.hsaAnnualAmount !== undefined) {
+    delete next.income.preRetirementContributions.hsaAnnualAmountByYear;
+  }
   return next;
 }
 
@@ -968,6 +1024,14 @@ function buildRetirementFlowYears(input: {
   return rows;
 }
 
+function pathAcaYearSummaries(path: PathResult | null | undefined): AcaPathYearSummary[] {
+  return (path?.yearlySeries ?? []).map((year) => ({
+    year: year.year,
+    medianMagi: year.medianMagi,
+    medianRothConversion: year.medianRothConversion,
+  }));
+}
+
 function resolveAcaSubsidyRiskBand(input: {
   projectedMagi: number;
   acaFriendlyMagiCeiling: number | null;
@@ -986,19 +1050,75 @@ function resolveAcaSubsidyRiskBand(input: {
   return 'green';
 }
 
+function nonMedicareCountForYear(data: SeedData, year: number | null) {
+  if (year === null) {
+    return 0;
+  }
+  return [data.household.robBirthDate, data.household.debbieBirthDate].reduce((count, birthDate) => {
+    const birthYear = parseYear(birthDate);
+    if (birthYear === null) {
+      return count;
+    }
+    return count + (year - birthYear < 65 ? 1 : 0);
+  }, 0);
+}
+
+function estimateAcaPremiumAtRisk(input: { data: SeedData; bridgeYear: number | null }) {
+  const baselinePremium = input.data.rules.healthcarePremiums?.baselineAcaPremiumAnnual ?? 0;
+  if (!(baselinePremium > 0) || input.bridgeYear === null) {
+    return 0;
+  }
+  const nonMedicareCount = nonMedicareCountForYear(input.data, input.bridgeYear);
+  if (!(nonMedicareCount > 0)) {
+    return 0;
+  }
+  const medicalInflation =
+    input.data.rules.healthcarePremiums?.medicalInflationAnnual ?? 0.055;
+  const years = Math.max(0, input.bridgeYear - CURRENT_YEAR);
+  return roundMoney(baselinePremium * nonMedicareCount * Math.pow(1 + medicalInflation, years));
+}
+
 function buildAcaBridgeMetrics(input: {
   data: SeedData;
   nowYear: number;
   firstMedicareYear: number;
   autopilotYears: AcaBridgeYearSummary[];
+  executedPathYears?: AcaPathYearSummary[];
+  unmitigatedPathYears?: AcaPathYearSummary[];
 }): FlightPathAcaMetrics {
   const inferredAssumptions: string[] = [];
   const bridgeYearRecord = input.autopilotYears.find((year) => year.regime === 'aca_bridge');
   const bridgeYear = bridgeYearRecord?.year ?? Math.max(input.nowYear, input.firstMedicareYear - 1);
-  const projectedMagi = roundMoney(bridgeYearRecord?.estimatedMAGI ?? 0);
+  const executedPathYear = input.executedPathYears?.find((year) => year.year === bridgeYear);
+  const unmitigatedPathYear = input.unmitigatedPathYears?.find((year) => year.year === bridgeYear);
+  const projectedMagi = roundMoney(
+    executedPathYear?.medianMagi ?? bridgeYearRecord?.estimatedMAGI ?? 0,
+  );
+  const unmitigatedProjectedMagi = roundMoney(
+    unmitigatedPathYear?.medianMagi ?? bridgeYearRecord?.estimatedMAGI ?? projectedMagi,
+  );
   const acaFriendlyMagiCeiling = bridgeYearRecord?.acaFriendlyMagiCeiling ?? null;
   const headroomToCeiling =
     acaFriendlyMagiCeiling === null ? null : roundMoney(acaFriendlyMagiCeiling - projectedMagi);
+  const requiredMagiReduction =
+    acaFriendlyMagiCeiling === null
+      ? 0
+      : roundMoney(Math.max(0, projectedMagi - acaFriendlyMagiCeiling));
+  const unmitigatedRequiredMagiReduction =
+    acaFriendlyMagiCeiling === null
+      ? 0
+      : roundMoney(Math.max(0, unmitigatedProjectedMagi - acaFriendlyMagiCeiling));
+  const acaMitigationDelta = roundMoney(
+    Math.max(0, unmitigatedProjectedMagi - projectedMagi),
+  );
+  const targetMagiCeilingWithBuffer =
+    acaFriendlyMagiCeiling === null
+      ? null
+      : roundMoney(Math.max(0, acaFriendlyMagiCeiling - ACA_GUARDRAIL_BUFFER_DOLLARS));
+  const requiredMagiReductionWithBuffer =
+    targetMagiCeilingWithBuffer === null
+      ? 0
+      : roundMoney(Math.max(0, projectedMagi - targetMagiCeilingWithBuffer));
 
   if (!bridgeYearRecord) {
     inferredAssumptions.push(
@@ -1013,19 +1133,51 @@ function buildAcaBridgeMetrics(input: {
       `ACA-friendly MAGI ceiling was unavailable for modeled bridge year ${bridgeYear}.`,
     );
   }
+  if (!executedPathYear) {
+    inferredAssumptions.push(
+      'Executed ACA MAGI used autopilot year estimate because no executed simulation year was provided.',
+    );
+  }
+  if (!unmitigatedPathYear) {
+    inferredAssumptions.push(
+      'Unmitigated ACA MAGI used the same bridge-year estimate because no raw simulation year was provided.',
+    );
+  }
 
   const subsidyRiskBand = resolveAcaSubsidyRiskBand({
     projectedMagi,
     acaFriendlyMagiCeiling,
     guardrailBufferDollars: ACA_GUARDRAIL_BUFFER_DOLLARS,
   });
+  const estimatedAcaPremiumAtRisk =
+    subsidyRiskBand === 'red' || subsidyRiskBand === 'yellow' || unmitigatedRequiredMagiReduction > 0
+      ? estimateAcaPremiumAtRisk({ data: input.data, bridgeYear })
+      : 0;
+  const acaStatus: AcaBridgeStatus =
+    acaFriendlyMagiCeiling === null
+      ? 'unknown'
+      : requiredMagiReduction > 0
+        ? 'breach'
+        : unmitigatedRequiredMagiReduction > 0
+          ? 'mitigated'
+          : headroomToCeiling !== null && headroomToCeiling <= ACA_GUARDRAIL_BUFFER_DOLLARS
+            ? 'watch'
+            : 'safe';
 
   return {
     bridgeYear,
     projectedMagi,
     acaFriendlyMagiCeiling,
     headroomToCeiling,
+    requiredMagiReduction,
     guardrailBufferDollars: ACA_GUARDRAIL_BUFFER_DOLLARS,
+    targetMagiCeilingWithBuffer,
+    requiredMagiReductionWithBuffer,
+    unmitigatedProjectedMagi,
+    unmitigatedRequiredMagiReduction,
+    acaMitigationDelta,
+    acaStatus,
+    estimatedAcaPremiumAtRisk,
     subsidyRiskBand,
     modelCompleteness: inferredAssumptions.length ? 'reconstructed' : 'faithful',
     inferredAssumptions,
@@ -1033,9 +1185,17 @@ function buildAcaBridgeMetrics(input: {
       bridgeYear,
       firstMedicareYear: input.firstMedicareYear,
       projectedMagi,
+      unmitigatedProjectedMagi,
       acaFriendlyMagiCeiling: acaFriendlyMagiCeiling ?? 'not_modeled',
       headroomToCeiling: headroomToCeiling ?? 'not_modeled',
+      requiredMagiReduction,
+      unmitigatedRequiredMagiReduction,
+      acaMitigationDelta,
+      acaStatus,
       guardrailBufferDollars: ACA_GUARDRAIL_BUFFER_DOLLARS,
+      targetMagiCeilingWithBuffer: targetMagiCeilingWithBuffer ?? 'not_modeled',
+      requiredMagiReductionWithBuffer,
+      estimatedAcaPremiumAtRisk,
     },
   };
 }
@@ -1263,8 +1423,7 @@ function buildAcaGuardrailAdjustment(input: {
     : mode === 'recovery' || mode === 'watch'
       ? ['aca_bridge', 'pre_retirement', 'medicare_irmaa', 'pre_rmd', 'rmd_phase']
       : ['pre_retirement', 'aca_bridge', 'medicare_irmaa', 'pre_rmd', 'rmd_phase'];
-  const requiredMagiReduction =
-    input.metrics.headroomToCeiling === null ? 0 : roundMoney(Math.max(0, -input.metrics.headroomToCeiling));
+  const requiredMagiReduction = input.metrics.requiredMagiReductionWithBuffer;
 
   return {
     mode,
@@ -1558,6 +1717,8 @@ function buildPreRetirementDraft(input: {
   });
   const essentialWithFixedMonthly = runway.essentialWithFixedMonthly;
   const targetCashRunway = runway.targetCashRunway;
+  const directCashBalance = runway.directCashBalance;
+  const investmentCashSleeves = runway.investmentCashSleeves;
   const currentRunwayLiquidity = runway.currentRunwayLiquidity;
   const cashGap = runway.cashGap;
   const tradeDrafts = (() => {
@@ -1595,6 +1756,8 @@ function buildPreRetirementDraft(input: {
         intermediateCalculations: {
           essentialWithFixedMonthly: roundMoney(essentialWithFixedMonthly),
           targetCashRunway18Months: roundMoney(targetCashRunway),
+          directCashBalance: roundMoney(directCashBalance),
+          investmentCashSleeves: roundMoney(investmentCashSleeves),
           currentRunwayLiquidity: roundMoney(currentRunwayLiquidity),
           cashGapToTarget: roundMoney(cashGap),
           totalVtiAcrossPreTaxRothHsa: roundMoney(totalVti),
@@ -1689,6 +1852,8 @@ function buildPreRetirementDraft(input: {
         intermediateCalculations: {
           essentialWithFixedMonthly: roundMoney(essentialWithFixedMonthly),
           targetCashRunway18Months: roundMoney(targetCashRunway),
+          directCashBalance: roundMoney(directCashBalance),
+          investmentCashSleeves: roundMoney(investmentCashSleeves),
           currentRunwayLiquidity: roundMoney(currentRunwayLiquidity),
           cashGapToTarget: roundMoney(cashGap),
           salaryIncomeCurrentYear: roundMoney(salaryNow.salaryIncome),
@@ -1708,7 +1873,165 @@ function buildPreRetirementDraft(input: {
     });
   })();
 
-  return [...payrollRunwayDrafts, ...tradeDrafts];
+  const finalYear401kDrafts = (() => {
+    const salaryResult = salaryIncomeForYear(input.data, input.retirementYear);
+    if (!(salaryResult.salaryIncome > 0)) {
+      return [] as ActionDraft[];
+    }
+    const normalizedSettings = normalizeContributionSettings(input.data);
+    const contributionResult = calculatePreRetirementContributions({
+      age: ageForYear(input.data, input.retirementYear),
+      salaryAnnual: input.data.income.salaryAnnual,
+      salaryThisYear: salaryResult.salaryIncome,
+      retirementDate: input.data.income.salaryEndDate,
+      projectionYear: input.retirementYear,
+      filingStatus: input.data.household.filingStatus,
+      settings: input.data.income.preRetirementContributions,
+      limitSettings: input.data.rules.contributionLimits,
+      accountBalances: {
+        pretax: input.data.accounts.pretax.balance,
+        roth: input.data.accounts.roth.balance,
+        hsa: input.data.accounts.hsa?.balance,
+      },
+    });
+    const remainingRoom = roundMoney(contributionResult.employee401kRemainingRoom);
+    if (!(remainingRoom >= 1_000)) {
+      return [] as ActionDraft[];
+    }
+    const targetPreTaxAnnual = roundMoney(contributionResult.employee401kAnnualLimit);
+    const estimatedFederalTaxSavings = roundMoney(remainingRoom * 0.22);
+    const finalYearDeferralRateNeeded =
+      salaryResult.salaryIncome > 0
+        ? roundPercent((targetPreTaxAnnual / salaryResult.salaryIncome) * 100)
+        : 0;
+    const sourceAssumption = input.data.rules.contributionLimits?.assumptionSource;
+    const inferredAssumptions = Array.from(
+      new Set([
+        ...salaryResult.inferredAssumptions,
+        ...(sourceAssumption
+          ? [
+            `Contribution limits use explicit rules.contributionLimits source "${sourceAssumption}".`,
+          ]
+          : []),
+        'Estimated federal tax savings use a 22% marginal federal rate placeholder.',
+      ]),
+    );
+
+    return [
+      {
+        id: 'pre-retirement-final-year-401k-max-1',
+        phaseId: 'pre_retirement',
+        title: 'Final paycheck 401(k) room capture',
+        priority: 'now',
+        objective:
+          'Use remaining employee 401(k) deferral room in the final salary year to lower MAGI and add pre-tax Roth-conversion fuel.',
+        whyNow: `${input.retirementYear} has ${formatMoneyLabel(
+          remainingRoom,
+        )} of modeled employee 401(k) room still unused, and those final paychecks are the last payroll window to capture it.`,
+        tradeInstructions: [],
+        contributionSettingsPatch: {
+          employee401kPreTaxAnnualAmount: targetPreTaxAnnual,
+          ...(normalizedSettings.employee401kRothAnnualAmount > 0
+            ? { employee401kRothAnnualAmount: 0 }
+            : {}),
+        },
+        fullGoalDollars: remainingRoom,
+        inferredAssumptions,
+        intermediateCalculations: {
+          finalPayrollYear: input.retirementYear,
+          salaryModeledForFinalPayrollYear: roundMoney(salaryResult.salaryIncome),
+          currentEmployee401kPreTaxAnnualAmount: roundMoney(
+            normalizedSettings.employee401kPreTaxAnnualAmount,
+          ),
+          currentEmployee401kRothAnnualAmount: roundMoney(
+            normalizedSettings.employee401kRothAnnualAmount,
+          ),
+          currentEmployee401kContributionFinalYear:
+            contributionResult.employee401kContribution,
+          currentEmployee401kPreTaxContributionFinalYear:
+            contributionResult.employee401kPreTaxContribution,
+          employee401kAnnualLimit: contributionResult.employee401kAnnualLimit,
+          employee401kRemainingRoom: remainingRoom,
+          targetEmployee401kPreTaxAnnualAmount: targetPreTaxAnnual,
+          finalYearDeferralRateNeededPercent: finalYearDeferralRateNeeded,
+          estimatedMagiReduction: remainingRoom,
+          estimatedAcaCushionAdded: remainingRoom,
+          estimatedFederalTaxSavings,
+        },
+      } satisfies ActionDraft,
+    ];
+  })();
+
+  return [...finalYear401kDrafts, ...payrollRunwayDrafts, ...tradeDrafts];
+}
+
+function buildRothConcentrationDraft(input: { data: SeedData }): ActionDraft[] {
+  const rothBalance = input.data.accounts.roth.balance;
+  if (!(rothBalance > 0)) {
+    return [];
+  }
+
+  const positionsResult = collectPositionsForSymbol({
+    data: input.data,
+    symbol: ROTH_CONCENTRATION_SYMBOL,
+    buckets: ['roth'],
+  });
+  const positions = positionsResult.positions;
+  const concentratedValue = positions.reduce((sum, item) => sum + item.value, 0);
+  if (!(concentratedValue > 0)) {
+    return [];
+  }
+
+  const concentrationShare = concentratedValue / rothBalance;
+  if (concentrationShare <= ROTH_CONCENTRATION_WATCH_SHARE) {
+    return [];
+  }
+
+  const targetShares = [0.65, ROTH_CONCENTRATION_WATCH_SHARE, 0.35].filter(
+    (targetShare) => targetShare < concentrationShare,
+  );
+  return targetShares.map((targetShare, index) => {
+    const moveDollars = roundMoney(
+      Math.min(concentratedValue, concentratedValue - rothBalance * targetShare),
+    );
+    const instructions = buildSplitTradeInstructionsFromPositions({
+      positions,
+      splitTargets: [
+        { toSymbol: 'VTI', weight: ROTH_CONCENTRATION_SPLIT_TO_VTI },
+        { toSymbol: 'VXUS', weight: ROTH_CONCENTRATION_SPLIT_TO_VXUS },
+      ],
+      moveDollarsTotal: moveDollars,
+    });
+    const profileLabel = index === 0 ? 'Conservative' : index === 1 ? 'Balanced' : 'Assertive';
+    return {
+      id: `roth-fcntx-concentration-${index + 1}`,
+      phaseId: 'pre_retirement',
+      title: `${profileLabel} Roth FCNTX concentration reducer`,
+      priority: concentrationShare >= ROTH_CONCENTRATION_NOW_SHARE ? 'now' : 'soon',
+      objective:
+        'Reduce single-fund Roth concentration while keeping the move inside tax-free Roth accounts.',
+      whyNow: `${ROTH_CONCENTRATION_SYMBOL} is modeled at ${roundPercent(
+        concentrationShare * 100,
+      )}% of Roth assets; trimming inside Roth avoids taxable gains while reducing manager/style concentration.`,
+      tradeInstructions: instructions,
+      contributionSettingsPatch: null,
+      fullGoalDollars: roundMoney(
+        Math.max(0, concentratedValue - rothBalance * ROTH_CONCENTRATION_WATCH_SHARE),
+      ),
+      inferredAssumptions: positionsResult.inferredAssumptions,
+      intermediateCalculations: {
+        rothBalance: roundMoney(rothBalance),
+        concentrationSymbol: ROTH_CONCENTRATION_SYMBOL,
+        concentrationValue: roundMoney(concentratedValue),
+        concentrationSharePercent: roundPercent(concentrationShare * 100),
+        watchSharePercent: roundPercent(ROTH_CONCENTRATION_WATCH_SHARE * 100),
+        targetSharePercent: roundPercent(targetShare * 100),
+        plannedConcentrationReduction: roundMoney(moveDollars),
+        plannedMoveToVti: roundMoney(moveDollars * ROTH_CONCENTRATION_SPLIT_TO_VTI),
+        plannedMoveToVxus: roundMoney(moveDollars * ROTH_CONCENTRATION_SPLIT_TO_VXUS),
+      },
+    } satisfies ActionDraft;
+  });
 }
 
 function buildAcaBridgeDraft(input: {
@@ -1726,8 +2049,18 @@ function buildAcaBridgeDraft(input: {
   const ceiling = bridgeYear?.acaFriendlyMagiCeiling ?? null;
   const overage =
     bridgeYear && ceiling !== null ? Math.max(0, bridgeYear.estimatedMAGI - ceiling) : 0;
+  const targetMagiCeilingWithBuffer =
+    ceiling === null ? null : Math.max(0, ceiling - ACA_GUARDRAIL_BUFFER_DOLLARS);
+  const reductionNeededWithBuffer =
+    bridgeYear && targetMagiCeilingWithBuffer !== null
+      ? Math.max(0, bridgeYear.estimatedMAGI - targetMagiCeilingWithBuffer)
+      : 0;
+  const estimatedAcaPremiumAtRisk =
+    bridgeYear && reductionNeededWithBuffer > 0
+      ? estimateAcaPremiumAtRisk({ data: input.data, bridgeYear: bridgeYear.year })
+      : 0;
   const payrollDrafts = (() => {
-    if (!bridgeYear || !(overage > 0)) {
+    if (!bridgeYear || !(reductionNeededWithBuffer > 0)) {
       return [] as ActionDraft[];
     }
     const salaryResult = salaryIncomeForYear(input.data, bridgeYear.year);
@@ -1743,6 +2076,7 @@ function buildAcaBridgeDraft(input: {
       projectionYear: bridgeYear.year,
       filingStatus: input.data.household.filingStatus,
       settings: input.data.income.preRetirementContributions,
+      limitSettings: input.data.rules.contributionLimits,
       accountBalances: {
         pretax: input.data.accounts.pretax.balance,
         roth: input.data.accounts.roth.balance,
@@ -1759,7 +2093,7 @@ function buildAcaBridgeDraft(input: {
       return [] as ActionDraft[];
     }
 
-    const targetMagiReduction = Math.min(overage, maxMagiReduction);
+    const targetMagiReduction = Math.min(reductionNeededWithBuffer, maxMagiReduction);
     let remainingReduction = targetMagiReduction;
     const rothToPretaxShift = Math.min(shiftableRothContribution, remainingReduction);
     remainingReduction = Math.max(0, remainingReduction - rothToPretaxShift);
@@ -1782,13 +2116,27 @@ function buildAcaBridgeDraft(input: {
     const hsaAnnualIncrease = annualize(addedHsaContribution);
     const contributionSettingsPatch: FlightPathContributionSettingsPatch = {
       employee401kPreTaxAnnualAmount: roundMoney(
-        normalizedSettings.employee401kPreTaxAnnualAmount + preTaxAnnualIncrease,
+        Math.min(
+          contributionResult.employee401kAnnualLimit,
+          normalizedSettings.employee401kPreTaxAnnualAmount + preTaxAnnualIncrease,
+        ),
       ),
       employee401kRothAnnualAmount: roundMoney(
         Math.max(0, normalizedSettings.employee401kRothAnnualAmount - rothAnnualReduction),
       ),
-      hsaAnnualAmount: roundMoney(normalizedSettings.hsaAnnualAmount + hsaAnnualIncrease),
+      hsaAnnualAmount: roundMoney(
+        Math.min(
+          contributionResult.hsaAnnualLimit,
+          normalizedSettings.hsaAnnualAmount + hsaAnnualIncrease,
+        ),
+      ),
     };
+    const payrollMagiReductionCovered = roundMoney(
+      rothToPretaxShift + addedPretaxContribution + addedHsaContribution,
+    );
+    const remainingMagiReductionAfterPayroll = roundMoney(
+      Math.max(0, reductionNeededWithBuffer - payrollMagiReductionCovered),
+    );
 
     return [
       {
@@ -1797,17 +2145,24 @@ function buildAcaBridgeDraft(input: {
         title: 'ACA bridge payroll MAGI reducer',
         priority: 'now',
         objective:
-          'Use paycheck deferrals first (pre-tax 401(k) and HSA) to reduce bridge-year MAGI before portfolio trade moves.',
-        whyNow: `Bridge-year MAGI in ${bridgeYear.year} is modeled above the ACA-friendly ceiling by ${formatMoneyLabel(overage)} and salary is still active.`,
+          'Use paycheck deferrals first (pre-tax 401(k) and HSA) to keep bridge-year MAGI below the ACA cliff with a guardrail buffer.',
+        whyNow:
+          overage > 0
+            ? `Bridge-year MAGI in ${bridgeYear.year} is modeled above the ACA-friendly ceiling by ${formatMoneyLabel(overage)}; the premium at risk is estimated near ${formatMoneyLabel(estimatedAcaPremiumAtRisk)}.`
+            : `Bridge-year MAGI in ${bridgeYear.year} is within ${formatMoneyLabel(ACA_GUARDRAIL_BUFFER_DOLLARS)} of the ACA-friendly ceiling, so the buffer is not intact.`,
         tradeInstructions: [],
         contributionSettingsPatch,
-        fullGoalDollars: roundMoney(overage),
+        fullGoalDollars: roundMoney(reductionNeededWithBuffer),
         inferredAssumptions: [...salaryResult.inferredAssumptions],
         intermediateCalculations: {
           bridgeYear: bridgeYear.year,
           projectedBridgeYearMagi: roundMoney(bridgeYear.estimatedMAGI),
           acaFriendlyMagiCeiling: roundMoney(ceiling ?? 0),
+          targetMagiCeilingWithBuffer: roundMoney(targetMagiCeilingWithBuffer ?? 0),
           acaBridgeMagiOverage: roundMoney(overage),
+          acaBridgeMagiReductionNeededWithBuffer: roundMoney(reductionNeededWithBuffer),
+          guardrailBufferDollars: ACA_GUARDRAIL_BUFFER_DOLLARS,
+          estimatedAcaPremiumAtRisk,
           salaryModeledForBridgeYear: roundMoney(salaryResult.salaryIncome),
           salaryFraction,
           currentEmployee401kPreTaxAnnualAmount: roundMoney(
@@ -1830,6 +2185,12 @@ function buildAcaBridgeDraft(input: {
           rothToPretaxShift,
           addedPretaxContribution,
           addedHsaContribution,
+          payrollMagiReductionCovered,
+          remainingMagiReductionAfterPayroll,
+          mitigationAttributedToRothConversionCapping:
+            remainingMagiReductionAfterPayroll > 0
+              ? remainingMagiReductionAfterPayroll
+              : 0,
           targetEmployee401kPreTaxAnnualAmount:
             contributionSettingsPatch.employee401kPreTaxAnnualAmount ?? 'unchanged',
           targetEmployee401kRothAnnualAmount:
@@ -1882,8 +2243,12 @@ function buildAcaBridgeDraft(input: {
       intermediateCalculations: {
         bridgeYear: bridgeYear?.year ?? 'not_modeled',
         acaFriendlyMagiCeiling: roundMoney(ceiling ?? 0),
+        targetMagiCeilingWithBuffer: roundMoney(targetMagiCeilingWithBuffer ?? 0),
         projectedBridgeYearMagi: roundMoney(bridgeYear?.estimatedMAGI ?? 0),
         acaBridgeMagiOverage: roundMoney(overage),
+        acaBridgeMagiReductionNeededWithBuffer: roundMoney(reductionNeededWithBuffer),
+        guardrailBufferDollars: ACA_GUARDRAIL_BUFFER_DOLLARS,
+        estimatedAcaPremiumAtRisk,
         taxableSourceSymbol: taxableSymbolResult.symbol,
         taxableSourceSymbolValue: roundMoney(totalSymbolValue),
         plannedTaxableToCashMove: roundMoney(
@@ -2140,6 +2505,9 @@ function buildDrafts(input: {
       nowYear: input.nowYear,
       retirementYear: input.retirementYear,
     }),
+    buildRothConcentrationDraft({
+      data: input.data,
+    }),
     buildAcaBridgeDraft({
       data: input.data,
       autopilotYears: input.autopilotYears.map((year) => ({
@@ -2234,6 +2602,8 @@ export function buildFlightPathPhasePlaybook(
     nowYear,
     firstMedicareYear: phaseBoundary.firstMedicareYear,
     autopilotYears: acaBridgeYearSummaries,
+    executedPathYears: pathAcaYearSummaries(input.executedSimulationOutcome),
+    unmitigatedPathYears: pathAcaYearSummaries(input.unmitigatedSimulationOutcome),
   });
   const acaGuardrailAdjustment = buildAcaGuardrailAdjustment({
     metrics: acaBridgeMetrics,

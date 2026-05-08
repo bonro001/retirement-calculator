@@ -212,6 +212,52 @@ describe('autopilot-timeline', () => {
     ).toBe(true);
   });
 
+  it('reports ACA bridge MAGI trace and does not accept conversions across the cliff', () => {
+    const data = cloneSeedData();
+    data.income.salaryEndDate = '2026-01-01T00:00:00.000Z';
+    data.income.socialSecurity = data.income.socialSecurity.map((entry) => ({
+      ...entry,
+      claimAge: 70,
+    }));
+    data.income.windfalls = [];
+    data.accounts.cash.balance = 180_000;
+    data.accounts.taxable.balance = 140_000;
+    data.accounts.roth.balance = 40_000;
+    data.accounts.pretax.balance = 1_100_000;
+    data.accounts.hsa = {
+      balance: 0,
+      targetAllocation: { CASH: 1 },
+    };
+    data.spending.essentialMonthly = 5_000;
+    data.spending.optionalMonthly = 2_000;
+    data.spending.travelEarlyRetirementAnnual = 0;
+
+    const plan = generateAutopilotPlan({
+      ...buildInput(),
+      data,
+      selectedStressors: [],
+      selectedResponses: [],
+      minSuccessRate: 0.75,
+      targetLegacyTodayDollars: 400_000,
+    });
+    const bridgeYears = plan.years.filter((year) => year.regime === 'aca_bridge');
+
+    expect(bridgeYears.length).toBeGreaterThan(0);
+    for (const year of bridgeYears) {
+      expect(year.acaBridgeTrace).toBeDefined();
+      const trace = year.acaBridgeTrace!;
+      expect(trace.magiAfterPayroll).toBeLessThanOrEqual(trace.magiBeforePayroll + 0.01);
+      expect(trace.magiAfterWithdrawals).toBeCloseTo(year.estimatedMAGI, 2);
+      expect(trace.acaFriendlyMagiCeiling).toBe(year.acaFriendlyMagiCeiling);
+      expect(trace.conversionAcceptedAcrossAcaCliff).toBe(false);
+      if (year.suggestedRothConversion > 0 && trace.acaFriendlyMagiCeiling !== null) {
+        expect(trace.magiAfterRothConversion).toBeLessThanOrEqual(
+          trace.acaFriendlyMagiCeiling + 0.01,
+        );
+      }
+    }
+  });
+
   it('spreads Roth conversions across ACA bridge years', () => {
     const data = cloneSeedData();
     data.income.salaryEndDate = '2026-01-01T00:00:00.000Z';

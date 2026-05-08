@@ -393,16 +393,56 @@ struct ContributionResult {
 
 struct ContributionSettings {
     pretax_annual_target: f64,
+    pretax_target_is_amount: bool,
+    pretax_annual_target_by_year: Vec<(i64, f64)>,
     roth_annual_target: f64,
+    roth_target_is_amount: bool,
+    roth_annual_target_by_year: Vec<(i64, f64)>,
     match_rate: f64,
     match_cap_percent: f64,
     hsa_annual_target: f64,
+    hsa_target_is_amount: bool,
+    hsa_annual_target_by_year: Vec<(i64, f64)>,
     hsa_self_coverage: bool,
+}
+
+#[derive(Clone)]
+struct ContributionLimits {
+    employee_401k_base_limit: f64,
+    employee_401k_catch_up_age: i64,
+    employee_401k_catch_up_limit: f64,
+    employee_401k_base_limit_by_year: Vec<(i64, f64)>,
+    employee_401k_catch_up_limit_by_year: Vec<(i64, f64)>,
+    hsa_self_limit: f64,
+    hsa_family_limit: f64,
+    hsa_catch_up_age: i64,
+    hsa_catch_up_limit: f64,
+    hsa_self_limit_by_year: Vec<(i64, f64)>,
+    hsa_family_limit_by_year: Vec<(i64, f64)>,
+    hsa_catch_up_limit_by_year: Vec<(i64, f64)>,
+}
+
+#[derive(Clone, Copy)]
+enum HsaWithdrawalMode {
+    HighMagiYears,
+    OngoingQualifiedExpenses,
+    LtcReserve,
+}
+
+impl HsaWithdrawalMode {
+    fn from_str(value: &str) -> Self {
+        match value {
+            "high_magi_years" => Self::HighMagiYears,
+            "ltc_reserve" => Self::LtcReserve,
+            _ => Self::OngoingQualifiedExpenses,
+        }
+    }
 }
 
 #[derive(Clone, Copy)]
 struct HsaStrategy {
     enabled: bool,
+    withdrawal_mode: HsaWithdrawalMode,
     prioritize_high_magi: bool,
     high_magi_threshold: f64,
     annual_cap: f64,
@@ -412,8 +452,14 @@ struct HsaStrategy {
 struct RothConversionPolicy {
     enabled: bool,
     min_annual: f64,
+    max_annual: f64,
     max_pretax_balance_percent: f64,
     magi_buffer: f64,
+    low_income_bracket_fill_enabled: bool,
+    low_income_bracket_fill_start_year: Option<i64>,
+    low_income_bracket_fill_end_year: Option<i64>,
+    low_income_bracket_fill_annual_target: f64,
+    low_income_bracket_fill_require_no_wage_income: bool,
 }
 
 #[derive(Clone)]
@@ -443,12 +489,23 @@ struct WindfallEntry {
     liquidity_amount: Option<f64>,
     cost_basis: Option<f64>,
     exclusion_amount: Option<f64>,
+    replacement_home_cost: Option<f64>,
+    purchase_closing_cost_percent: Option<f64>,
+    moving_cost: Option<f64>,
 }
 
 #[derive(Clone)]
 struct WindfallSchedule {
     entries: Vec<WindfallEntry>,
     default_home_sale_exclusion: f64,
+}
+
+#[derive(Clone, Copy)]
+struct HousingAfterDownsizePolicy {
+    start_year: i64,
+    replacement_home_cost: f64,
+    post_sale_annual_taxes_insurance: Option<f64>,
+    current_home_value: f64,
 }
 
 #[derive(Clone, Copy)]
@@ -482,11 +539,14 @@ struct SimulationConstants {
     essential_annual: f64,
     optional_annual: f64,
     taxes_insurance_annual: f64,
+    housing_after_downsize_policy: Option<HousingAfterDownsizePolicy>,
     travel_annual: f64,
     rob_current_age: i64,
     debbie_current_age: i64,
     rob_rmd_start_age: i64,
     debbie_rmd_start_age: i64,
+    pretax_rob_rmd_share: f64,
+    pretax_debbie_rmd_share: f64,
     salary_annual: f64,
     salary_end_year: i64,
     salary_end_month_for_proration: i64,
@@ -505,6 +565,7 @@ struct SimulationConstants {
     ltc_annual_cost_today: f64,
     ltc_inflation_annual: f64,
     contribution_settings: ContributionSettings,
+    contribution_limits: ContributionLimits,
     social_security_schedule: SocialSecuritySchedule,
     windfall_schedule: WindfallSchedule,
     tax_constants: TaxConstants,
@@ -539,19 +600,9 @@ impl SimulationConstants {
             .pointer("/income/salaryEndDate")
             .and_then(Value::as_str)
             .unwrap_or("2027-01-01");
-        let mut salary_end_year = year_from_iso(salary_end_date);
-        let mut salary_end_month_for_proration = month_from_iso(salary_end_date);
-        let salary_end_day = salary_end_date
-            .get(8..10)
-            .and_then(|s| s.parse::<i64>().ok())
-            .unwrap_or(1);
-        if salary_end_day == 1 {
-            salary_end_month_for_proration -= 1;
-            if salary_end_month_for_proration <= 0 {
-                salary_end_month_for_proration = 12;
-                salary_end_year -= 1;
-            }
-        }
+        let salary_end_year = year_from_iso(salary_end_date);
+        let salary_end_month_for_proration = (month_from_iso(salary_end_date) - 1).max(0);
+        let (pretax_rob_rmd_share, pretax_debbie_rmd_share) = pretax_owner_rmd_shares(data);
         let (essential_annual, optional_annual, taxes_insurance_annual, travel_annual) =
             spending_parts(data);
         let withdrawal_rule = assumptions
@@ -565,6 +616,7 @@ impl SimulationConstants {
             essential_annual,
             optional_annual,
             taxes_insurance_annual,
+            housing_after_downsize_policy: HousingAfterDownsizePolicy::from(data),
             travel_annual,
             rob_current_age: current_age_at_2026_04_16(rob_birth_date),
             debbie_current_age: current_age_at_2026_04_16(debbie_birth_date),
@@ -572,6 +624,8 @@ impl SimulationConstants {
                 .unwrap_or_else(|| rmd_start_age_for_birth_year(year_from_iso(rob_birth_date))),
             debbie_rmd_start_age: rmd_policy_override
                 .unwrap_or_else(|| rmd_start_age_for_birth_year(year_from_iso(debbie_birth_date))),
+            pretax_rob_rmd_share,
+            pretax_debbie_rmd_share,
             salary_annual: as_f64(data.pointer("/income/salaryAnnual")).max(0.0),
             salary_end_year,
             salary_end_month_for_proration,
@@ -605,6 +659,7 @@ impl SimulationConstants {
                 data.pointer("/income/preRetirementContributions"),
                 as_f64(data.pointer("/income/salaryAnnual")).max(0.0),
             ),
+            contribution_limits: ContributionLimits::from(data),
             social_security_schedule: SocialSecuritySchedule::from(data, assumptions),
             windfall_schedule: WindfallSchedule::from(data),
             tax_constants: TaxConstants::from(data),
@@ -637,8 +692,30 @@ impl SimulationConstants {
         } else if year > self.salary_end_year {
             0.0
         } else {
-            self.salary_annual * ((self.salary_end_month_for_proration - 1).max(0) as f64 / 12.0)
+            self.salary_annual * (self.salary_end_month_for_proration.max(0) as f64 / 12.0)
         }
+    }
+
+    fn taxes_insurance_for_year(&self, year: i64, spend_multiplier: f64) -> f64 {
+        let base = self.taxes_insurance_annual * spend_multiplier;
+        let Some(policy) = self.housing_after_downsize_policy else {
+            return base;
+        };
+        if year < policy.start_year {
+            return base;
+        }
+        if let Some(post_sale) = policy.post_sale_annual_taxes_insurance {
+            return post_sale * spend_multiplier;
+        }
+        if policy.replacement_home_cost <= 0.0 {
+            return base;
+        }
+        let value_ratio = if policy.current_home_value > 0.0 {
+            policy.replacement_home_cost / policy.current_home_value
+        } else {
+            1.0
+        };
+        base * value_ratio.max(0.0)
     }
 
     fn medicare_eligible_count(&self, year_offset: usize) -> i64 {
@@ -655,14 +732,22 @@ impl SimulationConstants {
 
     fn required_minimum_distribution(&self, pretax_balance: f64, year_offset: usize) -> f64 {
         let members = [
-            (self.rob_age(year_offset), self.rob_rmd_start_age),
-            (self.debbie_age(year_offset), self.debbie_rmd_start_age),
+            (
+                self.rob_age(year_offset),
+                self.rob_rmd_start_age,
+                self.pretax_rob_rmd_share,
+            ),
+            (
+                self.debbie_age(year_offset),
+                self.debbie_rmd_start_age,
+                self.pretax_debbie_rmd_share,
+            ),
         ];
-        members.iter().fold(0.0, |total, (age, start_age)| {
-            if age < start_age {
+        members.iter().fold(0.0, |total, (age, start_age, share)| {
+            if age < start_age || *share <= 0.0 {
                 total
             } else {
-                total + (pretax_balance.max(0.0) * 0.5) / uniform_lifetime_divisor(*age)
+                total + (pretax_balance.max(0.0) * share) / uniform_lifetime_divisor(*age)
             }
         })
     }
@@ -692,6 +777,21 @@ impl HsaStrategy {
                 .pointer("/rules/hsaStrategy/enabled")
                 .and_then(Value::as_bool)
                 .unwrap_or(false),
+            withdrawal_mode: HsaWithdrawalMode::from_str(
+                data.pointer("/rules/hsaStrategy/withdrawalMode")
+                    .and_then(Value::as_str)
+                    .unwrap_or_else(|| {
+                        if data
+                            .pointer("/rules/hsaStrategy/prioritizeHighMagiYears")
+                            .and_then(Value::as_bool)
+                            .unwrap_or(false)
+                        {
+                            "high_magi_years"
+                        } else {
+                            "ongoing_qualified_expenses"
+                        }
+                    }),
+            ),
             prioritize_high_magi: data
                 .pointer("/rules/hsaStrategy/prioritizeHighMagiYears")
                 .and_then(Value::as_bool)
@@ -708,22 +808,35 @@ impl HsaStrategy {
         }
     }
 
-    fn offset_for_year(self, hsa_balance: f64, magi: f64, healthcare_and_ltc: f64) -> f64 {
-        if !self.enabled || hsa_balance <= 0.0 || healthcare_and_ltc <= 0.0 {
+    fn offset_for_year(
+        self,
+        hsa_balance: f64,
+        magi: f64,
+        healthcare_cost: f64,
+        ltc_cost: f64,
+    ) -> f64 {
+        let eligible_need = if matches!(self.withdrawal_mode, HsaWithdrawalMode::LtcReserve) {
+            ltc_cost.max(0.0)
+        } else {
+            healthcare_cost.max(0.0) + ltc_cost.max(0.0)
+        };
+        if !self.enabled || hsa_balance <= 0.0 || eligible_need <= 0.0 {
             return 0.0;
         }
-        if self.prioritize_high_magi && magi < self.high_magi_threshold {
+        if (self.prioritize_high_magi
+            || matches!(self.withdrawal_mode, HsaWithdrawalMode::HighMagiYears))
+            && magi < self.high_magi_threshold
+        {
             return 0.0;
         }
         let capped_need = if self.annual_cap.is_finite() {
-            healthcare_and_ltc.min(self.annual_cap)
+            eligible_need.min(self.annual_cap)
         } else {
-            healthcare_and_ltc
+            eligible_need
         };
         hsa_balance.min(capped_need)
     }
 }
-
 impl RothConversionPolicy {
     fn from(data: &Value) -> Self {
         Self {
@@ -735,6 +848,11 @@ impl RothConversionPolicy {
                 .pointer("/rules/rothConversionPolicy/minAnnualDollars")
                 .and_then(Value::as_f64)
                 .unwrap_or(500.0)
+                .max(0.0),
+            max_annual: data
+                .pointer("/rules/rothConversionPolicy/maxAnnualDollars")
+                .and_then(Value::as_f64)
+                .unwrap_or(f64::INFINITY)
                 .max(0.0),
             max_pretax_balance_percent: clamp(
                 data.pointer("/rules/rothConversionPolicy/maxPretaxBalancePercent")
@@ -748,6 +866,25 @@ impl RothConversionPolicy {
                 .and_then(Value::as_f64)
                 .unwrap_or(2_000.0)
                 .max(0.0),
+            low_income_bracket_fill_enabled: data
+                .pointer("/rules/rothConversionPolicy/lowIncomeBracketFill/enabled")
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
+            low_income_bracket_fill_start_year: data
+                .pointer("/rules/rothConversionPolicy/lowIncomeBracketFill/startYear")
+                .and_then(Value::as_i64),
+            low_income_bracket_fill_end_year: data
+                .pointer("/rules/rothConversionPolicy/lowIncomeBracketFill/endYear")
+                .and_then(Value::as_i64),
+            low_income_bracket_fill_annual_target: data
+                .pointer("/rules/rothConversionPolicy/lowIncomeBracketFill/annualTargetDollars")
+                .and_then(Value::as_f64)
+                .unwrap_or(0.0)
+                .max(0.0),
+            low_income_bracket_fill_require_no_wage_income: data
+                .pointer("/rules/rothConversionPolicy/lowIncomeBracketFill/requireNoWageIncome")
+                .and_then(Value::as_bool)
+                .unwrap_or(true),
         }
     }
 }
@@ -920,14 +1057,45 @@ impl TaxConstants {
 }
 
 impl ContributionSettings {
+    fn year_overrides(value: Option<&Value>) -> Vec<(i64, f64)> {
+        value
+            .and_then(Value::as_object)
+            .map(|map| {
+                map.iter()
+                    .filter_map(|(year, value)| {
+                        let year = year.parse::<i64>().ok()?;
+                        let amount = value.as_f64()?;
+                        if amount > 0.0 {
+                            Some((year, amount))
+                        } else {
+                            None
+                        }
+                    })
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    fn year_amount(overrides: &[(i64, f64)], year: i64) -> Option<f64> {
+        overrides.iter().find_map(|(entry_year, amount)| {
+            if *entry_year == year {
+                Some(*amount)
+            } else {
+                None
+            }
+        })
+    }
+
     fn annual_target(
         settings: Option<&Value>,
         amount_key: &str,
+        _amount_by_year_key: &str,
         percent_key: &str,
         fallback_amount_key: Option<&str>,
+        _fallback_amount_by_year_key: Option<&str>,
         fallback_percent_key: Option<&str>,
         salary_annual: f64,
-    ) -> f64 {
+    ) -> (f64, bool) {
         let amount = settings
             .and_then(|v| v.get(amount_key))
             .and_then(Value::as_f64)
@@ -937,7 +1105,7 @@ impl ContributionSettings {
             });
         if let Some(amount) = amount {
             if amount > 0.0 {
-                return amount;
+                return (amount, true);
             }
         }
         let percent = settings
@@ -949,30 +1117,60 @@ impl ContributionSettings {
             });
         if let Some(percent) = percent {
             if percent > 0.0 {
-                return salary_annual * percent;
+                return (salary_annual * percent, false);
             }
         }
-        0.0
+        (0.0, false)
     }
 
     fn from(settings: Option<&Value>, salary_annual: f64) -> Self {
+        let pretax_annual_target_by_year = Self::year_overrides(
+            settings
+                .and_then(|v| v.get("employee401kPreTaxAnnualAmountByYear"))
+                .or_else(|| settings.and_then(|v| v.get("employee401kAnnualAmountByYear"))),
+        );
+        let roth_annual_target_by_year = Self::year_overrides(
+            settings.and_then(|v| v.get("employee401kRothAnnualAmountByYear")),
+        );
+        let hsa_annual_target_by_year =
+            Self::year_overrides(settings.and_then(|v| v.get("hsaAnnualAmountByYear")));
+        let (pretax_annual_target, pretax_target_is_amount) = Self::annual_target(
+            settings,
+            "employee401kPreTaxAnnualAmount",
+            "employee401kPreTaxAnnualAmountByYear",
+            "employee401kPreTaxPercentOfSalary",
+            Some("employee401kAnnualAmount"),
+            Some("employee401kAnnualAmountByYear"),
+            Some("employee401kPercentOfSalary"),
+            salary_annual,
+        );
+        let (roth_annual_target, roth_target_is_amount) = Self::annual_target(
+            settings,
+            "employee401kRothAnnualAmount",
+            "employee401kRothAnnualAmountByYear",
+            "employee401kRothPercentOfSalary",
+            None,
+            None,
+            None,
+            salary_annual,
+        );
+        let (hsa_annual_target, hsa_target_is_amount) = Self::annual_target(
+            settings,
+            "hsaAnnualAmount",
+            "hsaAnnualAmountByYear",
+            "hsaPercentOfSalary",
+            None,
+            None,
+            None,
+            salary_annual,
+        );
         Self {
-            pretax_annual_target: Self::annual_target(
-                settings,
-                "employee401kPreTaxAnnualAmount",
-                "employee401kPreTaxPercentOfSalary",
-                Some("employee401kAnnualAmount"),
-                Some("employee401kPercentOfSalary"),
-                salary_annual,
-            ),
-            roth_annual_target: Self::annual_target(
-                settings,
-                "employee401kRothAnnualAmount",
-                "employee401kRothPercentOfSalary",
-                None,
-                None,
-                salary_annual,
-            ),
+            pretax_annual_target,
+            pretax_target_is_amount,
+            pretax_annual_target_by_year,
+            roth_annual_target,
+            roth_target_is_amount,
+            roth_annual_target_by_year,
             match_rate: clamp(
                 settings
                     .and_then(|v| v.pointer("/employerMatch/matchRate"))
@@ -991,18 +1189,129 @@ impl ContributionSettings {
                 0.0,
                 1.0,
             ),
-            hsa_annual_target: Self::annual_target(
-                settings,
-                "hsaAnnualAmount",
-                "hsaPercentOfSalary",
-                None,
-                None,
-                salary_annual,
-            ),
+            hsa_annual_target,
+            hsa_target_is_amount,
+            hsa_annual_target_by_year,
             hsa_self_coverage: settings
                 .and_then(|v| v.get("hsaCoverageType"))
                 .and_then(Value::as_str)
                 == Some("self"),
+        }
+    }
+}
+
+impl ContributionLimits {
+    fn year_overrides(value: Option<&Value>) -> Vec<(i64, f64)> {
+        value
+            .and_then(Value::as_object)
+            .map(|map| {
+                map.iter()
+                    .filter_map(|(year, value)| {
+                        let year = year.parse::<i64>().ok()?;
+                        let amount = value.as_f64()?;
+                        if amount > 0.0 {
+                            Some((year, amount))
+                        } else {
+                            None
+                        }
+                    })
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    fn from(data: &Value) -> Self {
+        let rules = data.pointer("/rules/contributionLimits");
+        Self {
+            employee_401k_base_limit: rules
+                .and_then(|v| v.get("employee401kBaseLimit"))
+                .and_then(Value::as_f64)
+                .unwrap_or(24_000.0),
+            employee_401k_catch_up_age: rules
+                .and_then(|v| v.get("employee401kCatchUpAge"))
+                .and_then(Value::as_i64)
+                .unwrap_or(50),
+            employee_401k_catch_up_limit: rules
+                .and_then(|v| v.get("employee401kCatchUpLimit"))
+                .and_then(Value::as_f64)
+                .unwrap_or(7_500.0),
+            employee_401k_base_limit_by_year: Self::year_overrides(
+                rules.and_then(|v| v.get("employee401kBaseLimitByYear")),
+            ),
+            employee_401k_catch_up_limit_by_year: Self::year_overrides(
+                rules.and_then(|v| v.get("employee401kCatchUpLimitByYear")),
+            ),
+            hsa_self_limit: rules
+                .and_then(|v| v.get("hsaSelfLimit"))
+                .and_then(Value::as_f64)
+                .unwrap_or(4_300.0),
+            hsa_family_limit: rules
+                .and_then(|v| v.get("hsaFamilyLimit"))
+                .and_then(Value::as_f64)
+                .unwrap_or(8_550.0),
+            hsa_catch_up_age: rules
+                .and_then(|v| v.get("hsaCatchUpAge"))
+                .and_then(Value::as_i64)
+                .unwrap_or(55),
+            hsa_catch_up_limit: rules
+                .and_then(|v| v.get("hsaCatchUpLimit"))
+                .and_then(Value::as_f64)
+                .unwrap_or(1_000.0),
+            hsa_self_limit_by_year: Self::year_overrides(
+                rules.and_then(|v| v.get("hsaSelfLimitByYear")),
+            ),
+            hsa_family_limit_by_year: Self::year_overrides(
+                rules.and_then(|v| v.get("hsaFamilyLimitByYear")),
+            ),
+            hsa_catch_up_limit_by_year: Self::year_overrides(
+                rules.and_then(|v| v.get("hsaCatchUpLimitByYear")),
+            ),
+        }
+    }
+
+    fn year_limit(fallback: f64, overrides: &[(i64, f64)], year: i64) -> f64 {
+        overrides
+            .iter()
+            .find_map(|(entry_year, value)| {
+                if *entry_year == year {
+                    Some(*value)
+                } else {
+                    None
+                }
+            })
+            .unwrap_or(fallback)
+    }
+
+    fn employee_401k_limit(&self, year: i64, age: i64) -> f64 {
+        Self::year_limit(
+            self.employee_401k_base_limit,
+            &self.employee_401k_base_limit_by_year,
+            year,
+        ) + if age >= self.employee_401k_catch_up_age {
+            Self::year_limit(
+                self.employee_401k_catch_up_limit,
+                &self.employee_401k_catch_up_limit_by_year,
+                year,
+            )
+        } else {
+            0.0
+        }
+    }
+
+    fn hsa_limit(&self, year: i64, age: i64, self_coverage: bool) -> f64 {
+        let base = if self_coverage {
+            Self::year_limit(self.hsa_self_limit, &self.hsa_self_limit_by_year, year)
+        } else {
+            Self::year_limit(self.hsa_family_limit, &self.hsa_family_limit_by_year, year)
+        };
+        base + if age >= self.hsa_catch_up_age {
+            Self::year_limit(
+                self.hsa_catch_up_limit,
+                &self.hsa_catch_up_limit_by_year,
+                year,
+            )
+        } else {
+            0.0
         }
     }
 }
@@ -1025,6 +1334,42 @@ fn to_currency(value: f64) -> f64 {
 
 fn bucket_balance(data: &Value, bucket: &str) -> f64 {
     as_f64(data.pointer(&format!("/accounts/{bucket}/balance")))
+}
+
+fn pretax_owner_rmd_shares(data: &Value) -> (f64, f64) {
+    let Some(source_accounts) = data
+        .pointer("/accounts/pretax/sourceAccounts")
+        .and_then(Value::as_array)
+    else {
+        return (0.5, 0.5);
+    };
+
+    let mut rob_total = 0.0;
+    let mut debbie_total = 0.0;
+    for account in source_accounts {
+        let balance = account
+            .get("balance")
+            .and_then(Value::as_f64)
+            .unwrap_or(0.0)
+            .max(0.0);
+        let owner = account
+            .get("owner")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_ascii_lowercase();
+        if owner == "rob" {
+            rob_total += balance;
+        } else if owner == "debbie" {
+            debbie_total += balance;
+        }
+    }
+
+    let owned_total = rob_total + debbie_total;
+    if owned_total > 0.0 {
+        (rob_total / owned_total, debbie_total / owned_total)
+    } else {
+        (0.5, 0.5)
+    }
 }
 
 fn starting_balances(data: &Value) -> Balances {
@@ -1076,6 +1421,7 @@ fn calculate_contributions(
     balances: &mut Balances,
     hsa_balance: f64,
     rob_age: i64,
+    year: i64,
     salary_this_year: f64,
 ) -> ContributionResult {
     let settings = &constants.contribution_settings;
@@ -1085,14 +1431,33 @@ fn calculate_contributions(
         0.0
     };
 
-    let annual_401k_limit = 24_000.0 + if rob_age >= 50 { 7_500.0 } else { 0.0 };
+    let annual_401k_limit = constants
+        .contribution_limits
+        .employee_401k_limit(year, rob_age);
+    let requested_target = |annual_target: f64, is_amount: bool, overrides: &[(i64, f64)]| {
+        if let Some(amount) = ContributionSettings::year_amount(overrides, year) {
+            amount
+        } else if is_amount {
+            annual_target
+        } else {
+            annual_target * salary_fraction
+        }
+    };
     let requested_pretax = clamp(
-        settings.pretax_annual_target * salary_fraction,
+        requested_target(
+            settings.pretax_annual_target,
+            settings.pretax_target_is_amount,
+            &settings.pretax_annual_target_by_year,
+        ),
         0.0,
         salary_this_year,
     );
     let requested_roth = clamp(
-        settings.roth_annual_target * salary_fraction,
+        requested_target(
+            settings.roth_annual_target,
+            settings.roth_target_is_amount,
+            &settings.roth_annual_target_by_year,
+        ),
         0.0,
         salary_this_year,
     );
@@ -1114,16 +1479,18 @@ fn calculate_contributions(
         .min(salary_this_year * settings.match_cap_percent)
         * settings.match_rate;
 
-    let hsa_base_limit = if settings.hsa_self_coverage {
-        4_300.0
-    } else {
-        8_550.0
-    };
-    let hsa_limit = hsa_base_limit + if rob_age >= 55 { 1_000.0 } else { 0.0 };
+    let hsa_limit =
+        constants
+            .contribution_limits
+            .hsa_limit(year, rob_age, settings.hsa_self_coverage);
     let hsa_contribution = clamp(
-        (settings.hsa_annual_target * salary_fraction)
-            .min(hsa_limit)
-            .min((salary_this_year - employee_pretax).max(0.0)),
+        requested_target(
+            settings.hsa_annual_target,
+            settings.hsa_target_is_amount,
+            &settings.hsa_annual_target_by_year,
+        )
+        .min(hsa_limit)
+        .min((salary_this_year - employee_pretax).max(0.0)),
         0.0,
         f64::INFINITY,
     );
@@ -1358,6 +1725,13 @@ impl WindfallSchedule {
                             liquidity_amount: item.get("liquidityAmount").and_then(Value::as_f64),
                             cost_basis: item.get("costBasis").and_then(Value::as_f64),
                             exclusion_amount: item.get("exclusionAmount").and_then(Value::as_f64),
+                            replacement_home_cost: item
+                                .get("replacementHomeCost")
+                                .and_then(Value::as_f64),
+                            purchase_closing_cost_percent: item
+                                .get("purchaseClosingCostPercent")
+                                .and_then(Value::as_f64),
+                            moving_cost: item.get("movingCost").and_then(Value::as_f64),
                         }
                     })
                     .collect()
@@ -1370,12 +1744,34 @@ impl WindfallSchedule {
     }
 
     fn liquidity_for(entry: &WindfallEntry) -> f64 {
-        let modeled_selling_cost = if entry.name == "home_sale" {
+        let is_home_sale = entry.name == "home_sale";
+        let modeled_selling_cost = if is_home_sale {
             entry.amount * entry.selling_cost_percent
         } else {
             0.0
         };
-        let default_liquidity = (entry.amount - modeled_selling_cost).max(0.0);
+        let replacement_home_cost = if is_home_sale {
+            entry.replacement_home_cost.unwrap_or(0.0).max(0.0)
+        } else {
+            0.0
+        };
+        let purchase_closing_cost = if is_home_sale {
+            replacement_home_cost
+                * clamp(entry.purchase_closing_cost_percent.unwrap_or(0.0), 0.0, 1.0)
+        } else {
+            0.0
+        };
+        let moving_cost = if is_home_sale {
+            entry.moving_cost.unwrap_or(0.0).max(0.0)
+        } else {
+            0.0
+        };
+        let default_liquidity = (entry.amount
+            - modeled_selling_cost
+            - replacement_home_cost
+            - purchase_closing_cost
+            - moving_cost)
+            .max(0.0);
         entry.liquidity_amount.unwrap_or(default_liquidity).max(0.0)
     }
 
@@ -1437,6 +1833,45 @@ impl WindfallSchedule {
     fn has_named_for_year(&self, year: i64, name: &str) -> bool {
         self.entries.iter().any(|entry| {
             entry.year == year && entry.name == name && Self::liquidity_for(entry) > 0.0
+        })
+    }
+}
+
+impl HousingAfterDownsizePolicy {
+    fn from(data: &Value) -> Option<Self> {
+        let policy = data.pointer("/rules/housingAfterDownsizePolicy")?;
+        if policy.get("mode").and_then(Value::as_str) != Some("own_replacement_home") {
+            return None;
+        }
+        let home_sale = data
+            .pointer("/income/windfalls")
+            .and_then(Value::as_array)
+            .and_then(|windfalls| {
+                windfalls
+                    .iter()
+                    .find(|entry| entry.get("name").and_then(Value::as_str) == Some("home_sale"))
+            });
+        let start_year = policy
+            .get("startYear")
+            .and_then(Value::as_i64)
+            .or_else(|| home_sale.and_then(|entry| entry.get("year").and_then(Value::as_i64)))?;
+        let replacement_home_cost = policy
+            .get("replacementHomeCost")
+            .and_then(Value::as_f64)
+            .unwrap_or(0.0)
+            .max(0.0);
+        let current_home_value = home_sale
+            .and_then(|entry| entry.get("amount").and_then(Value::as_f64))
+            .unwrap_or(0.0)
+            .max(0.0);
+        Some(Self {
+            start_year,
+            replacement_home_cost,
+            post_sale_annual_taxes_insurance: policy
+                .get("postSaleAnnualTaxesInsurance")
+                .and_then(Value::as_f64)
+                .map(|value| value.max(0.0)),
+            current_home_value,
         })
     }
 }
@@ -1525,31 +1960,24 @@ fn calculate_ordinary_tax(taxable_income: f64, brackets: &[(f64, f64)]) -> f64 {
 
 fn interpolate_aca_rate(fpl_ratio: f64) -> f64 {
     let bands = [
-        (1.5, 0.0, 0.0),
-        (2.0, 0.0, 0.02),
-        (2.5, 0.02, 0.04),
-        (3.0, 0.04, 0.06),
-        (4.0, 0.06, 0.085),
-        (f64::INFINITY, 0.085, 0.085),
+        (0.0, 1.33, 0.021, 0.021),
+        (1.33, 1.5, 0.0314, 0.0419),
+        (1.5, 2.0, 0.0419, 0.066),
+        (2.0, 2.5, 0.066, 0.0844),
+        (2.5, 3.0, 0.0844, 0.0996),
+        (3.0, 4.0, 0.0996, 0.0996),
     ];
-    let mut previous_max = 0.0;
-    let mut previous_rate = bands[0].1;
-    for (max_fpl, min_rate, max_rate) in bands {
-        if fpl_ratio <= max_fpl {
-            if !max_fpl.is_finite() || max_fpl <= previous_max {
+    for (min_fpl, max_fpl, min_rate, max_rate) in bands {
+        if fpl_ratio >= min_fpl && fpl_ratio < max_fpl {
+            let width = max_fpl - min_fpl;
+            if !width.is_finite() || width <= 0.0 {
                 return clamp(max_rate, 0.0, 1.0);
             }
-            let relative = clamp(
-                (fpl_ratio - previous_max) / (max_fpl - previous_max),
-                0.0,
-                1.0,
-            );
-            return clamp(previous_rate + (max_rate - min_rate) * relative, 0.0, 1.0);
+            let relative = clamp((fpl_ratio - min_fpl) / width, 0.0, 1.0);
+            return clamp(min_rate + (max_rate - min_rate) * relative, 0.0, 1.0);
         }
-        previous_max = max_fpl;
-        previous_rate = max_rate;
     }
-    clamp(previous_rate, 0.0, 1.0)
+    clamp(0.0996, 0.0, 1.0)
 }
 
 fn compute_healthcare_premium_cost(
@@ -1579,7 +2007,7 @@ fn compute_healthcare_premium_cost(
         f64::INFINITY
     };
     let expected_aca_contribution = interpolate_aca_rate(fpl_ratio) * magi.max(0.0);
-    let aca_subsidy = if retirement_status && non_medicare_count > 0 {
+    let aca_subsidy = if retirement_status && non_medicare_count > 0 && fpl_ratio <= 4.0 {
         clamp(aca_premium - expected_aca_contribution, 0.0, aca_premium)
     } else {
         0.0
@@ -1808,6 +2236,7 @@ fn tax_for_conversion(
 }
 
 fn proactive_roth_conversion(
+    year: i64,
     input: &WithdrawalContext,
     strategy: &WithdrawalStrategy<'_>,
     balances: &Balances,
@@ -1831,8 +2260,32 @@ fn proactive_roth_conversion(
     let magi_before = tax_before.magi;
     let federal_tax_before = tax_before.federal_tax;
     let already_above_irmaa_threshold = magi_before > irmaa_threshold;
+    let bracket_fill_window_active = input.roth_conversion_policy.low_income_bracket_fill_enabled
+        && input
+            .roth_conversion_policy
+            .low_income_bracket_fill_annual_target
+            > 0.0
+        && input
+            .roth_conversion_policy
+            .low_income_bracket_fill_start_year
+            .map_or(true, |start_year| year >= start_year)
+        && input
+            .roth_conversion_policy
+            .low_income_bracket_fill_end_year
+            .map_or(true, |end_year| year <= end_year)
+        && (!input
+            .roth_conversion_policy
+            .low_income_bracket_fill_require_no_wage_income
+            || input.wages <= 1.0);
     let mut effective_balance_cap =
         balances.pretax.max(0.0) * input.roth_conversion_policy.max_pretax_balance_percent;
+    if bracket_fill_window_active {
+        effective_balance_cap = effective_balance_cap.max(
+            input
+                .roth_conversion_policy
+                .low_income_bracket_fill_annual_target,
+        );
+    }
     if years_until_rmd <= 8 {
         let target_depletion_years = (years_until_rmd + 3).max(2) as f64;
         let smooth_depletion_cap = balances.pretax.max(0.0) / target_depletion_years;
@@ -1841,10 +2294,12 @@ fn proactive_roth_conversion(
         }
     }
     effective_balance_cap = effective_balance_cap.min(balances.pretax.max(0.0));
+    let total_conversion_budget = effective_balance_cap
+        .min(input.roth_conversion_policy.max_annual)
+        .min(balances.pretax.max(0.0));
     let available_headroom = (irmaa_threshold - magi_before - magi_buffer)
         .max(0.0)
-        .min(effective_balance_cap)
-        .min(balances.pretax.max(0.0));
+        .min(total_conversion_budget);
     if available_headroom <= 0.0 {
         return (0.0, tax_before);
     }
@@ -1869,10 +2324,22 @@ fn proactive_roth_conversion(
     let mut saw_candidate = false;
 
     let mut previous_candidate = 0.0;
-    for fraction in [0.25, 0.5, 0.75, 1.0] {
-        let mut amount = available_headroom * fraction;
+    let mut candidate_amounts: Vec<f64> = [0.25, 0.5, 0.75, 1.0]
+        .iter()
+        .map(|fraction| available_headroom * fraction)
+        .collect();
+    if bracket_fill_window_active {
+        candidate_amounts.push(
+            input
+                .roth_conversion_policy
+                .low_income_bracket_fill_annual_target,
+        );
+    }
+    candidate_amounts.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    for raw_amount in candidate_amounts {
+        let mut amount = raw_amount;
         amount = amount
-            .min(effective_balance_cap)
+            .min(total_conversion_budget)
             .min(balances.pretax.max(0.0));
         amount = (amount * 100.0).round() / 100.0;
         if amount <= 0.0 || amount == previous_candidate {
@@ -2098,6 +2565,21 @@ fn withdraw_from(balance: &mut f64, need: &mut f64) -> f64 {
     amount
 }
 
+fn protected_hsa_in_pretax(balances: &Balances, hsa_balance: f64) -> f64 {
+    balances.pretax.max(0.0).min(hsa_balance.max(0.0))
+}
+
+fn remove_protected_hsa_from_pretax(mut balances: Balances, hsa_balance: f64) -> (Balances, f64) {
+    let protected = protected_hsa_in_pretax(&balances, hsa_balance);
+    balances.pretax = (balances.pretax - protected).max(0.0);
+    (balances, protected)
+}
+
+fn restore_protected_hsa_to_pretax(mut balances: Balances, protected_hsa: f64) -> Balances {
+    balances.pretax += protected_hsa.max(0.0);
+    balances
+}
+
 fn subtract_capped(balance: &mut f64, amount: f64) -> f64 {
     let applied = balance.max(0.0).min(amount.max(0.0));
     *balance -= applied;
@@ -2234,7 +2716,6 @@ fn handle_request_with_replay_tape<'a>(
     };
     let scaled_essential_annual = constants.essential_annual * spend_multiplier;
     let scaled_optional_annual = constants.optional_annual * spend_multiplier;
-    let scaled_taxes_insurance_annual = constants.taxes_insurance_annual * spend_multiplier;
     let scaled_travel_annual = constants.travel_annual * spend_multiplier;
     let start_balances = constants.start_balances;
     let trial_count_hint = replay_tape.trial_count();
@@ -2299,7 +2780,7 @@ fn handle_request_with_replay_tape<'a>(
             let replay_year = trial.year_at(offset);
             let year = replay_year.year();
             let total_assets_at_start = balances.total();
-            let pretax_balance_for_rmd = balances.pretax;
+            let pretax_balance_for_rmd = (balances.pretax - hsa_balance.max(0.0)).max(0.0);
             let rob_age = constants.rob_age(offset);
             let debbie_age = constants.debbie_age(offset);
             let salary_this_year = constants.salary_for_year(year);
@@ -2308,6 +2789,7 @@ fn handle_request_with_replay_tape<'a>(
                 &mut balances,
                 hsa_balance,
                 rob_age,
+                year,
                 salary_this_year,
             );
             hsa_balance = contribution_result.updated_hsa_balance;
@@ -2333,6 +2815,8 @@ fn handle_request_with_replay_tape<'a>(
             balances.roth *= 1.0 + roth_return;
             balances.taxable *= 1.0 + taxable_return;
             balances.cash *= 1.0 + cash_return;
+            let hsa_return = bucket_return_from_parts(data, "hsa", asset_returns);
+            hsa_balance *= 1.0 + hsa_return;
 
             let salary = contribution_result.adjusted_wages;
             let ss_income =
@@ -2343,6 +2827,8 @@ fn handle_request_with_replay_tape<'a>(
             balances.cash += windfall_cash;
 
             let in_travel_phase = year - constants.retirement_year < constants.travel_phase_years;
+            let taxes_insurance_for_year =
+                constants.taxes_insurance_for_year(year, spend_multiplier);
             let baseline_discretionary = scaled_optional_annual
                 + if in_travel_phase {
                     scaled_travel_annual
@@ -2350,7 +2836,7 @@ fn handle_request_with_replay_tape<'a>(
                     0.0
                 };
             let base_spending_for_guardrail =
-                scaled_essential_annual + scaled_taxes_insurance_annual + baseline_discretionary;
+                scaled_essential_annual + taxes_insurance_for_year + baseline_discretionary;
             let funded_years = total_assets_at_start / base_spending_for_guardrail.max(1.0);
             if constants.guardrails_enabled
                 && !optional_cut_active
@@ -2370,7 +2856,7 @@ fn handle_request_with_replay_tape<'a>(
                 1.0
             };
             let spending_before_healthcare = (scaled_essential_annual
-                + scaled_taxes_insurance_annual
+                + taxes_insurance_for_year
                 + scaled_optional_annual * cut_multiplier
                 + if in_travel_phase {
                     scaled_travel_annual * cut_multiplier
@@ -2408,6 +2894,8 @@ fn handle_request_with_replay_tape<'a>(
             let income = base_income + rmd_amount;
             let shortfall_before_healthcare = (spending_before_healthcare - base_income).max(0.0);
             let balances_before_withdrawal = balances;
+            let (spendable_balances_before_withdrawal, protected_hsa_at_withdrawal) =
+                remove_protected_hsa_from_pretax(balances_before_withdrawal, hsa_balance);
             let (windfall_ordinary_income, windfall_ltcg_income) =
                 constants.windfall_schedule.taxable_for_year(year);
             let mut debug_withdrawals = WithdrawalAmounts {
@@ -2454,7 +2942,7 @@ fn handle_request_with_replay_tape<'a>(
                     let withdrawal_context = WithdrawalContext {
                         tax_constants: constants.tax_constants,
                         roth_conversion_policy: constants.roth_conversion_policy,
-                        starting_balances: balances_before_withdrawal,
+                        starting_balances: spendable_balances_before_withdrawal,
                         needed: closed_loop_needed,
                         rmd_amount,
                         wages: salary,
@@ -2483,12 +2971,15 @@ fn handle_request_with_replay_tape<'a>(
                     let hsa_offset_for_pass = constants.hsa_strategy.offset_for_year(
                         hsa_balance,
                         magi,
-                        healthcare_for_pass + ltc_cost_for_year,
+                        healthcare_for_pass,
+                        ltc_cost_for_year,
                     );
-                    let next_needed =
-                        (shortfall_before_healthcare + healthcare_for_pass + ltc_cost_for_year
-                            - hsa_offset_for_pass)
-                            .max(0.0);
+                    let next_needed = (shortfall_before_healthcare
+                        + healthcare_for_pass
+                        + ltc_cost_for_year
+                        + attempt.tax.federal_tax
+                        - hsa_offset_for_pass)
+                        .max(0.0);
 
                     final_attempt = Some(attempt);
 
@@ -2537,13 +3028,14 @@ fn handle_request_with_replay_tape<'a>(
                 let attempt = final_attempt.expect("raw withdrawal loop should run at least once");
                 let _rmd_surplus_to_cash = attempt.rmd_surplus_to_cash;
                 debug_withdrawals = attempt.withdrawals;
-                balances = attempt.balances;
+                let mut spendable_balances_after_withdrawal = attempt.balances;
                 let years_until_rmd = constants.years_until_rmd_start(rob_age, debbie_age);
                 let (roth_conversion, computed_tax) = proactive_roth_conversion(
+                    year,
                     &WithdrawalContext {
                         tax_constants: constants.tax_constants,
                         roth_conversion_policy: constants.roth_conversion_policy,
-                        starting_balances: balances_before_withdrawal,
+                        starting_balances: spendable_balances_before_withdrawal,
                         needed: closed_loop_needed,
                         rmd_amount,
                         wages: salary,
@@ -2554,7 +3046,7 @@ fn handle_request_with_replay_tape<'a>(
                         debbie_age,
                     },
                     &withdrawal_strategy,
-                    &balances,
+                    &spendable_balances_after_withdrawal,
                     &attempt.withdrawals,
                     attempt.tax,
                     rmd_amount,
@@ -2562,9 +3054,16 @@ fn handle_request_with_replay_tape<'a>(
                     is_retired,
                 );
                 if roth_conversion > 0.0 {
-                    subtract_capped(&mut balances.pretax, roth_conversion);
-                    balances.roth += roth_conversion;
+                    subtract_capped(
+                        &mut spendable_balances_after_withdrawal.pretax,
+                        roth_conversion,
+                    );
+                    spendable_balances_after_withdrawal.roth += roth_conversion;
                 }
+                balances = restore_protected_hsa_to_pretax(
+                    spendable_balances_after_withdrawal,
+                    protected_hsa_at_withdrawal,
+                );
                 let irmaa_reference_magi = offset
                     .checked_sub(2)
                     .and_then(|history_offset| magi_history.get(history_offset).copied())
@@ -2586,7 +3085,8 @@ fn handle_request_with_replay_tape<'a>(
                 hsa_offset_for_year = constants.hsa_strategy.offset_for_year(
                     hsa_balance,
                     computed_tax.magi,
-                    healthcare_premium_cost + ltc_cost_for_year,
+                    healthcare_premium_cost,
+                    ltc_cost_for_year,
                 );
                 spending = spending_before_healthcare + healthcare_premium_cost + ltc_cost_for_year
                     - hsa_offset_for_year;
@@ -2616,10 +3116,12 @@ fn handle_request_with_replay_tape<'a>(
                 })
                 .federal_tax;
                 let mut need = (spending + base_tax - income).max(0.0);
-                withdraw_from(&mut balances.cash, &mut need);
-                withdraw_from(&mut balances.taxable, &mut need);
-                let pretax_withdrawal = withdraw_from(&mut balances.pretax, &mut need);
-                withdraw_from(&mut balances.roth, &mut need);
+                let (mut spendable_balances, protected_hsa) =
+                    remove_protected_hsa_from_pretax(balances, hsa_balance);
+                withdraw_from(&mut spendable_balances.cash, &mut need);
+                withdraw_from(&mut spendable_balances.taxable, &mut need);
+                let pretax_withdrawal = withdraw_from(&mut spendable_balances.pretax, &mut need);
+                withdraw_from(&mut spendable_balances.roth, &mut need);
                 let final_tax = federal_tax_exact(&TaxInput {
                     tax_constants: constants.tax_constants,
                     wages: salary,
@@ -2638,12 +3140,13 @@ fn handle_request_with_replay_tape<'a>(
                 .federal_tax;
                 let mut extra_tax_need = (final_tax - base_tax).max(0.0);
                 if extra_tax_need > 0.0 {
-                    withdraw_from(&mut balances.cash, &mut extra_tax_need);
-                    withdraw_from(&mut balances.taxable, &mut extra_tax_need);
-                    withdraw_from(&mut balances.pretax, &mut extra_tax_need);
-                    withdraw_from(&mut balances.roth, &mut extra_tax_need);
+                    withdraw_from(&mut spendable_balances.cash, &mut extra_tax_need);
+                    withdraw_from(&mut spendable_balances.taxable, &mut extra_tax_need);
+                    withdraw_from(&mut spendable_balances.pretax, &mut extra_tax_need);
+                    withdraw_from(&mut spendable_balances.roth, &mut extra_tax_need);
                     need += extra_tax_need;
                 }
+                balances = restore_protected_hsa_to_pretax(spendable_balances, protected_hsa);
                 (final_tax, need)
             };
             let unresolved_need = if need >= MIN_FAILURE_SHORTFALL_DOLLARS {

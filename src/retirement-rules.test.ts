@@ -39,5 +39,30 @@ describe('retirement-rules', () => {
     expect(result.details[0]?.divisor).toBe(26.5);
     expect(result.details[0]?.startAge).toBe(73);
   });
-});
 
+  it('uses source-account ownership rather than splitting household pretax evenly', () => {
+    const result = calculateRequiredMinimumDistribution({
+      pretaxBalance: 387912,
+      sourceAccounts: [
+        { id: 'rob-ira', owner: 'rob', balance: 387912 },
+      ],
+      members: [
+        {
+          owner: 'rob',
+          birthDate: '1964-12-08',
+          age: 75,
+          accountShare: 0.5,
+        },
+        {
+          owner: 'debbie',
+          birthDate: '1963-10-23',
+          age: 76,
+          accountShare: 0.5,
+        },
+      ],
+    });
+
+    expect(result.amount).toBeCloseTo(387912 / 24.6, 6);
+    expect(result.details[0]?.accountShare).toBe(1);
+  });
+});

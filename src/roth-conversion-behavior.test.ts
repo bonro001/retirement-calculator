@@ -80,6 +80,9 @@ describe('Roth conversion behavior', () => {
       expect(year.conversionEngineInvoked).toBe(true);
       expect(year.reason.startsWith('executed_')).toBe(true);
       expect(year.conversionExecuted).toBe(true);
+      expect(['safe_room', 'strategic_extra']).toContain(year.conversionKind);
+      expect(year.safeRoomAvailable).toBeGreaterThanOrEqual(0);
+      expect(year.safeRoomUsed + year.strategicExtraUsed).toBe(year.amount);
       expect(year.conversionReason).toBe(year.reason);
       expect(year.rawMAGI).toBeGreaterThanOrEqual(0);
       expect(year.irmaaThreshold).not.toBeNull();
@@ -95,6 +98,9 @@ describe('Roth conversion behavior', () => {
       .filter((year) => year.representativeAmount > 0)
       .forEach((year) => {
         expect(year.representativeReason.startsWith('executed_')).toBe(true);
+        expect(['safe_room', 'strategic_extra']).toContain(year.representativeConversionKind);
+        expect(year.safeRoomAvailable).toBeGreaterThanOrEqual(year.safeRoomUsed);
+        expect(year.safeRoomUsed + year.strategicExtraUsed).toBe(year.representativeAmount);
         expect(year.medianMagiAfter).toBeGreaterThan(year.medianMagiBefore);
         expect(year.evaluatedCandidateAmounts.some((amount) => amount > 0)).toBe(true);
         expect(year.bestCandidateAmount).toBeGreaterThan(0);
@@ -186,7 +192,7 @@ describe('Roth conversion behavior', () => {
     )[0];
     const trace = path.simulationDiagnostics.rothConversionTracePath;
     const executedIrmaaYears = trace.filter(
-      (year) => year.amount > 0 && year.reason === 'executed_irmaa_headroom_fill',
+      (year) => year.amount > 0 && year.conversionKind === 'safe_room',
     );
 
     expect(executedIrmaaYears.length).toBeGreaterThan(0);
@@ -312,6 +318,7 @@ describe('Roth conversion behavior', () => {
       expect(debugYear).toBeDefined();
       expect(year.conversionScore).toBeGreaterThan(0);
       if (
+        year.motive !== 'defensive_pressure' &&
         debugYear &&
         debugYear.medianTargetMagiCeiling !== null &&
         debugYear.medianMagiBefore <= debugYear.medianTargetMagiCeiling + 1
@@ -319,5 +326,97 @@ describe('Roth conversion behavior', () => {
         expect(debugYear.medianMagiAfter).toBeLessThanOrEqual(debugYear.medianTargetMagiCeiling + 1);
       }
     });
+  });
+
+  it('uses the explicit 2028-2030 low-income bracket-fill target when wage income is gone', () => {
+    const enabledData = cloneSeedData(initialSeedData);
+    const disabledData = cloneSeedData(initialSeedData);
+    if (disabledData.rules.rothConversionPolicy?.lowIncomeBracketFill) {
+      disabledData.rules.rothConversionPolicy.lowIncomeBracketFill.enabled = false;
+    }
+
+    const enabled = buildPathResults(enabledData, TEST_ASSUMPTIONS, [], [], {
+      pathMode: 'selected_only',
+      strategyMode: 'planner_enhanced',
+    })[0];
+    const disabled = buildPathResults(disabledData, TEST_ASSUMPTIONS, [], [], {
+      pathMode: 'selected_only',
+      strategyMode: 'planner_enhanced',
+    })[0];
+
+    const conversionWindow = enabled.yearlySeries.filter(
+      (year) => year.year >= 2028 && year.year <= 2030,
+    );
+    const disabledWindow = disabled.yearlySeries.filter(
+      (year) => year.year >= 2028 && year.year <= 2030,
+    );
+    const debugWindow = enabled.simulationDiagnostics.rothConversionEligibilityPath.filter(
+      (year) => year.year >= 2028 && year.year <= 2030,
+    );
+
+    expect(conversionWindow.map((year) => year.medianRothConversion)).toEqual([
+      70_000,
+      70_000,
+      70_000,
+    ]);
+    expect(sum(conversionWindow.map((year) => year.medianRothConversion))).toBeGreaterThan(
+      sum(disabledWindow.map((year) => year.medianRothConversion)),
+    );
+    debugWindow.forEach((year) => {
+      expect(year.evaluatedCandidateAmounts).toContain(70_000);
+      expect(year.bestCandidateAmount).toBe(70_000);
+      expect(year.representativeConversionKind).toBe('safe_room');
+      expect(year.safeRoomUsed).toBe(70_000);
+      expect(year.strategicExtraUsed).toBe(0);
+      expect(year.medianMagiAfter).toBeLessThan(TEST_ASSUMPTIONS.irmaaThreshold);
+    });
+  });
+
+  it('surfaces when the annual conversion ceiling leaves safe room unused', () => {
+    const data = cloneSeedData(initialSeedData);
+    data.income.salaryAnnual = 0;
+    data.income.salaryEndDate = '2024-01-01';
+    data.income.windfalls = [];
+    data.accounts.pretax.balance = 900_000;
+    data.accounts.roth.balance = 100_000;
+    data.accounts.taxable.balance = 800_000;
+    data.accounts.cash.balance = 300_000;
+    data.spending.essentialMonthly = 4_000;
+    data.spending.optionalMonthly = 2_000;
+    data.spending.travelEarlyRetirementAnnual = 0;
+    data.rules.rothConversionPolicy = {
+      ...(data.rules.rothConversionPolicy ?? {}),
+      enabled: true,
+      minAnnualDollars: 500,
+      maxAnnualDollars: 10_000,
+      maxPretaxBalancePercent: 0.2,
+      magiBufferDollars: 2_000,
+      lowIncomeBracketFill: {
+        enabled: false,
+      },
+    };
+
+    const path = buildPathResults(data, TEST_ASSUMPTIONS, [], [], {
+      pathMode: 'selected_only',
+      strategyMode: 'planner_enhanced',
+    })[0];
+    const bindingYears = path.simulationDiagnostics.rothConversionEligibilityPath.filter(
+      (year) => year.annualPolicyMaxBinding && year.safeRoomUnusedDueToAnnualPolicyMax > 0,
+    );
+
+    expect(bindingYears.length).toBeGreaterThan(0);
+    bindingYears.forEach((year) => {
+      expect(year.annualPolicyMax).toBe(10_000);
+      expect(year.safeRoomAvailable).toBeGreaterThan(10_000);
+      expect(year.safeRoomUsed).toBeLessThanOrEqual(10_000);
+      expect(year.safeRoomUnusedDueToAnnualPolicyMax).toBeGreaterThan(0);
+    });
+    expect(
+      path.simulationDiagnostics.rothConversionDecisionSummary.annualPolicyMaxBindingYearCount,
+    ).toBeGreaterThan(0);
+    expect(
+      path.simulationDiagnostics.rothConversionDecisionSummary
+        .totalSafeRoomUnusedDueToAnnualPolicyMax,
+    ).toBeGreaterThan(0);
   });
 });

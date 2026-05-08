@@ -18,10 +18,10 @@ describe('tax-engine', () => {
       filingStatus: 'single',
     });
 
-    expect(result.totalTaxableIncome).toBe(85400);
-    expect(result.ordinaryTaxableIncome).toBe(85400);
+    expect(result.totalTaxableIncome).toBe(83900);
+    expect(result.ordinaryTaxableIncome).toBe(83900);
     expect(result.LTCGTaxableIncome).toBe(0);
-    expect(result.federalTax).toBe(13841);
+    expect(result.federalTax).toBe(13170);
     expect(result.marginalOrdinaryBracket).toBe(0.22);
   });
 
@@ -44,8 +44,7 @@ describe('tax-engine', () => {
     expect(result.provisionalIncome).toBe(60000);
     expect(result.taxableSocialSecurity).toBe(19600);
     expect(result.AGI).toBe(59600);
-    expect(result.totalTaxableIncome).toBe(30400);
-    expect(result.federalTax).toBe(3184);
+    expect(result.totalTaxableIncome).toBe(27400);
+    expect(result.federalTax).toBe(2792);
   });
 });
-

@@ -715,7 +715,8 @@ function buildTrustPanel(input: {
     !homeSale ||
     (homeSale.taxTreatment === 'primary_home_sale' &&
       typeof homeSale.costBasis === 'number' &&
-      typeof homeSale.liquidityAmount === 'number');
+      (typeof homeSale.liquidityAmount === 'number' ||
+        typeof homeSale.replacementHomeCost === 'number'));
   checks.push({
     id: 'home_sale_modeling',
     title: 'Home-sale modeling completeness',
@@ -723,8 +724,8 @@ function buildTrustPanel(input: {
     detail: !homeSale
       ? 'No home-sale event is modeled.'
       : homeSaleModeled
-        ? 'Home-sale tax basis and net liquidity are explicitly modeled.'
-        : 'Home-sale event exists but is missing cost basis and/or net liquidity modeling.',
+        ? 'Home-sale tax basis and downsizing liquidity are explicitly modeled.'
+        : 'Home-sale event exists but is missing cost basis and/or downsizing liquidity modeling.',
   });
 
   const inheritance = input.plan.data.income.windfalls.find((item) => item.name === 'inheritance');
@@ -747,7 +748,7 @@ function buildTrustPanel(input: {
   const recommendationEvidenceCoverage = input.topRecommendations.length
     ? input.topRecommendations.filter((item) => Math.abs(item.deltaSuccessRate) >= 0.005).length /
       input.topRecommendations.length
-    : 0;
+    : 1;
   const recommendationEvidenceStatus: TrustCheckStatus =
     recommendationEvidenceCoverage === 1
       ? 'pass'
@@ -760,7 +761,7 @@ function buildTrustPanel(input: {
     status: recommendationEvidenceStatus,
     detail:
       input.topRecommendations.length === 0
-        ? 'No top recommendations were produced.'
+        ? 'No decision-engine top recommendations were emitted; there are no unsupported top recommendations in this panel.'
         : `${Math.round(recommendationEvidenceCoverage * 100)}% of top recommendations exceed minimum measured impact thresholds.`,
   });
 
@@ -808,7 +809,9 @@ function buildTrustPanel(input: {
   );
   const inheritanceDependencyStatus: TrustCheckStatus =
     inheritanceDependenceRate >= 0.35 ||
-    (inheritanceSensitivityDelta !== null && inheritanceSensitivityDelta <= -0.05)
+    (inheritanceDependenceRate >= 0.2 &&
+      inheritanceSensitivityDelta !== null &&
+      inheritanceSensitivityDelta <= -0.05)
       ? 'fail'
       : inheritanceDependenceRate >= 0.2 ||
           (inheritanceSensitivityDelta !== null && inheritanceSensitivityDelta <= -0.02)
@@ -831,7 +834,9 @@ function buildTrustPanel(input: {
     findScenarioDelta(input.decision, 'housing_keep_house');
   const homeSaleDependencyStatus: TrustCheckStatus =
     homeSaleDependenceRate >= 0.3 ||
-    (homeSaleSensitivityDelta !== null && homeSaleSensitivityDelta <= -0.05)
+    (homeSaleDependenceRate >= 0.15 &&
+      homeSaleSensitivityDelta !== null &&
+      homeSaleSensitivityDelta <= -0.05)
       ? 'fail'
       : homeSaleDependenceRate >= 0.15 ||
           (homeSaleSensitivityDelta !== null && homeSaleSensitivityDelta <= -0.02)

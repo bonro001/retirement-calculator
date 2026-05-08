@@ -146,7 +146,9 @@ describe('flight-path-policy', () => {
     const spendGapCandidate = candidates.find((candidate) => candidate.id === 'spend-gap-reduce');
 
     expect(spendGapCandidate).toBeDefined();
-    expect(spendGapCandidate?.triggerReason).toContain('Target spending currently exceeds');
+    expect(spendGapCandidate?.triggerReason).toContain(
+      'Input lifestyle spending currently exceeds',
+    );
   });
 
   it('returns seeded counterfactual recommendation diagnostics', () => {

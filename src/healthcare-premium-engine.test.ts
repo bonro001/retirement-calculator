@@ -15,10 +15,27 @@ describe('healthcare-premium-engine', () => {
     });
 
     expect(result.acaPremiumEstimate).toBe(24000);
-    expect(result.acaSubsidyEstimate).toBe(22271.87);
-    expect(result.netAcaCost).toBe(1728.13);
+    expect(result.acaSubsidyEstimate).toBe(20030.12);
+    expect(result.netAcaCost).toBe(3969.88);
     expect(result.medicarePremiumEstimate).toBe(0);
-    expect(result.totalHealthcarePremiumCost).toBe(1728.13);
+    expect(result.totalHealthcarePremiumCost).toBe(3969.88);
+  });
+
+  it('applies current-law 2026 ACA subsidy cliff above 400% FPL', () => {
+    const result = calculateHealthcarePremiums({
+      agesByYear: [62, 63],
+      filingStatus: 'married_filing_jointly',
+      MAGI: 90000,
+      retirementStatus: true,
+      medicareEligibilityByPerson: [false, false],
+      baselineAcaPremiumAnnual: 12000,
+      baselineMedicarePremiumAnnual: 2220,
+      irmaaSurchargeAnnualPerEligible: 0,
+    });
+
+    expect(result.acaPremiumEstimate).toBe(24000);
+    expect(result.acaSubsidyEstimate).toBe(0);
+    expect(result.netAcaCost).toBe(24000);
   });
 
   it('adds Medicare baseline premium and IRMAA surcharge for eligible members', () => {

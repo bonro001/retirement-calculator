@@ -145,7 +145,10 @@ async function fetchCorpus(
           dispatcherUrl,
           match.sessionId,
           {
-            topN: 0,
+            // Cockpit only needs the single recommendation. Let the
+            // dispatcher filter/sort and return one row so the browser
+            // does not parse a full 60k+ evaluation corpus on page load.
+            topN: 1,
             minFeasibility: LEGACY_ATTAINMENT_FLOOR,
             minSolvency: SOLVENCY_DEFENSE_FLOOR,
           },

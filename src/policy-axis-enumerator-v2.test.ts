@@ -18,6 +18,7 @@ import {
   countPolicyCandidates,
   policyId,
 } from './policy-axis-enumerator';
+import { buildPolicyMinerRunEngineVersion } from './policy-miner-types';
 import type { SeedData } from './types';
 import seedFixture from '../seed-data.json';
 
@@ -96,5 +97,35 @@ describe('policy axis V2.1 (single-rule pass-1)', () => {
       withdrawalRule: 'reverse_waterfall' as const,
     };
     expect(policyId(policy, 'fp', 'eng')).toBe(policyId(policy, 'fp', 'eng'));
+  });
+
+  it('policy id changes when the mining exploration seed changes', () => {
+    const policy = {
+      annualSpendTodayDollars: 110_000,
+      primarySocialSecurityClaimAge: 68.5,
+      spouseSocialSecurityClaimAge: 67,
+      rothConversionAnnualCeiling: 80_000,
+      withdrawalRule: 'tax_bracket_waterfall' as const,
+    };
+    const seedOneEngine = buildPolicyMinerRunEngineVersion('eng', 111);
+    const seedTwoEngine = buildPolicyMinerRunEngineVersion('eng', 222);
+    expect(policyId(policy, 'fp', seedOneEngine)).not.toBe(
+      policyId(policy, 'fp', seedTwoEngine),
+    );
+  });
+
+  it('policy id changes when the same seed is certified at a higher trial count', () => {
+    const policy = {
+      annualSpendTodayDollars: 117_000,
+      primarySocialSecurityClaimAge: 68.5,
+      spouseSocialSecurityClaimAge: 67,
+      rothConversionAnnualCeiling: 80_000,
+      withdrawalRule: 'tax_bracket_waterfall' as const,
+    };
+    expect(
+      policyId(policy, 'fp', buildPolicyMinerRunEngineVersion('eng', 111, 1000)),
+    ).not.toBe(
+      policyId(policy, 'fp', buildPolicyMinerRunEngineVersion('eng', 111, 5000)),
+    );
   });
 });

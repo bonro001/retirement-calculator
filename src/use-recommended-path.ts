@@ -18,47 +18,13 @@
 import { useEffect, useState } from 'react';
 import type { MarketAssumptions, PathResult, SeedData } from './types';
 import type { PolicyEvaluation } from './policy-miner-types';
-import { evaluatePolicyFullTrace } from './policy-miner-eval';
-
-const RECOMMENDED_PATH_LS_KEY = 'retirement-calc:recommended-path-cache:v1';
-
-interface CachedEntry {
-  key: string;
-  forwardLooking: PathResult | null;
-  historical: PathResult | null;
-  cachedAtIso: string;
-}
-
-function readCache(): CachedEntry | null {
-  try {
-    if (typeof window === 'undefined') return null;
-    const raw = window.localStorage?.getItem(RECOMMENDED_PATH_LS_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as CachedEntry;
-    if (!parsed?.key) return null;
-    return parsed;
-  } catch {
-    return null;
-  }
-}
-
-function writeCache(entry: CachedEntry | null): void {
-  try {
-    if (typeof window === 'undefined' || !window.localStorage) return;
-    if (!entry) {
-      window.localStorage.removeItem(RECOMMENDED_PATH_LS_KEY);
-      return;
-    }
-    window.localStorage.setItem(RECOMMENDED_PATH_LS_KEY, JSON.stringify(entry));
-  } catch {
-    // localStorage quota / private browsing — non-fatal.
-  }
-}
-
-function structuredCloneSafe<T>(value: T): T {
-  if (typeof structuredClone === 'function') return structuredClone(value);
-  return JSON.parse(JSON.stringify(value)) as T;
-}
+import {
+  buildRecommendedPathCacheKey,
+  computeRecommendedPathCacheEntry,
+  readRecommendedPathCache,
+  writeRecommendedPathCache,
+  type RecommendedPathCacheEntry,
+} from './recommended-path-cache';
 
 export interface RecommendedPath {
   /** Forward-looking parametric path. Null when the corpus has no
@@ -69,6 +35,15 @@ export interface RecommendedPath {
   /** True while the engine is computing. UI uses this for loading
    *  shimmer / progress copy. */
   computing: boolean;
+}
+
+export interface RecommendedPathOptions {
+  /**
+   * Run the expensive full-trace projection when no cache exists. Keep this
+   * opt-in: the full trace is synchronous engine work and can freeze the tab
+   * long enough that Cockpit navigation appears dead.
+   */
+  autoCompute?: boolean;
 }
 
 /**
@@ -83,39 +58,23 @@ export function useRecommendedPath(
   recommendation: PolicyEvaluation | null,
   selectedStressors: string[],
   selectedResponses: string[],
+  options: RecommendedPathOptions = {},
 ): RecommendedPath {
+  const autoCompute = options.autoCompute ?? true;
   const cacheKey =
     data && assumptions && recommendation
-      ? JSON.stringify({
-          policyId: recommendation.id,
-          plan: {
-            spending: data.spending,
-            income: {
-              salaryAnnual: data.income?.salaryAnnual,
-              salaryEndDate: data.income?.salaryEndDate,
-              windfalls: data.income?.windfalls,
-            },
-            accounts: {
-              pretax: data.accounts?.pretax?.balance,
-              roth: data.accounts?.roth?.balance,
-              taxable: data.accounts?.taxable?.balance,
-              cash: data.accounts?.cash?.balance,
-            },
-            asm: {
-              equityMean: assumptions.equityMean,
-              inflation: assumptions.inflation,
-              version: assumptions.assumptionsVersion,
-              runs: assumptions.simulationRuns,
-            },
-            stress: selectedStressors,
-            response: selectedResponses,
-          },
+      ? buildRecommendedPathCacheKey({
+          data,
+          assumptions,
+          recommendation,
+          selectedStressors,
+          selectedResponses,
         })
       : null;
 
-  const [cached, setCached] = useState<CachedEntry | null>(() => {
+  const [cached, setCached] = useState<RecommendedPathCacheEntry | null>(() => {
     if (!cacheKey) return null;
-    const c = readCache();
+    const c = readRecommendedPathCache();
     return c && c.key === cacheKey ? c : null;
   });
   const [computing, setComputing] = useState<boolean>(false);
@@ -126,6 +85,17 @@ export function useRecommendedPath(
       return;
     }
     if (cached?.key === cacheKey) return;
+    const stored = readRecommendedPathCache();
+    if (stored?.key === cacheKey) {
+      setCached(stored);
+      setComputing(false);
+      return;
+    }
+    if (!autoCompute) {
+      setCached(null);
+      setComputing(false);
+      return;
+    }
 
     let cancelled = false;
     setComputing(true);
@@ -134,38 +104,16 @@ export function useRecommendedPath(
     // useEffect blocks the main thread before any UI shows.
     const handle = setTimeout(() => {
       try {
-        const buildOne = (useHistoricalBootstrap: boolean): PathResult | null => {
-          try {
-            return evaluatePolicyFullTrace(
-              recommendation.policy,
-              data,
-              assumptions,
-              structuredCloneSafe,
-              {
-                selectedStressors,
-                selectedResponses,
-                useHistoricalBootstrap,
-              },
-            );
-          } catch (err) {
-            // eslint-disable-next-line no-console
-            console.warn('[useRecommendedPath] build failed:', err);
-            return null;
-          }
-        };
-
-        const forwardLooking = buildOne(false);
-        const historical = buildOne(true);
-
         if (cancelled) return;
-        const entry: CachedEntry = {
-          key: cacheKey,
-          forwardLooking,
-          historical,
-          cachedAtIso: new Date().toISOString(),
-        };
+        const entry = computeRecommendedPathCacheEntry({
+          data,
+          assumptions,
+          recommendation,
+          selectedStressors,
+          selectedResponses,
+        });
         setCached(entry);
-        writeCache(entry);
+        writeRecommendedPathCache(entry);
       } finally {
         if (!cancelled) setComputing(false);
       }
@@ -176,7 +124,16 @@ export function useRecommendedPath(
       clearTimeout(handle);
       setComputing(false);
     };
-  }, [cacheKey, cached?.key, data, assumptions, recommendation, selectedStressors, selectedResponses]);
+  }, [
+    autoCompute,
+    cacheKey,
+    cached?.key,
+    data,
+    assumptions,
+    recommendation,
+    selectedStressors,
+    selectedResponses,
+  ]);
 
   if (!cached || cached.key !== cacheKey) {
     return { forwardLooking: null, historical: null, computing };

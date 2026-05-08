@@ -10,8 +10,9 @@ import { PolicyAdoptionModal } from './PolicyAdoptionModal';
 import { PolicyFrontierChart } from './PolicyFrontierChart';
 import { SensitivityPanel } from './SensitivityPanel';
 import { StressTestPanel } from './StressTestPanel';
-import { explainAdoption } from './policy-adoption';
+import { buildAdoptedSeedData, explainAdoption } from './policy-adoption';
 import { useAppStore } from './store';
+import { primeRecommendedPathCache } from './recommended-path-cache';
 import {
   LEGACY_ATTAINMENT_FLOOR,
   SOLVENCY_DEFENSE_FLOOR,
@@ -74,7 +75,7 @@ interface CurrentPlanReference {
   primarySocialSecurityClaimAge?: number | null;
   /** Current plan's spouse SS claim age, for diff column. Null = no spouse. */
   spouseSocialSecurityClaimAge?: number | null;
-  /** Current Roth conversion ceiling, for diff column. */
+  /** Current Roth conversion max, for diff column. */
   rothConversionAnnualCeiling?: number | null;
   /** Current plan's median bequest in today's $, for bequest-diff column. */
   p50EndingWealthTodayDollars?: number | null;
@@ -142,15 +143,34 @@ function formatCurrency(amount: number): string {
   return `$${Math.round(amount)}`;
 }
 
-function formatSpendStep(levels: number[]): string | null {
-  if (levels.length < 2) return null;
-  let step: number | null = null;
+function formatSpendLevels(levels: number[]): string | null {
+  if (levels.length === 0) return null;
+  const windows: Array<{ start: number; end: number }> = [];
+  let start = levels[0]!;
+  let end = levels[0]!;
+  let minStep: number | null = null;
   for (let i = 1; i < levels.length; i += 1) {
-    const diff = levels[i]! - levels[i - 1]!;
-    if (diff <= 0) continue;
-    step = step === null ? diff : Math.min(step, diff);
+    const level = levels[i]!;
+    const diff = level - levels[i - 1]!;
+    if (diff > 0) minStep = minStep === null ? diff : Math.min(minStep, diff);
+    if (diff === 1_000) {
+      end = level;
+      continue;
+    }
+    windows.push({ start, end });
+    start = level;
+    end = level;
   }
-  return step !== null ? `${formatCurrency(step)} steps` : null;
+  windows.push({ start, end });
+
+  const rangeText = windows
+    .map((w) =>
+      w.start === w.end
+        ? `${formatCurrency(w.start)}/yr`
+        : `${formatCurrency(w.start)}-${formatCurrency(w.end)}/yr`,
+    )
+    .join(' + ');
+  return minStep ? `${rangeText} · ${formatCurrency(minStep)} steps` : rangeText;
 }
 
 function formatPct(rate: number | null): string {
@@ -342,10 +362,18 @@ export function PolicyMiningResultsTable({
   const [adoptingEvaluation, setAdoptingEvaluation] =
     useState<PolicyEvaluation | null>(null);
   const currentSeed = useAppStore((s) => s.data);
+  const appliedSeed = useAppStore((s) => s.appliedData);
+  const appliedAssumptions = useAppStore((s) => s.appliedAssumptions);
+  const appliedSelectedStressors = useAppStore((s) => s.appliedSelectedStressors);
+  const appliedSelectedResponses = useAppStore((s) => s.appliedSelectedResponses);
   const adoptMinedPolicy = useAppStore((s) => s.adoptMinedPolicy);
   const lastPolicyAdoption = useAppStore((s) => s.lastPolicyAdoption);
   const undoLastPolicyAdoption = useAppStore((s) => s.undoLastPolicyAdoption);
   const clearLastPolicyAdoption = useAppStore((s) => s.clearLastPolicyAdoption);
+  const [adoptionProjectionStatus, setAdoptionProjectionStatus] =
+    useState<'idle' | 'saving' | 'saved' | 'failed'>('idle');
+  const [adoptionProjectionError, setAdoptionProjectionError] =
+    useState<string | null>(null);
 
   const clusterEnabled = !!dispatcherUrl;
   const selectedSession = clusterSessions.find(
@@ -360,12 +388,7 @@ export function PolicyMiningResultsTable({
     return Array.from(new Set(sourceLevels)).sort((a, b) => a - b);
   }, [selectedSession, source, evaluations]);
   const spendRangeLabel = useMemo(() => {
-    if (spendLevels.length === 0) return null;
-    const min = spendLevels[0]!;
-    const max = spendLevels[spendLevels.length - 1]!;
-    const step = formatSpendStep(spendLevels);
-    if (min === max) return `${formatCurrency(min)}/yr`;
-    return `${formatCurrency(min)}-${formatCurrency(max)}/yr${step ? ` · ${step}` : ''}`;
+    return formatSpendLevels(spendLevels);
   }, [spendLevels]);
 
   useEffect(() => {
@@ -691,6 +714,38 @@ export function PolicyMiningResultsTable({
     );
   }, [lastPolicyAdoption, evaluations]);
 
+  const adoptAndPrimeProjection = (evaluation: PolicyEvaluation) => {
+    const adoptedSeed = buildAdoptedSeedData(appliedSeed, evaluation.policy);
+    adoptMinedPolicy(evaluation.policy, evaluation);
+    setAdoptingEvaluation(null);
+    setAdoptionProjectionStatus('saving');
+    setAdoptionProjectionError(null);
+
+    // Let the modal close and the adoption banner paint before doing the
+    // synchronous full-trace work. This primes the exact cache Cockpit reads
+    // later, so the monthly view can reopen without recomputing.
+    setTimeout(() => {
+      try {
+        const entry = primeRecommendedPathCache({
+          data: adoptedSeed,
+          assumptions: appliedAssumptions,
+          recommendation: evaluation,
+          selectedStressors: appliedSelectedStressors ?? [],
+          selectedResponses: appliedSelectedResponses ?? [],
+        });
+        if (!entry.forwardLooking) {
+          throw new Error('Forward-looking projection failed');
+        }
+        setAdoptionProjectionStatus('saved');
+      } catch (err) {
+        setAdoptionProjectionStatus('failed');
+        setAdoptionProjectionError(
+          err instanceof Error ? err.message : 'Projection cache failed',
+        );
+      }
+    }, 0);
+  };
+
   return (
     <div className="mt-4 rounded-2xl border border-stone-200 bg-white/80 p-4 text-sm text-stone-700 shadow-sm">
       {lastPolicyAdoption && (
@@ -736,6 +791,23 @@ export function PolicyMiningResultsTable({
                 </p>
               )}
             </div>
+          )}
+          {adoptionProjectionStatus !== 'idle' && (
+            <p
+              className={`mt-1.5 text-[11px] ${
+                adoptionProjectionStatus === 'failed'
+                  ? 'text-amber-700'
+                  : 'text-emerald-700'
+              }`}
+            >
+              {adoptionProjectionStatus === 'saving'
+                ? 'Saving Cockpit projections for the adopted plan…'
+                : adoptionProjectionStatus === 'saved'
+                  ? 'Cockpit projections saved for month-end review.'
+                  : `Cockpit projection cache did not save${
+                      adoptionProjectionError ? `: ${adoptionProjectionError}` : '.'
+                    }`}
+            </p>
           )}
         </div>
       )}
@@ -786,7 +858,7 @@ export function PolicyMiningResultsTable({
                       ? 'primary SS claim age'
                       : sort.key === 'spouseSs'
                         ? 'spouse SS claim age'
-                        : 'Roth conversion ceiling'}
+                        : 'Roth conversion max'}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
@@ -942,7 +1014,7 @@ export function PolicyMiningResultsTable({
                   className="cursor-pointer py-2 pr-3 hover:text-stone-700"
                   onClick={() => toggleSort('roth')}
                 >
-                  Roth cap{sortIndicator('roth')}
+                  Roth max{sortIndicator('roth')}
                 </th>
                 <th
                   className="cursor-pointer py-2 pr-3 hover:text-stone-700"
@@ -1135,8 +1207,7 @@ export function PolicyMiningResultsTable({
           baselineMismatch={!!baselineMismatch}
           onCancel={() => setAdoptingEvaluation(null)}
           onConfirm={() => {
-            adoptMinedPolicy(adoptingEvaluation.policy, adoptingEvaluation);
-            setAdoptingEvaluation(null);
+            adoptAndPrimeProjection(adoptingEvaluation);
           }}
         />
       )}

@@ -1,3 +1,5 @@
+import { CURRENT_LAW_2026_RULE_PACK } from './rule-packs';
+
 export interface HealthcarePremiumAssumptions {
   baselineAcaPremiumAnnual: number;
   baselineMedicarePremiumAnnual: number;
@@ -25,11 +27,13 @@ export interface HealthcarePremiumCalculationOutput {
 
 interface AcaSubsidyConfig {
   expectedContributionByFplBand: Array<{
+    minFplRatio: number;
     maxFplRatio: number;
     minRate: number;
     maxRate: number;
   }>;
   federalPovertyLevelByHouseholdSize: Record<number, number>;
+  subsidyEligibilityMaxFplRatio: number;
 }
 
 export interface HealthcarePremiumConfig {
@@ -38,20 +42,12 @@ export interface HealthcarePremiumConfig {
 
 const DEFAULT_HEALTHCARE_PREMIUM_CONFIG: HealthcarePremiumConfig = {
   aca: {
-    expectedContributionByFplBand: [
-      { maxFplRatio: 1.5, minRate: 0, maxRate: 0 },
-      { maxFplRatio: 2.0, minRate: 0, maxRate: 0.02 },
-      { maxFplRatio: 2.5, minRate: 0.02, maxRate: 0.04 },
-      { maxFplRatio: 3.0, minRate: 0.04, maxRate: 0.06 },
-      { maxFplRatio: 4.0, minRate: 0.06, maxRate: 0.085 },
-      { maxFplRatio: Number.POSITIVE_INFINITY, minRate: 0.085, maxRate: 0.085 },
-    ],
-    federalPovertyLevelByHouseholdSize: {
-      1: 15_650,
-      2: 21_150,
-      3: 26_650,
-      4: 32_150,
-    },
+    expectedContributionByFplBand:
+      CURRENT_LAW_2026_RULE_PACK.aca.expectedContributionByFplBand,
+    subsidyEligibilityMaxFplRatio:
+      CURRENT_LAW_2026_RULE_PACK.aca.subsidyEligibilityMaxFplRatio,
+    federalPovertyLevelByHouseholdSize:
+      CURRENT_LAW_2026_RULE_PACK.aca.federalPovertyLevelByHouseholdSize,
   },
 };
 
@@ -94,7 +90,7 @@ function getFplForHouseholdSize(
 
   const maxDefinedSize = Math.max(...Object.keys(fplByHouseholdSize).map(Number));
   const maxDefinedFpl = fplByHouseholdSize[maxDefinedSize];
-  const perPersonIncrement = 5_500;
+  const perPersonIncrement = CURRENT_LAW_2026_RULE_PACK.aca.fplAdditionalPerson;
   const extraPeople = Math.max(0, householdSize - maxDefinedSize);
   return maxDefinedFpl + extraPeople * perPersonIncrement;
 }
@@ -103,23 +99,18 @@ function interpolateRate(
   fplRatio: number,
   bands: AcaSubsidyConfig['expectedContributionByFplBand'],
 ) {
-  let previousMax = 0;
-  let previousRate = bands[0]?.minRate ?? 0;
-
   for (const band of bands) {
-    if (fplRatio <= band.maxFplRatio) {
-      if (!Number.isFinite(band.maxFplRatio) || band.maxFplRatio <= previousMax) {
+    if (fplRatio >= band.minFplRatio && fplRatio < band.maxFplRatio) {
+      const width = band.maxFplRatio - band.minFplRatio;
+      if (!Number.isFinite(width) || width <= 0) {
         return clamp(band.maxRate, 0, 1);
       }
-
-      const relative = clamp((fplRatio - previousMax) / (band.maxFplRatio - previousMax), 0, 1);
-      return clamp(previousRate + (band.maxRate - band.minRate) * relative, 0, 1);
+      const relative = clamp((fplRatio - band.minFplRatio) / width, 0, 1);
+      return clamp(band.minRate + (band.maxRate - band.minRate) * relative, 0, 1);
     }
-    previousMax = band.maxFplRatio;
-    previousRate = band.maxRate;
   }
 
-  return clamp(previousRate, 0, 1);
+  return clamp(bands[bands.length - 1]?.maxRate ?? 0, 0, 1);
 }
 
 export function calculateHealthcarePremiums(
@@ -150,6 +141,8 @@ export function calculateHealthcarePremiums(
   );
   const magi = clamp(input.MAGI);
   const fplRatio = fpl > 0 ? magi / fpl : Number.POSITIVE_INFINITY;
+  const eligibleForAcaSubsidy =
+    fplRatio <= config.aca.subsidyEligibilityMaxFplRatio;
   const expectedContributionRate = interpolateRate(
     fplRatio,
     config.aca.expectedContributionByFplBand,
@@ -157,7 +150,7 @@ export function calculateHealthcarePremiums(
   const expectedAcaContribution = expectedContributionRate * magi;
 
   const acaSubsidyEstimate =
-    input.retirementStatus && nonMedicareCount > 0
+    input.retirementStatus && nonMedicareCount > 0 && eligibleForAcaSubsidy
       ? clamp(acaPremiumEstimate - expectedAcaContribution, 0, acaPremiumEstimate)
       : 0;
   const netAcaCost = Math.max(0, acaPremiumEstimate - acaSubsidyEstimate);
@@ -172,4 +165,3 @@ export function calculateHealthcarePremiums(
     totalHealthcarePremiumCost: toCurrency(totalHealthcarePremiumCost),
   };
 }
-

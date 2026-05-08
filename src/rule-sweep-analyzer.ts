@@ -80,16 +80,22 @@ function pickContenders(
 ): { contenders: PolicyEvaluation[]; floor: number } {
   if (evaluations.length === 0) return { contenders: [], floor: 0 };
   const ranked = rankPolicies([...evaluations]);
-  if (ranked.length > 0) {
-    return { contenders: ranked.slice(0, maxContenders), floor: 0 };
-  }
   let topAttainment = 0;
-  for (const e of evaluations) {
+  const rankingSource = ranked.length > 0 ? ranked : evaluations;
+  for (const e of rankingSource) {
     if (e.outcome.bequestAttainmentRate > topAttainment) {
       topAttainment = e.outcome.bequestAttainmentRate;
     }
   }
   const floor = Math.max(0, topAttainment - attainmentMargin);
+  if (ranked.length > 0) {
+    return {
+      contenders: ranked
+        .filter((e) => e.outcome.bequestAttainmentRate >= floor)
+        .slice(0, maxContenders),
+      floor,
+    };
+  }
   const eligible = evaluations.filter(
     (e) => e.outcome.bequestAttainmentRate >= floor,
   );

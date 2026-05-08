@@ -1,18 +1,24 @@
 # Tax-engine plan-year assumptions
 
-What the current engine encodes and when it needs to be updated. Source of truth is [src/tax-engine.ts](../src/tax-engine.ts), [src/retirement-rules.ts](../src/retirement-rules.ts), and [src/healthcare-premium-engine.ts](../src/healthcare-premium-engine.ts).
+What the current engine encodes and when it needs to be updated. Source of truth is [src/rule-packs.ts](../src/rule-packs.ts), which feeds [src/tax-engine.ts](../src/tax-engine.ts), [src/retirement-rules.ts](../src/retirement-rules.ts), [src/contribution-engine.ts](../src/contribution-engine.ts), and [src/healthcare-premium-engine.ts](../src/healthcare-premium-engine.ts).
+
+## Active rule pack
+
+- **Version**: `current-law-2026-v1`.
+- **Scope**: 2026 federal income tax, 2026 Medicare IRMAA, 2026 employee contribution limits, HSA 2026 limits, 2026 ACA premium-tax-credit current-law cliff using 2025 FPL values for the 2026 marketplace year, statutory Social Security provisional-income thresholds, and SECURE 2.0 RMD start ages.
+- **Provenance**: each rule-family in `CURRENT_LAW_2026_RULE_PACK` carries a source label and URL; tests pin the headline published values in [src/rule-packs.test.ts](../src/rule-packs.test.ts).
 
 ## Federal ordinary income tax
 
 - **Label**: `taxYear: 2026` in `DEFAULT_TAX_ENGINE_CONFIG`.
-- **Values**: 2024 IRS brackets (the 2024 TCJA bracket schedule still in effect as of writing; 2025 and 2026 inflation-adjusted values will differ).
-- **Standard deductions**: 2024 values — $14,600 single / MFS, $29,200 MFJ, $21,900 HoH. **Age-65+ bump is modeled** as of the current engine version: +$1,550 per qualifying spouse for MFJ/MFS, +$1,950 for single/HoH (IRC §63(f), 2024 amounts). Applied when `YearTaxInputs.headAge` / `spouseAge` is ≥ 65. Blindness exemption still out of scope. Simulation path passes `robAge` and `debbieAge` through automatically.
-- **Brackets**: 2024 MFJ breakpoints 23,200 / 94,300 / 201,050 / 383,900 / 487,450 / 731,200; single halves most of these as usual.
-- **Update trigger**: when 2025 and 2026 inflation-adjusted IRS numbers are published (Rev. Proc. releases), update `profiles.<status>.standardDeduction` and `ordinaryBrackets[].upTo`. Also update all `expected` values in [fixtures/tax_engine_scenarios.json](../fixtures/tax_engine_scenarios.json).
+- **Values**: 2026 IRS values from Rev. Proc. 2025-32 via `CURRENT_LAW_2026_RULE_PACK`.
+- **Standard deductions**: $16,100 single / MFS, $32,200 MFJ, $24,150 HoH. **Age-65+ bump is modeled**: +$1,650 per qualifying spouse for MFJ/MFS, +$2,050 for single/HoH. Applied when `YearTaxInputs.headAge` / `spouseAge` is ≥ 65. Blindness exemption still out of scope. Simulation path passes `robAge` and `debbieAge` through automatically.
+- **Brackets**: 2026 MFJ breakpoints 24,800 / 100,800 / 211,400 / 403,550 / 512,450 / 768,700; single breakpoints 12,400 / 50,400 / 105,700 / 201,775 / 256,225 / 640,600.
+- **Update trigger**: when IRS publishes the next Rev. Proc. inflation adjustments, update `CURRENT_LAW_2026_RULE_PACK.federalTax` and refresh [fixtures/tax_engine_scenarios.json](../fixtures/tax_engine_scenarios.json).
 
 ## Long-term capital gains
 
-- **Thresholds** (MFJ): 0%-rate top $94,050, 15%-rate top $583,750. Values are 2024.
+- **Thresholds** (MFJ): 0%-rate top $98,900, 15%-rate top $613,700. Values are 2026.
 - **Stacking**: LTCG stacks on top of ordinary taxable income for bracket lookup; the engine implements this correctly in `calculateLTCGTax`.
 - **NIIT is modeled**: 3.8% on the lesser of net investment income or MAGI excess over threshold (IRC §1411). Thresholds are statutory ($250k MFJ, $125k MFS, $200k single/HoH) and not indexed. NII includes taxable interest, qualified + ordinary dividends, realized LTCG and STCG; muni interest is correctly excluded. Result is included in `federalTax` and also surfaced as a separate `netInvestmentIncomeTax` output field.
 - **Update trigger**: new LTCG thresholds each year.
@@ -27,20 +33,29 @@ What the current engine encodes and when it needs to be updated. Source of truth
 
 ## IRMAA tiers
 
-- **Source file**: [src/retirement-rules.ts](../src/retirement-rules.ts) `DEFAULT_IRMAA_CONFIG`.
-- **Values**: 2025-era thresholds (tax year label 2026, two-year look-back). MFJ: $218k / $274k / $342k / $410k / $750k. Six tiers total. Surcharges are 2025 published Part B + Part D IRMAA amounts.
+- **Source file**: [src/rule-packs.ts](../src/rule-packs.ts) `CURRENT_LAW_2026_RULE_PACK.irmaa`, wired into `DEFAULT_IRMAA_CONFIG`.
+- **Values**: 2026 CMS thresholds and surcharges. MFJ: $218k / $274k / $342k / $410k / $750k. Six tiers total. Surcharges match CMS 2026 Part B + Part D IRMAA amounts.
 - **Filing-status coverage**: single, MFJ, HoH, MFS. HoH is treated as single (same thresholds). MFS has a collapsed three-tier schedule.
 - **Two-year lookback** is configured (`lookbackYears: 2`) but reported tier uses whatever MAGI is passed in; the lookback is a product-level concern, not modeled inside `calculateIrmaaTier`.
 - **Update trigger**: every November when CMS publishes next-year Part B / Part D IRMAA brackets. Update `DEFAULT_IRMAA_CONFIG.brackets[*]` and the surcharge literals in [src/irmaa-tier-boundaries.test.ts](../src/irmaa-tier-boundaries.test.ts).
 
 ## ACA subsidy
 
-- **Source file**: [src/healthcare-premium-engine.ts](../src/healthcare-premium-engine.ts) `DEFAULT_HEALTHCARE_PREMIUM_CONFIG`.
-- **Regime**: **post-ARPA/IRA**. Continuous 8.5% cap above 400% FPL, **no hard cliff**. This regime is scheduled to sunset at the end of 2025 unless extended by legislation — if it reverts to the pre-ARPA 400% cliff, the engine will silently over-subsidize MAGI > 4.0 FPL households.
-- **FPL values**: 2025 contiguous US figures — $15,650 (hh1), $21,150 (hh2), $26,650 (hh3), $32,150 (hh4). Extra people +$5,500 linear (hardcoded, not IRS official which is +$5,530 for 2025 — small gap).
-- **Contribution bands**: ≤1.5 FPL → 0%; 1.5–2.0 → 0–2% linear; 2.0–2.5 → 2–4%; 2.5–3.0 → 4–6%; 3.0–4.0 → 6–8.5%; >4.0 → 8.5% flat.
+- **Source file**: [src/rule-packs.ts](../src/rule-packs.ts) `CURRENT_LAW_2026_RULE_PACK.aca`, wired into `DEFAULT_HEALTHCARE_PREMIUM_CONFIG`.
+- **Regime**: **current-law 2026 restored 400% FPL cliff**. Enhanced ARPA/IRA subsidies are treated as expired after 2025 unless law changes; MAGI above 4.0 FPL receives no subsidy.
+- **FPL values**: 2025 contiguous US figures used for the 2026 marketplace year — $15,650 (hh1), $21,150 (hh2), $26,650 (hh3), $32,150 (hh4). Extra people +$5,500 linear.
+- **Contribution bands**: ≤1.33 FPL → 2.10%; 1.33–1.5 → 3.14–4.19%; 1.5–2.0 → 4.19–6.60%; 2.0–2.5 → 6.60–8.44%; 2.5–3.0 → 8.44–9.96%; 3.0–4.0 → 9.96%; >4.0 → no subsidy.
 - **Subsidy formula**: `max(premiumEstimate − expectedContribution, 0)`. Subsidy is zero if either retired is false or all members are on Medicare.
 - **Update trigger**: HHS publishes FPL each January; re-check ACA regime status when ARPA/IRA extensions are debated in Congress (currently set to expire Dec 2025).
+
+## Contributions
+
+- **Source file**: [src/rule-packs.ts](../src/rule-packs.ts) `CURRENT_LAW_2026_RULE_PACK.contributions`, wired into `DEFAULT_LIMITS`.
+- **401(k) employee elective deferral**: $24,500 base limit plus $8,000 age-50 catch-up for 2026.
+- **SECURE 2.0 super catch-up**: age 60-63 uses the $11,250 catch-up limit when the employer plan supports super catch-up.
+- **SECURE 2.0 high-earner Roth catch-up**: if prior-year FICA wages from the sponsoring employer exceed the 2026 threshold ($150,000 for 2025 wages used in 2026), catch-up dollars are modeled as Roth-only. If the plan does not support Roth deferrals, the catch-up room is treated as unavailable rather than counted as MAGI-reducing pre-tax room.
+- **HSA**: $4,400 self-only, $8,750 family, $1,000 age-55 catch-up.
+- **Update trigger**: IRS retirement plan COLA notice and HSA Rev. Proc. updates.
 
 ## RMDs
 
@@ -67,6 +82,7 @@ Known gaps that silently bias outputs:
 
 ## Testing coverage
 
+- [src/rule-packs.test.ts](../src/rule-packs.test.ts) — published 2026 values and default-config wiring.
 - [src/tax-engine-scenarios.test.ts](../src/tax-engine-scenarios.test.ts) — 20 canonical cases from [fixtures/tax_engine_scenarios.json](../fixtures/tax_engine_scenarios.json), covering W-2, SS inclusion bands, LTCG stacking, MFS, HoH, tax-exempt muni interest, age-65+ std-ded bump, and NIIT (below threshold, excess-binds, NII-binds).
 - [src/irmaa-tier-boundaries.test.ts](../src/irmaa-tier-boundaries.test.ts) — every tier boundary just-under / just-over for MFJ, single, MFS; sanity checks for HoH.
 - [src/social-security-taxation.test.ts](../src/social-security-taxation.test.ts) — band boundaries for MFJ and single; MFS special case; 85%-cap enforcement; monotonicity invariant over stress inputs.

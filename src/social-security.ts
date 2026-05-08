@@ -422,3 +422,87 @@ export function computeAnnualHouseholdSocialSecurity(
 
   return (e1Effective + e2Effective) * 12;
 }
+
+export interface AnnualHouseholdSocialSecurityBreakdown {
+  householdAnnual: number;
+  earner1Annual: number;
+  earner2Annual: number;
+  earner1ClaimFactor: number;
+  earner2ClaimFactor: number;
+  earner1SpousalFloorMonthly: number;
+  earner2SpousalFloorMonthly: number;
+}
+
+export function computeAnnualHouseholdSocialSecurityBreakdown(
+  earner1: {
+    fraMonthly: number;
+    claimAge: number;
+    currentAge: number;
+    assumedDeathAge?: number;
+  },
+  earner2: {
+    fraMonthly: number;
+    claimAge: number;
+    currentAge: number;
+    assumedDeathAge?: number;
+  } | null,
+  fraAge = 67,
+): AnnualHouseholdSocialSecurityBreakdown {
+  const e1Alive =
+    earner1.assumedDeathAge === undefined ||
+    earner1.currentAge <= earner1.assumedDeathAge;
+  const e2Alive =
+    !earner2 ||
+    earner2.assumedDeathAge === undefined ||
+    earner2.currentAge <= earner2.assumedDeathAge;
+  const e1Filed = e1Alive && earner1.currentAge >= earner1.claimAge;
+  const e2Filed = !!earner2 && e2Alive && earner2.currentAge >= earner2.claimAge;
+  const e1ClaimFactor = ownClaimAdjustmentFactor(fraAge, earner1.claimAge);
+  const e2ClaimFactor = earner2
+    ? ownClaimAdjustmentFactor(fraAge, earner2.claimAge)
+    : 0;
+
+  let e1Effective = e1Filed ? earner1.fraMonthly * e1ClaimFactor : 0;
+  let e2Effective = earner2 && e2Filed ? earner2.fraMonthly * e2ClaimFactor : 0;
+  let e1SpousalFloorMonthly = 0;
+  let e2SpousalFloorMonthly = 0;
+
+  if (earner2 && e1Filed && e2Filed) {
+    if (earner1.fraMonthly < earner2.fraMonthly) {
+      e1SpousalFloorMonthly =
+        earner1.claimAge < fraAge
+          ? earner2.fraMonthly * 0.5 * e1ClaimFactor
+          : earner2.fraMonthly * 0.5;
+      e1Effective = Math.max(e1Effective, e1SpousalFloorMonthly);
+    } else if (earner2.fraMonthly < earner1.fraMonthly) {
+      e2SpousalFloorMonthly =
+        earner2.claimAge < fraAge
+          ? earner1.fraMonthly * 0.5 * e2ClaimFactor
+          : earner1.fraMonthly * 0.5;
+      e2Effective = Math.max(e2Effective, e2SpousalFloorMonthly);
+    }
+  }
+
+  if (earner2) {
+    const higherIsE1 = earner1.fraMonthly >= earner2.fraMonthly;
+    if (higherIsE1 && !e1Alive && e2Alive && earner2.currentAge >= 60) {
+      e1Effective = 0;
+      e2Effective = Math.max(e2Effective, earner1.fraMonthly * e1ClaimFactor);
+    } else if (!higherIsE1 && !e2Alive && e1Alive && earner1.currentAge >= 60) {
+      e2Effective = 0;
+      e1Effective = Math.max(e1Effective, earner2.fraMonthly * e2ClaimFactor);
+    }
+  }
+
+  const earner1Annual = e1Effective * 12;
+  const earner2Annual = e2Effective * 12;
+  return {
+    householdAnnual: earner1Annual + earner2Annual,
+    earner1Annual,
+    earner2Annual,
+    earner1ClaimFactor: e1ClaimFactor,
+    earner2ClaimFactor: e2ClaimFactor,
+    earner1SpousalFloorMonthly: e1SpousalFloorMonthly,
+    earner2SpousalFloorMonthly: e2SpousalFloorMonthly,
+  };
+}

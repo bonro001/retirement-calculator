@@ -1,0 +1,2836 @@
+{
+  "schema": "north-star-validation-export.v1",
+  "generatedAtIso": "2026-05-08T03:30:44.976Z",
+  "assumptionsVersion": "north-star-validation-2026-05-08",
+  "forwardLooking": {
+    "northStarResult": {
+      "version": "north_star_result_v1",
+      "generatedAtIso": "2026-05-08T03:30:44.976Z",
+      "planFingerprint": "4a9579f70d35fd7f",
+      "engineVersion": "north-star-validation-2026-05-08",
+      "assumptionsPackVersion": "current-law-2026-v1",
+      "distributionMode": "forward-looking",
+      "simulationSeed": 20260416,
+      "simulationRuns": 500,
+      "supportedAnnualSpend": null,
+      "successRate": 0.998,
+      "medianEndingWealth": 5860193.28714623,
+      "tenthPercentileEndingWealth": 1638440.3868008389,
+      "modelCompleteness": "reconstructed",
+      "inferredAssumptions": [
+        "RMD start timing is inferred from birth-year legislation rules; no explicit user-provided override exists.",
+        "Ambiguous holdings (TRP_2030, CENTRAL_MANAGED) require proxy asset-class mapping assumptions.",
+        "Runway payroll bridge guidance uses an inferred take-home factor (72%) rather than household-specific paycheck net modeling.",
+        "Headline math uses broad asset-class mappings; these risks are surfaced for recommendation trust rather than treated as priced Monte Carlo factors: SCHD exposure is mapped to broad equity returns; dividend/factor concentration is not separately priced in the headline simulation. FCNTX is 83.98% of Roth exposure; manager/style concentration affects recommendation trust, not the Monte Carlo success-rate math. MUB in taxable is treated through broad bond/taxable-account mechanics; state/AMT/after-tax muni nuances are recommendation-trust risks. TRP_2030 is modeled through asset-class look-through/proxy mapping; fund-manager glidepath risk is not separately priced. CENTRAL_MANAGED is modeled through asset-class look-through/proxy mapping; manager/security-selection risk is not separately priced.",
+        "Inheritance timing and realizable amount remain uncertain even with explicit tax treatment.",
+        "Home downsizing is explicitly modeled, but sale amount/timing/replacement home are marked as estimates.",
+        "Plan evaluation context unavailable; model completeness defaulted to reconstructed.",
+        "No modeled RMD year was present; used estimated RMD start year 2038.",
+        "Ambiguous holding TRP_2030: Target-date 2030 mapped using configured account-level assumption.",
+        "Ambiguous holding CENTRAL_MANAGED: Managed sleeve mapped using configured account-level assumption.",
+        "No modeled ACA bridge year was available; estimated bridge year as 2027.",
+        "Projected bridge-year MAGI was unavailable; defaulted projected MAGI to 0.",
+        "Contribution limits use explicit rules.contributionLimits source \"planning_estimate_for_2027_final_paycheck_window\".",
+        "Estimated federal tax savings use a 22% marginal federal rate placeholder.",
+        "Contribution settings patch uses annualized payroll targets; in-year effect is prorated by salary timing.",
+        "Autopilot yearly flow data was unavailable; retirement flow rows defaulted to zero values.",
+        "Plan evaluation context unavailable; model completeness defaulted to reconstructed.",
+        "No modeled RMD year was present; used estimated RMD start year 2038.",
+        "Ambiguous holding TRP_2030: Target-date 2030 mapped using configured account-level assumption.",
+        "Ambiguous holding CENTRAL_MANAGED: Managed sleeve mapped using configured account-level assumption.",
+        "No modeled ACA bridge year was available; estimated bridge year as 2027.",
+        "Projected bridge-year MAGI was unavailable; defaulted projected MAGI to 0.",
+        "Contribution limits use explicit rules.contributionLimits source \"planning_estimate_for_2027_final_paycheck_window\".",
+        "Estimated federal tax savings use a 22% marginal federal rate placeholder.",
+        "Contribution settings patch uses annualized payroll targets; in-year effect is prorated by salary timing.",
+        "Autopilot yearly flow data was unavailable; retirement flow rows defaulted to zero values."
+      ],
+      "intermediateCalculations": {
+        "activeSimulationProfile": "plannerEnhancedSimulation",
+        "simulationMode": "planner_enhanced",
+        "plannerLogicActive": true,
+        "annualFederalTaxEstimate": 3136.470588235294,
+        "yearsFunded": 9,
+        "irmaaExposureRate": 0.004,
+        "inheritanceDependenceRate": 0.002,
+        "homeSaleDependenceRate": 0.006,
+        "endingWealthPercentiles": {
+          "p10": 1638440.3868008389,
+          "p25": 3091116.5060761725,
+          "p50": 5860193.28714623,
+          "p75": 10191923.815290269,
+          "p90": 17118356.570461735
+        }
+      },
+      "sensitivityResults": [
+        {
+          "id": "baseline",
+          "label": "As entered",
+          "distributionMode": "forward-looking",
+          "successRate": 0.998,
+          "supportedAnnualSpend": null,
+          "medianEndingWealth": 5860193.28714623,
+          "tenthPercentileEndingWealth": 1638440.3868008389,
+          "simulationSeed": 20260416,
+          "simulationRuns": 500
+        },
+        {
+          "id": "equity-minus-2pp",
+          "label": "Equity returns -2pp",
+          "distributionMode": "forward-looking",
+          "successRate": 0.972,
+          "supportedAnnualSpend": null,
+          "medianEndingWealth": 2617451.705831445,
+          "tenthPercentileEndingWealth": 501958.454707018,
+          "simulationSeed": 20260416,
+          "simulationRuns": 500
+        },
+        {
+          "id": "equity-plus-2pp",
+          "label": "Equity returns +2pp",
+          "distributionMode": "forward-looking",
+          "successRate": 1,
+          "supportedAnnualSpend": null,
+          "medianEndingWealth": 11886371.785671258,
+          "tenthPercentileEndingWealth": 3913945.151125266,
+          "simulationSeed": 20260416,
+          "simulationRuns": 500
+        },
+        {
+          "id": "inflation-plus-1pp",
+          "label": "Inflation +1pp",
+          "distributionMode": "forward-looking",
+          "successRate": 0.984,
+          "supportedAnnualSpend": null,
+          "medianEndingWealth": 4884505.236798354,
+          "tenthPercentileEndingWealth": 956788.1407958451,
+          "simulationSeed": 20260416,
+          "simulationRuns": 500
+        },
+        {
+          "id": "spending-plus-10pct",
+          "label": "Spending +10%",
+          "distributionMode": "forward-looking",
+          "successRate": 0.978,
+          "supportedAnnualSpend": null,
+          "medianEndingWealth": 4713296.032046458,
+          "tenthPercentileEndingWealth": 856223.3536876205,
+          "simulationSeed": 20260416,
+          "simulationRuns": 500
+        },
+        {
+          "id": "spending-minus-10pct",
+          "label": "Spending -10%",
+          "distributionMode": "forward-looking",
+          "successRate": 1,
+          "supportedAnnualSpend": null,
+          "medianEndingWealth": 6921978.010605713,
+          "tenthPercentileEndingWealth": 2400476.3767825314,
+          "simulationSeed": 20260416,
+          "simulationRuns": 500
+        }
+      ]
+    },
+    "activeSimulationOutcome": {
+      "successRate": 0.998,
+      "medianEndingWealth": 5860193.28714623,
+      "tenthPercentileEndingWealth": 1638440.3868008389,
+      "annualFederalTaxEstimate": 3136.470588235294,
+      "ltcHsaDiagnostics": {
+        "assumptions": {
+          "enabled": true,
+          "startAge": 85,
+          "annualCostToday": 48000,
+          "durationYears": 3,
+          "inflationAnnual": 0.055,
+          "eventProbability": 0.45
+        },
+        "hsaStrategy": {
+          "enabled": true,
+          "withdrawalMode": "ltc_reserve",
+          "annualQualifiedExpenseWithdrawalCap": 250000
+        },
+        "monteCarlo": {
+          "trialCount": 500,
+          "ltcEventRunCount": 241,
+          "ltcEventIncidenceRate": 0.482,
+          "ltcCostYearCountPercentiles": {
+            "p10": 0,
+            "p25": 0,
+            "p50": 0,
+            "p75": 3,
+            "p90": 3
+          },
+          "totalLtcCostPercentiles": {
+            "p10": 0,
+            "p25": 0,
+            "p50": 0,
+            "p75": 520998,
+            "p90": 520998
+          },
+          "totalHsaOffsetUsedPercentiles": {
+            "p10": 0,
+            "p25": 0,
+            "p50": 0,
+            "p75": 234866,
+            "p90": 383364
+          },
+          "totalHsaLtcOffsetUsedPercentiles": {
+            "p10": 0,
+            "p25": 0,
+            "p50": 0,
+            "p75": 234866,
+            "p90": 383364
+          },
+          "totalLtcCostRemainingAfterHsaPercentiles": {
+            "p10": 0,
+            "p25": 0,
+            "p50": 0,
+            "p75": 269354,
+            "p90": 354798
+          }
+        },
+        "annualPath": [
+          {
+            "year": 2026,
+            "ltcEventTriggeredRate": 0.482,
+            "ltcEventActiveRate": 0,
+            "ltcCostPercentiles": {
+              "p10": 0,
+              "p25": 0,
+              "p50": 0,
+              "p75": 0,
+              "p90": 0
+            },
+            "hsaOffsetUsedPercentiles": {
+              "p10": 0,
+              "p25": 0,
+              "p50": 0,
+              "p75": 0,
+              "p90": 0
+            },
+            "hsaLtcOffsetUsedPercentiles": {
+              "p10": 0,
+              "p25": 0,
+              "p50": 0,
+              "p75": 0,
+              "p90": 0
+            },
+            "ltcCostRemainingAfterHsaPercentiles": {
+              "p10": 0,
+              "p25": 0,
+              "p50": 0,
+              "p75": 0,
+              "p90": 0
+            },
+            "hsaBalancePercentiles": {
+              "p10": 49344,
+              "p25": 53313,
+              "p50": 57643,
+              "p75": 61304,
+              "p90": 65217
+            }
+          },
+          {
+            "year": 2027,
+            "ltcEventTriggeredRate": 0.482,
+            "ltcEventActiveRate": 0,
+            "ltcCostPercentiles": {
+              "p10": 0,
+              "p25": 0,
+              "p50": 0,
+              "p75": 0,
+              "p90": 0
+            },
+            "hsaOffsetUsedPercentiles": {
+              "p10": 0,
+              "p25": 0,
+              "p50": 0,
+              "p75": 0,
+              "p90": 0
+            },
+            "hsaLtcOffsetUsedPercentiles": {
+              "p10": 0,
+              "p25": 0,
+              "p50": 0,
+              "p75": 0,
+              "p90": 0
+            },
+            "ltcCostRemainingAfterHsaPercentiles": {
+              "p10": 0,
+              "p25": 0,
+              "p50": 0,
+              "p75": 0,
+              "p90": 0
+            },
+            "hsaBalancePercentiles": {
+              "p10": 50598,
+              "p25": 56439,
+              "p50": 62838,
+              "p75": 69388,
+              "p90": 75635
+            }
+          },
+          {
+            "year": 2028,
+            "ltcEventTriggeredRate": 0.482,
+            "ltcEventActiveRate": 0,
+            "ltcCostPercentiles": {
+              "p10": 0,
+              "p25": 0,
+              "p50": 0,
+              "p75": 0,
+              "p90": 0
+            },
+            "hsaOffsetUsedPercentiles": {
+              "p10": 0,
+              "p25": 0,
+              "p50": 0,
+              "p75": 0,
+              "p90": 0
+            },
+            "hsaLtcOffsetUsedPercentiles": {
+              "p10": 0,
+              "p25": 0,
+              "p50": 0,
+              "p75": 0,
+              "p90": 0
+            },
+            "ltcCostRemainingAfterHsaPercentiles": {
+              "p10": 0,
+              "p25": 0,
+              "p50": 0,
+              "p75": 0,
+              "p90": 0
+            },
+            "hsaBalancePercentiles": {
+              "p10": 53113,
+              "p25": 58693,
+              "p50": 66619,
+              "p75": 75237,
+              "p90": 83774
+            }
+          },
+          {
+            "year": 2029,
+            "ltcEventTriggeredRate": 0.482,
+            "ltcEventActiveRate": 0,
+            "ltcCostPercentiles": {
+              "p10": 0,
+              "p25": 0,
+              "p50": 0,
+              "p75": 0,
+              "p90": 0
+            },
+            "hsaOffsetUsedPercentiles": {
+              "p10": 0,
+              "p25": 0,
+              "p50": 0,
+              "p75": 0,
+              "p90": 0
+            },
+            "hsaLtcOffsetUsedPercentiles": {
+              "p10": 0,
+              "p25": 0,
+              "p50": 0,
+              "p75": 0,
+              "p90": 0
+            },
+            "ltcCostRemainingAfterHsaPercentiles": {
+              "p10": 0,
+              "p25": 0,
+              "p50": 0,
+              "p75": 0,
+              "p90": 0
+            },
+            "hsaBalancePercentiles": {
+              "p10": 54985,
+              "p25": 62536,
+              "p50": 70969,
+              "p75": 82005,
+              "p90": 94008
+            }
+          },
+          {
+            "year": 2030,
+            "ltcEventTriggeredRate": 0.482,
+            "ltcEventActiveRate": 0,
+            "ltcCostPercentiles": {
+              "p10": 0,
+              "p25": 0,
+              "p50": 0,
+              "p75": 0,
+              "p90": 0
+            },
+            "hsaOffsetUsedPercentiles": {
+              "p10": 0,
+              "p25": 0,
+              "p50": 0,
+              "p75": 0,
+              "p90": 0
+            },
+            "hsaLtcOffsetUsedPercentiles": {
+              "p10": 0,
+              "p25": 0,
+              "p50": 0,
+              "p75": 0,
+              "p90": 0
+            },
+            "ltcCostRemainingAfterHsaPercentiles": {
+              "p10": 0,
+              "p25": 0,
+              "p50": 0,
+              "p75": 0,
+              "p90": 0
+            },
+            "hsaBalancePercentiles": {
+              "p10": 55383,
+              "p25": 64863,
+              "p50": 76551,
+              "p75": 88838,
+              "p90": 105553
+            }
+          },
+          {
+            "year": 2031,
+            "ltcEventTriggeredRate": 0.482,
+            "ltcEventActiveRate": 0,
+            "ltcCostPercentiles": {
+              "p10": 0,
+              "p25": 0,
+              "p50": 0,
+              "p75": 0,
+              "p90": 0
+            },
+            "hsaOffsetUsedPercentiles": {
+              "p10": 0,
+              "p25": 0,
+              "p50": 0,
+              "p75": 0,
+              "p90": 0
+            },
+            "hsaLtcOffsetUsedPercentiles": {
+              "p10": 0,
+              "p25": 0,
+              "p50": 0,
+              "p75": 0,
+              "p90": 0
+            },
+            "ltcCostRemainingAfterHsaPercentiles": {
+              "p10": 0,
+              "p25": 0,
+              "p50": 0,
+              "p75": 0,
+              "p90": 0
+            },
+            "hsaBalancePercentiles": {
+              "p10": 56084,
+              "p25": 68010,
+              "p50": 80804,
+              "p75": 96658,
+              "p90": 112171
+            }
+          },
+          {
+            "year": 2032,
+            "ltcEventTriggeredRate": 0.482,
+            "ltcEventActiveRate": 0,
+            "ltcCostPercentiles": {
+              "p10": 0,
+              "p25": 0,
+              "p50": 0,
+              "p75": 0,
+              "p90": 0
+            },
+            "hsaOffsetUsedPercentiles": {
+              "p10": 0,
+              "p25": 0,
+              "p50": 0,
+              "p75": 0,
+              "p90": 0
+            },
+            "hsaLtcOffsetUsedPercentiles": {
+              "p10": 0,
+              "p25": 0,
+              "p50": 0,
+              "p75": 0,
+              "p90": 0
+            },
+            "ltcCostRemainingAfterHsaPercentiles": {
+              "p10": 0,
+              "p25": 0,
+              "p50": 0,
+              "p75": 0,
+              "p90": 0
+            },
+            "hsaBalancePercentiles": {
+              "p10": 59136,
+              "p25": 69969,
+              "p50": 86465,
+              "p75": 104743,
+              "p90": 126707
+            }
+          },
+          {
+            "year": 2033,
+            "ltcEventTriggeredRate": 0.482,
+            "ltcEventActiveRate": 0,
+            "ltcCostPercentiles": {
+              "p10": 0,
+              "p25": 0,
+              "p50": 0,
+              "p75": 0,
+              "p90": 0
+            },
+            "hsaOffsetUsedPercentiles": {
+              "p10": 0,
+              "p25": 0,
+              "p50": 0,
+              "p75": 0,
+              "p90": 0
+            },
+            "hsaLtcOffsetUsedPercentiles": {
+              "p10": 0,
+              "p25": 0,
+              "p50": 0,
+              "p75": 0,
+              "p90": 0
+            },
+            "ltcCostRemainingAfterHsaPercentiles": {
+              "p10": 0,
+              "p25": 0,
+              "p50": 0,
+              "p75": 0,
+              "p90": 0
+            },
+            "hsaBalancePercentiles": {
+              "p10": 59679,
+              "p25": 73173,
+              "p50": 91889,
+              "p75": 114110,
+              "p90": 134657
+            }
+          },
+          {
+            "year": 2034,
+            "ltcEventTriggeredRate": 0.482,
+            "ltcEventActiveRate": 0,
+            "ltcCostPercentiles": {
+              "p10": 0,
+              "p25": 0,
+              "p50": 0,
+              "p75": 0,
+              "p90": 0
+            },
+            "hsaOffsetUsedPercentiles": {
+              "p10": 0,
+              "p25": 0,
+              "p50": 0,
+              "p75": 0,
+              "p90": 0
+            },
+            "hsaLtcOffsetUsedPercentiles": {
+              "p10": 0,
+              "p25": 0,
+              "p50": 0,
+              "p75": 0,
+              "p90": 0
+            },
+            "ltcCostRemainingAfterHsaPercentiles": {
+              "p10": 0,
+              "p25": 0,
+              "p50": 0,
+              "p75": 0,
+              "p90": 0
+            },
+            "hsaBalancePercentiles": {
+              "p10": 61996,
+              "p25": 77648,
+              "p50": 95020,
+              "p75": 120613,
+              "p90": 147613
+            }
+          },
+          {
+            "year": 2035,
+            "ltcEventTriggeredRate": 0.482,
+            "ltcEventActiveRate": 0,
+            "ltcCostPercentiles": {
+              "p10": 0,
+              "p25": 0,
+              "p50": 0,
+              "p75": 0,
+              "p90": 0
+            },
+            "hsaOffsetUsedPercentiles": {
+              "p10": 0,
+              "p25": 0,
+              "p50": 0,
+              "p75": 0,
+              "p90": 0
+            },
+            "hsaLtcOffsetUsedPercentiles": {
+              "p10": 0,
+              "p25": 0,
+              "p50": 0,
+              "p75": 0,
+              "p90": 0
+            },
+            "ltcCostRemainingAfterHsaPercentiles": {
+              "p10": 0,
+              "p25": 0,
+              "p50": 0,
+              "p75": 0,
+              "p90": 0
+            },
+            "hsaBalancePercentiles": {
+              "p10": 65445,
+              "p25": 81682,
+              "p50": 102695,
+              "p75": 127635,
+              "p90": 155702
+            }
+          },
+          {
+            "year": 2036,
+            "ltcEventTriggeredRate": 0.482,
+            "ltcEventActiveRate": 0,
+            "ltcCostPercentiles": {
+              "p10": 0,
+              "p25": 0,
+              "p50": 0,
+              "p75": 0,
+              "p90": 0
+            },
+            "hsaOffsetUsedPercentiles": {
+              "p10": 0,
+              "p25": 0,
+              "p50": 0,
+              "p75": 0,
+              "p90": 0
+            },
+            "hsaLtcOffsetUsedPercentiles": {
+              "p10": 0,
+              "p25": 0,
+              "p50": 0,
+              "p75": 0,
+              "p90": 0
+            },
+            "ltcCostRemainingAfterHsaPercentiles": {
+              "p10": 0,
+              "p25": 0,
+              "p50": 0,
+              "p75": 0,
+              "p90": 0
+            },
+            "hsaBalancePercentiles": {
+              "p10": 68057,
+              "p25": 84711,
+              "p50": 108235,
+              "p75": 138525,
+              "p90": 170407
+            }
+          },
+          {
+            "year": 2037,
+            "ltcEventTriggeredRate": 0.482,
+            "ltcEventActiveRate": 0,
+            "ltcCostPercentiles": {
+              "p10": 0,
+              "p25": 0,
+              "p50": 0,
+              "p75": 0,
+              "p90": 0
+            },
+            "hsaOffsetUsedPercentiles": {
+              "p10": 0,
+              "p25": 0,
+              "p50": 0,
+              "p75": 0,
+              "p90": 0
+            },
+            "hsaLtcOffsetUsedPercentiles": {
+              "p10": 0,
+              "p25": 0,
+              "p50": 0,
+              "p75": 0,
+              "p90": 0
+            },
+            "ltcCostRemainingAfterHsaPercentiles": {
+              "p10": 0,
+              "p25": 0,
+              "p50": 0,
+              "p75": 0,
+              "p90": 0
+            },
+            "hsaBalancePercentiles": {
+              "p10": 70514,
+              "p25": 91463,
+              "p50": 115601,
+              "p75": 153197,
+              "p90": 188927
+            }
+          },
+          {
+            "year": 2038,
+            "ltcEventTriggeredRate": 0.482,
+            "ltcEventActiveRate": 0,
+            "ltcCostPercentiles": {
+              "p10": 0,
+              "p25": 0,
+              "p50": 0,
+              "p75": 0,
+              "p90": 0
+            },
+            "hsaOffsetUsedPercentiles": {
+              "p10": 0,
+              "p25": 0,
+              "p50": 0,
+              "p75": 0,
+              "p90": 0
+            },
+            "hsaLtcOffsetUsedPercentiles": {
+              "p10": 0,
+              "p25": 0,
+              "p50": 0,
+              "p75": 0,
+              "p90": 0
+            },
+            "ltcCostRemainingAfterHsaPercentiles": {
+              "p10": 0,
+              "p25": 0,
+              "p50": 0,
+              "p75": 0,
+              "p90": 0
+            },
+            "hsaBalancePercentiles": {
+              "p10": 73630,
+              "p25": 93085,
+              "p50": 123484,
+              "p75": 163856,
+              "p90": 202381
+            }
+          },
+          {
+            "year": 2039,
+            "ltcEventTriggeredRate": 0.482,
+            "ltcEventActiveRate": 0,
+            "ltcCostPercentiles": {
+              "p10": 0,
+              "p25": 0,
+              "p50": 0,
+              "p75": 0,
+              "p90": 0
+            },
+            "hsaOffsetUsedPercentiles": {
+              "p10": 0,
+              "p25": 0,
+              "p50": 0,
+              "p75": 0,
+              "p90": 0
+            },
+            "hsaLtcOffsetUsedPercentiles": {
+              "p10": 0,
+              "p25": 0,
+              "p50": 0,
+              "p75": 0,
+              "p90": 0
+            },
+            "ltcCostRemainingAfterHsaPercentiles": {
+              "p10": 0,
+              "p25": 0,
+              "p50": 0,
+              "p75": 0,
+              "p90": 0
+            },
+            "hsaBalancePercentiles": {
+              "p10": 78348,
+              "p25": 99872,
+              "p50": 130445,
+              "p75": 175504,
+              "p90": 223228
+            }
+          },
+          {
+            "year": 2040,
+            "ltcEventTriggeredRate": 0.482,
+            "ltcEventActiveRate": 0,
+            "ltcCostPercentiles": {
+              "p10": 0,
+              "p25": 0,
+              "p50": 0,
+              "p75": 0,
+              "p90": 0
+            },
+            "hsaOffsetUsedPercentiles": {
+              "p10": 0,
+              "p25": 0,
+              "p50": 0,
+              "p75": 0,
+              "p90": 0
+            },
+            "hsaLtcOffsetUsedPercentiles": {
+              "p10": 0,
+              "p25": 0,
+              "p50": 0,
+              "p75": 0,
+              "p90": 0
+            },
+            "ltcCostRemainingAfterHsaPercentiles": {
+              "p10": 0,
+              "p25": 0,
+              "p50": 0,
+              "p75": 0,
+              "p90": 0
+            },
+            "hsaBalancePercentiles": {
+              "p10": 83341,
+              "p25": 103969,
+              "p50": 138617,
+              "p75": 188590,
+              "p90": 239967
+            }
+          },
+          {
+            "year": 2041,
+            "ltcEventTriggeredRate": 0.482,
+            "ltcEventActiveRate": 0,
+            "ltcCostPercentiles": {
+              "p10": 0,
+              "p25": 0,
+              "p50": 0,
+              "p75": 0,
+              "p90": 0
+            },
+            "hsaOffsetUsedPercentiles": {
+              "p10": 0,
+              "p25": 0,
+              "p50": 0,
+              "p75": 0,
+              "p90": 0
+            },
+            "hsaLtcOffsetUsedPercentiles": {
+              "p10": 0,
+              "p25": 0,
+              "p50": 0,
+              "p75": 0,
+              "p90": 0
+            },
+            "ltcCostRemainingAfterHsaPercentiles": {
+              "p10": 0,
+              "p25": 0,
+              "p50": 0,
+              "p75": 0,
+              "p90": 0
+            },
+            "hsaBalancePercentiles": {
+              "p10": 86648,
+              "p25": 108881,
+              "p50": 148223,
+              "p75": 206462,
+              "p90": 258730
+            }
+          },
+          {
+            "year": 2042,
+            "ltcEventTriggeredRate": 0.482,
+            "ltcEventActiveRate": 0,
+            "ltcCostPercentiles": {
+              "p10": 0,
+              "p25": 0,
+              "p50": 0,
+              "p75": 0,
+              "p90": 0
+            },
+            "hsaOffsetUsedPercentiles": {
+              "p10": 0,
+              "p25": 0,
+              "p50": 0,
+              "p75": 0,
+              "p90": 0
+            },
+            "hsaLtcOffsetUsedPercentiles": {
+              "p10": 0,
+              "p25": 0,
+              "p50": 0,
+              "p75": 0,
+              "p90": 0
+            },
+            "ltcCostRemainingAfterHsaPercentiles": {
+              "p10": 0,
+              "p25": 0,
+              "p50": 0,
+              "p75": 0,
+              "p90": 0
+            },
+            "hsaBalancePercentiles": {
+              "p10": 88402,
+              "p25": 114449,
+              "p50": 158309,
+              "p75": 218308,
+              "p90": 285539
+            }
+          },
+          {
+            "year": 2043,
+            "ltcEventTriggeredRate": 0.482,
+            "ltcEventActiveRate": 0,
+            "ltcCostPercentiles": {
+              "p10": 0,
+              "p25": 0,
+              "p50": 0,
+              "p75": 0,
+              "p90": 0
+            },
+            "hsaOffsetUsedPercentiles": {
+              "p10": 0,
+              "p25": 0,
+              "p50": 0,
+              "p75": 0,
+              "p90": 0
+            },
+            "hsaLtcOffsetUsedPercentiles": {
+              "p10": 0,
+              "p25": 0,
+              "p50": 0,
+              "p75": 0,
+              "p90": 0
+            },
+            "ltcCostRemainingAfterHsaPercentiles": {
+              "p10": 0,
+              "p25": 0,
+              "p50": 0,
+              "p75": 0,
+              "p90": 0
+            },
+            "hsaBalancePercentiles": {
+              "p10": 95624,
+              "p25": 124023,
+              "p50": 170803,
+              "p75": 235251,
+              "p90": 294503
+            }
+          },
+          {
+            "year": 2044,
+            "ltcEventTriggeredRate": 0.482,
+            "ltcEventActiveRate": 0,
+            "ltcCostPercentiles": {
+              "p10": 0,
+              "p25": 0,
+              "p50": 0,
+              "p75": 0,
+              "p90": 0
+            },
+            "hsaOffsetUsedPercentiles": {
+              "p10": 0,
+              "p25": 0,
+              "p50": 0,
+              "p75": 0,
+              "p90": 0
+            },
+            "hsaLtcOffsetUsedPercentiles": {
+              "p10": 0,
+              "p25": 0,
+              "p50": 0,
+              "p75": 0,
+              "p90": 0
+            },
+            "ltcCostRemainingAfterHsaPercentiles": {
+              "p10": 0,
+              "p25": 0,
+              "p50": 0,
+              "p75": 0,
+              "p90": 0
+            },
+            "hsaBalancePercentiles": {
+              "p10": 98798,
+              "p25": 132525,
+              "p50": 176711,
+              "p75": 246659,
+              "p90": 329274
+            }
+          },
+          {
+            "year": 2045,
+            "ltcEventTriggeredRate": 0.482,
+            "ltcEventActiveRate": 0,
+            "ltcCostPercentiles": {
+              "p10": 0,
+              "p25": 0,
+              "p50": 0,
+              "p75": 0,
+              "p90": 0
+            },
+            "hsaOffsetUsedPercentiles": {
+              "p10": 0,
+              "p25": 0,
+              "p50": 0,
+              "p75": 0,
+              "p90": 0
+            },
+            "hsaLtcOffsetUsedPercentiles": {
+              "p10": 0,
+              "p25": 0,
+              "p50": 0,
+              "p75": 0,
+              "p90": 0
+            },
+            "ltcCostRemainingAfterHsaPercentiles": {
+              "p10": 0,
+              "p25": 0,
+              "p50": 0,
+              "p75": 0,
+              "p90": 0
+            },
+            "hsaBalancePercentiles": {
+              "p10": 107913,
+              "p25": 143794,
+              "p50": 188418,
+              "p75": 271303,
+              "p90": 347870
+            }
+          },
+          {
+            "year": 2046,
+            "ltcEventTriggeredRate": 0.482,
+            "ltcEventActiveRate": 0,
+            "ltcCostPercentiles": {
+              "p10": 0,
+              "p25": 0,
+              "p50": 0,
+              "p75": 0,
+              "p90": 0
+            },
+            "hsaOffsetUsedPercentiles": {
+              "p10": 0,
+              "p25": 0,
+              "p50": 0,
+              "p75": 0,
+              "p90": 0
+            },
+            "hsaLtcOffsetUsedPercentiles": {
+              "p10": 0,
+              "p25": 0,
+              "p50": 0,
+              "p75": 0,
+              "p90": 0
+            },
+            "ltcCostRemainingAfterHsaPercentiles": {
+              "p10": 0,
+              "p25": 0,
+              "p50": 0,
+              "p75": 0,
+              "p90": 0
+            },
+            "hsaBalancePercentiles": {
+              "p10": 116340,
+              "p25": 149515,
+              "p50": 206025,
+              "p75": 291380,
+              "p90": 373963
+            }
+          },
+          {
+            "year": 2047,
+            "ltcEventTriggeredRate": 0.482,
+            "ltcEventActiveRate": 0,
+            "ltcCostPercentiles": {
+              "p10": 0,
+              "p25": 0,
+              "p50": 0,
+              "p75": 0,
+              "p90": 0
+            },
+            "hsaOffsetUsedPercentiles": {
+              "p10": 0,
+              "p25": 0,
+              "p50": 0,
+              "p75": 0,
+              "p90": 0
+            },
+            "hsaLtcOffsetUsedPercentiles": {
+              "p10": 0,
+              "p25": 0,
+              "p50": 0,
+              "p75": 0,
+              "p90": 0
+            },
+            "ltcCostRemainingAfterHsaPercentiles": {
+              "p10": 0,
+              "p25": 0,
+              "p50": 0,
+              "p75": 0,
+              "p90": 0
+            },
+            "hsaBalancePercentiles": {
+              "p10": 115175,
+              "p25": 157459,
+              "p50": 220410,
+              "p75": 306801,
+              "p90": 405754
+            }
+          },
+          {
+            "year": 2048,
+            "ltcEventTriggeredRate": 0.482,
+            "ltcEventActiveRate": 0,
+            "ltcCostPercentiles": {
+              "p10": 0,
+              "p25": 0,
+              "p50": 0,
+              "p75": 0,
+              "p90": 0
+            },
+            "hsaOffsetUsedPercentiles": {
+              "p10": 0,
+              "p25": 0,
+              "p50": 0,
+              "p75": 0,
+              "p90": 0
+            },
+            "hsaLtcOffsetUsedPercentiles": {
+              "p10": 0,
+              "p25": 0,
+              "p50": 0,
+              "p75": 0,
+              "p90": 0
+            },
+            "ltcCostRemainingAfterHsaPercentiles": {
+              "p10": 0,
+              "p25": 0,
+              "p50": 0,
+              "p75": 0,
+              "p90": 0
+            },
+            "hsaBalancePercentiles": {
+              "p10": 123987,
+              "p25": 169934,
+              "p50": 228837,
+              "p75": 323972,
+              "p90": 444066
+            }
+          },
+          {
+            "year": 2049,
+            "ltcEventTriggeredRate": 0.482,
+            "ltcEventActiveRate": 0.482,
+            "ltcCostPercentiles": {
+              "p10": 0,
+              "p25": 0,
+              "p50": 0,
+              "p75": 164455,
+              "p90": 164455
+            },
+            "hsaOffsetUsedPercentiles": {
+              "p10": 0,
+              "p25": 0,
+              "p50": 0,
+              "p75": 164455,
+              "p90": 164455
+            },
+            "hsaLtcOffsetUsedPercentiles": {
+              "p10": 0,
+              "p25": 0,
+              "p50": 0,
+              "p75": 164455,
+              "p90": 164455
+            },
+            "ltcCostRemainingAfterHsaPercentiles": {
+              "p10": 0,
+              "p25": 0,
+              "p50": 0,
+              "p75": 0,
+              "p90": 0
+            },
+            "hsaBalancePercentiles": {
+              "p10": 1433,
+              "p25": 76280,
+              "p50": 182973,
+              "p75": 289782,
+              "p90": 440866
+            }
+          },
+          {
+            "year": 2050,
+            "ltcEventTriggeredRate": 0.482,
+            "ltcEventActiveRate": 0.482,
+            "ltcCostPercentiles": {
+              "p10": 0,
+              "p25": 0,
+              "p50": 0,
+              "p75": 173500,
+              "p90": 173500
+            },
+            "hsaOffsetUsedPercentiles": {
+              "p10": 0,
+              "p25": 0,
+              "p50": 0,
+              "p75": 70411,
+              "p90": 173500
+            },
+            "hsaLtcOffsetUsedPercentiles": {
+              "p10": 0,
+              "p25": 0,
+              "p50": 0,
+              "p75": 70411,
+              "p90": 173500
+            },
+            "ltcCostRemainingAfterHsaPercentiles": {
+              "p10": 0,
+              "p25": 0,
+              "p50": 0,
+              "p75": 86311,
+              "p90": 171755
+            },
+            "hsaBalancePercentiles": {
+              "p10": 0,
+              "p25": 0,
+              "p50": 143027,
+              "p75": 285296,
+              "p90": 433846
+            }
+          },
+          {
+            "year": 2051,
+            "ltcEventTriggeredRate": 0.482,
+            "ltcEventActiveRate": 0.482,
+            "ltcCostPercentiles": {
+              "p10": 0,
+              "p25": 0,
+              "p50": 0,
+              "p75": 183043,
+              "p90": 183043
+            },
+            "hsaOffsetUsedPercentiles": {
+              "p10": 0,
+              "p25": 0,
+              "p50": 0,
+              "p75": 0,
+              "p90": 45409
+            },
+            "hsaLtcOffsetUsedPercentiles": {
+              "p10": 0,
+              "p25": 0,
+              "p50": 0,
+              "p75": 0,
+              "p90": 45409
+            },
+            "ltcCostRemainingAfterHsaPercentiles": {
+              "p10": 0,
+              "p25": 0,
+              "p50": 0,
+              "p75": 183043,
+              "p90": 183043
+            },
+            "hsaBalancePercentiles": {
+              "p10": 0,
+              "p25": 0,
+              "p50": 124895,
+              "p75": 292159,
+              "p90": 454516
+            }
+          },
+          {
+            "year": 2052,
+            "ltcEventTriggeredRate": 0.482,
+            "ltcEventActiveRate": 0,
+            "ltcCostPercentiles": {
+              "p10": 0,
+              "p25": 0,
+              "p50": 0,
+              "p75": 0,
+              "p90": 0
+            },
+            "hsaOffsetUsedPercentiles": {
+              "p10": 0,
+              "p25": 0,
+              "p50": 0,
+              "p75": 0,
+              "p90": 0
+            },
+            "hsaLtcOffsetUsedPercentiles": {
+              "p10": 0,
+              "p25": 0,
+              "p50": 0,
+              "p75": 0,
+              "p90": 0
+            },
+            "ltcCostRemainingAfterHsaPercentiles": {
+              "p10": 0,
+              "p25": 0,
+              "p50": 0,
+              "p75": 0,
+              "p90": 0
+            },
+            "hsaBalancePercentiles": {
+              "p10": 0,
+              "p25": 0,
+              "p50": 129252,
+              "p75": 311107,
+              "p90": 491012
+            }
+          },
+          {
+            "year": 2053,
+            "ltcEventTriggeredRate": 0.482,
+            "ltcEventActiveRate": 0,
+            "ltcCostPercentiles": {
+              "p10": 0,
+              "p25": 0,
+              "p50": 0,
+              "p75": 0,
+              "p90": 0
+            },
+            "hsaOffsetUsedPercentiles": {
+              "p10": 0,
+              "p25": 0,
+              "p50": 0,
+              "p75": 0,
+              "p90": 0
+            },
+            "hsaLtcOffsetUsedPercentiles": {
+              "p10": 0,
+              "p25": 0,
+              "p50": 0,
+              "p75": 0,
+              "p90": 0
+            },
+            "ltcCostRemainingAfterHsaPercentiles": {
+              "p10": 0,
+              "p25": 0,
+              "p50": 0,
+              "p75": 0,
+              "p90": 0
+            },
+            "hsaBalancePercentiles": {
+              "p10": 0,
+              "p25": 0,
+              "p50": 132854,
+              "p75": 334521,
+              "p90": 509210
+            }
+          },
+          {
+            "year": 2054,
+            "ltcEventTriggeredRate": 0.482,
+            "ltcEventActiveRate": 0,
+            "ltcCostPercentiles": {
+              "p10": 0,
+              "p25": 0,
+              "p50": 0,
+              "p75": 0,
+              "p90": 0
+            },
+            "hsaOffsetUsedPercentiles": {
+              "p10": 0,
+              "p25": 0,
+              "p50": 0,
+              "p75": 0,
+              "p90": 0
+            },
+            "hsaLtcOffsetUsedPercentiles": {
+              "p10": 0,
+              "p25": 0,
+              "p50": 0,
+              "p75": 0,
+              "p90": 0
+            },
+            "ltcCostRemainingAfterHsaPercentiles": {
+              "p10": 0,
+              "p25": 0,
+              "p50": 0,
+              "p75": 0,
+              "p90": 0
+            },
+            "hsaBalancePercentiles": {
+              "p10": 0,
+              "p25": 0,
+              "p50": 143328,
+              "p75": 360777,
+              "p90": 544331
+            }
+          },
+          {
+            "year": 2055,
+            "ltcEventTriggeredRate": 0.482,
+            "ltcEventActiveRate": 0,
+            "ltcCostPercentiles": {
+              "p10": 0,
+              "p25": 0,
+              "p50": 0,
+              "p75": 0,
+              "p90": 0
+            },
+            "hsaOffsetUsedPercentiles": {
+              "p10": 0,
+              "p25": 0,
+              "p50": 0,
+              "p75": 0,
+              "p90": 0
+            },
+            "hsaLtcOffsetUsedPercentiles": {
+              "p10": 0,
+              "p25": 0,
+              "p50": 0,
+              "p75": 0,
+              "p90": 0
+            },
+            "ltcCostRemainingAfterHsaPercentiles": {
+              "p10": 0,
+              "p25": 0,
+              "p50": 0,
+              "p75": 0,
+              "p90": 0
+            },
+            "hsaBalancePercentiles": {
+              "p10": 0,
+              "p25": 0,
+              "p50": 157017,
+              "p75": 369124,
+              "p90": 595800
+            }
+          },
+          {
+            "year": 2056,
+            "ltcEventTriggeredRate": 0.482,
+            "ltcEventActiveRate": 0,
+            "ltcCostPercentiles": {
+              "p10": 0,
+              "p25": 0,
+              "p50": 0,
+              "p75": 0,
+              "p90": 0
+            },
+            "hsaOffsetUsedPercentiles": {
+              "p10": 0,
+              "p25": 0,
+              "p50": 0,
+              "p75": 0,
+              "p90": 0
+            },
+            "hsaLtcOffsetUsedPercentiles": {
+              "p10": 0,
+              "p25": 0,
+              "p50": 0,
+              "p75": 0,
+              "p90": 0
+            },
+            "ltcCostRemainingAfterHsaPercentiles": {
+              "p10": 0,
+              "p25": 0,
+              "p50": 0,
+              "p75": 0,
+              "p90": 0
+            },
+            "hsaBalancePercentiles": {
+              "p10": 0,
+              "p25": 0,
+              "p50": 157788,
+              "p75": 401857,
+              "p90": 663781
+            }
+          },
+          {
+            "year": 2057,
+            "ltcEventTriggeredRate": 0.482,
+            "ltcEventActiveRate": 0,
+            "ltcCostPercentiles": {
+              "p10": 0,
+              "p25": 0,
+              "p50": 0,
+              "p75": 0,
+              "p90": 0
+            },
+            "hsaOffsetUsedPercentiles": {
+              "p10": 0,
+              "p25": 0,
+              "p50": 0,
+              "p75": 0,
+              "p90": 0
+            },
+            "hsaLtcOffsetUsedPercentiles": {
+              "p10": 0,
+              "p25": 0,
+              "p50": 0,
+              "p75": 0,
+              "p90": 0
+            },
+            "ltcCostRemainingAfterHsaPercentiles": {
+              "p10": 0,
+              "p25": 0,
+              "p50": 0,
+              "p75": 0,
+              "p90": 0
+            },
+            "hsaBalancePercentiles": {
+              "p10": 0,
+              "p25": 0,
+              "p50": 171373,
+              "p75": 418491,
+              "p90": 719084
+            }
+          },
+          {
+            "year": 2058,
+            "ltcEventTriggeredRate": 0.482,
+            "ltcEventActiveRate": 0,
+            "ltcCostPercentiles": {
+              "p10": 0,
+              "p25": 0,
+              "p50": 0,
+              "p75": 0,
+              "p90": 0
+            },
+            "hsaOffsetUsedPercentiles": {
+              "p10": 0,
+              "p25": 0,
+              "p50": 0,
+              "p75": 0,
+              "p90": 0
+            },
+            "hsaLtcOffsetUsedPercentiles": {
+              "p10": 0,
+              "p25": 0,
+              "p50": 0,
+              "p75": 0,
+              "p90": 0
+            },
+            "ltcCostRemainingAfterHsaPercentiles": {
+              "p10": 0,
+              "p25": 0,
+              "p50": 0,
+              "p75": 0,
+              "p90": 0
+            },
+            "hsaBalancePercentiles": {
+              "p10": 0,
+              "p25": 0,
+              "p50": 177425,
+              "p75": 454819,
+              "p90": 763642
+            }
+          },
+          {
+            "year": 2059,
+            "ltcEventTriggeredRate": 0.48096192384769537,
+            "ltcEventActiveRate": 0,
+            "ltcCostPercentiles": {
+              "p10": 0,
+              "p25": 0,
+              "p50": 0,
+              "p75": 0,
+              "p90": 0
+            },
+            "hsaOffsetUsedPercentiles": {
+              "p10": 0,
+              "p25": 0,
+              "p50": 0,
+              "p75": 0,
+              "p90": 0
+            },
+            "hsaLtcOffsetUsedPercentiles": {
+              "p10": 0,
+              "p25": 0,
+              "p50": 0,
+              "p75": 0,
+              "p90": 0
+            },
+            "ltcCostRemainingAfterHsaPercentiles": {
+              "p10": 0,
+              "p25": 0,
+              "p50": 0,
+              "p75": 0,
+              "p90": 0
+            },
+            "hsaBalancePercentiles": {
+              "p10": 0,
+              "p25": 0,
+              "p50": 184720,
+              "p75": 481269,
+              "p90": 830643
+            }
+          }
+        ],
+        "deterministicAudit": {
+          "method": "isolated_ltc_hsa_reserve_trace",
+          "noEvent": [
+            {
+              "year": 2026,
+              "robAge": 61,
+              "debbieAge": 62,
+              "ltcEventActive": false,
+              "ltcCost": 0,
+              "hsaOffsetUsed": 0,
+              "hsaLtcOffsetUsed": 0,
+              "ltcCostRemainingAfterHsa": 0,
+              "hsaBalanceEnd": 50183
+            },
+            {
+              "year": 2027,
+              "robAge": 62,
+              "debbieAge": 63,
+              "ltcEventActive": false,
+              "ltcCost": 0,
+              "hsaOffsetUsed": 0,
+              "hsaLtcOffsetUsed": 0,
+              "ltcCostRemainingAfterHsa": 0,
+              "hsaBalanceEnd": 50183
+            },
+            {
+              "year": 2028,
+              "robAge": 63,
+              "debbieAge": 64,
+              "ltcEventActive": false,
+              "ltcCost": 0,
+              "hsaOffsetUsed": 0,
+              "hsaLtcOffsetUsed": 0,
+              "ltcCostRemainingAfterHsa": 0,
+              "hsaBalanceEnd": 50183
+            },
+            {
+              "year": 2029,
+              "robAge": 64,
+              "debbieAge": 65,
+              "ltcEventActive": false,
+              "ltcCost": 0,
+              "hsaOffsetUsed": 0,
+              "hsaLtcOffsetUsed": 0,
+              "ltcCostRemainingAfterHsa": 0,
+              "hsaBalanceEnd": 50183
+            },
+            {
+              "year": 2030,
+              "robAge": 65,
+              "debbieAge": 66,
+              "ltcEventActive": false,
+              "ltcCost": 0,
+              "hsaOffsetUsed": 0,
+              "hsaLtcOffsetUsed": 0,
+              "ltcCostRemainingAfterHsa": 0,
+              "hsaBalanceEnd": 50183
+            },
+            {
+              "year": 2031,
+              "robAge": 66,
+              "debbieAge": 67,
+              "ltcEventActive": false,
+              "ltcCost": 0,
+              "hsaOffsetUsed": 0,
+              "hsaLtcOffsetUsed": 0,
+              "ltcCostRemainingAfterHsa": 0,
+              "hsaBalanceEnd": 50183
+            },
+            {
+              "year": 2032,
+              "robAge": 67,
+              "debbieAge": 68,
+              "ltcEventActive": false,
+              "ltcCost": 0,
+              "hsaOffsetUsed": 0,
+              "hsaLtcOffsetUsed": 0,
+              "ltcCostRemainingAfterHsa": 0,
+              "hsaBalanceEnd": 50183
+            },
+            {
+              "year": 2033,
+              "robAge": 68,
+              "debbieAge": 69,
+              "ltcEventActive": false,
+              "ltcCost": 0,
+              "hsaOffsetUsed": 0,
+              "hsaLtcOffsetUsed": 0,
+              "ltcCostRemainingAfterHsa": 0,
+              "hsaBalanceEnd": 50183
+            },
+            {
+              "year": 2034,
+              "robAge": 69,
+              "debbieAge": 70,
+              "ltcEventActive": false,
+              "ltcCost": 0,
+              "hsaOffsetUsed": 0,
+              "hsaLtcOffsetUsed": 0,
+              "ltcCostRemainingAfterHsa": 0,
+              "hsaBalanceEnd": 50183
+            },
+            {
+              "year": 2035,
+              "robAge": 70,
+              "debbieAge": 71,
+              "ltcEventActive": false,
+              "ltcCost": 0,
+              "hsaOffsetUsed": 0,
+              "hsaLtcOffsetUsed": 0,
+              "ltcCostRemainingAfterHsa": 0,
+              "hsaBalanceEnd": 50183
+            },
+            {
+              "year": 2036,
+              "robAge": 71,
+              "debbieAge": 72,
+              "ltcEventActive": false,
+              "ltcCost": 0,
+              "hsaOffsetUsed": 0,
+              "hsaLtcOffsetUsed": 0,
+              "ltcCostRemainingAfterHsa": 0,
+              "hsaBalanceEnd": 50183
+            },
+            {
+              "year": 2037,
+              "robAge": 72,
+              "debbieAge": 73,
+              "ltcEventActive": false,
+              "ltcCost": 0,
+              "hsaOffsetUsed": 0,
+              "hsaLtcOffsetUsed": 0,
+              "ltcCostRemainingAfterHsa": 0,
+              "hsaBalanceEnd": 50183
+            },
+            {
+              "year": 2038,
+              "robAge": 73,
+              "debbieAge": 74,
+              "ltcEventActive": false,
+              "ltcCost": 0,
+              "hsaOffsetUsed": 0,
+              "hsaLtcOffsetUsed": 0,
+              "ltcCostRemainingAfterHsa": 0,
+              "hsaBalanceEnd": 50183
+            },
+            {
+              "year": 2039,
+              "robAge": 74,
+              "debbieAge": 75,
+              "ltcEventActive": false,
+              "ltcCost": 0,
+              "hsaOffsetUsed": 0,
+              "hsaLtcOffsetUsed": 0,
+              "ltcCostRemainingAfterHsa": 0,
+              "hsaBalanceEnd": 50183
+            },
+            {
+              "year": 2040,
+              "robAge": 75,
+              "debbieAge": 76,
+              "ltcEventActive": false,
+              "ltcCost": 0,
+              "hsaOffsetUsed": 0,
+              "hsaLtcOffsetUsed": 0,
+              "ltcCostRemainingAfterHsa": 0,
+              "hsaBalanceEnd": 50183
+            },
+            {
+              "year": 2041,
+              "robAge": 76,
+              "debbieAge": 77,
+              "ltcEventActive": false,
+              "ltcCost": 0,
+              "hsaOffsetUsed": 0,
+              "hsaLtcOffsetUsed": 0,
+              "ltcCostRemainingAfterHsa": 0,
+              "hsaBalanceEnd": 50183
+            },
+            {
+              "year": 2042,
+              "robAge": 77,
+              "debbieAge": 78,
+              "ltcEventActive": false,
+              "ltcCost": 0,
+              "hsaOffsetUsed": 0,
+              "hsaLtcOffsetUsed": 0,
+              "ltcCostRemainingAfterHsa": 0,
+              "hsaBalanceEnd": 50183
+            },
+            {
+              "year": 2043,
+              "robAge": 78,
+              "debbieAge": 79,
+              "ltcEventActive": false,
+              "ltcCost": 0,
+              "hsaOffsetUsed": 0,
+              "hsaLtcOffsetUsed": 0,
+              "ltcCostRemainingAfterHsa": 0,
+              "hsaBalanceEnd": 50183
+            },
+            {
+              "year": 2044,
+              "robAge": 79,
+              "debbieAge": 80,
+              "ltcEventActive": false,
+              "ltcCost": 0,
+              "hsaOffsetUsed": 0,
+              "hsaLtcOffsetUsed": 0,
+              "ltcCostRemainingAfterHsa": 0,
+              "hsaBalanceEnd": 50183
+            },
+            {
+              "year": 2045,
+              "robAge": 80,
+              "debbieAge": 81,
+              "ltcEventActive": false,
+              "ltcCost": 0,
+              "hsaOffsetUsed": 0,
+              "hsaLtcOffsetUsed": 0,
+              "ltcCostRemainingAfterHsa": 0,
+              "hsaBalanceEnd": 50183
+            },
+            {
+              "year": 2046,
+              "robAge": 81,
+              "debbieAge": 82,
+              "ltcEventActive": false,
+              "ltcCost": 0,
+              "hsaOffsetUsed": 0,
+              "hsaLtcOffsetUsed": 0,
+              "ltcCostRemainingAfterHsa": 0,
+              "hsaBalanceEnd": 50183
+            },
+            {
+              "year": 2047,
+              "robAge": 82,
+              "debbieAge": 83,
+              "ltcEventActive": false,
+              "ltcCost": 0,
+              "hsaOffsetUsed": 0,
+              "hsaLtcOffsetUsed": 0,
+              "ltcCostRemainingAfterHsa": 0,
+              "hsaBalanceEnd": 50183
+            },
+            {
+              "year": 2048,
+              "robAge": 83,
+              "debbieAge": 84,
+              "ltcEventActive": false,
+              "ltcCost": 0,
+              "hsaOffsetUsed": 0,
+              "hsaLtcOffsetUsed": 0,
+              "ltcCostRemainingAfterHsa": 0,
+              "hsaBalanceEnd": 50183
+            },
+            {
+              "year": 2049,
+              "robAge": 84,
+              "debbieAge": 85,
+              "ltcEventActive": false,
+              "ltcCost": 0,
+              "hsaOffsetUsed": 0,
+              "hsaLtcOffsetUsed": 0,
+              "ltcCostRemainingAfterHsa": 0,
+              "hsaBalanceEnd": 50183
+            },
+            {
+              "year": 2050,
+              "robAge": 85,
+              "debbieAge": 86,
+              "ltcEventActive": false,
+              "ltcCost": 0,
+              "hsaOffsetUsed": 0,
+              "hsaLtcOffsetUsed": 0,
+              "ltcCostRemainingAfterHsa": 0,
+              "hsaBalanceEnd": 50183
+            },
+            {
+              "year": 2051,
+              "robAge": 86,
+              "debbieAge": 87,
+              "ltcEventActive": false,
+              "ltcCost": 0,
+              "hsaOffsetUsed": 0,
+              "hsaLtcOffsetUsed": 0,
+              "ltcCostRemainingAfterHsa": 0,
+              "hsaBalanceEnd": 50183
+            },
+            {
+              "year": 2052,
+              "robAge": 87,
+              "debbieAge": 88,
+              "ltcEventActive": false,
+              "ltcCost": 0,
+              "hsaOffsetUsed": 0,
+              "hsaLtcOffsetUsed": 0,
+              "ltcCostRemainingAfterHsa": 0,
+              "hsaBalanceEnd": 50183
+            },
+            {
+              "year": 2053,
+              "robAge": 88,
+              "debbieAge": 89,
+              "ltcEventActive": false,
+              "ltcCost": 0,
+              "hsaOffsetUsed": 0,
+              "hsaLtcOffsetUsed": 0,
+              "ltcCostRemainingAfterHsa": 0,
+              "hsaBalanceEnd": 50183
+            },
+            {
+              "year": 2054,
+              "robAge": 89,
+              "debbieAge": 90,
+              "ltcEventActive": false,
+              "ltcCost": 0,
+              "hsaOffsetUsed": 0,
+              "hsaLtcOffsetUsed": 0,
+              "ltcCostRemainingAfterHsa": 0,
+              "hsaBalanceEnd": 50183
+            },
+            {
+              "year": 2055,
+              "robAge": 90,
+              "debbieAge": 91,
+              "ltcEventActive": false,
+              "ltcCost": 0,
+              "hsaOffsetUsed": 0,
+              "hsaLtcOffsetUsed": 0,
+              "ltcCostRemainingAfterHsa": 0,
+              "hsaBalanceEnd": 50183
+            },
+            {
+              "year": 2056,
+              "robAge": 91,
+              "debbieAge": 92,
+              "ltcEventActive": false,
+              "ltcCost": 0,
+              "hsaOffsetUsed": 0,
+              "hsaLtcOffsetUsed": 0,
+              "ltcCostRemainingAfterHsa": 0,
+              "hsaBalanceEnd": 50183
+            },
+            {
+              "year": 2057,
+              "robAge": 92,
+              "debbieAge": 93,
+              "ltcEventActive": false,
+              "ltcCost": 0,
+              "hsaOffsetUsed": 0,
+              "hsaLtcOffsetUsed": 0,
+              "ltcCostRemainingAfterHsa": 0,
+              "hsaBalanceEnd": 50183
+            },
+            {
+              "year": 2058,
+              "robAge": 93,
+              "debbieAge": 94,
+              "ltcEventActive": false,
+              "ltcCost": 0,
+              "hsaOffsetUsed": 0,
+              "hsaLtcOffsetUsed": 0,
+              "ltcCostRemainingAfterHsa": 0,
+              "hsaBalanceEnd": 50183
+            },
+            {
+              "year": 2059,
+              "robAge": 94,
+              "debbieAge": 95,
+              "ltcEventActive": false,
+              "ltcCost": 0,
+              "hsaOffsetUsed": 0,
+              "hsaLtcOffsetUsed": 0,
+              "ltcCostRemainingAfterHsa": 0,
+              "hsaBalanceEnd": 50183
+            }
+          ],
+          "withEvent": [
+            {
+              "year": 2026,
+              "robAge": 61,
+              "debbieAge": 62,
+              "ltcEventActive": false,
+              "ltcCost": 0,
+              "hsaOffsetUsed": 0,
+              "hsaLtcOffsetUsed": 0,
+              "ltcCostRemainingAfterHsa": 0,
+              "hsaBalanceEnd": 50183
+            },
+            {
+              "year": 2027,
+              "robAge": 62,
+              "debbieAge": 63,
+              "ltcEventActive": false,
+              "ltcCost": 0,
+              "hsaOffsetUsed": 0,
+              "hsaLtcOffsetUsed": 0,
+              "ltcCostRemainingAfterHsa": 0,
+              "hsaBalanceEnd": 50183
+            },
+            {
+              "year": 2028,
+              "robAge": 63,
+              "debbieAge": 64,
+              "ltcEventActive": false,
+              "ltcCost": 0,
+              "hsaOffsetUsed": 0,
+              "hsaLtcOffsetUsed": 0,
+              "ltcCostRemainingAfterHsa": 0,
+              "hsaBalanceEnd": 50183
+            },
+            {
+              "year": 2029,
+              "robAge": 64,
+              "debbieAge": 65,
+              "ltcEventActive": false,
+              "ltcCost": 0,
+              "hsaOffsetUsed": 0,
+              "hsaLtcOffsetUsed": 0,
+              "ltcCostRemainingAfterHsa": 0,
+              "hsaBalanceEnd": 50183
+            },
+            {
+              "year": 2030,
+              "robAge": 65,
+              "debbieAge": 66,
+              "ltcEventActive": false,
+              "ltcCost": 0,
+              "hsaOffsetUsed": 0,
+              "hsaLtcOffsetUsed": 0,
+              "ltcCostRemainingAfterHsa": 0,
+              "hsaBalanceEnd": 50183
+            },
+            {
+              "year": 2031,
+              "robAge": 66,
+              "debbieAge": 67,
+              "ltcEventActive": false,
+              "ltcCost": 0,
+              "hsaOffsetUsed": 0,
+              "hsaLtcOffsetUsed": 0,
+              "ltcCostRemainingAfterHsa": 0,
+              "hsaBalanceEnd": 50183
+            },
+            {
+              "year": 2032,
+              "robAge": 67,
+              "debbieAge": 68,
+              "ltcEventActive": false,
+              "ltcCost": 0,
+              "hsaOffsetUsed": 0,
+              "hsaLtcOffsetUsed": 0,
+              "ltcCostRemainingAfterHsa": 0,
+              "hsaBalanceEnd": 50183
+            },
+            {
+              "year": 2033,
+              "robAge": 68,
+              "debbieAge": 69,
+              "ltcEventActive": false,
+              "ltcCost": 0,
+              "hsaOffsetUsed": 0,
+              "hsaLtcOffsetUsed": 0,
+              "ltcCostRemainingAfterHsa": 0,
+              "hsaBalanceEnd": 50183
+            },
+            {
+              "year": 2034,
+              "robAge": 69,
+              "debbieAge": 70,
+              "ltcEventActive": false,
+              "ltcCost": 0,
+              "hsaOffsetUsed": 0,
+              "hsaLtcOffsetUsed": 0,
+              "ltcCostRemainingAfterHsa": 0,
+              "hsaBalanceEnd": 50183
+            },
+            {
+              "year": 2035,
+              "robAge": 70,
+              "debbieAge": 71,
+              "ltcEventActive": false,
+              "ltcCost": 0,
+              "hsaOffsetUsed": 0,
+              "hsaLtcOffsetUsed": 0,
+              "ltcCostRemainingAfterHsa": 0,
+              "hsaBalanceEnd": 50183
+            },
+            {
+              "year": 2036,
+              "robAge": 71,
+              "debbieAge": 72,
+              "ltcEventActive": false,
+              "ltcCost": 0,
+              "hsaOffsetUsed": 0,
+              "hsaLtcOffsetUsed": 0,
+              "ltcCostRemainingAfterHsa": 0,
+              "hsaBalanceEnd": 50183
+            },
+            {
+              "year": 2037,
+              "robAge": 72,
+              "debbieAge": 73,
+              "ltcEventActive": false,
+              "ltcCost": 0,
+              "hsaOffsetUsed": 0,
+              "hsaLtcOffsetUsed": 0,
+              "ltcCostRemainingAfterHsa": 0,
+              "hsaBalanceEnd": 50183
+            },
+            {
+              "year": 2038,
+              "robAge": 73,
+              "debbieAge": 74,
+              "ltcEventActive": false,
+              "ltcCost": 0,
+              "hsaOffsetUsed": 0,
+              "hsaLtcOffsetUsed": 0,
+              "ltcCostRemainingAfterHsa": 0,
+              "hsaBalanceEnd": 50183
+            },
+            {
+              "year": 2039,
+              "robAge": 74,
+              "debbieAge": 75,
+              "ltcEventActive": false,
+              "ltcCost": 0,
+              "hsaOffsetUsed": 0,
+              "hsaLtcOffsetUsed": 0,
+              "ltcCostRemainingAfterHsa": 0,
+              "hsaBalanceEnd": 50183
+            },
+            {
+              "year": 2040,
+              "robAge": 75,
+              "debbieAge": 76,
+              "ltcEventActive": false,
+              "ltcCost": 0,
+              "hsaOffsetUsed": 0,
+              "hsaLtcOffsetUsed": 0,
+              "ltcCostRemainingAfterHsa": 0,
+              "hsaBalanceEnd": 50183
+            },
+            {
+              "year": 2041,
+              "robAge": 76,
+              "debbieAge": 77,
+              "ltcEventActive": false,
+              "ltcCost": 0,
+              "hsaOffsetUsed": 0,
+              "hsaLtcOffsetUsed": 0,
+              "ltcCostRemainingAfterHsa": 0,
+              "hsaBalanceEnd": 50183
+            },
+            {
+              "year": 2042,
+              "robAge": 77,
+              "debbieAge": 78,
+              "ltcEventActive": false,
+              "ltcCost": 0,
+              "hsaOffsetUsed": 0,
+              "hsaLtcOffsetUsed": 0,
+              "ltcCostRemainingAfterHsa": 0,
+              "hsaBalanceEnd": 50183
+            },
+            {
+              "year": 2043,
+              "robAge": 78,
+              "debbieAge": 79,
+              "ltcEventActive": false,
+              "ltcCost": 0,
+              "hsaOffsetUsed": 0,
+              "hsaLtcOffsetUsed": 0,
+              "ltcCostRemainingAfterHsa": 0,
+              "hsaBalanceEnd": 50183
+            },
+            {
+              "year": 2044,
+              "robAge": 79,
+              "debbieAge": 80,
+              "ltcEventActive": false,
+              "ltcCost": 0,
+              "hsaOffsetUsed": 0,
+              "hsaLtcOffsetUsed": 0,
+              "ltcCostRemainingAfterHsa": 0,
+              "hsaBalanceEnd": 50183
+            },
+            {
+              "year": 2045,
+              "robAge": 80,
+              "debbieAge": 81,
+              "ltcEventActive": false,
+              "ltcCost": 0,
+              "hsaOffsetUsed": 0,
+              "hsaLtcOffsetUsed": 0,
+              "ltcCostRemainingAfterHsa": 0,
+              "hsaBalanceEnd": 50183
+            },
+            {
+              "year": 2046,
+              "robAge": 81,
+              "debbieAge": 82,
+              "ltcEventActive": false,
+              "ltcCost": 0,
+              "hsaOffsetUsed": 0,
+              "hsaLtcOffsetUsed": 0,
+              "ltcCostRemainingAfterHsa": 0,
+              "hsaBalanceEnd": 50183
+            },
+            {
+              "year": 2047,
+              "robAge": 82,
+              "debbieAge": 83,
+              "ltcEventActive": false,
+              "ltcCost": 0,
+              "hsaOffsetUsed": 0,
+              "hsaLtcOffsetUsed": 0,
+              "ltcCostRemainingAfterHsa": 0,
+              "hsaBalanceEnd": 50183
+            },
+            {
+              "year": 2048,
+              "robAge": 83,
+              "debbieAge": 84,
+              "ltcEventActive": false,
+              "ltcCost": 0,
+              "hsaOffsetUsed": 0,
+              "hsaLtcOffsetUsed": 0,
+              "ltcCostRemainingAfterHsa": 0,
+              "hsaBalanceEnd": 50183
+            },
+            {
+              "year": 2049,
+              "robAge": 84,
+              "debbieAge": 85,
+              "ltcEventActive": true,
+              "ltcCost": 164455,
+              "hsaOffsetUsed": 50183,
+              "hsaLtcOffsetUsed": 50183,
+              "ltcCostRemainingAfterHsa": 114273,
+              "hsaBalanceEnd": 0
+            },
+            {
+              "year": 2050,
+              "robAge": 85,
+              "debbieAge": 86,
+              "ltcEventActive": true,
+              "ltcCost": 173500,
+              "hsaOffsetUsed": 0,
+              "hsaLtcOffsetUsed": 0,
+              "ltcCostRemainingAfterHsa": 173500,
+              "hsaBalanceEnd": 0
+            },
+            {
+              "year": 2051,
+              "robAge": 86,
+              "debbieAge": 87,
+              "ltcEventActive": true,
+              "ltcCost": 183043,
+              "hsaOffsetUsed": 0,
+              "hsaLtcOffsetUsed": 0,
+              "ltcCostRemainingAfterHsa": 183043,
+              "hsaBalanceEnd": 0
+            },
+            {
+              "year": 2052,
+              "robAge": 87,
+              "debbieAge": 88,
+              "ltcEventActive": false,
+              "ltcCost": 0,
+              "hsaOffsetUsed": 0,
+              "hsaLtcOffsetUsed": 0,
+              "ltcCostRemainingAfterHsa": 0,
+              "hsaBalanceEnd": 0
+            },
+            {
+              "year": 2053,
+              "robAge": 88,
+              "debbieAge": 89,
+              "ltcEventActive": false,
+              "ltcCost": 0,
+              "hsaOffsetUsed": 0,
+              "hsaLtcOffsetUsed": 0,
+              "ltcCostRemainingAfterHsa": 0,
+              "hsaBalanceEnd": 0
+            },
+            {
+              "year": 2054,
+              "robAge": 89,
+              "debbieAge": 90,
+              "ltcEventActive": false,
+              "ltcCost": 0,
+              "hsaOffsetUsed": 0,
+              "hsaLtcOffsetUsed": 0,
+              "ltcCostRemainingAfterHsa": 0,
+              "hsaBalanceEnd": 0
+            },
+            {
+              "year": 2055,
+              "robAge": 90,
+              "debbieAge": 91,
+              "ltcEventActive": false,
+              "ltcCost": 0,
+              "hsaOffsetUsed": 0,
+              "hsaLtcOffsetUsed": 0,
+              "ltcCostRemainingAfterHsa": 0,
+              "hsaBalanceEnd": 0
+            },
+            {
+              "year": 2056,
+              "robAge": 91,
+              "debbieAge": 92,
+              "ltcEventActive": false,
+              "ltcCost": 0,
+              "hsaOffsetUsed": 0,
+              "hsaLtcOffsetUsed": 0,
+              "ltcCostRemainingAfterHsa": 0,
+              "hsaBalanceEnd": 0
+            },
+            {
+              "year": 2057,
+              "robAge": 92,
+              "debbieAge": 93,
+              "ltcEventActive": false,
+              "ltcCost": 0,
+              "hsaOffsetUsed": 0,
+              "hsaLtcOffsetUsed": 0,
+              "ltcCostRemainingAfterHsa": 0,
+              "hsaBalanceEnd": 0
+            },
+            {
+              "year": 2058,
+              "robAge": 93,
+              "debbieAge": 94,
+              "ltcEventActive": false,
+              "ltcCost": 0,
+              "hsaOffsetUsed": 0,
+              "hsaLtcOffsetUsed": 0,
+              "ltcCostRemainingAfterHsa": 0,
+              "hsaBalanceEnd": 0
+            },
+            {
+              "year": 2059,
+              "robAge": 94,
+              "debbieAge": 95,
+              "ltcEventActive": false,
+              "ltcCost": 0,
+              "hsaOffsetUsed": 0,
+              "hsaLtcOffsetUsed": 0,
+              "ltcCostRemainingAfterHsa": 0,
+              "hsaBalanceEnd": 0
+            }
+          ],
+          "expectedValue": [
+            {
+              "year": 2026,
+              "robAge": 61,
+              "debbieAge": 62,
+              "ltcEventActive": false,
+              "ltcCost": 0,
+              "hsaOffsetUsed": 0,
+              "hsaLtcOffsetUsed": 0,
+              "ltcCostRemainingAfterHsa": 0,
+              "hsaBalanceEnd": 50183
+            },
+            {
+              "year": 2027,
+              "robAge": 62,
+              "debbieAge": 63,
+              "ltcEventActive": false,
+              "ltcCost": 0,
+              "hsaOffsetUsed": 0,
+              "hsaLtcOffsetUsed": 0,
+              "ltcCostRemainingAfterHsa": 0,
+              "hsaBalanceEnd": 50183
+            },
+            {
+              "year": 2028,
+              "robAge": 63,
+              "debbieAge": 64,
+              "ltcEventActive": false,
+              "ltcCost": 0,
+              "hsaOffsetUsed": 0,
+              "hsaLtcOffsetUsed": 0,
+              "ltcCostRemainingAfterHsa": 0,
+              "hsaBalanceEnd": 50183
+            },
+            {
+              "year": 2029,
+              "robAge": 64,
+              "debbieAge": 65,
+              "ltcEventActive": false,
+              "ltcCost": 0,
+              "hsaOffsetUsed": 0,
+              "hsaLtcOffsetUsed": 0,
+              "ltcCostRemainingAfterHsa": 0,
+              "hsaBalanceEnd": 50183
+            },
+            {
+              "year": 2030,
+              "robAge": 65,
+              "debbieAge": 66,
+              "ltcEventActive": false,
+              "ltcCost": 0,
+              "hsaOffsetUsed": 0,
+              "hsaLtcOffsetUsed": 0,
+              "ltcCostRemainingAfterHsa": 0,
+              "hsaBalanceEnd": 50183
+            },
+            {
+              "year": 2031,
+              "robAge": 66,
+              "debbieAge": 67,
+              "ltcEventActive": false,
+              "ltcCost": 0,
+              "hsaOffsetUsed": 0,
+              "hsaLtcOffsetUsed": 0,
+              "ltcCostRemainingAfterHsa": 0,
+              "hsaBalanceEnd": 50183
+            },
+            {
+              "year": 2032,
+              "robAge": 67,
+              "debbieAge": 68,
+              "ltcEventActive": false,
+              "ltcCost": 0,
+              "hsaOffsetUsed": 0,
+              "hsaLtcOffsetUsed": 0,
+              "ltcCostRemainingAfterHsa": 0,
+              "hsaBalanceEnd": 50183
+            },
+            {
+              "year": 2033,
+              "robAge": 68,
+              "debbieAge": 69,
+              "ltcEventActive": false,
+              "ltcCost": 0,
+              "hsaOffsetUsed": 0,
+              "hsaLtcOffsetUsed": 0,
+              "ltcCostRemainingAfterHsa": 0,
+              "hsaBalanceEnd": 50183
+            },
+            {
+              "year": 2034,
+              "robAge": 69,
+              "debbieAge": 70,
+              "ltcEventActive": false,
+              "ltcCost": 0,
+              "hsaOffsetUsed": 0,
+              "hsaLtcOffsetUsed": 0,
+              "ltcCostRemainingAfterHsa": 0,
+              "hsaBalanceEnd": 50183
+            },
+            {
+              "year": 2035,
+              "robAge": 70,
+              "debbieAge": 71,
+              "ltcEventActive": false,
+              "ltcCost": 0,
+              "hsaOffsetUsed": 0,
+              "hsaLtcOffsetUsed": 0,
+              "ltcCostRemainingAfterHsa": 0,
+              "hsaBalanceEnd": 50183
+            },
+            {
+              "year": 2036,
+              "robAge": 71,
+              "debbieAge": 72,
+              "ltcEventActive": false,
+              "ltcCost": 0,
+              "hsaOffsetUsed": 0,
+              "hsaLtcOffsetUsed": 0,
+              "ltcCostRemainingAfterHsa": 0,
+              "hsaBalanceEnd": 50183
+            },
+            {
+              "year": 2037,
+              "robAge": 72,
+              "debbieAge": 73,
+              "ltcEventActive": false,
+              "ltcCost": 0,
+              "hsaOffsetUsed": 0,
+              "hsaLtcOffsetUsed": 0,
+              "ltcCostRemainingAfterHsa": 0,
+              "hsaBalanceEnd": 50183
+            },
+            {
+              "year": 2038,
+              "robAge": 73,
+              "debbieAge": 74,
+              "ltcEventActive": false,
+              "ltcCost": 0,
+              "hsaOffsetUsed": 0,
+              "hsaLtcOffsetUsed": 0,
+              "ltcCostRemainingAfterHsa": 0,
+              "hsaBalanceEnd": 50183
+            },
+            {
+              "year": 2039,
+              "robAge": 74,
+              "debbieAge": 75,
+              "ltcEventActive": false,
+              "ltcCost": 0,
+              "hsaOffsetUsed": 0,
+              "hsaLtcOffsetUsed": 0,
+              "ltcCostRemainingAfterHsa": 0,
+              "hsaBalanceEnd": 50183
+            },
+            {
+              "year": 2040,
+              "robAge": 75,
+              "debbieAge": 76,
+              "ltcEventActive": false,
+              "ltcCost": 0,
+              "hsaOffsetUsed": 0,
+              "hsaLtcOffsetUsed": 0,
+              "ltcCostRemainingAfterHsa": 0,
+              "hsaBalanceEnd": 50183
+            },
+            {
+              "year": 2041,
+              "robAge": 76,
+              "debbieAge": 77,
+              "ltcEventActive": false,
+              "ltcCost": 0,
+              "hsaOffsetUsed": 0,
+              "hsaLtcOffsetUsed": 0,
+              "ltcCostRemainingAfterHsa": 0,
+              "hsaBalanceEnd": 50183
+            },
+            {
+              "year": 2042,
+              "robAge": 77,
+              "debbieAge": 78,
+              "ltcEventActive": false,
+              "ltcCost": 0,
+              "hsaOffsetUsed": 0,
+              "hsaLtcOffsetUsed": 0,
+              "ltcCostRemainingAfterHsa": 0,
+              "hsaBalanceEnd": 50183
+            },
+            {
+              "year": 2043,
+              "robAge": 78,
+              "debbieAge": 79,
+              "ltcEventActive": false,
+              "ltcCost": 0,
+              "hsaOffsetUsed": 0,
+              "hsaLtcOffsetUsed": 0,
+              "ltcCostRemainingAfterHsa": 0,
+              "hsaBalanceEnd": 50183
+            },
+            {
+              "year": 2044,
+              "robAge": 79,
+              "debbieAge": 80,
+              "ltcEventActive": false,
+              "ltcCost": 0,
+              "hsaOffsetUsed": 0,
+              "hsaLtcOffsetUsed": 0,
+              "ltcCostRemainingAfterHsa": 0,
+              "hsaBalanceEnd": 50183
+            },
+            {
+              "year": 2045,
+              "robAge": 80,
+              "debbieAge": 81,
+              "ltcEventActive": false,
+              "ltcCost": 0,
+              "hsaOffsetUsed": 0,
+              "hsaLtcOffsetUsed": 0,
+              "ltcCostRemainingAfterHsa": 0,
+              "hsaBalanceEnd": 50183
+            },
+            {
+              "year": 2046,
+              "robAge": 81,
+              "debbieAge": 82,
+              "ltcEventActive": false,
+              "ltcCost": 0,
+              "hsaOffsetUsed": 0,
+              "hsaLtcOffsetUsed": 0,
+              "ltcCostRemainingAfterHsa": 0,
+              "hsaBalanceEnd": 50183
+            },
+            {
+              "year": 2047,
+              "robAge": 82,
+              "debbieAge": 83,
+              "ltcEventActive": false,
+              "ltcCost": 0,
+              "hsaOffsetUsed": 0,
+              "hsaLtcOffsetUsed": 0,
+              "ltcCostRemainingAfterHsa": 0,
+              "hsaBalanceEnd": 50183
+            },
+            {
+              "year": 2048,
+              "robAge": 83,
+              "debbieAge": 84,
+              "ltcEventActive": false,
+              "ltcCost": 0,
+              "hsaOffsetUsed": 0,
+              "hsaLtcOffsetUsed": 0,
+              "ltcCostRemainingAfterHsa": 0,
+              "hsaBalanceEnd": 50183
+            },
+            {
+              "year": 2049,
+              "robAge": 84,
+              "debbieAge": 85,
+              "ltcEventActive": true,
+              "ltcCost": 74005,
+              "hsaOffsetUsed": 22582,
+              "hsaLtcOffsetUsed": 22582,
+              "ltcCostRemainingAfterHsa": 51423,
+              "hsaBalanceEnd": 27601
+            },
+            {
+              "year": 2050,
+              "robAge": 85,
+              "debbieAge": 86,
+              "ltcEventActive": true,
+              "ltcCost": 78075,
+              "hsaOffsetUsed": 0,
+              "hsaLtcOffsetUsed": 0,
+              "ltcCostRemainingAfterHsa": 78075,
+              "hsaBalanceEnd": 27601
+            },
+            {
+              "year": 2051,
+              "robAge": 86,
+              "debbieAge": 87,
+              "ltcEventActive": true,
+              "ltcCost": 82369,
+              "hsaOffsetUsed": 0,
+              "hsaLtcOffsetUsed": 0,
+              "ltcCostRemainingAfterHsa": 82369,
+              "hsaBalanceEnd": 27601
+            },
+            {
+              "year": 2052,
+              "robAge": 87,
+              "debbieAge": 88,
+              "ltcEventActive": false,
+              "ltcCost": 0,
+              "hsaOffsetUsed": 0,
+              "hsaLtcOffsetUsed": 0,
+              "ltcCostRemainingAfterHsa": 0,
+              "hsaBalanceEnd": 27601
+            },
+            {
+              "year": 2053,
+              "robAge": 88,
+              "debbieAge": 89,
+              "ltcEventActive": false,
+              "ltcCost": 0,
+              "hsaOffsetUsed": 0,
+              "hsaLtcOffsetUsed": 0,
+              "ltcCostRemainingAfterHsa": 0,
+              "hsaBalanceEnd": 27601
+            },
+            {
+              "year": 2054,
+              "robAge": 89,
+              "debbieAge": 90,
+              "ltcEventActive": false,
+              "ltcCost": 0,
+              "hsaOffsetUsed": 0,
+              "hsaLtcOffsetUsed": 0,
+              "ltcCostRemainingAfterHsa": 0,
+              "hsaBalanceEnd": 27601
+            },
+            {
+              "year": 2055,
+              "robAge": 90,
+              "debbieAge": 91,
+              "ltcEventActive": false,
+              "ltcCost": 0,
+              "hsaOffsetUsed": 0,
+              "hsaLtcOffsetUsed": 0,
+              "ltcCostRemainingAfterHsa": 0,
+              "hsaBalanceEnd": 27601
+            },
+            {
+              "year": 2056,
+              "robAge": 91,
+              "debbieAge": 92,
+              "ltcEventActive": false,
+              "ltcCost": 0,
+              "hsaOffsetUsed": 0,
+              "hsaLtcOffsetUsed": 0,
+              "ltcCostRemainingAfterHsa": 0,
+              "hsaBalanceEnd": 27601
+            },
+            {
+              "year": 2057,
+              "robAge": 92,
+              "debbieAge": 93,
+              "ltcEventActive": false,
+              "ltcCost": 0,
+              "hsaOffsetUsed": 0,
+              "hsaLtcOffsetUsed": 0,
+              "ltcCostRemainingAfterHsa": 0,
+              "hsaBalanceEnd": 27601
+            },
+            {
+              "year": 2058,
+              "robAge": 93,
+              "debbieAge": 94,
+              "ltcEventActive": false,
+              "ltcCost": 0,
+              "hsaOffsetUsed": 0,
+              "hsaLtcOffsetUsed": 0,
+              "ltcCostRemainingAfterHsa": 0,
+              "hsaBalanceEnd": 27601
+            },
+            {
+              "year": 2059,
+              "robAge": 94,
+              "debbieAge": 95,
+              "ltcEventActive": false,
+              "ltcCost": 0,
+              "hsaOffsetUsed": 0,
+              "hsaLtcOffsetUsed": 0,
+              "ltcCostRemainingAfterHsa": 0,
+              "hsaBalanceEnd": 27601
+            }
+          ],
+          "notes": [
+            "Deterministic audit isolates LTC/HSA mechanics from market returns, taxes, and healthcare premiums.",
+            "Monte Carlo aggregates use the actual simulated yearly path, including failures before later LTC years."
+          ]
+        }
+      }
+    }
+  },
+  "historicalPrecedent": {
+    "northStarResult": {
+      "version": "north_star_result_v1",
+      "generatedAtIso": "2026-05-08T03:30:44.976Z",
+      "planFingerprint": "1becc9198bfb35c3",
+      "engineVersion": "north-star-validation-2026-05-08-historical",
+      "assumptionsPackVersion": "current-law-2026-v1",
+      "distributionMode": "historical-precedent",
+      "simulationSeed": 20260416,
+      "simulationRuns": 500,
+      "supportedAnnualSpend": null,
+      "successRate": 0.998,
+      "medianEndingWealth": 21236085.498714417,
+      "tenthPercentileEndingWealth": 4516978.408518513,
+      "modelCompleteness": "reconstructed",
+      "inferredAssumptions": [
+        "RMD start timing is inferred from birth-year legislation rules; no explicit user-provided override exists.",
+        "Ambiguous holdings (TRP_2030, CENTRAL_MANAGED) require proxy asset-class mapping assumptions.",
+        "Runway payroll bridge guidance uses an inferred take-home factor (72%) rather than household-specific paycheck net modeling.",
+        "Headline math uses broad asset-class mappings; these risks are surfaced for recommendation trust rather than treated as priced Monte Carlo factors: SCHD exposure is mapped to broad equity returns; dividend/factor concentration is not separately priced in the headline simulation. FCNTX is 83.98% of Roth exposure; manager/style concentration affects recommendation trust, not the Monte Carlo success-rate math. MUB in taxable is treated through broad bond/taxable-account mechanics; state/AMT/after-tax muni nuances are recommendation-trust risks. TRP_2030 is modeled through asset-class look-through/proxy mapping; fund-manager glidepath risk is not separately priced. CENTRAL_MANAGED is modeled through asset-class look-through/proxy mapping; manager/security-selection risk is not separately priced.",
+        "Inheritance timing and realizable amount remain uncertain even with explicit tax treatment.",
+        "Home downsizing is explicitly modeled, but sale amount/timing/replacement home are marked as estimates.",
+        "Plan evaluation context unavailable; model completeness defaulted to reconstructed.",
+        "No modeled RMD year was present; used estimated RMD start year 2038.",
+        "Ambiguous holding TRP_2030: Target-date 2030 mapped using configured account-level assumption.",
+        "Ambiguous holding CENTRAL_MANAGED: Managed sleeve mapped using configured account-level assumption.",
+        "No modeled ACA bridge year was available; estimated bridge year as 2027.",
+        "Projected bridge-year MAGI was unavailable; defaulted projected MAGI to 0.",
+        "Contribution limits use explicit rules.contributionLimits source \"planning_estimate_for_2027_final_paycheck_window\".",
+        "Estimated federal tax savings use a 22% marginal federal rate placeholder.",
+        "Contribution settings patch uses annualized payroll targets; in-year effect is prorated by salary timing.",
+        "Autopilot yearly flow data was unavailable; retirement flow rows defaulted to zero values.",
+        "Plan evaluation context unavailable; model completeness defaulted to reconstructed.",
+        "No modeled RMD year was present; used estimated RMD start year 2038.",
+        "Ambiguous holding TRP_2030: Target-date 2030 mapped using configured account-level assumption.",
+        "Ambiguous holding CENTRAL_MANAGED: Managed sleeve mapped using configured account-level assumption.",
+        "No modeled ACA bridge year was available; estimated bridge year as 2027.",
+        "Projected bridge-year MAGI was unavailable; defaulted projected MAGI to 0.",
+        "Contribution limits use explicit rules.contributionLimits source \"planning_estimate_for_2027_final_paycheck_window\".",
+        "Estimated federal tax savings use a 22% marginal federal rate placeholder.",
+        "Contribution settings patch uses annualized payroll targets; in-year effect is prorated by salary timing.",
+        "Autopilot yearly flow data was unavailable; retirement flow rows defaulted to zero values."
+      ],
+      "intermediateCalculations": {
+        "activeSimulationProfile": "planner_enhanced",
+        "simulationMode": "planner_enhanced",
+        "plannerLogicActive": true,
+        "annualFederalTaxEstimate": 5209.794117647059,
+        "yearsFunded": 9,
+        "irmaaExposureRate": 0.166,
+        "inheritanceDependenceRate": 0.018,
+        "homeSaleDependenceRate": 0.008,
+        "endingWealthPercentiles": {
+          "p10": 4516978.408518513,
+          "p25": 9047130.011043234,
+          "p50": 21236085.498714417,
+          "p75": 45245667.63833172,
+          "p90": 78850521.7864348
+        }
+      },
+      "sensitivityResults": []
+    }
+  },
+  "exportFreshness": {
+    "generatedAtIso": "2026-05-08T03:30:44.976Z",
+    "planFingerprint": "4a9579f70d35fd7f",
+    "engineVersion": "north-star-validation-2026-05-08",
+    "rulePackVersions": {
+      "currentLawRulePackVersion": "current-law-2026-v1",
+      "assumptionsPackVersion": "current-law-2026-v1"
+    },
+    "distributionMode": "forward-looking",
+    "sensitivityMode": {
+      "activeSimulationProfile": "plannerEnhancedSimulation",
+      "rawSimulationMode": "raw_simulation",
+      "plannerEnhancedSimulationMode": "planner_enhanced",
+      "selectedStressorIds": [],
+      "selectedResponseIds": [],
+      "optimizationObjective": "maximize_time_weighted_spending"
+    },
+    "replay": {
+      "replayKey": "4a9579f70d35fd7f::current-law-2026-v1::north-star-validation-2026-05-08::forward-looking|20260416|500|north-star-validation-2026-05-08::plannerEnhancedSimulation|none|none|maximize_time_weighted_spending",
+      "simulationSeed": 20260416,
+      "simulationRuns": 500,
+      "assumptionsVersion": "north-star-validation-2026-05-08",
+      "checks": [
+        {
+          "id": "timestamp_alignment",
+          "passed": true,
+          "detail": "Export and north-star result were generated in the same run."
+        },
+        {
+          "id": "fingerprint_alignment",
+          "passed": true,
+          "detail": "North-star result fingerprint matches the exported effective inputs."
+        },
+        {
+          "id": "mode_labels_present",
+          "passed": true,
+          "detail": "Both raw and planner-enhanced simulation modes are labeled for replay."
+        },
+        {
+          "id": "seed_and_run_count_present",
+          "passed": true,
+          "detail": "Replay has deterministic seed and trial count metadata."
+        },
+        {
+          "id": "rule_pack_alignment",
+          "passed": true,
+          "detail": "North-star result uses the active current-law rule pack."
+        }
+      ]
+    },
+    "changeDetectionKeys": {
+      "inputIdentity": "4a9579f70d35fd7f",
+      "rulesIdentity": "current-law-2026-v1",
+      "engineIdentity": "north-star-validation-2026-05-08",
+      "stochasticIdentity": "forward-looking|20260416|500|north-star-validation-2026-05-08",
+      "scenarioIdentity": "plannerEnhancedSimulation|none|none|maximize_time_weighted_spending"
+    }
+  },
+  "checks": [
+    {
+      "id": "freshness_matches_north_star",
+      "passed": true
+    },
+    {
+      "id": "active_path_matches_north_star_intermediates",
+      "passed": true
+    },
+    {
+      "id": "both_distribution_modes_present",
+      "passed": true
+    },
+    {
+      "id": "perturbed_sensitivity_present",
+      "passed": true
+    },
+    {
+      "id": "replay_checks_pass",
+      "passed": true
+    }
+  ]
+}
