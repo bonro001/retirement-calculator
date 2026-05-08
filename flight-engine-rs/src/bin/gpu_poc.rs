@@ -252,8 +252,9 @@ async fn run() -> Result<(), String> {
 }
 
 async fn init_gpu() -> Result<GpuContext, String> {
+    let backends = requested_backends();
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
-        backends: wgpu::Backends::PRIMARY,
+        backends,
         dx12_shader_compiler: Default::default(),
         flags: wgpu::InstanceFlags::default(),
         gles_minor_version: wgpu::Gles3MinorVersion::Automatic,
@@ -291,6 +292,21 @@ async fn init_gpu() -> Result<GpuContext, String> {
         limits,
         features,
     })
+}
+
+fn requested_backends() -> wgpu::Backends {
+    match std::env::var("WGPU_BACKEND")
+        .ok()
+        .map(|value| value.to_ascii_lowercase())
+        .as_deref()
+    {
+        Some("vulkan") => wgpu::Backends::VULKAN,
+        Some("dx12") => wgpu::Backends::DX12,
+        Some("metal") => wgpu::Backends::METAL,
+        Some("gl") => wgpu::Backends::GL,
+        Some("all") => wgpu::Backends::all(),
+        _ => wgpu::Backends::PRIMARY,
+    }
 }
 
 async fn run_stage0(gpu: &GpuContext, cli: &Cli) -> Result<(), String> {
