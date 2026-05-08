@@ -58,8 +58,10 @@ function Start-Role {
     }
     "host" {
       $env:DISPATCHER_URL = $DispatcherUrl
-      Write-LoopLog "starting host against $env:DISPATCHER_URL"
-      npm run cluster:host
+      $env:HOST_AUTO_UPDATE = "1"
+      $env:HOST_ACCEPT_UPDATE_CONTROL = "1"
+      Write-LoopLog "starting auto-updating host against $env:DISPATCHER_URL"
+      npm run cluster:host:rust-auto
       break
     }
     "web" {
