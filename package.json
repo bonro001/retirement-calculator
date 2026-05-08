@@ -23,6 +23,7 @@
     "engine:rust-authoritative:compare": "node --import tsx scripts/rust-authoritative-compare.ts",
     "engine:rust-runtime:benchmark": "node --import tsx scripts/rust-runtime-benchmark.ts",
     "engine:rust-runtime:guard": "node --import tsx scripts/rust-runtime-benchmark.ts --policies 40 --trials 160 --workers 2 --min-compact-speedup 5 --min-tape-cache-hit-rate 0.8 --min-pack-cache-hit-rate 0.8",
+    "perf:cpu-baseline": "node --import tsx scripts/cpu-baseline.ts",
     "perf:policy-miner": "node --import tsx scripts/policy-miner-corpus-benchmark.ts",
     "engine:rust:test": "cargo test --manifest-path flight-engine-rs/Cargo.toml",
     "engine:rust:build:cli": "cargo build --manifest-path flight-engine-rs/Cargo.toml --bin engine_candidate",

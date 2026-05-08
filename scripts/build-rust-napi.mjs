@@ -6,7 +6,21 @@ import { request as httpsRequest } from 'node:https';
 
 const crateDir = 'flight-engine-rs';
 const profile = process.env.RUST_PROFILE === 'debug' ? 'debug' : 'release';
-const cargoArgs = ['build', '--manifest-path', `${crateDir}/Cargo.toml`, '--lib', '--features', 'node-napi'];
+const rustFeatures = [
+  'node-napi',
+  ...(process.env.FLIGHT_ENGINE_RUST_FEATURES ?? '')
+    .split(',')
+    .map((feature) => feature.trim())
+    .filter(Boolean),
+];
+const cargoArgs = [
+  'build',
+  '--manifest-path',
+  `${crateDir}/Cargo.toml`,
+  '--lib',
+  '--features',
+  Array.from(new Set(rustFeatures)).join(','),
+];
 
 if (profile === 'release') {
   cargoArgs.splice(1, 0, '--release');

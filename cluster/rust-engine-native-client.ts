@@ -154,6 +154,7 @@ export class NativeRustEngineClient {
   runPolicyMiningSummaryCompactWithTiming(request: EngineCandidateRequest): {
     summary: PolicyMiningSummary;
     timings: RustEngineClientTiming;
+    diagnostics?: EngineCandidateResponse['diagnostics'];
   } {
     if (typeof this.addon.runCandidateSummaryCompactJson !== 'function') {
       throw new Error(
@@ -246,6 +247,7 @@ export class NativeRustEngineClient {
 
     return {
       summary: parsed.summary,
+      diagnostics: parsed.diagnostics,
       timings: {
         requestSerializeDurationMs,
         requestBytes,

@@ -74,6 +74,10 @@ export interface EngineCandidateRequestV1 {
   tape: SimulationRandomTape;
   annualSpendTarget?: number;
   outputLevel?: 'full_trace' | 'policy_mining_summary';
+  instrumentation?: {
+    taxCallCounts?: boolean;
+    moduleTimings?: boolean;
+  };
 }
 
 export interface EngineCandidateResponseV1 {

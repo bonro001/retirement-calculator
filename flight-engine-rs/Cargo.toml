@@ -36,8 +36,11 @@ lto = true
 codegen-units = 1
 
 [features]
+allocation-counters = []
 console_error_panic_hook = []
+module-timers = []
 node-napi = []
+tax-counters = []
 
 [dependencies]
 # wasm-bindgen: glue layer between Rust and JS. Generates the JS shim

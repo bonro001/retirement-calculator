@@ -1,8 +1,461 @@
 use serde_json::{json, Map, Value};
+#[cfg(any(feature = "module-timers", feature = "tax-counters"))]
+use std::cell::RefCell;
 use std::collections::BTreeMap;
+#[cfg(feature = "module-timers")]
+use std::time::Instant;
 
 const MIN_FAILURE_SHORTFALL_DOLLARS: f64 = 0.01;
 pub const COMPACT_SUMMARY_TAPE_YEAR_FIELD_COUNT: usize = 11;
+
+#[cfg(feature = "tax-counters")]
+#[derive(Clone, Default)]
+struct TaxCallCounters {
+    federal_tax_exact: u64,
+    tax_for_withdrawals: u64,
+    tax_for_conversion: u64,
+    withdrawal_attempt: u64,
+    proactive_roth_conversion: u64,
+    proactive_roth_candidate: u64,
+    proactive_roth_eligible: u64,
+    proactive_roth_no_headroom: u64,
+    proactive_roth_ceiling_reject: u64,
+    proactive_roth_survivor: u64,
+    proactive_roth_eval_zero: u64,
+    proactive_roth_eval_one: u64,
+    proactive_roth_eval_two: u64,
+    proactive_roth_eval_three: u64,
+    proactive_roth_eval_four: u64,
+    proactive_roth_eval_five_plus: u64,
+    proactive_roth_best_first: u64,
+    proactive_roth_best_second: u64,
+    proactive_roth_best_third: u64,
+    proactive_roth_best_fourth: u64,
+    proactive_roth_best_five_plus: u64,
+    proactive_roth_shadow_largest_survivor: u64,
+    proactive_roth_shadow_largest_positive: u64,
+    proactive_roth_shadow_largest_matches_best: u64,
+    proactive_roth_shadow_largest_differs: u64,
+    proactive_roth_shadow_monotonic_scores: u64,
+    proactive_roth_shadow_non_monotonic_scores: u64,
+    proactive_roth_shadow_score_gap_total: f64,
+    proactive_roth_shadow_tax_delta_total: f64,
+    proactive_roth_shadow_magi_delta_total: f64,
+    proactive_roth_fast_tax_matches: u64,
+    proactive_roth_fast_tax_differs: u64,
+    proactive_roth_fast_tax_delta_total: f64,
+    proactive_roth_fast_magi_delta_total: f64,
+    proactive_roth_already_optimal: u64,
+    proactive_roth_no_survivor: u64,
+    proactive_roth_negative_score: u64,
+    proactive_roth_conversion_kept: u64,
+    closed_loop_pass: u64,
+    fallback_base_tax: u64,
+    fallback_final_tax: u64,
+    closed_loop_year: u64,
+    closed_loop_one_pass: u64,
+    closed_loop_two_pass: u64,
+    closed_loop_three_plus_pass: u64,
+    closed_loop_break_state_converged: u64,
+    closed_loop_break_needed_delta: u64,
+    closed_loop_break_oscillation: u64,
+    closed_loop_break_pass_limit: u64,
+    closed_loop_abs_needed_diff_total: f64,
+}
+
+#[cfg(feature = "tax-counters")]
+thread_local! {
+    static TAX_CALL_COUNTERS: RefCell<Option<TaxCallCounters>> = const { RefCell::new(None) };
+}
+
+#[cfg(feature = "tax-counters")]
+fn reset_tax_call_counters(enabled: bool) {
+    TAX_CALL_COUNTERS.with(|counters| {
+        *counters.borrow_mut() = enabled.then(TaxCallCounters::default);
+    });
+}
+
+#[cfg(feature = "tax-counters")]
+fn record_tax_counter(update: impl FnOnce(&mut TaxCallCounters)) {
+    TAX_CALL_COUNTERS.with(|counters| {
+        if let Some(counters) = counters.borrow_mut().as_mut() {
+            update(counters);
+        }
+    });
+}
+
+#[cfg(feature = "tax-counters")]
+fn take_tax_call_counters() -> Option<TaxCallCounters> {
+    TAX_CALL_COUNTERS.with(|counters| counters.borrow_mut().take())
+}
+
+#[cfg(feature = "tax-counters")]
+impl TaxCallCounters {
+    fn to_json(&self) -> Value {
+        let mut object = Map::new();
+        macro_rules! insert_counter {
+            ($name:literal, $value:expr) => {
+                object.insert($name.to_string(), json!($value));
+            };
+        }
+        insert_counter!("federalTaxExact", self.federal_tax_exact);
+        insert_counter!("taxForWithdrawals", self.tax_for_withdrawals);
+        insert_counter!("taxForConversion", self.tax_for_conversion);
+        insert_counter!("withdrawalAttempt", self.withdrawal_attempt);
+        insert_counter!("proactiveRothConversion", self.proactive_roth_conversion);
+        insert_counter!("proactiveRothCandidate", self.proactive_roth_candidate);
+        insert_counter!("proactiveRothEligible", self.proactive_roth_eligible);
+        insert_counter!("proactiveRothNoHeadroom", self.proactive_roth_no_headroom);
+        insert_counter!(
+            "proactiveRothCeilingReject",
+            self.proactive_roth_ceiling_reject
+        );
+        insert_counter!("proactiveRothSurvivor", self.proactive_roth_survivor);
+        insert_counter!("proactiveRothEvalZero", self.proactive_roth_eval_zero);
+        insert_counter!("proactiveRothEvalOne", self.proactive_roth_eval_one);
+        insert_counter!("proactiveRothEvalTwo", self.proactive_roth_eval_two);
+        insert_counter!("proactiveRothEvalThree", self.proactive_roth_eval_three);
+        insert_counter!("proactiveRothEvalFour", self.proactive_roth_eval_four);
+        insert_counter!(
+            "proactiveRothEvalFivePlus",
+            self.proactive_roth_eval_five_plus
+        );
+        insert_counter!("proactiveRothBestFirst", self.proactive_roth_best_first);
+        insert_counter!("proactiveRothBestSecond", self.proactive_roth_best_second);
+        insert_counter!("proactiveRothBestThird", self.proactive_roth_best_third);
+        insert_counter!("proactiveRothBestFourth", self.proactive_roth_best_fourth);
+        insert_counter!(
+            "proactiveRothBestFivePlus",
+            self.proactive_roth_best_five_plus
+        );
+        insert_counter!(
+            "proactiveRothShadowLargestSurvivor",
+            self.proactive_roth_shadow_largest_survivor
+        );
+        insert_counter!(
+            "proactiveRothShadowLargestPositive",
+            self.proactive_roth_shadow_largest_positive
+        );
+        insert_counter!(
+            "proactiveRothShadowLargestMatchesBest",
+            self.proactive_roth_shadow_largest_matches_best
+        );
+        insert_counter!(
+            "proactiveRothShadowLargestDiffers",
+            self.proactive_roth_shadow_largest_differs
+        );
+        insert_counter!(
+            "proactiveRothShadowMonotonicScores",
+            self.proactive_roth_shadow_monotonic_scores
+        );
+        insert_counter!(
+            "proactiveRothShadowNonMonotonicScores",
+            self.proactive_roth_shadow_non_monotonic_scores
+        );
+        insert_counter!(
+            "proactiveRothShadowScoreGapTotal",
+            self.proactive_roth_shadow_score_gap_total
+        );
+        insert_counter!(
+            "proactiveRothShadowTaxDeltaTotal",
+            self.proactive_roth_shadow_tax_delta_total
+        );
+        insert_counter!(
+            "proactiveRothShadowMagiDeltaTotal",
+            self.proactive_roth_shadow_magi_delta_total
+        );
+        insert_counter!(
+            "proactiveRothFastTaxMatches",
+            self.proactive_roth_fast_tax_matches
+        );
+        insert_counter!(
+            "proactiveRothFastTaxDiffers",
+            self.proactive_roth_fast_tax_differs
+        );
+        insert_counter!(
+            "proactiveRothFastTaxDeltaTotal",
+            self.proactive_roth_fast_tax_delta_total
+        );
+        insert_counter!(
+            "proactiveRothFastMagiDeltaTotal",
+            self.proactive_roth_fast_magi_delta_total
+        );
+        insert_counter!(
+            "proactiveRothAlreadyOptimal",
+            self.proactive_roth_already_optimal
+        );
+        insert_counter!("proactiveRothNoSurvivor", self.proactive_roth_no_survivor);
+        insert_counter!(
+            "proactiveRothNegativeScore",
+            self.proactive_roth_negative_score
+        );
+        insert_counter!(
+            "proactiveRothConversionKept",
+            self.proactive_roth_conversion_kept
+        );
+        insert_counter!("closedLoopPass", self.closed_loop_pass);
+        insert_counter!("fallbackBaseTax", self.fallback_base_tax);
+        insert_counter!("fallbackFinalTax", self.fallback_final_tax);
+        insert_counter!("closedLoopYear", self.closed_loop_year);
+        insert_counter!("closedLoopOnePass", self.closed_loop_one_pass);
+        insert_counter!("closedLoopTwoPass", self.closed_loop_two_pass);
+        insert_counter!("closedLoopThreePlusPass", self.closed_loop_three_plus_pass);
+        insert_counter!(
+            "closedLoopBreakStateConverged",
+            self.closed_loop_break_state_converged
+        );
+        insert_counter!(
+            "closedLoopBreakNeededDelta",
+            self.closed_loop_break_needed_delta
+        );
+        insert_counter!(
+            "closedLoopBreakOscillation",
+            self.closed_loop_break_oscillation
+        );
+        insert_counter!(
+            "closedLoopBreakPassLimit",
+            self.closed_loop_break_pass_limit
+        );
+        insert_counter!(
+            "closedLoopAbsNeededDiffTotal",
+            self.closed_loop_abs_needed_diff_total
+        );
+        Value::Object(object)
+    }
+}
+
+#[cfg(feature = "tax-counters")]
+#[derive(Clone, Copy)]
+enum ClosedLoopBreakReason {
+    StateConverged,
+    NeededDelta,
+    Oscillation,
+    PassLimit,
+}
+
+#[cfg(feature = "tax-counters")]
+fn record_closed_loop_outcome(
+    pass_count: u64,
+    reason: ClosedLoopBreakReason,
+    abs_needed_diff: f64,
+) {
+    record_tax_counter(|counters| {
+        counters.closed_loop_year += 1;
+        counters.closed_loop_abs_needed_diff_total += abs_needed_diff;
+        match pass_count {
+            0 | 1 => counters.closed_loop_one_pass += 1,
+            2 => counters.closed_loop_two_pass += 1,
+            _ => counters.closed_loop_three_plus_pass += 1,
+        }
+        match reason {
+            ClosedLoopBreakReason::StateConverged => {
+                counters.closed_loop_break_state_converged += 1
+            }
+            ClosedLoopBreakReason::NeededDelta => counters.closed_loop_break_needed_delta += 1,
+            ClosedLoopBreakReason::Oscillation => counters.closed_loop_break_oscillation += 1,
+            ClosedLoopBreakReason::PassLimit => counters.closed_loop_break_pass_limit += 1,
+        }
+    });
+}
+
+#[cfg(feature = "tax-counters")]
+fn record_roth_eval_count(evaluated_candidate_count: u64) {
+    record_tax_counter(|counters| match evaluated_candidate_count {
+        0 => counters.proactive_roth_eval_zero += 1,
+        1 => counters.proactive_roth_eval_one += 1,
+        2 => counters.proactive_roth_eval_two += 1,
+        3 => counters.proactive_roth_eval_three += 1,
+        4 => counters.proactive_roth_eval_four += 1,
+        _ => counters.proactive_roth_eval_five_plus += 1,
+    });
+}
+
+#[cfg(feature = "tax-counters")]
+fn record_roth_best_candidate(best_candidate_index: u64) {
+    record_tax_counter(|counters| match best_candidate_index {
+        1 => counters.proactive_roth_best_first += 1,
+        2 => counters.proactive_roth_best_second += 1,
+        3 => counters.proactive_roth_best_third += 1,
+        4 => counters.proactive_roth_best_fourth += 1,
+        _ => counters.proactive_roth_best_five_plus += 1,
+    });
+}
+
+#[cfg(feature = "tax-counters")]
+fn record_roth_largest_shadow(
+    largest_score: f64,
+    largest_tax: TaxOutput,
+    best_score: f64,
+    best_tax: TaxOutput,
+    scores_monotonic: bool,
+) {
+    record_tax_counter(|counters| {
+        counters.proactive_roth_shadow_largest_survivor += 1;
+        if largest_score > 0.0 {
+            counters.proactive_roth_shadow_largest_positive += 1;
+        }
+        if (best_score - largest_score).abs() <= 0.01
+            && (best_tax.federal_tax - largest_tax.federal_tax).abs() <= 0.01
+            && (best_tax.magi - largest_tax.magi).abs() <= 0.01
+        {
+            counters.proactive_roth_shadow_largest_matches_best += 1;
+        } else {
+            counters.proactive_roth_shadow_largest_differs += 1;
+            counters.proactive_roth_shadow_score_gap_total += (best_score - largest_score).abs();
+            counters.proactive_roth_shadow_tax_delta_total +=
+                (best_tax.federal_tax - largest_tax.federal_tax).abs();
+            counters.proactive_roth_shadow_magi_delta_total +=
+                (best_tax.magi - largest_tax.magi).abs();
+        }
+        if scores_monotonic {
+            counters.proactive_roth_shadow_monotonic_scores += 1;
+        } else {
+            counters.proactive_roth_shadow_non_monotonic_scores += 1;
+        }
+    });
+}
+
+#[cfg(feature = "tax-counters")]
+fn record_roth_fast_tax_shadow(exact: TaxOutput, fast: TaxOutput) {
+    record_tax_counter(|counters| {
+        let tax_delta = (exact.federal_tax - fast.federal_tax).abs();
+        let magi_delta = (exact.magi - fast.magi).abs();
+        if tax_delta <= 0.01 && magi_delta <= 0.01 {
+            counters.proactive_roth_fast_tax_matches += 1;
+        } else {
+            counters.proactive_roth_fast_tax_differs += 1;
+            counters.proactive_roth_fast_tax_delta_total += tax_delta;
+            counters.proactive_roth_fast_magi_delta_total += magi_delta;
+        }
+    });
+}
+
+#[cfg(feature = "module-timers")]
+#[derive(Clone, Default)]
+struct ModuleTimerCounters {
+    compact_year_at_calls: u64,
+    compact_year_at_ns: u128,
+    federal_tax_exact_calls: u64,
+    federal_tax_exact_ns: u128,
+    healthcare_premium_calls: u64,
+    healthcare_premium_ns: u128,
+    ordinary_tax_calls: u64,
+    ordinary_tax_ns: u128,
+    withdrawal_attempt_calls: u64,
+    withdrawal_attempt_ns: u128,
+    percentile_calls: u64,
+    percentile_ns: u128,
+}
+
+#[cfg(feature = "module-timers")]
+thread_local! {
+    static MODULE_TIMER_COUNTERS: RefCell<Option<ModuleTimerCounters>> = const { RefCell::new(None) };
+}
+
+#[cfg(feature = "module-timers")]
+#[derive(Clone, Copy)]
+enum ModuleTimer {
+    CompactYearAt,
+    FederalTaxExact,
+    HealthcarePremium,
+    OrdinaryTax,
+    WithdrawalAttempt,
+    Percentile,
+}
+
+#[cfg(not(feature = "module-timers"))]
+#[derive(Clone, Copy)]
+enum ModuleTimer {
+    CompactYearAt,
+    FederalTaxExact,
+    HealthcarePremium,
+    OrdinaryTax,
+    WithdrawalAttempt,
+    Percentile,
+}
+
+#[cfg(not(feature = "module-timers"))]
+fn time_module<R>(_module: ModuleTimer, work: impl FnOnce() -> R) -> R {
+    work()
+}
+
+#[cfg(feature = "module-timers")]
+fn reset_module_timer_counters(enabled: bool) {
+    MODULE_TIMER_COUNTERS.with(|counters| {
+        *counters.borrow_mut() = enabled.then(ModuleTimerCounters::default);
+    });
+}
+
+#[cfg(feature = "module-timers")]
+fn time_module<R>(module: ModuleTimer, work: impl FnOnce() -> R) -> R {
+    if !MODULE_TIMER_COUNTERS.with(|counters| counters.borrow().is_some()) {
+        return work();
+    }
+    let started_at = Instant::now();
+    let result = work();
+    let elapsed_ns = started_at.elapsed().as_nanos();
+    MODULE_TIMER_COUNTERS.with(|counters| {
+        if let Some(counters) = counters.borrow_mut().as_mut() {
+            match module {
+                ModuleTimer::CompactYearAt => {
+                    counters.compact_year_at_calls += 1;
+                    counters.compact_year_at_ns += elapsed_ns;
+                }
+                ModuleTimer::FederalTaxExact => {
+                    counters.federal_tax_exact_calls += 1;
+                    counters.federal_tax_exact_ns += elapsed_ns;
+                }
+                ModuleTimer::HealthcarePremium => {
+                    counters.healthcare_premium_calls += 1;
+                    counters.healthcare_premium_ns += elapsed_ns;
+                }
+                ModuleTimer::OrdinaryTax => {
+                    counters.ordinary_tax_calls += 1;
+                    counters.ordinary_tax_ns += elapsed_ns;
+                }
+                ModuleTimer::WithdrawalAttempt => {
+                    counters.withdrawal_attempt_calls += 1;
+                    counters.withdrawal_attempt_ns += elapsed_ns;
+                }
+                ModuleTimer::Percentile => {
+                    counters.percentile_calls += 1;
+                    counters.percentile_ns += elapsed_ns;
+                }
+            }
+        }
+    });
+    result
+}
+
+#[cfg(feature = "module-timers")]
+fn take_module_timer_counters() -> Option<ModuleTimerCounters> {
+    MODULE_TIMER_COUNTERS.with(|counters| counters.borrow_mut().take())
+}
+
+#[cfg(feature = "module-timers")]
+fn module_timer_json(calls: u64, total_ns: u128) -> Value {
+    let total_ms = total_ns as f64 / 1_000_000.0;
+    json!({
+        "calls": calls,
+        "totalNs": total_ns as f64,
+        "totalMs": total_ms,
+        "perCallUs": if calls > 0 { total_ns as f64 / calls as f64 / 1_000.0 } else { 0.0 },
+    })
+}
+
+#[cfg(feature = "module-timers")]
+impl ModuleTimerCounters {
+    fn to_json(&self) -> Value {
+        json!({
+            "compactYearAt": module_timer_json(self.compact_year_at_calls, self.compact_year_at_ns),
+            "federalTaxExact": module_timer_json(self.federal_tax_exact_calls, self.federal_tax_exact_ns),
+            "healthcarePremium": module_timer_json(self.healthcare_premium_calls, self.healthcare_premium_ns),
+            "ordinaryTax": module_timer_json(self.ordinary_tax_calls, self.ordinary_tax_ns),
+            "withdrawalAttempt": module_timer_json(self.withdrawal_attempt_calls, self.withdrawal_attempt_ns),
+            "percentile": module_timer_json(self.percentile_calls, self.percentile_ns),
+        })
+    }
+}
 
 pub struct CompactSummaryTapeInput<'a> {
     pub metadata: Value,
@@ -336,41 +789,43 @@ impl CompactSummaryTapeInput<'_> {
         trial_offset: usize,
         year_offset: usize,
     ) -> CompactSummaryTapeYear {
-        let row = trial_offset * dimensions.years_per_trial + year_offset;
-        let base = row * self.year_field_count;
-        let bucket_pretax = self.market_years[base + 7];
-        let bucket_roth = self.market_years[base + 8];
-        let bucket_taxable = self.market_years[base + 9];
-        let bucket_cash = self.market_years[base + 10];
-        CompactSummaryTapeYear {
-            year: self.market_years[base] as i64,
-            year_offset: self.market_years[base + 1] as i64,
-            inflation: self.market_years[base + 2],
-            us_equity_return: self.market_years[base + 3],
-            intl_equity_return: self.market_years[base + 4],
-            bond_return: self.market_years[base + 5],
-            cash_return: self.market_years[base + 6],
-            bucket_returns: if bucket_pretax.is_finite()
-                && bucket_roth.is_finite()
-                && bucket_taxable.is_finite()
-                && bucket_cash.is_finite()
-            {
-                Some(CompactBucketReturns {
-                    pretax: bucket_pretax,
-                    roth: bucket_roth,
-                    taxable: bucket_taxable,
-                    cash: bucket_cash,
-                })
-            } else {
-                None
-            },
-            cashflow_present: self.cashflow_present[row] != 0,
-            market_state: match self.market_state[row] {
-                1 => "down",
-                2 => "up",
-                _ => "normal",
-            },
-        }
+        time_module(ModuleTimer::CompactYearAt, || {
+            let row = trial_offset * dimensions.years_per_trial + year_offset;
+            let base = row * self.year_field_count;
+            let bucket_pretax = self.market_years[base + 7];
+            let bucket_roth = self.market_years[base + 8];
+            let bucket_taxable = self.market_years[base + 9];
+            let bucket_cash = self.market_years[base + 10];
+            CompactSummaryTapeYear {
+                year: self.market_years[base] as i64,
+                year_offset: self.market_years[base + 1] as i64,
+                inflation: self.market_years[base + 2],
+                us_equity_return: self.market_years[base + 3],
+                intl_equity_return: self.market_years[base + 4],
+                bond_return: self.market_years[base + 5],
+                cash_return: self.market_years[base + 6],
+                bucket_returns: if bucket_pretax.is_finite()
+                    && bucket_roth.is_finite()
+                    && bucket_taxable.is_finite()
+                    && bucket_cash.is_finite()
+                {
+                    Some(CompactBucketReturns {
+                        pretax: bucket_pretax,
+                        roth: bucket_roth,
+                        taxable: bucket_taxable,
+                        cash: bucket_cash,
+                    })
+                } else {
+                    None
+                },
+                cashflow_present: self.cashflow_present[row] != 0,
+                market_state: match self.market_state[row] {
+                    1 => "down",
+                    2 => "up",
+                    _ => "normal",
+                },
+            }
+        })
     }
 }
 
@@ -532,9 +987,58 @@ struct TaxOutput {
     magi: f64,
 }
 
+#[derive(Clone, Copy)]
+struct ReturnWeights {
+    us_equity: f64,
+    intl_equity: f64,
+    bonds: f64,
+    cash: f64,
+}
+
+impl ReturnWeights {
+    fn from_bucket(data: &Value, bucket: &str) -> Self {
+        let Some(allocation) = data
+            .pointer(&format!("/accounts/{bucket}/targetAllocation"))
+            .and_then(Value::as_object)
+        else {
+            return Self::default();
+        };
+        allocation
+            .iter()
+            .fold(Self::default(), |mut weights, (symbol, weight)| {
+                let weight = weight.as_f64().unwrap_or(0.0);
+                let (us_w, intl_w, bonds_w, cash_w) = symbol_exposure(symbol.as_str());
+                weights.us_equity += weight * us_w;
+                weights.intl_equity += weight * intl_w;
+                weights.bonds += weight * bonds_w;
+                weights.cash += weight * cash_w;
+                weights
+            })
+    }
+
+    fn apply(self, asset_returns: AssetReturns) -> f64 {
+        self.us_equity * asset_returns.us_equity
+            + self.intl_equity * asset_returns.intl_equity
+            + self.bonds * asset_returns.bonds
+            + self.cash * asset_returns.cash
+    }
+}
+
+impl Default for ReturnWeights {
+    fn default() -> Self {
+        Self {
+            us_equity: 0.0,
+            intl_equity: 0.0,
+            bonds: 0.0,
+            cash: 0.0,
+        }
+    }
+}
+
 struct SimulationConstants {
     start_balances: Balances,
     hsa_balance: f64,
+    hsa_return_weights: ReturnWeights,
     annual_spending: f64,
     essential_annual: f64,
     optional_annual: f64,
@@ -612,6 +1116,7 @@ impl SimulationConstants {
         Self {
             start_balances: starting_balances(data),
             hsa_balance: bucket_balance(data, "hsa"),
+            hsa_return_weights: ReturnWeights::from_bucket(data, "hsa"),
             annual_spending: annual_spending(data),
             essential_annual,
             optional_annual,
@@ -1941,21 +2446,23 @@ fn uniform_lifetime_divisor(age: i64) -> f64 {
 }
 
 fn calculate_ordinary_tax(taxable_income: f64, brackets: &[(f64, f64)]) -> f64 {
-    let mut remaining = taxable_income.max(0.0);
-    let mut previous_top = 0.0;
-    let mut tax = 0.0;
-    for (up_to, rate) in brackets {
-        if remaining <= 0.0 {
-            break;
+    time_module(ModuleTimer::OrdinaryTax, || {
+        let taxable_income = taxable_income.max(0.0);
+        let mut previous_top = 0.0;
+        let mut tax = 0.0;
+        for (up_to, rate) in brackets {
+            if taxable_income <= *up_to {
+                let taxable_in_bracket = (taxable_income - previous_top).max(0.0);
+                if taxable_in_bracket > 0.0 {
+                    tax += taxable_in_bracket * rate;
+                }
+                return tax;
+            }
+            tax += (*up_to - previous_top) * rate;
+            previous_top = *up_to;
         }
-        let taxable = remaining.min(up_to - previous_top);
-        if taxable > 0.0 {
-            tax += taxable * rate;
-            remaining -= taxable;
-        }
-        previous_top = *up_to;
-    }
-    tax
+        tax
+    })
 }
 
 fn interpolate_aca_rate(fpl_ratio: f64) -> f64 {
@@ -1980,94 +2487,127 @@ fn interpolate_aca_rate(fpl_ratio: f64) -> f64 {
     clamp(0.0996, 0.0, 1.0)
 }
 
+struct HealthcarePremiumContext {
+    medicare_count: i64,
+    non_medicare_count: i64,
+    retirement_status: bool,
+    baseline_aca: f64,
+    baseline_medicare: f64,
+    fpl: f64,
+}
+
+impl HealthcarePremiumContext {
+    fn from(
+        constants: &SimulationConstants,
+        year: i64,
+        year_offset: usize,
+        medical_index: f64,
+    ) -> Self {
+        let medicare_count = constants.medicare_eligible_count(year_offset);
+        let household_size = 2.0;
+        Self {
+            medicare_count,
+            non_medicare_count: 2 - medicare_count,
+            retirement_status: year >= constants.retirement_year,
+            baseline_aca: constants.baseline_aca_premium_annual * medical_index,
+            baseline_medicare: constants.baseline_medicare_premium_annual * medical_index,
+            fpl: 21_150.0 + (household_size - 2.0_f64).max(0.0) * 5_500.0,
+        }
+    }
+}
+
 fn compute_healthcare_premium_cost(
     constants: &SimulationConstants,
-    year: i64,
-    year_offset: usize,
+    healthcare_context: &HealthcarePremiumContext,
     magi: f64,
     irmaa_tier_for_year: i64,
-    medical_index: f64,
 ) -> f64 {
-    let medicare_count = constants.medicare_eligible_count(year_offset);
-    let non_medicare_count = 2 - medicare_count;
-    let retirement_status = year >= constants.retirement_year;
-    let baseline_aca = constants.baseline_aca_premium_annual * medical_index;
-    let baseline_medicare = constants.baseline_medicare_premium_annual * medical_index;
-    let aca_premium = if retirement_status {
-        baseline_aca * non_medicare_count as f64
-    } else {
-        0.0
-    };
-    let medicare_premium = baseline_medicare * medicare_count as f64;
-    let household_size = 2.0;
-    let fpl = 21_150.0 + (household_size - 2.0_f64).max(0.0) * 5_500.0;
-    let fpl_ratio = if fpl > 0.0 {
-        magi.max(0.0) / fpl
-    } else {
-        f64::INFINITY
-    };
-    let expected_aca_contribution = interpolate_aca_rate(fpl_ratio) * magi.max(0.0);
-    let aca_subsidy = if retirement_status && non_medicare_count > 0 && fpl_ratio <= 4.0 {
-        clamp(aca_premium - expected_aca_contribution, 0.0, aca_premium)
-    } else {
-        0.0
-    };
-    let net_aca = (aca_premium - aca_subsidy).max(0.0);
-    let irmaa = constants
-        .tax_constants
-        .irmaa_surcharge_annual(irmaa_tier_for_year)
-        * medicare_count as f64;
-    to_currency(net_aca) + to_currency(medicare_premium) + to_currency(irmaa)
+    time_module(ModuleTimer::HealthcarePremium, || {
+        let medicare_count = healthcare_context.medicare_count;
+        let non_medicare_count = healthcare_context.non_medicare_count;
+        if !healthcare_context.retirement_status && medicare_count == 0 {
+            return 0.0;
+        }
+        let aca_premium = if healthcare_context.retirement_status {
+            healthcare_context.baseline_aca * non_medicare_count as f64
+        } else {
+            0.0
+        };
+        let medicare_premium = healthcare_context.baseline_medicare * medicare_count as f64;
+        let aca_subsidy = if healthcare_context.retirement_status && non_medicare_count > 0 {
+            let fpl_ratio = if healthcare_context.fpl > 0.0 {
+                magi.max(0.0) / healthcare_context.fpl
+            } else {
+                f64::INFINITY
+            };
+            if fpl_ratio <= 4.0 {
+                let expected_aca_contribution = interpolate_aca_rate(fpl_ratio) * magi.max(0.0);
+                clamp(aca_premium - expected_aca_contribution, 0.0, aca_premium)
+            } else {
+                0.0
+            }
+        } else {
+            0.0
+        };
+        let net_aca = (aca_premium - aca_subsidy).max(0.0);
+        let irmaa = constants
+            .tax_constants
+            .irmaa_surcharge_annual(irmaa_tier_for_year)
+            * medicare_count as f64;
+        to_currency(net_aca) + to_currency(medicare_premium) + to_currency(irmaa)
+    })
 }
 
 fn federal_tax_exact(input: &TaxInput) -> TaxOutput {
-    let tax_constants = input.tax_constants;
-    let ordinary_income_excluding_ss = input.wages.max(0.0)
-        + input.ira_withdrawals.max(0.0)
-        + input.taxable_interest.max(0.0)
-        + input.ordinary_dividends.max(0.0)
-        + input.realized_stcg.max(0.0)
-        + input.other_ordinary_income.max(0.0);
-    let preferential_income = input.qualified_dividends.max(0.0) + input.realized_ltcg.max(0.0);
-    let provisional_income = ordinary_income_excluding_ss
-        + preferential_income
-        + input.tax_exempt_interest.max(0.0)
-        + input.social_security.max(0.0) * 0.5;
-    let first_base = tax_constants.social_security_first_base;
-    let second_base = tax_constants.social_security_second_base;
-    let cap = tax_constants.social_security_base_cap;
-    let taxable_ss = if input.social_security <= 0.0 || provisional_income <= first_base {
-        0.0
-    } else if provisional_income <= second_base {
-        (input.social_security * 0.5).min((provisional_income - first_base) * 0.5)
-    } else {
-        let base_half = (input.social_security * 0.5).min(cap);
-        (input.social_security * 0.85).min((provisional_income - second_base) * 0.85 + base_half)
-    };
-    let agi = ordinary_income_excluding_ss + taxable_ss + preferential_income;
-    let magi = agi + input.tax_exempt_interest.max(0.0);
-    let total_taxable_income =
-        (agi - tax_constants.standard_deduction(input.rob_age, input.debbie_age)).max(0.0);
-    let ltcg_taxable_income = preferential_income.min(total_taxable_income);
-    let ordinary_taxable_income = (total_taxable_income - ltcg_taxable_income).max(0.0);
-    let ordinary_tax =
-        calculate_ordinary_tax(ordinary_taxable_income, tax_constants.ordinary_brackets);
-    let ltcg_tax = tax_constants.ltcg_tax(ordinary_taxable_income, ltcg_taxable_income);
-    let niit = tax_constants.net_investment_income_tax(
-        magi,
-        input.taxable_interest.max(0.0)
-            + input.qualified_dividends.max(0.0)
+    #[cfg(feature = "tax-counters")]
+    record_tax_counter(|counters| counters.federal_tax_exact += 1);
+
+    time_module(ModuleTimer::FederalTaxExact, || {
+        let tax_constants = input.tax_constants;
+        let ordinary_income_excluding_ss = input.wages.max(0.0)
+            + input.ira_withdrawals.max(0.0)
+            + input.taxable_interest.max(0.0)
             + input.ordinary_dividends.max(0.0)
-            + input.realized_ltcg.max(0.0)
-            + input.realized_stcg.max(0.0),
-    );
-    TaxOutput {
-        federal_tax: ordinary_tax
-            + ltcg_tax
-            + niit
-            + tax_constants.additional_medicare_tax(input.wages),
-        magi,
-    }
+            + input.realized_stcg.max(0.0)
+            + input.other_ordinary_income.max(0.0);
+        let preferential_income = input.qualified_dividends.max(0.0) + input.realized_ltcg.max(0.0);
+        let provisional_income = ordinary_income_excluding_ss
+            + preferential_income
+            + input.tax_exempt_interest.max(0.0)
+            + input.social_security.max(0.0) * 0.5;
+        let first_base = tax_constants.social_security_first_base;
+        let second_base = tax_constants.social_security_second_base;
+        let cap = tax_constants.social_security_base_cap;
+        let taxable_ss = if input.social_security <= 0.0 || provisional_income <= first_base {
+            0.0
+        } else if provisional_income <= second_base {
+            (input.social_security * 0.5).min((provisional_income - first_base) * 0.5)
+        } else {
+            let base_half = (input.social_security * 0.5).min(cap);
+            (input.social_security * 0.85)
+                .min((provisional_income - second_base) * 0.85 + base_half)
+        };
+        let agi = ordinary_income_excluding_ss + taxable_ss + preferential_income;
+        let magi = agi + input.tax_exempt_interest.max(0.0);
+        let total_taxable_income = (agi - input.standard_deduction).max(0.0);
+        let ltcg_taxable_income = preferential_income.min(total_taxable_income);
+        let ordinary_taxable_income = (total_taxable_income - ltcg_taxable_income).max(0.0);
+        let ordinary_tax =
+            calculate_ordinary_tax(ordinary_taxable_income, tax_constants.ordinary_brackets);
+        let ltcg_tax = tax_constants.ltcg_tax(ordinary_taxable_income, ltcg_taxable_income);
+        let niit = tax_constants.net_investment_income_tax(
+            magi,
+            input.taxable_interest.max(0.0)
+                + input.qualified_dividends.max(0.0)
+                + input.ordinary_dividends.max(0.0)
+                + input.realized_ltcg.max(0.0)
+                + input.realized_stcg.max(0.0),
+        );
+        TaxOutput {
+            federal_tax: ordinary_tax + ltcg_tax + niit + input.additional_medicare_tax,
+            magi,
+        }
+    })
 }
 
 struct TaxInput {
@@ -2082,8 +2622,8 @@ struct TaxInput {
     realized_stcg: f64,
     other_ordinary_income: f64,
     tax_exempt_interest: f64,
-    rob_age: i64,
-    debbie_age: i64,
+    standard_deduction: f64,
+    additional_medicare_tax: f64,
 }
 
 #[derive(Clone, Copy)]
@@ -2113,8 +2653,8 @@ struct WithdrawalContext {
     social_security: f64,
     windfall_ordinary_income: f64,
     windfall_ltcg_income: f64,
-    rob_age: i64,
-    debbie_age: i64,
+    standard_deduction: f64,
+    additional_medicare_tax: f64,
 }
 
 struct WithdrawalStrategy<'a> {
@@ -2196,6 +2736,9 @@ fn add_withdrawal(withdrawals: &mut WithdrawalAmounts, bucket: &str, amount: f64
 }
 
 fn tax_for_withdrawals(input: &WithdrawalContext, withdrawals: &WithdrawalAmounts) -> TaxOutput {
+    #[cfg(feature = "tax-counters")]
+    record_tax_counter(|counters| counters.tax_for_withdrawals += 1);
+
     federal_tax_exact(&TaxInput {
         tax_constants: input.tax_constants,
         wages: input.wages,
@@ -2208,16 +2751,20 @@ fn tax_for_withdrawals(input: &WithdrawalContext, withdrawals: &WithdrawalAmount
         realized_stcg: 0.0,
         other_ordinary_income: input.windfall_ordinary_income,
         tax_exempt_interest: 0.0,
-        rob_age: input.rob_age,
-        debbie_age: input.debbie_age,
+        standard_deduction: input.standard_deduction,
+        additional_medicare_tax: input.additional_medicare_tax,
     })
 }
 
+#[cfg(feature = "tax-counters")]
 fn tax_for_conversion(
     input: &WithdrawalContext,
     withdrawals: &WithdrawalAmounts,
     conversion_amount: f64,
 ) -> TaxOutput {
+    #[cfg(feature = "tax-counters")]
+    record_tax_counter(|counters| counters.tax_for_conversion += 1);
+
     federal_tax_exact(&TaxInput {
         tax_constants: input.tax_constants,
         wages: input.wages,
@@ -2230,9 +2777,78 @@ fn tax_for_conversion(
         realized_stcg: 0.0,
         other_ordinary_income: input.windfall_ordinary_income,
         tax_exempt_interest: 0.0,
-        rob_age: input.rob_age,
-        debbie_age: input.debbie_age,
+        standard_deduction: input.standard_deduction,
+        additional_medicare_tax: input.additional_medicare_tax,
     })
+}
+
+#[derive(Clone, Copy)]
+struct ConversionTaxContext {
+    tax_constants: TaxConstants,
+    ordinary_income_base: f64,
+    preferential_income: f64,
+    provisional_income_base: f64,
+    social_security: f64,
+    tax_exempt_interest: f64,
+    standard_deduction: f64,
+    additional_medicare_tax: f64,
+    net_investment_income: f64,
+}
+
+impl ConversionTaxContext {
+    fn from(input: &WithdrawalContext, withdrawals: &WithdrawalAmounts) -> Self {
+        let ira_withdrawals_base = withdrawals.pretax.max(0.0);
+        let realized_ltcg = input.windfall_ltcg_income + withdrawals.taxable * 0.25;
+        let preferential_income = realized_ltcg.max(0.0);
+        let tax_exempt_interest = 0.0_f64;
+        let social_security = input.social_security;
+        let ordinary_income_base =
+            input.wages.max(0.0) + ira_withdrawals_base + input.windfall_ordinary_income.max(0.0);
+        Self {
+            tax_constants: input.tax_constants,
+            ordinary_income_base,
+            preferential_income,
+            provisional_income_base: ordinary_income_base
+                + preferential_income
+                + tax_exempt_interest
+                + social_security.max(0.0) * 0.5,
+            social_security,
+            tax_exempt_interest,
+            standard_deduction: input.standard_deduction,
+            additional_medicare_tax: input.additional_medicare_tax,
+            net_investment_income: preferential_income,
+        }
+    }
+
+    fn tax_for_conversion(self, conversion_amount: f64) -> TaxOutput {
+        let tax_constants = self.tax_constants;
+        let ordinary_income_excluding_ss = self.ordinary_income_base + conversion_amount.max(0.0);
+        let provisional_income = self.provisional_income_base + conversion_amount.max(0.0);
+        let first_base = tax_constants.social_security_first_base;
+        let second_base = tax_constants.social_security_second_base;
+        let cap = tax_constants.social_security_base_cap;
+        let taxable_ss = if self.social_security <= 0.0 || provisional_income <= first_base {
+            0.0
+        } else if provisional_income <= second_base {
+            (self.social_security * 0.5).min((provisional_income - first_base) * 0.5)
+        } else {
+            let base_half = (self.social_security * 0.5).min(cap);
+            (self.social_security * 0.85).min((provisional_income - second_base) * 0.85 + base_half)
+        };
+        let agi = ordinary_income_excluding_ss + taxable_ss + self.preferential_income;
+        let magi = agi + self.tax_exempt_interest.max(0.0);
+        let total_taxable_income = (agi - self.standard_deduction).max(0.0);
+        let ltcg_taxable_income = self.preferential_income.min(total_taxable_income);
+        let ordinary_taxable_income = (total_taxable_income - ltcg_taxable_income).max(0.0);
+        let ordinary_tax =
+            calculate_ordinary_tax(ordinary_taxable_income, tax_constants.ordinary_brackets);
+        let ltcg_tax = tax_constants.ltcg_tax(ordinary_taxable_income, ltcg_taxable_income);
+        let niit = tax_constants.net_investment_income_tax(magi, self.net_investment_income);
+        TaxOutput {
+            federal_tax: ordinary_tax + ltcg_tax + niit + self.additional_medicare_tax,
+            magi,
+        }
+    }
 }
 
 fn proactive_roth_conversion(
@@ -2246,6 +2862,9 @@ fn proactive_roth_conversion(
     years_until_rmd: i64,
     is_retired: bool,
 ) -> (f64, TaxOutput) {
+    #[cfg(feature = "tax-counters")]
+    record_tax_counter(|counters| counters.proactive_roth_conversion += 1);
+
     if !strategy.planner_logic_active
         || !is_retired
         || !input.roth_conversion_policy.enabled
@@ -2253,6 +2872,8 @@ fn proactive_roth_conversion(
     {
         return (0.0, tax_before);
     }
+    #[cfg(feature = "tax-counters")]
+    record_tax_counter(|counters| counters.proactive_roth_eligible += 1);
 
     let irmaa_threshold = strategy.irmaa_threshold;
     let magi_buffer = input.roth_conversion_policy.magi_buffer;
@@ -2301,6 +2922,8 @@ fn proactive_roth_conversion(
         .max(0.0)
         .min(total_conversion_budget);
     if available_headroom <= 0.0 {
+        #[cfg(feature = "tax-counters")]
+        record_tax_counter(|counters| counters.proactive_roth_no_headroom += 1);
         return (0.0, tax_before);
     }
 
@@ -2316,27 +2939,54 @@ fn proactive_roth_conversion(
     let projected_future_magi =
         magi_before.max(0.0) + projected_rmd_pressure + (pretax_balance * 0.01).max(0.0);
     let roth_share_before = roth_balance / total_tax_advantaged_balance;
+    let conversion_tax_context = ConversionTaxContext::from(input, withdrawals);
 
     let mut best_amount = 0.0;
     let mut best_tax = tax_before;
     let mut best_score = 0.0;
     let mut best_projected_irmaa_exposure = 0.0;
     let mut saw_candidate = false;
+    #[cfg(feature = "tax-counters")]
+    let mut evaluated_candidate_count = 0u64;
+    #[cfg(feature = "tax-counters")]
+    let mut best_candidate_index = 0u64;
+    #[cfg(feature = "tax-counters")]
+    let mut largest_survivor_score = 0.0;
+    #[cfg(feature = "tax-counters")]
+    let mut largest_survivor_tax = tax_before;
+    #[cfg(feature = "tax-counters")]
+    let mut previous_survivor_score: Option<f64> = None;
+    #[cfg(feature = "tax-counters")]
+    let mut scores_monotonic = true;
 
-    let mut previous_candidate = 0.0;
-    let mut candidate_amounts: Vec<f64> = [0.25, 0.5, 0.75, 1.0]
-        .iter()
-        .map(|fraction| available_headroom * fraction)
-        .collect();
+    let mut candidate_amounts = [
+        available_headroom * 0.25,
+        available_headroom * 0.5,
+        available_headroom * 0.75,
+        available_headroom,
+        0.0,
+    ];
+    let mut candidate_count = 4usize;
     if bracket_fill_window_active {
-        candidate_amounts.push(
-            input
-                .roth_conversion_policy
-                .low_income_bracket_fill_annual_target,
-        );
+        candidate_amounts[candidate_count] = input
+            .roth_conversion_policy
+            .low_income_bracket_fill_annual_target;
+        candidate_count += 1;
     }
-    candidate_amounts.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-    for raw_amount in candidate_amounts {
+    for index in 1..candidate_count {
+        let value = candidate_amounts[index];
+        let mut scan = index;
+        while scan > 0
+            && cmp_f64_for_summary(&candidate_amounts[scan - 1], &value)
+                == std::cmp::Ordering::Greater
+        {
+            candidate_amounts[scan] = candidate_amounts[scan - 1];
+            scan -= 1;
+        }
+        candidate_amounts[scan] = value;
+    }
+    let mut previous_candidate = 0.0;
+    for raw_amount in candidate_amounts.into_iter().take(candidate_count) {
         let mut amount = raw_amount;
         amount = amount
             .min(total_conversion_budget)
@@ -2349,10 +2999,22 @@ fn proactive_roth_conversion(
         if amount < input.roth_conversion_policy.min_annual {
             continue;
         }
-        let tax_after = tax_for_conversion(input, withdrawals, amount);
+        #[cfg(feature = "tax-counters")]
+        {
+            record_tax_counter(|counters| counters.proactive_roth_candidate += 1);
+            evaluated_candidate_count += 1;
+        }
+
+        let tax_after = conversion_tax_context.tax_for_conversion(amount);
+        #[cfg(feature = "tax-counters")]
+        record_roth_fast_tax_shadow(tax_for_conversion(input, withdrawals, amount), tax_after);
         if !already_above_irmaa_threshold && tax_after.magi > target_magi_ceiling + 0.01 {
+            #[cfg(feature = "tax-counters")]
+            record_tax_counter(|counters| counters.proactive_roth_ceiling_reject += 1);
             continue;
         }
+        #[cfg(feature = "tax-counters")]
+        record_tax_counter(|counters| counters.proactive_roth_survivor += 1);
         let current_tax_cost = (tax_after.federal_tax - federal_tax_before).max(0.0);
         let current_tax_rate = if amount > 0.0 {
             current_tax_cost / amount
@@ -2383,21 +3045,60 @@ fn proactive_roth_conversion(
             (projected_future_magi - projected_peak_magi_reduction).max(0.0);
         let projected_irmaa_exposure = (projected_future_magi_peak - irmaa_threshold).max(0.0);
         saw_candidate = true;
+        #[cfg(feature = "tax-counters")]
+        {
+            if let Some(previous_score) = previous_survivor_score {
+                if conversion_score + 0.01 < previous_score {
+                    scores_monotonic = false;
+                }
+            }
+            previous_survivor_score = Some(conversion_score);
+            largest_survivor_score = conversion_score;
+            largest_survivor_tax = tax_after;
+        }
         if best_amount == 0.0 || conversion_score > best_score {
             best_amount = amount;
             best_tax = tax_after;
             best_score = conversion_score;
             best_projected_irmaa_exposure = projected_irmaa_exposure;
+            #[cfg(feature = "tax-counters")]
+            {
+                best_candidate_index = evaluated_candidate_count;
+            }
         }
     }
+    #[cfg(feature = "tax-counters")]
+    record_roth_eval_count(evaluated_candidate_count);
 
     let already_optimal = pretax_balance <= 25_000.0
         && best_projected_irmaa_exposure <= 1.0
         && rmd_proximity < 0.1
         && roth_share_before >= 0.65;
-    if already_optimal || !saw_candidate || best_score <= 0.0 {
+    if already_optimal {
+        #[cfg(feature = "tax-counters")]
+        record_tax_counter(|counters| counters.proactive_roth_already_optimal += 1);
+        (0.0, tax_before)
+    } else if !saw_candidate {
+        #[cfg(feature = "tax-counters")]
+        record_tax_counter(|counters| counters.proactive_roth_no_survivor += 1);
+        (0.0, tax_before)
+    } else if best_score <= 0.0 {
+        #[cfg(feature = "tax-counters")]
+        record_tax_counter(|counters| counters.proactive_roth_negative_score += 1);
         (0.0, tax_before)
     } else {
+        #[cfg(feature = "tax-counters")]
+        {
+            record_tax_counter(|counters| counters.proactive_roth_conversion_kept += 1);
+            record_roth_best_candidate(best_candidate_index);
+            record_roth_largest_shadow(
+                largest_survivor_score,
+                largest_survivor_tax,
+                best_score,
+                best_tax,
+                scores_monotonic,
+            );
+        }
         (best_amount, best_tax)
     }
 }
@@ -2421,108 +3122,113 @@ fn withdrawal_attempt(
     input: &WithdrawalContext,
     strategy: &WithdrawalStrategy<'_>,
 ) -> WithdrawalAttempt {
-    let mut balances = input.starting_balances;
-    let mut withdrawals = WithdrawalAmounts {
-        cash: 0.0,
-        taxable: 0.0,
-        pretax: 0.0,
-        roth: 0.0,
-    };
-    let mut remaining = input.needed.max(0.0);
-    let mut rmd_surplus_to_cash = 0.0;
-    let required_take = input.rmd_amount.max(0.0).min(balances.pretax.max(0.0));
-    if required_take > 0.0 {
-        balances.pretax -= required_take;
-        withdrawals.pretax += required_take;
-        let applied_to_need = remaining.min(required_take);
-        remaining -= applied_to_need;
-        rmd_surplus_to_cash = (required_take - applied_to_need).max(0.0);
-        if rmd_surplus_to_cash > 0.0 {
-            balances.cash += rmd_surplus_to_cash;
-        }
-    }
+    #[cfg(feature = "tax-counters")]
+    record_tax_counter(|counters| counters.withdrawal_attempt += 1);
 
-    if strategy.withdrawal_rule == "proportional" && remaining > 0.0 {
-        let buckets = ["cash", "taxable", "pretax", "roth"];
-        let mut need_left = remaining;
-        for _ in 0..4 {
-            if need_left <= 0.0 {
-                break;
+    time_module(ModuleTimer::WithdrawalAttempt, || {
+        let mut balances = input.starting_balances;
+        let mut withdrawals = WithdrawalAmounts {
+            cash: 0.0,
+            taxable: 0.0,
+            pretax: 0.0,
+            roth: 0.0,
+        };
+        let mut remaining = input.needed.max(0.0);
+        let mut rmd_surplus_to_cash = 0.0;
+        let required_take = input.rmd_amount.max(0.0).min(balances.pretax.max(0.0));
+        if required_take > 0.0 {
+            balances.pretax -= required_take;
+            withdrawals.pretax += required_take;
+            let applied_to_need = remaining.min(required_take);
+            remaining -= applied_to_need;
+            rmd_surplus_to_cash = (required_take - applied_to_need).max(0.0);
+            if rmd_surplus_to_cash > 0.0 {
+                balances.cash += rmd_surplus_to_cash;
             }
-            let live_balance = buckets
-                .iter()
-                .map(|bucket| balance_for_bucket(&balances, bucket).max(0.0))
-                .sum::<f64>();
-            if live_balance <= 0.0 {
-                break;
-            }
-            let pass_need = need_left;
-            for bucket in buckets {
+        }
+
+        let tax = if strategy.withdrawal_rule == "proportional" && remaining > 0.0 {
+            let buckets = ["cash", "taxable", "pretax", "roth"];
+            let mut need_left = remaining;
+            for _ in 0..4 {
                 if need_left <= 0.0 {
                     break;
                 }
-                let balance = balance_for_bucket(&balances, bucket);
-                if balance <= 0.0 {
+                let live_balance = buckets
+                    .iter()
+                    .map(|bucket| balance_for_bucket(&balances, bucket).max(0.0))
+                    .sum::<f64>();
+                if live_balance <= 0.0 {
+                    break;
+                }
+                let pass_need = need_left;
+                for bucket in buckets {
+                    if need_left <= 0.0 {
+                        break;
+                    }
+                    let balance = balance_for_bucket(&balances, bucket);
+                    if balance <= 0.0 {
+                        continue;
+                    }
+                    let share = (balance / live_balance) * pass_need;
+                    let take = take_from_bucket(&mut balances, bucket, &mut need_left, share);
+                    if take > 0.0 {
+                        add_withdrawal(&mut withdrawals, bucket, take);
+                    }
+                }
+            }
+            remaining = need_left;
+            tax_for_withdrawals(input, &withdrawals)
+        } else {
+            let mut tax = tax_for_withdrawals(input, &withdrawals);
+            for bucket in withdrawal_order(strategy) {
+                if remaining <= 0.0 {
+                    break;
+                }
+                let mut available = balance_for_bucket(&balances, bucket);
+                if available <= 0.0 {
                     continue;
                 }
-                let share = (balance / live_balance) * pass_need;
-                let take = take_from_bucket(&mut balances, bucket, &mut need_left, share);
-                if take > 0.0 {
-                    add_withdrawal(&mut withdrawals, bucket, take);
+                if bucket == "pretax" {
+                    if let Some(aca_ceiling) = strategy.aca_friendly_magi_ceiling {
+                        available = available.min((aca_ceiling - tax.magi).max(0.0));
+                    }
+                    if strategy.irmaa_aware_withdrawal_buffer {
+                        available = available.min((strategy.irmaa_threshold - tax.magi).max(0.0));
+                    }
+                    if available <= 0.0
+                        && strategy.preserve_roth_preference
+                        && balances.roth > 0.0
+                        && remaining > 0.0
+                    {
+                        let roth_take =
+                            take_from_bucket(&mut balances, "roth", &mut remaining, f64::INFINITY);
+                        add_withdrawal(&mut withdrawals, "roth", roth_take);
+                    }
+                }
+                if available <= 0.0 || remaining <= 0.0 {
+                    continue;
+                }
+                let take = take_from_bucket(&mut balances, bucket, &mut remaining, available);
+                if take <= 0.0 {
+                    continue;
+                }
+                add_withdrawal(&mut withdrawals, bucket, take);
+                if bucket == "pretax" || bucket == "taxable" {
+                    tax = tax_for_withdrawals(input, &withdrawals);
                 }
             }
-        }
-        remaining = need_left;
-    } else {
-        let mut tax = tax_for_withdrawals(input, &withdrawals);
-        for bucket in withdrawal_order(strategy) {
-            if remaining <= 0.0 {
-                break;
-            }
-            let mut available = balance_for_bucket(&balances, bucket);
-            if available <= 0.0 {
-                continue;
-            }
-            if bucket == "pretax" {
-                if let Some(aca_ceiling) = strategy.aca_friendly_magi_ceiling {
-                    available = available.min((aca_ceiling - tax.magi).max(0.0));
-                }
-                if strategy.irmaa_aware_withdrawal_buffer {
-                    available = available.min((strategy.irmaa_threshold - tax.magi).max(0.0));
-                }
-                if available <= 0.0
-                    && strategy.preserve_roth_preference
-                    && balances.roth > 0.0
-                    && remaining > 0.0
-                {
-                    let roth_take =
-                        take_from_bucket(&mut balances, "roth", &mut remaining, f64::INFINITY);
-                    add_withdrawal(&mut withdrawals, "roth", roth_take);
-                }
-            }
-            if available <= 0.0 || remaining <= 0.0 {
-                continue;
-            }
-            let take = take_from_bucket(&mut balances, bucket, &mut remaining, available);
-            if take <= 0.0 {
-                continue;
-            }
-            add_withdrawal(&mut withdrawals, bucket, take);
-            if bucket == "pretax" || bucket == "taxable" {
-                tax = tax_for_withdrawals(input, &withdrawals);
-            }
-        }
-    }
+            tax
+        };
 
-    let tax = tax_for_withdrawals(input, &withdrawals);
-
-    WithdrawalAttempt {
-        balances,
-        withdrawals,
-        remaining,
-        rmd_surplus_to_cash,
-        tax,
-    }
+        WithdrawalAttempt {
+            balances,
+            withdrawals,
+            remaining,
+            rmd_surplus_to_cash,
+            tax,
+        }
+    })
 }
 
 fn symbol_exposure(symbol: &str) -> (f64, f64, f64, f64) {
@@ -2590,23 +3296,37 @@ fn subtract_capped(balance: &mut f64, amount: f64) -> f64 {
 }
 
 fn percentile(values: &mut [f64], fraction: f64) -> f64 {
-    if values.is_empty() {
-        return 0.0;
-    }
-    values.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-    percentile_sorted(values, fraction)
-}
-
-fn percentile_sorted(values: &[f64], fraction: f64) -> f64 {
-    if values.is_empty() {
-        return 0.0;
-    }
-    let index = ((values.len() - 1) as f64 * fraction).floor() as usize;
-    values[index]
+    time_module(ModuleTimer::Percentile, || {
+        if values.is_empty() {
+            return 0.0;
+        }
+        let index = percentile_index(values.len(), fraction);
+        let (_, value, _) = values.select_nth_unstable_by(index, |a, b| cmp_f64_for_summary(a, b));
+        *value
+    })
 }
 
 fn median(values: &mut [f64]) -> f64 {
     percentile(values, 0.5)
+}
+
+fn percentile_index(len: usize, fraction: f64) -> usize {
+    ((len - 1) as f64 * fraction).floor() as usize
+}
+
+fn cmp_f64_for_summary(left: &f64, right: &f64) -> std::cmp::Ordering {
+    left.partial_cmp(right).unwrap_or(std::cmp::Ordering::Equal)
+}
+
+fn percentile_values<const N: usize>(values: &mut [f64], fractions: [f64; N]) -> [f64; N] {
+    let mut output = [0.0; N];
+    if values.is_empty() {
+        return output;
+    }
+    for (index, fraction) in fractions.into_iter().enumerate() {
+        output[index] = percentile(values, fraction);
+    }
+    output
 }
 
 pub fn compact_summary_tape_to_json(input: CompactSummaryTapeInput<'_>) -> Result<Value, String> {
@@ -2691,6 +3411,21 @@ fn handle_request_with_replay_tape<'a>(
     if request.get("schemaVersion").and_then(Value::as_str) != Some("engine-candidate-request-v1") {
         return Err("unsupported candidate request schema".into());
     }
+    #[cfg(feature = "tax-counters")]
+    reset_tax_call_counters(
+        request
+            .pointer("/instrumentation/taxCallCounts")
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
+    );
+    #[cfg(feature = "module-timers")]
+    reset_module_timer_counters(
+        request
+            .pointer("/instrumentation/moduleTimings")
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
+    );
+
     let data = &request["data"];
     let assumptions = &request["assumptions"];
     let mode = request
@@ -2752,9 +3487,15 @@ fn handle_request_with_replay_tape<'a>(
     let mut home_sale_dependent_count = 0usize;
     let mut inheritance_dependent_count = 0usize;
     let mut roth_depleted_count = 0usize;
+    let mut magi_history = vec![f64::NAN; planning_horizon_years.max(1)];
 
     for trial_offset in 0..replay_tape.trial_count() {
         let trial = replay_tape.trial_at(trial_offset);
+        let trial_year_count = trial.year_count();
+        if magi_history.len() < trial_year_count {
+            magi_history.resize(trial_year_count, f64::NAN);
+        }
+        magi_history[..trial_year_count].fill(f64::NAN);
         let mut balances = start_balances;
         let mut hsa_balance = constants.hsa_balance;
         let mut inflation_index = 1.0;
@@ -2764,10 +3505,9 @@ fn handle_request_with_replay_tape<'a>(
         let mut diagnostic_yearly: Option<Vec<Value>> = if summary_only {
             None
         } else {
-            Some(Vec::with_capacity(trial.year_count()))
+            Some(Vec::with_capacity(trial_year_count))
         };
         let mut irmaa_triggered = false;
-        let mut magi_history = vec![f64::NAN; trial.year_count()];
         let mut spending_cuts_triggered = 0i64;
         let mut optional_cut_active = false;
         let mut home_sale_dependent = false;
@@ -2776,7 +3516,7 @@ fn handle_request_with_replay_tape<'a>(
         let mut roth_was_positive = balances.roth > 0.0;
         let ltc_event_occurs = trial.ltc_event_occurs();
 
-        for offset in 0..trial.year_count() {
+        for offset in 0..trial_year_count {
             let replay_year = trial.year_at(offset);
             let year = replay_year.year();
             let total_assets_at_start = balances.total();
@@ -2784,6 +3524,9 @@ fn handle_request_with_replay_tape<'a>(
             let rob_age = constants.rob_age(offset);
             let debbie_age = constants.debbie_age(offset);
             let salary_this_year = constants.salary_for_year(year);
+            let standard_deduction_for_year = constants
+                .tax_constants
+                .standard_deduction(rob_age, debbie_age);
             let contribution_result = calculate_contributions(
                 &constants,
                 &mut balances,
@@ -2815,10 +3558,12 @@ fn handle_request_with_replay_tape<'a>(
             balances.roth *= 1.0 + roth_return;
             balances.taxable *= 1.0 + taxable_return;
             balances.cash *= 1.0 + cash_return;
-            let hsa_return = bucket_return_from_parts(data, "hsa", asset_returns);
+            let hsa_return = constants.hsa_return_weights.apply(asset_returns);
             hsa_balance *= 1.0 + hsa_return;
 
             let salary = contribution_result.adjusted_wages;
+            let additional_medicare_tax_for_year =
+                constants.tax_constants.additional_medicare_tax(salary);
             let ss_income =
                 constants
                     .social_security_schedule
@@ -2906,8 +3651,10 @@ fn handle_request_with_replay_tape<'a>(
             };
             let (final_tax, need) = if replay_year.cashflow_present() || !planner_logic_active {
                 let market_state = replay_year.market_state();
-                let medicare_count = constants.medicare_eligible_count(offset);
-                let is_retired = year >= constants.retirement_year;
+                let healthcare_context =
+                    HealthcarePremiumContext::from(&constants, year, offset, medical_index);
+                let medicare_count = healthcare_context.medicare_count;
+                let is_retired = healthcare_context.retirement_status;
                 let is_low_earned_income = salary_this_year <= constants.salary_annual * 0.35;
                 let aca_friendly_magi_ceiling = if planner_logic_active
                     && medicare_count < 2
@@ -2937,8 +3684,20 @@ fn handle_request_with_replay_tape<'a>(
                 let mut last_needed_sign = 0;
                 let mut oscillation_flips = 0;
                 let mut final_attempt: Option<WithdrawalAttempt> = None;
+                #[cfg(feature = "tax-counters")]
+                let mut closed_loop_pass_count = 0u64;
+                #[cfg(feature = "tax-counters")]
+                let mut closed_loop_break_reason = ClosedLoopBreakReason::PassLimit;
+                #[cfg(feature = "tax-counters")]
+                let mut closed_loop_abs_needed_diff = 0.0;
 
                 for pass in 1..=10 {
+                    #[cfg(feature = "tax-counters")]
+                    {
+                        closed_loop_pass_count = pass;
+                        record_tax_counter(|counters| counters.closed_loop_pass += 1);
+                    }
+
                     let withdrawal_context = WithdrawalContext {
                         tax_constants: constants.tax_constants,
                         roth_conversion_policy: constants.roth_conversion_policy,
@@ -2949,8 +3708,8 @@ fn handle_request_with_replay_tape<'a>(
                         social_security: ss_income,
                         windfall_ordinary_income,
                         windfall_ltcg_income,
-                        rob_age,
-                        debbie_age,
+                        standard_deduction: standard_deduction_for_year,
+                        additional_medicare_tax: additional_medicare_tax_for_year,
                     };
                     let attempt = withdrawal_attempt(&withdrawal_context, &withdrawal_strategy);
                     let magi = attempt.tax.magi;
@@ -2962,11 +3721,9 @@ fn handle_request_with_replay_tape<'a>(
                     let pass_irmaa_tier = constants.tax_constants.irmaa_tier(irmaa_reference_magi);
                     let healthcare_for_pass = compute_healthcare_premium_cost(
                         &constants,
-                        year,
-                        offset,
+                        &healthcare_context,
                         magi,
                         pass_irmaa_tier,
-                        medical_index,
                     );
                     let hsa_offset_for_pass = constants.hsa_strategy.offset_for_year(
                         hsa_balance,
@@ -2989,14 +3746,31 @@ fn handle_request_with_replay_tape<'a>(
                         let tax_delta = (attempt.tax.federal_tax - previous_tax).abs();
                         let healthcare_delta = (healthcare_for_pass - previous_healthcare).abs();
                         if magi_delta <= 50.0 && tax_delta <= 50.0 && healthcare_delta <= 50.0 {
+                            #[cfg(feature = "tax-counters")]
+                            {
+                                closed_loop_break_reason = ClosedLoopBreakReason::StateConverged;
+                                closed_loop_abs_needed_diff =
+                                    (next_needed - closed_loop_needed).abs();
+                            }
                             break;
                         }
                         if (next_needed - closed_loop_needed).abs() <= 1.0 {
+                            #[cfg(feature = "tax-counters")]
+                            {
+                                closed_loop_break_reason = ClosedLoopBreakReason::NeededDelta;
+                                closed_loop_abs_needed_diff =
+                                    (next_needed - closed_loop_needed).abs();
+                            }
                             break;
                         }
                     }
 
                     if pass == 10 {
+                        #[cfg(feature = "tax-counters")]
+                        {
+                            closed_loop_break_reason = ClosedLoopBreakReason::PassLimit;
+                            closed_loop_abs_needed_diff = (next_needed - closed_loop_needed).abs();
+                        }
                         break;
                     }
 
@@ -3019,11 +3793,22 @@ fn handle_request_with_replay_tape<'a>(
                         last_needed_sign = current_sign;
                     }
                     if oscillation_flips >= 2 {
+                        #[cfg(feature = "tax-counters")]
+                        {
+                            closed_loop_break_reason = ClosedLoopBreakReason::Oscillation;
+                            closed_loop_abs_needed_diff = needed_diff.abs();
+                        }
                         break;
                     }
                     let damping_factor = if oscillation_flips >= 1 { 0.3 } else { 0.5 };
                     closed_loop_needed += damping_factor * needed_diff;
                 }
+                #[cfg(feature = "tax-counters")]
+                record_closed_loop_outcome(
+                    closed_loop_pass_count,
+                    closed_loop_break_reason,
+                    closed_loop_abs_needed_diff,
+                );
 
                 let attempt = final_attempt.expect("raw withdrawal loop should run at least once");
                 let _rmd_surplus_to_cash = attempt.rmd_surplus_to_cash;
@@ -3042,8 +3827,8 @@ fn handle_request_with_replay_tape<'a>(
                         social_security: ss_income,
                         windfall_ordinary_income,
                         windfall_ltcg_income,
-                        rob_age,
-                        debbie_age,
+                        standard_deduction: standard_deduction_for_year,
+                        additional_medicare_tax: additional_medicare_tax_for_year,
                     },
                     &withdrawal_strategy,
                     &spendable_balances_after_withdrawal,
@@ -3076,11 +3861,9 @@ fn handle_request_with_replay_tape<'a>(
                 magi_history[offset] = computed_tax.magi;
                 healthcare_premium_cost = compute_healthcare_premium_cost(
                     &constants,
-                    year,
-                    offset,
+                    &healthcare_context,
                     computed_tax.magi,
                     computed_irmaa_tier,
-                    medical_index,
                 );
                 hsa_offset_for_year = constants.hsa_strategy.offset_for_year(
                     hsa_balance,
@@ -3099,6 +3882,9 @@ fn handle_request_with_replay_tape<'a>(
                 }
                 (computed_tax.federal_tax, attempt.remaining)
             } else {
+                #[cfg(feature = "tax-counters")]
+                record_tax_counter(|counters| counters.fallback_base_tax += 1);
+
                 let base_tax = federal_tax_exact(&TaxInput {
                     tax_constants: constants.tax_constants,
                     wages: salary,
@@ -3111,8 +3897,8 @@ fn handle_request_with_replay_tape<'a>(
                     realized_stcg: 0.0,
                     other_ordinary_income: 0.0,
                     tax_exempt_interest: 0.0,
-                    rob_age,
-                    debbie_age,
+                    standard_deduction: standard_deduction_for_year,
+                    additional_medicare_tax: additional_medicare_tax_for_year,
                 })
                 .federal_tax;
                 let mut need = (spending + base_tax - income).max(0.0);
@@ -3122,6 +3908,9 @@ fn handle_request_with_replay_tape<'a>(
                 withdraw_from(&mut spendable_balances.taxable, &mut need);
                 let pretax_withdrawal = withdraw_from(&mut spendable_balances.pretax, &mut need);
                 withdraw_from(&mut spendable_balances.roth, &mut need);
+                #[cfg(feature = "tax-counters")]
+                record_tax_counter(|counters| counters.fallback_final_tax += 1);
+
                 let final_tax = federal_tax_exact(&TaxInput {
                     tax_constants: constants.tax_constants,
                     wages: salary,
@@ -3134,8 +3923,8 @@ fn handle_request_with_replay_tape<'a>(
                     realized_stcg: 0.0,
                     other_ordinary_income: 0.0,
                     tax_exempt_interest: 0.0,
-                    rob_age,
-                    debbie_age,
+                    standard_deduction: standard_deduction_for_year,
+                    additional_medicare_tax: additional_medicare_tax_for_year,
                 })
                 .federal_tax;
                 let mut extra_tax_need = (final_tax - base_tax).max(0.0);
@@ -3272,12 +4061,8 @@ fn handle_request_with_replay_tape<'a>(
     let trial_count = ending_wealths.len().max(1);
     let success_count = trial_count - failure_years.len();
     let success_rate = success_count as f64 / trial_count as f64;
-    ending_wealths.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-    let p10 = percentile_sorted(&ending_wealths, 0.1);
-    let p25 = percentile_sorted(&ending_wealths, 0.25);
-    let p50 = percentile_sorted(&ending_wealths, 0.5);
-    let p75 = percentile_sorted(&ending_wealths, 0.75);
-    let p90 = percentile_sorted(&ending_wealths, 0.9);
+    let [p10, p25, p50, p75, p90] =
+        percentile_values(&mut ending_wealths, [0.1, 0.25, 0.5, 0.75, 0.9]);
 
     let yearly_tax_medians: Vec<(i64, f64)> = yearly_taxes
         .iter_mut()
@@ -3404,7 +4189,11 @@ fn handle_request_with_replay_tape<'a>(
             "assumptionsVersion": assumptions.get("assumptionsVersion").and_then(Value::as_str).unwrap_or("v1")
         }
     });
-    let diagnostics = if output_level == "policy_mining_summary" {
+    #[cfg_attr(
+        not(any(feature = "tax-counters", feature = "module-timers")),
+        allow(unused_mut)
+    )]
+    let mut diagnostics = if output_level == "policy_mining_summary" {
         json!({
             "coverage": "tape replay with Rust-owned income, contributions, taxes, healthcare, guardrails, RMD, LTC, withdrawal source selection, proactive Roth conversion, and summaries",
             "trialsConsumed": trial_count
@@ -3416,6 +4205,19 @@ fn handle_request_with_replay_tape<'a>(
             "trials": diagnostic_trials
         })
     };
+    #[cfg(feature = "tax-counters")]
+    if let Some(counters) = take_tax_call_counters() {
+        if let Some(object) = diagnostics.as_object_mut() {
+            object.insert("taxCallCounts".to_string(), counters.to_json());
+        }
+    }
+    #[cfg(feature = "module-timers")]
+    if let Some(counters) = take_module_timer_counters() {
+        if let Some(object) = diagnostics.as_object_mut() {
+            object.insert("moduleTimings".to_string(), counters.to_json());
+        }
+    }
+
     let mut response = json!({
         "schemaVersion": "engine-candidate-response-v1",
         "runtime": "rust-replay-candidate",
