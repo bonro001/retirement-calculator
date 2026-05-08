@@ -8,6 +8,7 @@ import type {
   PolicyEvaluation,
   PolicyAxes,
 } from './policy-miner-types';
+import { buildPolicyMinerRunEngineVersion } from './policy-miner-types';
 import type { MarketAssumptions, SeedData } from './types';
 import { useClusterSession } from './useClusterSession';
 import { browserPoolHint, setBrowserHostMode } from './cluster-client';
@@ -100,6 +101,16 @@ const POLL_INTERVAL_MS = 5_000;
 const QUICK_MINE_POLICY_COUNT = 200;
 
 type SessionSize = 'quick' | 'full';
+
+function makeUiMiningSessionSeed(): number {
+  const max = 2_147_483_647;
+  if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
+    const values = new Uint32Array(1);
+    crypto.getRandomValues(values);
+    return 1 + (values[0] % max);
+  }
+  return 1 + (Math.floor(Date.now() + Math.random() * max) % max);
+}
 
 function formatDuration(ms: number): string {
   if (!Number.isFinite(ms) || ms <= 0) return '—';
@@ -242,6 +253,8 @@ export function PolicyMiningStatusCard({
   const [pipelineBestPolicyId, setPipelineBestPolicyId] = useState<string | null>(
     null,
   );
+  const [corpusEngineVersion, setCorpusEngineVersion] =
+    useState<string>(engineVersion);
   // True for the duration of a pipeline run — set when Start fires the
   // pass-1 session, cleared on completion, error, or cancel. Used to
   // gate the auto-fire in the session-ended watcher so cancelled or
@@ -253,6 +266,7 @@ export function PolicyMiningStatusCard({
   // identity (which is racy because cluster.session updates separately
   // from snapshot ticks).
   const pipelineCompletionsRef = useRef<number>(0);
+  const pipelineExplorationSeedRef = useRef<number | null>(null);
   // Track the last seen sessionId across renders so we only act on
   // actual session transitions (X → null), not on every snapshot
   // tick where session is incidentally null. Without this, the effect
@@ -266,6 +280,9 @@ export function PolicyMiningStatusCard({
   // to session-id transitions; other dep changes are noise.
   const controlsRef = useRef(controls);
   controlsRef.current = controls;
+  useEffect(() => {
+    setCorpusEngineVersion(engineVersion);
+  }, [engineVersion, baselineFingerprint]);
   const clusterRef = useRef(cluster);
   clusterRef.current = cluster;
   // Watch session transitions: pass-1 end → fire pass-2; pass-2 end →
@@ -335,7 +352,7 @@ export function PolicyMiningStatusCard({
       // OR local IDB). Empty result → pipeline gives up gracefully.
       return loadCorpusEvaluations(
         baselineFingerprint,
-        engineVersion,
+        corpusEngineVersion,
         dispatcherUrl,
       );
     };
@@ -370,6 +387,7 @@ export function PolicyMiningStatusCard({
             maxPoliciesPerSession: recommendation.estimatedPass2Candidates,
             trialCount: ctrls2.trialCount,
             axesOverride: recommendation.axes,
+            explorationSeed: pipelineExplorationSeedRef.current ?? undefined,
           });
         } catch (e) {
           pipelineActiveRef.current = false;
@@ -385,7 +403,7 @@ export function PolicyMiningStatusCard({
         setPipelinePhase('done');
         setStartError(err instanceof Error ? err.message : 'pipeline corpus load failed');
       });
-  }, [currentSessionId, baselineFingerprint, engineVersion]);
+  }, [currentSessionId, baselineFingerprint, corpusEngineVersion]);
   // Best-policy display in the 'done' segment — surface whatever the
   // corpus's top record is at the time the pipeline ends.
   useEffect(() => {
@@ -395,7 +413,7 @@ export function PolicyMiningStatusCard({
     const dispatcherUrl = cluster.snapshot.dispatcherUrl ?? null;
     void loadCorpusEvaluations(
       baselineFingerprint,
-      engineVersion,
+      corpusEngineVersion,
       dispatcherUrl,
     ).then((evals) => {
       if (cancelled) return;
@@ -405,7 +423,7 @@ export function PolicyMiningStatusCard({
     return () => {
       cancelled = true;
     };
-  }, [pipelinePhase, baselineFingerprint, engineVersion, cluster.snapshot.dispatcherUrl]);
+  }, [pipelinePhase, baselineFingerprint, corpusEngineVersion, cluster.snapshot.dispatcherUrl]);
   // Phase 2.C two-stage screening — UI toggle removed 2026-04-27.
   // End-to-end cluster testing showed two-stage doesn't deliver a
   // wall-time win on the cluster path at tested workloads (correctness
@@ -462,7 +480,7 @@ export function PolicyMiningStatusCard({
       try {
         const evals = await loadCorpusEvaluations(
           baselineFingerprint,
-          engineVersion,
+          corpusEngineVersion,
           dispatcherUrl,
         );
         if (cancelled) return;
@@ -479,7 +497,7 @@ export function PolicyMiningStatusCard({
       cancelled = true;
       clearInterval(handle);
     };
-  }, [baselineFingerprint, engineVersion, cluster.snapshot.dispatcherUrl]);
+  }, [baselineFingerprint, corpusEngineVersion, cluster.snapshot.dispatcherUrl]);
 
   // -------------------------------------------------------------------------
   // Total candidate count — needed for the "Start" tooltip and to size the
@@ -520,6 +538,11 @@ export function PolicyMiningStatusCard({
     // manual override paths skip the pipeline (single-pass behavior).
     const enablePipeline =
       sessionSize === 'full' && !axesOverride;
+    const explorationSeed = makeUiMiningSessionSeed();
+    setCorpusEngineVersion(
+      buildPolicyMinerRunEngineVersion(engineVersion, explorationSeed),
+    );
+    pipelineExplorationSeedRef.current = enablePipeline ? explorationSeed : null;
     if (enablePipeline) {
       pipelineActiveRef.current = true;
       pipelineCompletionsRef.current = 0;
@@ -544,6 +567,7 @@ export function PolicyMiningStatusCard({
           controls.feasibilityThreshold ?? LEGACY_ATTAINMENT_FLOOR,
         maxPoliciesPerSession: cap,
         trialCount: controls.trialCount,
+        explorationSeed,
         // axesOverride is the Apply-narrowed-range path — when the
         // AxisPruningCard's "Apply" button has fired, this is set;
         // otherwise undefined, in which case the cluster client falls

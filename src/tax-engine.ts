@@ -1,3 +1,5 @@
+import { CURRENT_LAW_2026_RULE_PACK } from './rule-packs';
+
 export type FilingStatus =
   | 'single'
   | 'married_filing_jointly'
@@ -99,125 +101,23 @@ export interface YearTaxOutputs {
   additionalMedicareTax: number;
 }
 
-const ORDINARY_INF = Number.POSITIVE_INFINITY;
-
 export const DEFAULT_TAX_ENGINE_CONFIG: TaxEngineConfig = {
-  taxYear: 2026,
-  profiles: {
-    single: {
-      standardDeduction: 14_600,
-      ordinaryBrackets: [
-        { upTo: 11_600, rate: 0.1 },
-        { upTo: 47_150, rate: 0.12 },
-        { upTo: 100_525, rate: 0.22 },
-        { upTo: 191_950, rate: 0.24 },
-        { upTo: 243_725, rate: 0.32 },
-        { upTo: 609_350, rate: 0.35 },
-        { upTo: ORDINARY_INF, rate: 0.37 },
-      ],
-      capitalGainsThresholds: {
-        zeroRateTop: 47_025,
-        fifteenRateTop: 518_900,
-      },
-      socialSecurityThresholds: {
-        firstBase: 25_000,
-        secondBase: 34_000,
-        secondTierAdjustmentCap: 4_500,
-      },
-    },
-    married_filing_jointly: {
-      standardDeduction: 29_200,
-      ordinaryBrackets: [
-        { upTo: 23_200, rate: 0.1 },
-        { upTo: 94_300, rate: 0.12 },
-        { upTo: 201_050, rate: 0.22 },
-        { upTo: 383_900, rate: 0.24 },
-        { upTo: 487_450, rate: 0.32 },
-        { upTo: 731_200, rate: 0.35 },
-        { upTo: ORDINARY_INF, rate: 0.37 },
-      ],
-      capitalGainsThresholds: {
-        zeroRateTop: 94_050,
-        fifteenRateTop: 583_750,
-      },
-      socialSecurityThresholds: {
-        firstBase: 32_000,
-        secondBase: 44_000,
-        secondTierAdjustmentCap: 6_000,
-      },
-    },
-    married_filing_separately: {
-      standardDeduction: 14_600,
-      ordinaryBrackets: [
-        { upTo: 11_600, rate: 0.1 },
-        { upTo: 47_150, rate: 0.12 },
-        { upTo: 100_525, rate: 0.22 },
-        { upTo: 191_950, rate: 0.24 },
-        { upTo: 243_725, rate: 0.32 },
-        { upTo: 365_600, rate: 0.35 },
-        { upTo: ORDINARY_INF, rate: 0.37 },
-      ],
-      capitalGainsThresholds: {
-        zeroRateTop: 47_025,
-        fifteenRateTop: 291_850,
-      },
-      socialSecurityThresholds: {
-        firstBase: 0,
-        secondBase: 0,
-        secondTierAdjustmentCap: 0,
-      },
-    },
-    head_of_household: {
-      standardDeduction: 21_900,
-      ordinaryBrackets: [
-        { upTo: 16_550, rate: 0.1 },
-        { upTo: 63_100, rate: 0.12 },
-        { upTo: 100_500, rate: 0.22 },
-        { upTo: 191_950, rate: 0.24 },
-        { upTo: 243_700, rate: 0.32 },
-        { upTo: 609_350, rate: 0.35 },
-        { upTo: ORDINARY_INF, rate: 0.37 },
-      ],
-      capitalGainsThresholds: {
-        zeroRateTop: 63_000,
-        fifteenRateTop: 551_350,
-      },
-      socialSecurityThresholds: {
-        firstBase: 25_000,
-        secondBase: 34_000,
-        secondTierAdjustmentCap: 4_500,
-      },
-    },
-  },
+  taxYear: CURRENT_LAW_2026_RULE_PACK.federalTax.taxYear,
+  profiles: CURRENT_LAW_2026_RULE_PACK.federalTax.profiles,
   netInvestmentIncomeTax: {
-    // IRC §1411. Rate and thresholds are statutory and not indexed.
-    rate: 0.038,
-    magiThresholds: {
-      single: 200_000,
-      head_of_household: 200_000,
-      married_filing_jointly: 250_000,
-      married_filing_separately: 125_000,
-    },
+    rate: CURRENT_LAW_2026_RULE_PACK.federalTax.netInvestmentIncomeTax.rate,
+    magiThresholds:
+      CURRENT_LAW_2026_RULE_PACK.federalTax.netInvestmentIncomeTax.magiThresholds,
   },
   additionalStandardDeductionForAge65: {
-    // 2024 IRS amounts per Rev. Proc. 2023-34: $1,950 for single/HoH,
-    // $1,550 for MFJ/MFS (per qualifying spouse).
-    perElderlyByStatus: {
-      single: 1_950,
-      head_of_household: 1_950,
-      married_filing_jointly: 1_550,
-      married_filing_separately: 1_550,
-    },
+    perElderlyByStatus:
+      CURRENT_LAW_2026_RULE_PACK.federalTax.additionalStandardDeductionForAge65
+        .perElderlyByStatus,
   },
   additionalMedicareTax: {
-    // IRC §1401(b) statutory rate and thresholds — not indexed.
-    rate: 0.009,
-    wageThresholds: {
-      single: 200_000,
-      head_of_household: 200_000,
-      married_filing_jointly: 250_000,
-      married_filing_separately: 125_000,
-    },
+    rate: CURRENT_LAW_2026_RULE_PACK.federalTax.additionalMedicareTax.rate,
+    wageThresholds:
+      CURRENT_LAW_2026_RULE_PACK.federalTax.additionalMedicareTax.wageThresholds,
   },
 };
 

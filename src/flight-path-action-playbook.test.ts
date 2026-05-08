@@ -268,10 +268,10 @@ describe('flight-path-action-playbook', () => {
 
     expect(action).toBeDefined();
     expect(action?.tradeInstructions.length).toBe(0);
-    expect(action?.contributionSettingsPatch?.employee401kPreTaxAnnualAmount).toBe(32500);
-    expect(Number(action?.intermediateCalculations.employee401kAnnualLimit)).toBe(32500);
+    expect(action?.contributionSettingsPatch?.employee401kPreTaxAnnualAmount).toBe(36250);
+    expect(Number(action?.intermediateCalculations.employee401kAnnualLimit)).toBe(36250);
     expect(Number(action?.intermediateCalculations.employee401kRemainingRoom)).toBeCloseTo(
-      16760.5,
+      20510.5,
       1,
     );
     expect(action?.objective).toMatch(/MAGI/);

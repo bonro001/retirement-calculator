@@ -1,5 +1,5 @@
 import seedData from '../seed-data.json';
-import type { ResponseOption, SeedData, Stressor } from './types';
+import type { ResponseOption, SeedData, SourceAccount, Stressor } from './types';
 
 const requiredStressors: Stressor[] = [
   {
@@ -26,7 +26,17 @@ function withRequiredById<T extends { id: string }>(items: T[], required: T[]) {
   return [...items, ...appended];
 }
 
-function normalizeSeedData(input: SeedData): SeedData {
+function normalizePretaxSourceAccount(account: SourceAccount): SourceAccount {
+  if (account.owner && account.owner.trim()) {
+    return account;
+  }
+  return {
+    ...account,
+    owner: 'rob',
+  };
+}
+
+export function normalizeSeedData(input: SeedData): SeedData {
   return {
     ...input,
     income: {
@@ -35,6 +45,15 @@ function normalizeSeedData(input: SeedData): SeedData {
         ...entry,
         claimAge: entry.claimAge ?? 67,
       })),
+    },
+    accounts: {
+      ...input.accounts,
+      pretax: {
+        ...input.accounts.pretax,
+        sourceAccounts: input.accounts.pretax.sourceAccounts?.map(
+          normalizePretaxSourceAccount,
+        ),
+      },
     },
     stressors: withRequiredById(input.stressors, requiredStressors),
     responses: withRequiredById(input.responses, requiredResponses),

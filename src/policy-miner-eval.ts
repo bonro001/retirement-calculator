@@ -50,6 +50,19 @@ export interface PolicyFullTraceOptions {
   useHistoricalBootstrap?: boolean;
 }
 
+export interface PolicyMiningDeterminismCheck {
+  passed: boolean;
+  policyId: string;
+  seed: number;
+  trialCount: number;
+  comparedFields: string[];
+  firstDifference: {
+    field: string;
+    first: number;
+    second: number;
+  } | null;
+}
+
 export function buildPolicyEvaluationFromSummary(input: {
   policy: Policy;
   summary: PolicyMiningSummary;
@@ -151,6 +164,69 @@ export function buildPolicyMiningReplayInput(
     tape,
     simulationMode: tape.simulationMode,
     annualSpendTarget: policy.annualSpendTodayDollars,
+  };
+}
+
+export function runPolicyMiningDeterminismCheck(input: {
+  policy: Policy;
+  baseline: SeedData;
+  assumptions: MarketAssumptions;
+  baselineFingerprint: string;
+  engineVersion: string;
+  cloner: SeedDataCloner;
+  trialCount?: number;
+}): PolicyMiningDeterminismCheck {
+  const trialCount = Math.max(1, Math.floor(input.trialCount ?? 32));
+  const policyAssumptions = assumptionsForPolicy(
+    {
+      ...input.assumptions,
+      simulationRuns: trialCount,
+    },
+    input.policy,
+  );
+  const runOne = () => {
+    const seed = applyPolicyToSeed(input.cloner(input.baseline), input.policy);
+    const [path] = buildPathResults(seed, policyAssumptions, [], [], {
+      annualSpendTarget: input.policy.annualSpendTodayDollars,
+      pathMode: 'selected_only',
+      outputLevel: 'policy_mining_summary',
+    });
+    if (!path) {
+      throw new Error('runPolicyMiningDeterminismCheck: engine returned no path results');
+    }
+    const summary = pathToPolicyMiningSummary(path);
+    return {
+      successRate: summary.successRate,
+      medianEndingWealth: summary.medianEndingWealth,
+      tenthPercentileEndingWealth: summary.endingWealthPercentiles.p10,
+      annualFederalTaxEstimate: summary.annualFederalTaxEstimate,
+      bequestP50: summary.endingWealthPercentiles.p50,
+    };
+  };
+  const first = runOne();
+  const second = runOne();
+  const comparedFields = Object.keys(first);
+  const firstDifference =
+    comparedFields
+      .map((field) => {
+        const key = field as keyof typeof first;
+        return first[key] === second[key]
+          ? null
+          : {
+              field,
+              first: first[key],
+              second: second[key],
+            };
+      })
+      .find((item): item is NonNullable<typeof item> => item !== null) ?? null;
+
+  return {
+    passed: firstDifference === null,
+    policyId: policyId(input.policy, input.baselineFingerprint, input.engineVersion),
+    seed: policyAssumptions.simulationSeed ?? 20260416,
+    trialCount,
+    comparedFields,
+    firstDifference,
   };
 }
 

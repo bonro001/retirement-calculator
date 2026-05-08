@@ -108,13 +108,16 @@ describe('scenario compare runner + formatting', () => {
     // (deterministic + reproducible compare output). 500 trials puts SE
     // around 4.5% so the rankedRecommendations array reliably contains
     // at least one entry.
-    const first = await runScenarioCompare(buildInput(), {
+    const constrainedInput = buildInput();
+    constrainedInput.data.spending.essentialMonthly *= 1.2;
+    constrainedInput.data.spending.optionalMonthly *= 1.2;
+    const first = await runScenarioCompare(constrainedInput, {
       scenarioIds: ['base'],
       simulationRunsOverride: 500,
       seedBase: 7331,
       seedStrategy: 'shared',
     });
-    const second = await runScenarioCompare(buildInput(), {
+    const second = await runScenarioCompare(constrainedInput, {
       scenarioIds: ['base'],
       simulationRunsOverride: 500,
       seedBase: 7331,

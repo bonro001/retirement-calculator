@@ -619,7 +619,9 @@ export function buildRetirementPlan(input: BuildRetirementPlanInput): Retirement
     inferredAssumptions.push('Defaulted minimum success rate to 92% (balanced mode).');
   }
   if (input.targets.spendingTargetAnnual === undefined) {
-    inferredAssumptions.push('Defaulted spending target to current annual stretch spending.');
+    inferredAssumptions.push(
+      'Defaulted spending target to the household input annual stretch spending; this is a scenario input, not an optimized recommendation.',
+    );
   }
   if (input.targets.optimizationObjective === undefined) {
     inferredAssumptions.push('Defaulted optimization objective to maximize_time_weighted_spending.');

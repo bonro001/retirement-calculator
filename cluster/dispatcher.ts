@@ -506,17 +506,21 @@ let activeSession: ActiveSession | null = null;
 /**
  * Sessions found on disk at boot that have a manifest but no summary
  * (i.e. the dispatcher crashed mid-session). Keyed by
- * `config.baselineFingerprint` so a controller's `start_session` for
- * the same baseline can be resumed without anyone needing to know the
- * old session id. At most one entry per fingerprint — if two unfinished
- * sessions share a baseline, the most recent one wins (later
- * `startedAtIso` overwrites earlier).
+ * `config.baselineFingerprint + config.engineVersion` so a controller's
+ * `start_session` for the same evaluated input surface can be resumed
+ * without anyone needing to know the old session id. The mining seed is
+ * embedded in engineVersion for randomized exploration, so a fresh random
+ * mine never resumes an older seed by accident.
  *
  * Entries are removed once consumed by `handleStartSession`. Entries
  * not consumed by the time the operator restarts the controller stay
  * here; they're available for resume on subsequent `start_session`s.
  */
 const resumableSessions = new Map<string, ResumableSession>();
+
+function resumableSessionKey(config: PolicyMiningSessionConfig): string {
+  return `${config.baselineFingerprint}::${config.engineVersion}`;
+}
 
 /**
  * Counter to generate unique peer ids when a peer doesn't request one.
@@ -1085,7 +1089,8 @@ function handleStartSession(peer: Peer, message: StartSessionMessage): void {
   // policies, and continue from where the crash left off. The controller
   // doesn't need to know — it just re-issues the same start_session it
   // used originally, and the dispatcher does the right thing.
-  const resumable = resumableSessions.get(cfg.baselineFingerprint);
+  const resumeKey = resumableSessionKey(cfg);
+  const resumable = resumableSessions.get(resumeKey);
   let sessionId: string;
   let startedAtIso: string;
   let queue: WorkQueue;
@@ -1118,7 +1123,7 @@ function handleStartSession(peer: Peer, message: StartSessionMessage): void {
     });
     // Consume the entry so a second start_session in the same boot
     // doesn't double-resume the same on-disk session.
-    resumableSessions.delete(cfg.baselineFingerprint);
+    resumableSessions.delete(resumeKey);
   } else {
     // Fresh session: stamp id with baseline prefix + time so logs read
     // well and re-running doesn't collide with a stale on-disk session dir.
@@ -2352,15 +2357,15 @@ function startDispatcher(port: number, host?: string): void {
     try {
       const candidates = findResumableSessions();
       for (const r of candidates) {
-        const fp = r.manifest.config.baselineFingerprint;
-        // If two crashed sessions share a baseline (rare — we'd have to
+        const key = resumableSessionKey(r.manifest.config);
+        // If two crashed sessions share a run key (rare — we'd have to
         // crash twice in a row before any controller reissued), prefer
         // the most recent. The manifest's startedAtIso is the tiebreaker.
-        const incumbent = resumableSessions.get(fp);
+        const incumbent = resumableSessions.get(key);
         if (incumbent && incumbent.manifest.startedAtIso > r.manifest.startedAtIso) {
           continue;
         }
-        resumableSessions.set(fp, r);
+        resumableSessions.set(key, r);
       }
       if (candidates.length > 0) {
         log('info', 'resumable sessions found on disk', {

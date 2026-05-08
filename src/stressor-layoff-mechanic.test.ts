@@ -35,7 +35,7 @@ function cloneSeed(data: SeedData): SeedData {
   return JSON.parse(JSON.stringify(data)) as SeedData;
 }
 
-function runSuccess(
+function runPath(
   data: SeedData,
   stressors: string[],
   responses: string[],
@@ -48,18 +48,32 @@ function runSuccess(
     pathMode: 'selected_only',
     stressorKnobs: knobs,
   });
-  return results[0].successRate;
+  return results[0];
+}
+
+function runSuccess(
+  data: SeedData,
+  stressors: string[],
+  responses: string[],
+  knobs?: {
+    layoffRetireDate?: string;
+    layoffSeverance?: number;
+  },
+): number {
+  return runPath(data, stressors, responses, knobs).successRate;
 }
 
 describe('layoff stressor mechanic', () => {
   it('baseline (no stressor) differs from layoff-today (sanity check)', () => {
-    const baseline = runSuccess(initialSeedData, [], []);
-    const laidOffToday = runSuccess(initialSeedData, ['layoff'], [], {
+    const baseline = runPath(initialSeedData, [], []);
+    const laidOffToday = runPath(initialSeedData, ['layoff'], [], {
       layoffRetireDate: '2026-06-01',
       layoffSeverance: 0,
     });
-    // An early exit should strictly hurt success when severance is zero.
-    expect(laidOffToday).toBeLessThan(baseline);
+    // Success can saturate at high solvency, but an early exit should still
+    // reduce the wealth path when severance is zero.
+    expect(laidOffToday.successRate).toBeLessThanOrEqual(baseline.successRate);
+    expect(laidOffToday.medianEndingWealth).toBeLessThan(baseline.medianEndingWealth);
   });
 
   it('severance improves success relative to no severance at same retire date', () => {

@@ -1,3 +1,5 @@
+import { CURRENT_LAW_2026_RULE_PACK } from './rule-packs';
+
 export interface HealthcarePremiumAssumptions {
   baselineAcaPremiumAnnual: number;
   baselineMedicarePremiumAnnual: number;
@@ -40,21 +42,12 @@ export interface HealthcarePremiumConfig {
 
 const DEFAULT_HEALTHCARE_PREMIUM_CONFIG: HealthcarePremiumConfig = {
   aca: {
-    expectedContributionByFplBand: [
-      { minFplRatio: 0, maxFplRatio: 1.33, minRate: 0.021, maxRate: 0.021 },
-      { minFplRatio: 1.33, maxFplRatio: 1.5, minRate: 0.0314, maxRate: 0.0419 },
-      { minFplRatio: 1.5, maxFplRatio: 2.0, minRate: 0.0419, maxRate: 0.066 },
-      { minFplRatio: 2.0, maxFplRatio: 2.5, minRate: 0.066, maxRate: 0.0844 },
-      { minFplRatio: 2.5, maxFplRatio: 3.0, minRate: 0.0844, maxRate: 0.0996 },
-      { minFplRatio: 3.0, maxFplRatio: 4.0, minRate: 0.0996, maxRate: 0.0996 },
-    ],
-    subsidyEligibilityMaxFplRatio: 4.0,
-    federalPovertyLevelByHouseholdSize: {
-      1: 15_650,
-      2: 21_150,
-      3: 26_650,
-      4: 32_150,
-    },
+    expectedContributionByFplBand:
+      CURRENT_LAW_2026_RULE_PACK.aca.expectedContributionByFplBand,
+    subsidyEligibilityMaxFplRatio:
+      CURRENT_LAW_2026_RULE_PACK.aca.subsidyEligibilityMaxFplRatio,
+    federalPovertyLevelByHouseholdSize:
+      CURRENT_LAW_2026_RULE_PACK.aca.federalPovertyLevelByHouseholdSize,
   },
 };
 
@@ -97,7 +90,7 @@ function getFplForHouseholdSize(
 
   const maxDefinedSize = Math.max(...Object.keys(fplByHouseholdSize).map(Number));
   const maxDefinedFpl = fplByHouseholdSize[maxDefinedSize];
-  const perPersonIncrement = 5_500;
+  const perPersonIncrement = CURRENT_LAW_2026_RULE_PACK.aca.fplAdditionalPerson;
   const extraPeople = Math.max(0, householdSize - maxDefinedSize);
   return maxDefinedFpl + extraPeople * perPersonIncrement;
 }

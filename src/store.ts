@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { initialSeedData } from './data';
+import { initialSeedData, normalizeSeedData } from './data';
 import type { PlanEvaluation } from './plan-evaluation';
 import { buildEvaluationFingerprint } from './evaluation-fingerprint';
 import { loadPlanEvalFromCache, savePlanEvalToCache } from './plan-eval-cache';
@@ -487,7 +487,7 @@ const restoredLegacyTarget = loadLegacyTargetFromCache();
 const initialLegacyTarget =
   restoredLegacyTarget ?? DEFAULT_LEGACY_TARGET_TODAY_DOLLARS;
 const withRestoredLegacyTarget = (data: SeedData): SeedData => ({
-  ...cloneSeedData(data),
+  ...normalizeSeedData(cloneSeedData(data)),
   goals: {
     ...(data.goals ?? {}),
     legacyTargetTodayDollars: initialLegacyTarget,

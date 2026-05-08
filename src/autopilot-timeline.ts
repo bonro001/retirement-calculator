@@ -158,6 +158,24 @@ export interface AutopilotYearPlan {
   acaStatus: string;
   acaHeadroom: number | null;
   acaFriendlyMagiCeiling: number | null;
+  acaBridgeTrace?: {
+    magiBeforePayroll: number;
+    employee401kPreTaxMagiReduction: number;
+    hsaMagiReduction: number;
+    magiAfterPayroll: number;
+    rothConversionMagiIncrease: number;
+    magiAfterRothConversion: number;
+    taxableWithdrawalMagiIncrease: number;
+    magiAfterTaxableIncome: number;
+    pretaxWithdrawalMagiIncrease: number;
+    rothWithdrawalMagiIncrease: number;
+    magiAfterWithdrawals: number;
+    acaFriendlyMagiCeiling: number | null;
+    acaHeadroomToCeiling: number | null;
+    premiumAtRisk: number;
+    conversionCrossesAcaCliff: boolean;
+    conversionAcceptedAcrossAcaCliff: boolean;
+  };
   rmdAmount: number;
   explanationFlags: AcaExplanationFlag[];
   diagnostics: AutopilotYearDiagnostics;
@@ -1713,6 +1731,34 @@ export function generateAutopilotPlan(input: AutopilotPlanInputs): AutopilotPlan
       otherOrdinaryIncome: windfallOrdinaryIncome,
       filingStatus: route.filingStatus,
     });
+    const magiBeforePayroll = calculateFederalTax({
+      wages: salary,
+      pension: 0,
+      socialSecurityBenefits: socialSecurityIncome,
+      ira401kWithdrawals: 0,
+      rothWithdrawals: 0,
+      taxableInterest: 0,
+      qualifiedDividends: 0,
+      ordinaryDividends: 0,
+      realizedLTCG: windfallLtcgIncome,
+      realizedSTCG: 0,
+      otherOrdinaryIncome: windfallOrdinaryIncome,
+      filingStatus: route.filingStatus,
+    }).MAGI;
+    const magiAfter401kOnly = calculateFederalTax({
+      wages: Math.max(0, salary - contributionResult.employee401kPreTaxContribution),
+      pension: 0,
+      socialSecurityBenefits: socialSecurityIncome,
+      ira401kWithdrawals: 0,
+      rothWithdrawals: 0,
+      taxableInterest: 0,
+      qualifiedDividends: 0,
+      ordinaryDividends: 0,
+      realizedLTCG: windfallLtcgIncome,
+      realizedSTCG: 0,
+      otherOrdinaryIncome: windfallOrdinaryIncome,
+      filingStatus: route.filingStatus,
+    }).MAGI;
 
     const acaFriendlyMagiCeiling = bridgePlan?.acaFriendlyMagiCeiling ?? null;
     const suggestedRothConversion = isAcaBridgeYear && acaFriendlyMagiCeiling !== null
@@ -2063,6 +2109,78 @@ export function generateAutopilotPlan(input: AutopilotPlanInputs): AutopilotPlan
       acaFriendlyMagiCeiling,
       estimatedMagi: taxResult.MAGI,
     });
+    const magiAfterRothConversion = calculateFederalTax({
+      wages: adjustedWages,
+      pension: 0,
+      socialSecurityBenefits: socialSecurityIncome,
+      ira401kWithdrawals: conversion,
+      rothWithdrawals: 0,
+      taxableInterest: 0,
+      qualifiedDividends: 0,
+      ordinaryDividends: 0,
+      realizedLTCG: windfallLtcgIncome,
+      realizedSTCG: 0,
+      otherOrdinaryIncome: windfallOrdinaryIncome,
+      filingStatus: route.filingStatus,
+    }).MAGI;
+    const magiAfterTaxableIncome = calculateFederalTax({
+      wages: adjustedWages,
+      pension: 0,
+      socialSecurityBenefits: socialSecurityIncome,
+      ira401kWithdrawals: conversion,
+      rothWithdrawals: 0,
+      taxableInterest: 0,
+      qualifiedDividends: 0,
+      ordinaryDividends: 0,
+      realizedLTCG: taxState.realizedLTCG + windfallLtcgIncome,
+      realizedSTCG: 0,
+      otherOrdinaryIncome: windfallOrdinaryIncome,
+      filingStatus: route.filingStatus,
+    }).MAGI;
+    const pretaxWithdrawalMagiIncrease = Math.max(
+      0,
+      taxState.ira401kWithdrawals - conversion,
+    );
+    const acaBridgeTrace =
+      isAcaBridgeYear
+        ? {
+            magiBeforePayroll: roundMoney(magiBeforePayroll),
+            employee401kPreTaxMagiReduction: roundMoney(
+              Math.max(0, magiBeforePayroll - magiAfter401kOnly),
+            ),
+            hsaMagiReduction: roundMoney(
+              Math.max(0, magiAfter401kOnly - baselineTax.MAGI),
+            ),
+            magiAfterPayroll: roundMoney(baselineTax.MAGI),
+            rothConversionMagiIncrease: roundMoney(
+              Math.max(0, magiAfterRothConversion - baselineTax.MAGI),
+            ),
+            magiAfterRothConversion: roundMoney(magiAfterRothConversion),
+            taxableWithdrawalMagiIncrease: roundMoney(
+              Math.max(0, magiAfterTaxableIncome - magiAfterRothConversion),
+            ),
+            magiAfterTaxableIncome: roundMoney(magiAfterTaxableIncome),
+            pretaxWithdrawalMagiIncrease: roundMoney(pretaxWithdrawalMagiIncrease),
+            rothWithdrawalMagiIncrease: 0,
+            magiAfterWithdrawals: roundMoney(taxResult.MAGI),
+            acaFriendlyMagiCeiling:
+              acaFriendlyMagiCeiling === null ? null : roundMoney(acaFriendlyMagiCeiling),
+            acaHeadroomToCeiling:
+              acaFriendlyMagiCeiling === null
+                ? null
+                : roundMoney(acaFriendlyMagiCeiling - taxResult.MAGI),
+            premiumAtRisk: roundMoney(healthcare.acaPremiumEstimate),
+            conversionCrossesAcaCliff:
+              acaFriendlyMagiCeiling !== null &&
+              baselineTax.MAGI <= acaFriendlyMagiCeiling &&
+              magiAfterRothConversion > acaFriendlyMagiCeiling,
+            conversionAcceptedAcrossAcaCliff:
+              acaFriendlyMagiCeiling !== null &&
+              baselineTax.MAGI <= acaFriendlyMagiCeiling &&
+              magiAfterRothConversion > acaFriendlyMagiCeiling &&
+              taxResult.MAGI > acaFriendlyMagiCeiling,
+          }
+        : undefined;
     const yearConstraintAnalysis = analyzeYearBindingConstraints({
       spendSolverBindingCategory,
       doNotSellPrimaryResidence: route.doNotSellPrimaryResidence,
@@ -2118,6 +2236,7 @@ export function generateAutopilotPlan(input: AutopilotPlanInputs): AutopilotPlan
       acaStatus,
       acaHeadroom: acaHeadroom === null ? null : roundMoney(acaHeadroom),
       acaFriendlyMagiCeiling: acaFriendlyMagiCeiling === null ? null : roundMoney(acaFriendlyMagiCeiling),
+      acaBridgeTrace,
       rmdAmount: roundMoney(rmdWithdrawal),
       explanationFlags,
       diagnostics: yearDiagnostics,

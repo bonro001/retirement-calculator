@@ -947,7 +947,7 @@ export function buildStrategicPrepCandidates(
         title: 'Align spending to supported level',
         action: `Trim monthly spending by about ${formatCurrency(spendGapMonthly)} to match today's supported level.`,
         triggerReason:
-          'Target spending currently exceeds modeled supported spending at the active guardrail settings.',
+          'Input lifestyle spending currently exceeds modeled supported spending at the active guardrail settings.',
         amountHint: `${formatCurrency(spendGapMonthly)} per month reduction`,
         tradeoffs: [
           'Immediate lifestyle flexibility may decrease in discretionary categories.',
@@ -965,7 +965,7 @@ export function buildStrategicPrepCandidates(
         title: 'You have near-term spending room',
         action: `You can increase monthly spending by up to about ${formatCurrency(room)} and stay inside the current supported path.`,
         triggerReason:
-          'Current supported spending exceeds your stated target by a meaningful margin.',
+          'Modeled supported spending exceeds the current lifestyle input by a meaningful margin.',
         amountHint: `${formatCurrency(room)} per month potential increase`,
         tradeoffs: [
           'Higher discretionary spend can reduce legacy surplus.',

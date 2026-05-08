@@ -46,6 +46,10 @@
     "preRetirementContributions": {
       "employee401kPreTaxPercentOfSalary": 0.1499,
       "employee401kRothPercentOfSalary": 0,
+      "priorYearFicaWagesFromEmployer": 210000,
+      "employerPlanSupportsRothDeferrals": true,
+      "employerPlanSupportsSuperCatchUp": true,
+      "planFeatureAssumptionSource": "estimated_pending_plan_document",
       "employerMatch": {
         "matchRate": 0.5,
         "maxEmployeeContributionPercentOfSalary": 0.06,
@@ -490,14 +494,17 @@
       "salaryProrationSource": "explicit_payroll_calendar"
     },
     "contributionLimits": {
-      "employee401kBaseLimit": 24000,
+      "employee401kBaseLimit": 24500,
       "employee401kCatchUpAge": 50,
-      "employee401kCatchUpLimit": 7500,
+      "employee401kCatchUpLimit": 8000,
+      "employee401kSuperCatchUpAges": [60, 61, 62, 63],
+      "employee401kSuperCatchUpLimit": 11250,
+      "rothCatchUpWageThreshold": 150000,
       "employee401kBaseLimitByYear": {
         "2027": 25000
       },
-      "hsaSelfLimit": 4300,
-      "hsaFamilyLimit": 8550,
+      "hsaSelfLimit": 4400,
+      "hsaFamilyLimit": 8750,
       "hsaCatchUpAge": 55,
       "hsaCatchUpLimit": 1000,
       "assumptionSource": "planning_estimate_for_2027_final_paycheck_window"

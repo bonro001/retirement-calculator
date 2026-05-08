@@ -45,6 +45,27 @@ describe('buildPlanningStateExport', () => {
 
     expect(payload.version.schema).toBe('retirement-planner-export.v2');
     expect(payload.version.generatedAt).toEqual(expect.any(String));
+    expect(payload.exportFreshness.generatedAtIso).toBe(payload.version.generatedAt);
+    expect(payload.exportFreshness.planFingerprint).toBe(payload.northStarResult.planFingerprint);
+    expect(payload.exportFreshness.engineVersion).toBe('test');
+    expect(payload.exportFreshness.rulePackVersions.assumptionsPackVersion).toBe(
+      payload.northStarResult.assumptionsPackVersion,
+    );
+    expect(payload.exportFreshness.distributionMode).toBe('forward-looking');
+    expect(payload.exportFreshness.sensitivityMode).toMatchObject({
+      activeSimulationProfile: 'plannerEnhancedSimulation',
+      rawSimulationMode: 'raw_simulation',
+      plannerEnhancedSimulationMode: 'planner_enhanced',
+      selectedStressorIds: [],
+      selectedResponseIds: [],
+      optimizationObjective: 'maximize_time_weighted_spending',
+    });
+    expect(payload.exportFreshness.replay.replayKey).toContain(
+      payload.exportFreshness.planFingerprint,
+    );
+    expect(payload.exportFreshness.replay.simulationSeed).toBe(TEST_ASSUMPTIONS.simulationSeed);
+    expect(payload.exportFreshness.replay.simulationRuns).toBe(TEST_ASSUMPTIONS.simulationRuns);
+    expect(payload.exportFreshness.replay.checks.every((check) => check.passed)).toBe(true);
     expect(payload.flightPath.phasePlaybook.phases.length).toBeGreaterThan(0);
     expect(payload.flightPath.recommendationLedger.phaseActions.length).toBeGreaterThan(0);
     expect(payload.flightPath.executiveSummary.actionCards.length).toBeGreaterThan(0);
@@ -61,6 +82,14 @@ describe('buildPlanningStateExport', () => {
       (entry.annualPolicyMax === null || typeof entry.annualPolicyMax === 'number') &&
       typeof entry.annualPolicyMaxBinding === 'boolean' &&
       typeof entry.safeRoomUnusedDueToAnnualPolicyMax === 'number' &&
+      typeof entry.safeRoomUnusedByReason.annual_cap === 'number' &&
+      typeof entry.safeRoomUnusedByReason.aca_cliff === 'number' &&
+      typeof entry.safeRoomUnusedByReason.irmaa_cliff === 'number' &&
+      typeof entry.safeRoomUnusedByReason.tax_bracket === 'number' &&
+      typeof entry.safeRoomUnusedByReason.insufficient_pretax_balance === 'number' &&
+      typeof entry.safeRoomUnusedByReason.liquidity === 'number' &&
+      typeof entry.safeRoomUnusedByReason.explicit_user_constraint === 'number' &&
+      typeof entry.safeRoomUnusedByReason.model_completeness === 'number' &&
       typeof entry.reason === 'string' &&
       typeof entry.medianMagiBefore === 'number' &&
       typeof entry.medianMagiAfter === 'number' &&
@@ -88,6 +117,9 @@ describe('buildPlanningStateExport', () => {
           annualPolicyMax: entry.annualPolicyMax,
           annualPolicyMaxBinding: entry.annualPolicyMaxBinding,
           safeRoomUnusedDueToAnnualPolicyMax: entry.safeRoomUnusedDueToAnnualPolicyMax,
+          safeRoomUnusedByReason:
+            payload.flightPath.conversionSchedule.find((item) => item.year === entry.year)
+              ?.safeRoomUnusedByReason,
           reason: entry.representativeReason,
           medianMagiBefore: entry.medianMagiBefore,
           medianMagiAfter: entry.medianMagiAfter,
@@ -128,6 +160,8 @@ describe('buildPlanningStateExport', () => {
             .reduce((total, entry) => total + entry.safeRoomUnusedDueToAnnualPolicyMax, 0)
             .toFixed(2),
         ),
+      totalSafeRoomUnusedByReason: payload.flightPath.conversionScheduleStatus
+        .totalSafeRoomUnusedByReason,
       primaryReason:
         payload.simulationOutcomes.plannerEnhancedSimulation.simulationDiagnostics
           .rothConversionDecisionSummary.reasons[0]?.reason ?? 'unknown',

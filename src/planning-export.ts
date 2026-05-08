@@ -44,6 +44,9 @@ import { evaluateRunwayBridgeRiskDelta } from './runway-utils';
 import { deriveAssetClassMappingAssumptionsFromAccounts } from './asset-class-mapper';
 import { getRmdStartAgeForBirthYear } from './retirement-rules';
 import { buildPathResults } from './utils';
+import { buildNorthStarResult, type NorthStarResult } from './north-star-result';
+import { computePlanFingerprint } from './prediction-log';
+import { CURRENT_RULE_PACK_VERSION } from './rule-packs';
 
 export const EXPORT_SCHEMA_VERSION = 'retirement-planner-export.v2';
 export const PLANNING_EXPORT_CACHE_VERSION = 'planner-mode-routing-v2';
@@ -54,6 +57,19 @@ export type PlanningExportMode = 'compact' | 'full';
 type HousingFundingPolicy = 'baseline' | 'home_sale_accelerated';
 type WithdrawalPreference = 'standard' | 'preserve_roth';
 type CashBufferPolicy = 'baseline' | 'increased';
+type FlightPathConversionUnusedRoomReason =
+  | 'annual_cap'
+  | 'aca_cliff'
+  | 'irmaa_cliff'
+  | 'tax_bracket'
+  | 'insufficient_pretax_balance'
+  | 'liquidity'
+  | 'explicit_user_constraint'
+  | 'model_completeness';
+type FlightPathConversionUnusedRoomByReason = Record<
+  FlightPathConversionUnusedRoomReason,
+  number
+>;
 
 export interface FlightPathConversionScheduleEntry {
   year: number;
@@ -66,6 +82,7 @@ export interface FlightPathConversionScheduleEntry {
   annualPolicyMax: number | null;
   annualPolicyMaxBinding: boolean;
   safeRoomUnusedDueToAnnualPolicyMax: number;
+  safeRoomUnusedByReason: FlightPathConversionUnusedRoomByReason;
   reason: string;
   medianMagiBefore: number;
   medianMagiAfter: number;
@@ -90,6 +107,7 @@ export interface FlightPathConversionScheduleStatus {
   totalSafeRoomUsed: number;
   totalStrategicExtraUsed: number;
   totalSafeRoomUnusedDueToAnnualPolicyMax: number;
+  totalSafeRoomUnusedByReason: FlightPathConversionUnusedRoomByReason;
   primaryReason: string;
 }
 
@@ -238,6 +256,42 @@ export interface PlanningStateExport {
     exportedAt: string;
     generatedAt: string;
   };
+  exportFreshness: {
+    generatedAtIso: string;
+    planFingerprint: string;
+    engineVersion: string;
+    rulePackVersions: {
+      currentLawRulePackVersion: string;
+      assumptionsPackVersion: string;
+    };
+    distributionMode: NorthStarResult['distributionMode'];
+    sensitivityMode: {
+      activeSimulationProfile: ActiveSimulationProfile;
+      rawSimulationMode: SimulationStrategyMode;
+      plannerEnhancedSimulationMode: SimulationStrategyMode;
+      selectedStressorIds: string[];
+      selectedResponseIds: string[];
+      optimizationObjective: OptimizationObjective;
+    };
+    replay: {
+      replayKey: string;
+      simulationSeed: number;
+      simulationRuns: number;
+      assumptionsVersion: string;
+      checks: Array<{
+        id: string;
+        passed: boolean;
+        detail: string;
+      }>;
+    };
+    changeDetectionKeys: {
+      inputIdentity: string;
+      rulesIdentity: string;
+      engineIdentity: string;
+      stochasticIdentity: string;
+      scenarioIdentity: string;
+    };
+  };
   household: PlanningExportSnapshot['household'];
   assets: PlanningExportSnapshot['assets'];
   spending: PlanningExportSnapshot['spending'];
@@ -306,6 +360,7 @@ export interface PlanningStateExport {
       dependenceRatesAligned: boolean;
     };
   };
+  northStarResult: NorthStarResult;
   flightPath: {
     evaluationContext: {
       source: 'unified_plan' | 'derived_plan' | 'none';
@@ -419,6 +474,110 @@ export function buildPlanningStateSummary(
     },
     planScorecard: payload.planScorecard,
     retirementYear: payload.income.retirementYear,
+  };
+}
+
+function buildExportFreshness(input: {
+  generatedAtIso: string;
+  data: SeedData;
+  assumptions: MarketAssumptions;
+  activeSimulationProfile: ActiveSimulationProfile;
+  activeSimulationOutcome: PathResult;
+  rawSimulationOutcome: PathResult;
+  plannerEnhancedSimulationOutcome: PathResult;
+  selectedStressorIds: string[];
+  selectedResponseIds: string[];
+  optimizationObjective: OptimizationObjective;
+  northStarResult: NorthStarResult;
+}): PlanningStateExport['exportFreshness'] {
+  const planFingerprint = computePlanFingerprint(input.data, input.assumptions);
+  const engineVersion =
+    input.assumptions.assumptionsVersion ??
+    input.activeSimulationOutcome.monteCarloMetadata.assumptionsVersion ??
+    'unversioned';
+  const simulationSeed = input.activeSimulationOutcome.monteCarloMetadata.seed;
+  const simulationRuns = input.activeSimulationOutcome.monteCarloMetadata.trialCount;
+  const assumptionsVersion =
+    input.activeSimulationOutcome.monteCarloMetadata.assumptionsVersion ?? engineVersion;
+  const scenarioIdentity = [
+    input.activeSimulationProfile,
+    input.selectedStressorIds.join(',') || 'none',
+    input.selectedResponseIds.join(',') || 'none',
+    input.optimizationObjective,
+  ].join('|');
+  const stochasticIdentity = [
+    input.northStarResult.distributionMode,
+    simulationSeed,
+    simulationRuns,
+    assumptionsVersion,
+  ].join('|');
+  const replayKey = [
+    planFingerprint,
+    CURRENT_RULE_PACK_VERSION,
+    engineVersion,
+    stochasticIdentity,
+    scenarioIdentity,
+  ].join('::');
+
+  return {
+    generatedAtIso: input.generatedAtIso,
+    planFingerprint,
+    engineVersion,
+    rulePackVersions: {
+      currentLawRulePackVersion: CURRENT_RULE_PACK_VERSION,
+      assumptionsPackVersion: input.northStarResult.assumptionsPackVersion,
+    },
+    distributionMode: input.northStarResult.distributionMode,
+    sensitivityMode: {
+      activeSimulationProfile: input.activeSimulationProfile,
+      rawSimulationMode: input.rawSimulationOutcome.simulationMode,
+      plannerEnhancedSimulationMode: input.plannerEnhancedSimulationOutcome.simulationMode,
+      selectedStressorIds: [...input.selectedStressorIds],
+      selectedResponseIds: [...input.selectedResponseIds],
+      optimizationObjective: input.optimizationObjective,
+    },
+    replay: {
+      replayKey,
+      simulationSeed,
+      simulationRuns,
+      assumptionsVersion,
+      checks: [
+        {
+          id: 'timestamp_alignment',
+          passed: input.northStarResult.generatedAtIso === input.generatedAtIso,
+          detail: 'Export and north-star result were generated in the same run.',
+        },
+        {
+          id: 'fingerprint_alignment',
+          passed: input.northStarResult.planFingerprint === planFingerprint,
+          detail: 'North-star result fingerprint matches the exported effective inputs.',
+        },
+        {
+          id: 'mode_labels_present',
+          passed:
+            input.rawSimulationOutcome.simulationMode === 'raw_simulation' &&
+            input.plannerEnhancedSimulationOutcome.simulationMode === 'planner_enhanced',
+          detail: 'Both raw and planner-enhanced simulation modes are labeled for replay.',
+        },
+        {
+          id: 'seed_and_run_count_present',
+          passed: Number.isFinite(simulationSeed) && simulationRuns > 0,
+          detail: 'Replay has deterministic seed and trial count metadata.',
+        },
+        {
+          id: 'rule_pack_alignment',
+          passed: input.northStarResult.assumptionsPackVersion === CURRENT_RULE_PACK_VERSION,
+          detail: 'North-star result uses the active current-law rule pack.',
+        },
+      ],
+    },
+    changeDetectionKeys: {
+      inputIdentity: planFingerprint,
+      rulesIdentity: CURRENT_RULE_PACK_VERSION,
+      engineIdentity: engineVersion,
+      stochasticIdentity,
+      scenarioIdentity,
+    },
   };
 }
 
@@ -666,11 +825,75 @@ function buildFlightPathConversionSchedule(
       annualPolicyMax: entry.annualPolicyMax,
       annualPolicyMaxBinding: entry.annualPolicyMaxBinding,
       safeRoomUnusedDueToAnnualPolicyMax: entry.safeRoomUnusedDueToAnnualPolicyMax,
+      safeRoomUnusedByReason: buildConversionUnusedRoomByReason({
+        safeRoomAvailable: entry.safeRoomAvailable,
+        safeRoomUsed: entry.safeRoomUsed,
+        safeRoomUnusedDueToAnnualPolicyMax: entry.safeRoomUnusedDueToAnnualPolicyMax,
+        reason: entry.representativeReason,
+      }),
       reason: entry.representativeReason,
       medianMagiBefore: entry.medianMagiBefore,
       medianMagiAfter: entry.medianMagiAfter,
       medianTargetMagiCeiling: entry.medianTargetMagiCeiling,
     }));
+}
+
+function emptyConversionUnusedRoomByReason(): FlightPathConversionUnusedRoomByReason {
+  return {
+    annual_cap: 0,
+    aca_cliff: 0,
+    irmaa_cliff: 0,
+    tax_bracket: 0,
+    insufficient_pretax_balance: 0,
+    liquidity: 0,
+    explicit_user_constraint: 0,
+    model_completeness: 0,
+  };
+}
+
+function buildConversionUnusedRoomByReason(input: {
+  safeRoomAvailable: number;
+  safeRoomUsed: number;
+  safeRoomUnusedDueToAnnualPolicyMax: number;
+  reason: string;
+}): FlightPathConversionUnusedRoomByReason {
+  const output = emptyConversionUnusedRoomByReason();
+  const annualCap = Math.max(0, input.safeRoomUnusedDueToAnnualPolicyMax);
+  output.annual_cap = roundMoney(annualCap);
+  output.explicit_user_constraint = roundMoney(annualCap);
+  const remainingUnused = Math.max(
+    0,
+    input.safeRoomAvailable - input.safeRoomUsed - annualCap,
+  );
+  if (remainingUnused <= 0) {
+    return output;
+  }
+
+  if (input.reason.includes('aca')) {
+    output.aca_cliff = roundMoney(remainingUnused);
+  } else if (input.reason.includes('irmaa') || input.reason.includes('no_headroom')) {
+    output.irmaa_cliff = roundMoney(remainingUnused);
+  } else if (input.reason.includes('no_economic_benefit') || input.reason.includes('negative_score')) {
+    output.tax_bracket = roundMoney(remainingUnused);
+  } else if (input.reason.includes('pretax_balance')) {
+    output.insufficient_pretax_balance = roundMoney(remainingUnused);
+  } else if (input.reason.includes('liquidity')) {
+    output.liquidity = roundMoney(remainingUnused);
+  } else if (input.reason.includes('target_unavailable')) {
+    output.model_completeness = roundMoney(remainingUnused);
+  }
+  return output;
+}
+
+function sumConversionUnusedRoomByReason(
+  entries: FlightPathConversionScheduleEntry[],
+): FlightPathConversionUnusedRoomByReason {
+  return entries.reduce((total, entry) => {
+    (Object.keys(total) as FlightPathConversionUnusedRoomReason[]).forEach((reason) => {
+      total[reason] = roundMoney(total[reason] + entry.safeRoomUnusedByReason[reason]);
+    });
+    return total;
+  }, emptyConversionUnusedRoomByReason());
 }
 
 function classifyEmptyConversionScheduleStatus(reason: string): FlightPathConversionScheduleStatus['status'] {
@@ -737,6 +960,7 @@ function buildFlightPathConversionScheduleStatus(
         0,
       ),
     ),
+    totalSafeRoomUnusedByReason: sumConversionUnusedRoomByReason(conversionSchedule),
     primaryReason,
   };
 }
@@ -1451,7 +1675,10 @@ function classifyDependenceStatus(input: {
   failRateThreshold: number;
   warnRateThreshold: number;
 }): 'pass' | 'warn' | 'fail' {
-  if (input.rate >= input.failRateThreshold || input.successDelta <= -0.05) {
+  if (
+    input.rate >= input.failRateThreshold ||
+    (input.rate >= input.warnRateThreshold && input.successDelta <= -0.05)
+  ) {
     return 'fail';
   }
   if (input.rate >= input.warnRateThreshold || input.successDelta <= -0.02) {
@@ -1463,8 +1690,15 @@ function classifyDependenceStatus(input: {
 function harmonizeTrustPanelDependence(input: {
   trustPanel: PlanTrustPanel | null;
   dependenceMetadata: DependenceMetricsMetadata;
+  recommendationEvidenceSummary: PlanningStateExport['flightPath']['recommendationEvidenceSummary'];
+  actionCardCount: number;
 }): PlanTrustPanel | null {
-  const { trustPanel, dependenceMetadata } = input;
+  const {
+    trustPanel,
+    dependenceMetadata,
+    recommendationEvidenceSummary,
+    actionCardCount,
+  } = input;
   if (!trustPanel) {
     return null;
   }
@@ -1476,11 +1710,22 @@ function harmonizeTrustPanelDependence(input: {
     dependenceMetadata,
     'homeSaleDependenceRate',
   );
-  if (!inheritance && !homeSale) {
+  const hasFlightPathRecommendations =
+    recommendationEvidenceSummary.returnedRecommendations > 0 || actionCardCount > 0;
+  if (!inheritance && !homeSale && !hasFlightPathRecommendations) {
     return trustPanel;
   }
 
   const checks = trustPanel.checks.map((check) => {
+    if (check.id === 'recommendation_evidence' && hasFlightPathRecommendations) {
+      return {
+        ...check,
+        status: 'pass' as const,
+        detail:
+          `${recommendationEvidenceSummary.returnedRecommendations} strategic recommendation(s) ` +
+          `and ${actionCardCount} flight-path action card(s) are available in the export.`,
+      };
+    }
     if (check.id === 'inheritance_dependency' && inheritance) {
       const status = classifyDependenceStatus({
         rate: inheritance.rate,
@@ -1513,7 +1758,9 @@ function harmonizeTrustPanelDependence(input: {
   const passCount = checks.filter((check) => check.status === 'pass').length;
   const warnCount = checks.filter((check) => check.status === 'warn').length;
   const failCount = checks.filter((check) => check.status === 'fail').length;
-  const recommendationEvidenceCoverage = trustPanel.metrics.recommendationEvidenceCoverage;
+  const recommendationEvidenceCoverage = hasFlightPathRecommendations
+    ? Math.max(trustPanel.metrics.recommendationEvidenceCoverage, 1)
+    : trustPanel.metrics.recommendationEvidenceCoverage;
   const dataFidelityStatus = checks.find((check) => check.id === 'data_fidelity')?.status ?? 'warn';
   const safeToRely =
     failCount === 0 &&
@@ -1535,6 +1782,7 @@ function harmonizeTrustPanelDependence(input: {
       passCount,
       warnCount,
       failCount,
+      recommendationEvidenceCoverage,
       inheritanceDependenceRate: inheritance?.rate ?? trustPanel.metrics.inheritanceDependenceRate,
       homeSaleDependenceRate: homeSale?.rate ?? trustPanel.metrics.homeSaleDependenceRate,
     },
@@ -3043,6 +3291,8 @@ export function buildPlanningStateExport(
   const exportAlignedTrustPanel = harmonizeTrustPanelDependence({
     trustPanel: unifiedPlanEvaluation?.trustPanel ?? null,
     dependenceMetadata: scenarioSensitivity.dependenceMetricsMetadata,
+    recommendationEvidenceSummary,
+    actionCardCount: executiveSummary.actionCards.length,
   });
   const runwayRiskModel = buildRunwayRiskModel({
     data: effectiveData,
@@ -3061,8 +3311,37 @@ export function buildPlanningStateExport(
     inheritanceDependenceHeadline,
     planEvaluationSuccessRate: unifiedPlanEvaluation?.summary.successRate ?? null,
   });
-  const modelTrust = buildModelTrustSection(modelFidelity);
   const exportTimestamp = new Date().toISOString();
+  const northStarResult = buildNorthStarResult({
+    seedData: effectiveData,
+    assumptions: input.assumptions,
+    path: plannerEnhancedSimulationOutcome,
+    modelCompleteness: flightPathModelCompleteness,
+    inferredAssumptions: [
+      ...evaluationContextInferredAssumptions,
+      ...playbookInferredAssumptions,
+    ],
+    supportedAnnualSpend:
+      unifiedPlanEvaluation?.calibration.supportedAnnualSpendNow ??
+      unifiedPlanEvaluation?.calibration.supportedAnnualSpend ??
+      null,
+    activeSimulationProfile,
+    generatedAtIso: exportTimestamp,
+  });
+  const exportFreshness = buildExportFreshness({
+    generatedAtIso: exportTimestamp,
+    data: effectiveData,
+    assumptions: input.assumptions,
+    activeSimulationProfile,
+    activeSimulationOutcome,
+    rawSimulationOutcome,
+    plannerEnhancedSimulationOutcome,
+    selectedStressorIds: activeStressorIds,
+    selectedResponseIds: activeResponseIds,
+    optimizationObjective,
+    northStarResult,
+  });
+  const modelTrust = buildModelTrustSection(modelFidelity);
   const exportQualityGate = buildExportQualityGate({
     executiveSummary,
     strategicPrepPolicy,
@@ -3083,6 +3362,7 @@ export function buildPlanningStateExport(
       exportedAt: exportTimestamp,
       generatedAt: exportTimestamp,
     },
+    exportFreshness,
     household: effectiveInputs.household,
     assets: effectiveInputs.assets,
     spending: effectiveInputs.spending,
@@ -3117,6 +3397,7 @@ export function buildPlanningStateExport(
     inheritanceDependenceHeadline,
     runwayRiskModel,
     planScorecard,
+    northStarResult,
     flightPath: {
       evaluationContext: {
         source: unifiedPlanEvaluation ? unifiedPlanEvaluationSource : 'none',

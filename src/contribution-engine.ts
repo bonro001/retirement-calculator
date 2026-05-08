@@ -2,11 +2,15 @@ import type {
   ContributionLimitSettings,
   PreRetirementContributionSettings,
 } from './types';
+import { CURRENT_LAW_2026_RULE_PACK } from './rule-packs';
 
 export interface ContributionLimitProfile {
   employee401kBaseLimit: number;
   employee401kCatchUpAge: number;
   employee401kCatchUpLimit: number;
+  employee401kSuperCatchUpAges: number[];
+  employee401kSuperCatchUpLimit: number;
+  rothCatchUpWageThreshold: number;
   hsaSelfLimit: number;
   hsaFamilyLimit: number;
   hsaCatchUpAge: number;
@@ -42,6 +46,18 @@ export interface ContributionCalculationOutput {
   salaryFraction: number;
   employee401kAnnualLimit: number;
   employee401kRemainingRoom: number;
+  employee401kBaseLimit: number;
+  employee401kPreTaxAnnualLimit: number;
+  employee401kCatchUpLimit: number;
+  employee401kCatchUpContribution: number;
+  employee401kRothRequiredCatchUpLimit: number;
+  employee401kRothRequiredCatchUpContribution: number;
+  employee401kCatchUpDisallowedDueToMissingRoth: number;
+  rothCatchUpRequirementApplies: boolean;
+  rothCatchUpWageThreshold: number;
+  priorYearFicaWagesFromEmployer: number | null;
+  employerPlanSupportsRothDeferrals: boolean;
+  employerPlanSupportsSuperCatchUp: boolean;
   hsaAnnualLimit: number;
   hsaRemainingRoom: number;
   adjustedWages: number;
@@ -59,13 +75,16 @@ export interface ContributionCalculationOutput {
 export type SalaryProrationRule = 'month_fraction' | 'daily';
 
 export const DEFAULT_LIMITS: ContributionLimitProfile = {
-  employee401kBaseLimit: 24_000,
-  employee401kCatchUpAge: 50,
-  employee401kCatchUpLimit: 7_500,
-  hsaSelfLimit: 4_300,
-  hsaFamilyLimit: 8_550,
-  hsaCatchUpAge: 55,
-  hsaCatchUpLimit: 1_000,
+  employee401kBaseLimit: CURRENT_LAW_2026_RULE_PACK.contributions.employee401kBaseLimit,
+  employee401kCatchUpAge: CURRENT_LAW_2026_RULE_PACK.contributions.employee401kCatchUpAge,
+  employee401kCatchUpLimit: CURRENT_LAW_2026_RULE_PACK.contributions.employee401kCatchUpLimit,
+  employee401kSuperCatchUpAges: CURRENT_LAW_2026_RULE_PACK.contributions.employee401kSuperCatchUpAges,
+  employee401kSuperCatchUpLimit: CURRENT_LAW_2026_RULE_PACK.contributions.employee401kSuperCatchUpLimit,
+  rothCatchUpWageThreshold: CURRENT_LAW_2026_RULE_PACK.contributions.rothCatchUpWageThreshold,
+  hsaSelfLimit: CURRENT_LAW_2026_RULE_PACK.contributions.hsaSelfLimit,
+  hsaFamilyLimit: CURRENT_LAW_2026_RULE_PACK.contributions.hsaFamilyLimit,
+  hsaCatchUpAge: CURRENT_LAW_2026_RULE_PACK.contributions.hsaCatchUpAge,
+  hsaCatchUpLimit: CURRENT_LAW_2026_RULE_PACK.contributions.hsaCatchUpLimit,
 };
 
 function clamp(value: number, minimum = 0, maximum = Number.POSITIVE_INFINITY) {
@@ -139,6 +158,10 @@ export function resolveContributionLimitProfile(
     settings?.employee401kBaseLimit ?? fallback.employee401kBaseLimit;
   const catchUp401k =
     settings?.employee401kCatchUpLimit ?? fallback.employee401kCatchUpLimit;
+  const superCatchUp401k =
+    settings?.employee401kSuperCatchUpLimit ?? fallback.employee401kSuperCatchUpLimit;
+  const rothCatchUpWageThreshold =
+    settings?.rothCatchUpWageThreshold ?? fallback.rothCatchUpWageThreshold;
   const hsaSelf = settings?.hsaSelfLimit ?? fallback.hsaSelfLimit;
   const hsaFamily = settings?.hsaFamilyLimit ?? fallback.hsaFamilyLimit;
   const hsaCatchUp = settings?.hsaCatchUpLimit ?? fallback.hsaCatchUpLimit;
@@ -154,6 +177,18 @@ export function resolveContributionLimitProfile(
     employee401kCatchUpLimit: resolveYearLimit(
       catchUp401k,
       settings?.employee401kCatchUpLimitByYear,
+      projectionYear,
+    ),
+    employee401kSuperCatchUpAges:
+      settings?.employee401kSuperCatchUpAges ?? fallback.employee401kSuperCatchUpAges,
+    employee401kSuperCatchUpLimit: resolveYearLimit(
+      superCatchUp401k,
+      settings?.employee401kSuperCatchUpLimitByYear,
+      projectionYear,
+    ),
+    rothCatchUpWageThreshold: resolveYearLimit(
+      rothCatchUpWageThreshold,
+      settings?.rothCatchUpWageThresholdByYear,
       projectionYear,
     ),
     hsaSelfLimit: resolveYearLimit(
@@ -288,6 +323,24 @@ function deriveSalaryThisYear(input: ContributionCalculationInput) {
   });
 }
 
+function resolve401kCatchUpLimit(input: {
+  age: number;
+  settings: PreRetirementContributionSettings | undefined;
+  limits: ContributionLimitProfile;
+}) {
+  if (input.age < input.limits.employee401kCatchUpAge) {
+    return 0;
+  }
+  const supportsSuperCatchUp = input.settings?.employerPlanSupportsSuperCatchUp === true;
+  if (
+    supportsSuperCatchUp &&
+    input.limits.employee401kSuperCatchUpAges.includes(Math.floor(input.age))
+  ) {
+    return input.limits.employee401kSuperCatchUpLimit;
+  }
+  return input.limits.employee401kCatchUpLimit;
+}
+
 export function calculatePreRetirementContributions(
   input: ContributionCalculationInput,
   limits: ContributionLimitProfile = DEFAULT_LIMITS,
@@ -305,11 +358,38 @@ export function calculatePreRetirementContributions(
   const hsaStartingBalance = input.accountBalances?.hsa;
   const salaryFraction = salaryAnnual > 0 ? clamp(salaryThisYear / salaryAnnual, 0, 1) : 0;
 
+  const employerPlanSupportsRothDeferrals =
+    settings?.employerPlanSupportsRothDeferrals === true;
+  const employerPlanSupportsSuperCatchUp =
+    settings?.employerPlanSupportsSuperCatchUp === true;
+  const catchUpLimit = resolve401kCatchUpLimit({
+    age: input.age,
+    settings,
+    limits: effectiveLimits,
+  });
+  const priorYearFicaWagesFromEmployer =
+    typeof settings?.priorYearFicaWagesFromEmployer === 'number'
+      ? clamp(settings.priorYearFicaWagesFromEmployer)
+      : null;
+  const rothCatchUpRequirementApplies =
+    catchUpLimit > 0 &&
+    typeof priorYearFicaWagesFromEmployer === 'number' &&
+    priorYearFicaWagesFromEmployer > effectiveLimits.rothCatchUpWageThreshold;
+  const catchUpDisallowedDueToMissingRoth =
+    rothCatchUpRequirementApplies && !employerPlanSupportsRothDeferrals
+      ? catchUpLimit
+      : 0;
   const annual401kLimit =
     effectiveLimits.employee401kBaseLimit +
-    (input.age >= effectiveLimits.employee401kCatchUpAge
-      ? effectiveLimits.employee401kCatchUpLimit
-      : 0);
+    Math.max(0, catchUpLimit - catchUpDisallowedDueToMissingRoth);
+  const preTaxAnnual401kLimit =
+    rothCatchUpRequirementApplies
+      ? effectiveLimits.employee401kBaseLimit
+      : annual401kLimit;
+  const rothRequiredCatchUpLimit =
+    rothCatchUpRequirementApplies && employerPlanSupportsRothDeferrals
+      ? catchUpLimit
+      : 0;
   const requestedPreTaxContribution = clamp(
     deriveRequestedTargetFromAmountOrPercent(
       settings?.employee401kPreTaxAnnualAmount ?? settings?.employee401kAnnualAmount,
@@ -339,11 +419,35 @@ export function calculatePreRetirementContributions(
 
   let employee401kPreTaxContribution = requestedPreTaxContribution;
   let employee401kRothContribution = requestedRothContribution;
-  if (requestedTotalEmployeeContribution > 0 && employee401kContribution < requestedTotalEmployeeContribution) {
+  if (rothCatchUpRequirementApplies && employerPlanSupportsRothDeferrals) {
+    employee401kPreTaxContribution = Math.min(
+      requestedPreTaxContribution,
+      preTaxAnnual401kLimit,
+      employee401kContribution,
+    );
+    const preTaxElectionOverflow = Math.max(
+      0,
+      requestedPreTaxContribution - preTaxAnnual401kLimit,
+    );
+    const rothRequestedOrRequired = requestedRothContribution + preTaxElectionOverflow;
+    employee401kRothContribution = Math.min(
+      rothRequestedOrRequired,
+      Math.max(0, employee401kContribution - employee401kPreTaxContribution),
+    );
+  } else if (requestedTotalEmployeeContribution > 0 && employee401kContribution < requestedTotalEmployeeContribution) {
     const scale = employee401kContribution / requestedTotalEmployeeContribution;
     employee401kPreTaxContribution = requestedPreTaxContribution * scale;
     employee401kRothContribution = requestedRothContribution * scale;
   }
+
+  employee401kPreTaxContribution = Math.min(
+    employee401kPreTaxContribution,
+    preTaxAnnual401kLimit,
+  );
+  employee401kRothContribution = Math.min(
+    employee401kRothContribution,
+    Math.max(0, employee401kContribution - employee401kPreTaxContribution),
+  );
 
   const matchRate = clamp(settings?.employerMatch?.matchRate ?? 0, 0, 2);
   const matchCapPercent = clamp(
@@ -384,6 +488,13 @@ export function calculatePreRetirementContributions(
   const updatedHsaBalance =
     typeof hsaStartingBalance === 'number' ? hsaStartingBalance + hsaContribution : undefined;
   const employee401kRemainingRoom = Math.max(0, annual401kLimit - employee401kContribution);
+  const employee401kCatchUpContribution = Math.max(
+    0,
+    employee401kContribution - effectiveLimits.employee401kBaseLimit,
+  );
+  const employee401kRothRequiredCatchUpContribution = rothCatchUpRequirementApplies
+    ? Math.min(employee401kRothContribution, employee401kCatchUpContribution)
+    : 0;
   const hsaRemainingRoom = Math.max(0, annualHsaLimit - hsaContribution);
 
   return {
@@ -397,6 +508,25 @@ export function calculatePreRetirementContributions(
     salaryFraction: toCurrency(salaryFraction),
     employee401kAnnualLimit: toCurrency(annual401kLimit),
     employee401kRemainingRoom: toCurrency(employee401kRemainingRoom),
+    employee401kBaseLimit: toCurrency(effectiveLimits.employee401kBaseLimit),
+    employee401kPreTaxAnnualLimit: toCurrency(preTaxAnnual401kLimit),
+    employee401kCatchUpLimit: toCurrency(catchUpLimit),
+    employee401kCatchUpContribution: toCurrency(employee401kCatchUpContribution),
+    employee401kRothRequiredCatchUpLimit: toCurrency(rothRequiredCatchUpLimit),
+    employee401kRothRequiredCatchUpContribution: toCurrency(
+      employee401kRothRequiredCatchUpContribution,
+    ),
+    employee401kCatchUpDisallowedDueToMissingRoth: toCurrency(
+      catchUpDisallowedDueToMissingRoth,
+    ),
+    rothCatchUpRequirementApplies,
+    rothCatchUpWageThreshold: toCurrency(effectiveLimits.rothCatchUpWageThreshold),
+    priorYearFicaWagesFromEmployer:
+      priorYearFicaWagesFromEmployer === null
+        ? null
+        : toCurrency(priorYearFicaWagesFromEmployer),
+    employerPlanSupportsRothDeferrals,
+    employerPlanSupportsSuperCatchUp,
     hsaAnnualLimit: toCurrency(annualHsaLimit),
     hsaRemainingRoom: toCurrency(hsaRemainingRoom),
     adjustedWages: toCurrency(adjustedWages),

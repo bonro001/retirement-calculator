@@ -395,8 +395,9 @@ export function findMaxSustainableSpend(
     options.onProgress?.(iteration, lo, hi);
   }
 
-  // Step 4: evaluate the seed's current spending for the comparison
-  // panel. Skip if the seed has zero spending.
+  // Step 4: evaluate the household's current lifestyle input for the
+  // comparison panel. This is a reference point, not the optimized answer.
+  // Skip if the input has zero spending.
   const seedAnnualSpend = getSeedAnnualSpend(seed);
   let currentSeedEvaluation: SpendOptimizationEvaluation | null = null;
   if (seedAnnualSpend > 0) {

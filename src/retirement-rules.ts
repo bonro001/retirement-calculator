@@ -1,4 +1,5 @@
 import type { FilingStatus } from './tax-engine';
+import { CURRENT_LAW_2026_RULE_PACK } from './rule-packs';
 
 export interface IrmaaBracket {
   maxMagi: number;
@@ -66,42 +67,10 @@ export interface RmdCalculationResult {
   details: RmdCalculationDetail[];
 }
 
-const IRMAA_INF = Number.POSITIVE_INFINITY;
-
 export const DEFAULT_IRMAA_CONFIG: IrmaaConfig = {
-  taxYear: 2026,
-  lookbackYears: 2,
-  brackets: {
-    single: [
-      { maxMagi: 109_000, partBSurchargeMonthly: 0, partDSurchargeMonthly: 0 },
-      { maxMagi: 137_000, partBSurchargeMonthly: 81.2, partDSurchargeMonthly: 14.5 },
-      { maxMagi: 171_000, partBSurchargeMonthly: 202.9, partDSurchargeMonthly: 37.5 },
-      { maxMagi: 205_000, partBSurchargeMonthly: 324.6, partDSurchargeMonthly: 60.4 },
-      { maxMagi: 500_000, partBSurchargeMonthly: 446.3, partDSurchargeMonthly: 83.3 },
-      { maxMagi: IRMAA_INF, partBSurchargeMonthly: 487.0, partDSurchargeMonthly: 91.0 },
-    ],
-    head_of_household: [
-      { maxMagi: 109_000, partBSurchargeMonthly: 0, partDSurchargeMonthly: 0 },
-      { maxMagi: 137_000, partBSurchargeMonthly: 81.2, partDSurchargeMonthly: 14.5 },
-      { maxMagi: 171_000, partBSurchargeMonthly: 202.9, partDSurchargeMonthly: 37.5 },
-      { maxMagi: 205_000, partBSurchargeMonthly: 324.6, partDSurchargeMonthly: 60.4 },
-      { maxMagi: 500_000, partBSurchargeMonthly: 446.3, partDSurchargeMonthly: 83.3 },
-      { maxMagi: IRMAA_INF, partBSurchargeMonthly: 487.0, partDSurchargeMonthly: 91.0 },
-    ],
-    married_filing_jointly: [
-      { maxMagi: 218_000, partBSurchargeMonthly: 0, partDSurchargeMonthly: 0 },
-      { maxMagi: 274_000, partBSurchargeMonthly: 81.2, partDSurchargeMonthly: 14.5 },
-      { maxMagi: 342_000, partBSurchargeMonthly: 202.9, partDSurchargeMonthly: 37.5 },
-      { maxMagi: 410_000, partBSurchargeMonthly: 324.6, partDSurchargeMonthly: 60.4 },
-      { maxMagi: 750_000, partBSurchargeMonthly: 446.3, partDSurchargeMonthly: 83.3 },
-      { maxMagi: IRMAA_INF, partBSurchargeMonthly: 487.0, partDSurchargeMonthly: 91.0 },
-    ],
-    married_filing_separately: [
-      { maxMagi: 109_000, partBSurchargeMonthly: 0, partDSurchargeMonthly: 0 },
-      { maxMagi: 391_000, partBSurchargeMonthly: 446.3, partDSurchargeMonthly: 83.3 },
-      { maxMagi: IRMAA_INF, partBSurchargeMonthly: 487.0, partDSurchargeMonthly: 91.0 },
-    ],
-  },
+  taxYear: CURRENT_LAW_2026_RULE_PACK.irmaa.premiumYear,
+  lookbackYears: CURRENT_LAW_2026_RULE_PACK.irmaa.lookbackYears,
+  brackets: CURRENT_LAW_2026_RULE_PACK.irmaa.brackets,
 };
 
 export const DEFAULT_RMD_CONFIG: RmdConfig = {

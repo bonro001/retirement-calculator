@@ -8,13 +8,11 @@ export const GOLDEN_SCENARIOS: GoldenScenarioDefinition[] = [
     selectedResponses: [],
     pathKind: 'baseline',
     expected: {
-      // 2026-05-07: re-pinned after current-law ACA subsidies, July 1
-      // salary proration, explicit pretax RMD ownership, and tax-funded
-      // withdrawal loops changed modeled cashflows.
-      successRate: 0.96,
-      medianEndingWealth: 4220036.427142805,
-      annualTaxEstimate: 3254.470588235294,
-      medianFailureYearRange: { min: 2055, max: 2058 },
+      // 2026-05-08: re-pinned after current-law 2026 tax/contribution rule
+      // packs, SECURE 2.0 catch-up handling, and north-star trace plumbing.
+      successRate: 1,
+      medianEndingWealth: 6450891.035073565,
+      annualTaxEstimate: 3278.5588235294117,
       maxIrmaaTier: 1,
       averageHealthcarePremiumCost: 13098.70588235294,
     },
@@ -31,15 +29,14 @@ export const GOLDEN_SCENARIOS: GoldenScenarioDefinition[] = [
     selectedResponses: [],
     pathKind: 'stressed',
     expected: {
-      // 2026-05-07: re-pinned after current-law ACA subsidies, July 1
-      // salary proration, explicit pretax RMD ownership, and tax-funded
-      // withdrawal loops changed modeled cashflows.
-      successRate: 0.66,
-      medianEndingWealth: 547154.3223532573,
-      annualTaxEstimate: 844.7352941176471,
-      medianFailureYearRange: { min: 2052, max: 2055 },
+      // 2026-05-08: re-pinned after current-law 2026 tax/contribution rule
+      // packs, SECURE 2.0 catch-up handling, and north-star trace plumbing.
+      successRate: 0.965,
+      medianEndingWealth: 2012848.616192121,
+      annualTaxEstimate: 740.3823529411765,
+      medianFailureYearRange: { min: 2056, max: 2056 },
       maxIrmaaTier: 1,
-      averageHealthcarePremiumCost: 13817.882352941177,
+      averageHealthcarePremiumCost: 13816.882352941177,
     },
     tolerance: {
       successRate: 0.02,
@@ -57,12 +54,11 @@ export const GOLDEN_SCENARIOS: GoldenScenarioDefinition[] = [
       data.spending.optionalMonthly = 3000;
     },
     expected: {
-      // 2026-05-07: re-pinned after current-law ACA subsidies, July 1
-      // salary proration, explicit pretax RMD ownership, and tax-funded
-      // withdrawal loops changed modeled cashflows.
+      // 2026-05-08: re-pinned after current-law 2026 tax/contribution rule
+      // packs, SECURE 2.0 catch-up handling, and north-star trace plumbing.
       successRate: 1,
-      medianEndingWealth: 6501526.465254109,
-      annualTaxEstimate: 3518.794117647059,
+      medianEndingWealth: 8304490.602959889,
+      annualTaxEstimate: 2760.5882352941176,
       maxIrmaaTier: 1,
       averageHealthcarePremiumCost: 13098.70588235294,
     },
@@ -86,15 +82,14 @@ export const GOLDEN_SCENARIOS: GoldenScenarioDefinition[] = [
       }));
     },
     expected: {
-      // 2026-05-07: re-pinned after current-law ACA subsidies, July 1
-      // salary proration, explicit pretax RMD ownership, and tax-funded
-      // withdrawal loops changed modeled cashflows.
-      successRate: 0.875,
-      medianEndingWealth: 2606863.474486013,
-      annualTaxEstimate: 1494.7058823529412,
-      medianFailureYearRange: { min: 2053, max: 2056 },
+      // 2026-05-08: re-pinned after current-law 2026 tax/contribution rule
+      // packs, SECURE 2.0 catch-up handling, and north-star trace plumbing.
+      successRate: 0.985,
+      medianEndingWealth: 4304215.645725329,
+      annualTaxEstimate: 810.1764705882352,
+      medianFailureYearRange: { min: 2059, max: 2059 },
       maxIrmaaTier: 1,
-      averageHealthcarePremiumCost: 12647.823529411764,
+      averageHealthcarePremiumCost: 12657.470588235294,
     },
     tolerance: {
       successRate: 0.02,
@@ -115,14 +110,13 @@ export const GOLDEN_SCENARIOS: GoldenScenarioDefinition[] = [
       data.accounts.cash.balance = 40_000;
     },
     expected: {
-      // 2026-05-07: re-pinned after explicit pretax RMD ownership moved
-      // the full seeded pretax bucket to Rob's divisor instead of a 50/50
-      // household split. RMD-heavy remains fully solvent with higher taxes.
+      // 2026-05-08: re-pinned after current-law 2026 tax/contribution rule
+      // packs, SECURE 2.0 catch-up handling, and north-star trace plumbing.
       successRate: 1,
-      medianEndingWealth: 12560445.669770617,
-      annualTaxEstimate: 52038.08823529412,
+      medianEndingWealth: 13190289.45995742,
+      annualTaxEstimate: 52142.32352941176,
       maxIrmaaTier: 5,
-      averageHealthcarePremiumCost: 18568.470588235294,
+      averageHealthcarePremiumCost: 18704.970588235294,
     },
     tolerance: {
       successRate: 0.02,

@@ -3,7 +3,10 @@ import type {
   ClosedLoopConvergenceThresholds,
   FutureReturnModelExtensionPoint,
   HousingAfterDownsizePolicy,
+  LtcHsaDeterministicAuditYear,
+  LtcHsaDiagnostics,
   MarketAssumptions,
+  MoneyPercentileSummary,
   PathResult,
   PathYearResult,
   ProjectionPoint,
@@ -277,6 +280,8 @@ interface RunTrace {
   ltcCostRemainingAfterHsa: number;
   hsaBalanceEnd: number;
   ltcCost: number;
+  ltcEventOccurs: boolean;
+  ltcEventActive: boolean;
   withdrawalRationale: string;
   withdrawalScoreSpendingNeed: number;
   withdrawalScoreMarginalTaxCost: number;
@@ -339,6 +344,12 @@ interface SimulationRunResult {
   closedLoopFinalMagiDeltaMax: number;
   closedLoopFinalFederalTaxDeltaMax: number;
   closedLoopFinalHealthcarePremiumDeltaMax: number;
+  ltcEventOccurs: boolean;
+  totalLtcCost: number;
+  totalHsaOffsetUsed: number;
+  totalHsaLtcOffsetUsed: number;
+  totalLtcCostRemainingAfterHsa: number;
+  ltcCostYears: number;
   yearly: RunTrace[];
 }
 
@@ -378,6 +389,7 @@ interface SimulationSummary {
   };
   simulationConfiguration: SimulationConfigurationSnapshot;
   simulationDiagnostics: SimulationModeDiagnostics;
+  ltcHsaDiagnostics: LtcHsaDiagnostics;
   spendingCutRate: number;
   irmaaExposureRate: number;
   homeSaleDependenceRate: number;
@@ -714,22 +726,13 @@ function buildPlan(
   annualSpendTarget?: number,
 ) {
   const horizonYears = getRetirementHorizonYears(data, assumptions);
-  const hsaBalance = data.accounts.hsa?.balance ?? 0;
-  const pretaxTotal = data.accounts.pretax.balance + hsaBalance;
+  const pretaxTotal = data.accounts.pretax.balance;
   const pretaxAllocationValue: Record<string, number> = {};
   addAllocationValue(
     pretaxAllocationValue,
     data.accounts.pretax.targetAllocation,
     data.accounts.pretax.balance,
   );
-
-  if (data.accounts.hsa) {
-    addAllocationValue(
-      pretaxAllocationValue,
-      data.accounts.hsa.targetAllocation,
-      data.accounts.hsa.balance,
-    );
-  }
 
   const salaryEndDate = data.income.salaryEndDate;
   const rawEssentialAnnual = data.spending.essentialMonthly * 12;
@@ -2163,19 +2166,21 @@ function sumBalances(balances: Record<AccountBucketType, number>) {
   return SIM_BUCKETS.reduce((total, bucket) => total + balances[bucket], 0);
 }
 
-function removeProtectedHsaFromPretax(
+function sumBalancesWithHsa(
   balances: Record<AccountBucketType, number>,
   hsaBalance: number,
 ) {
-  const protectedHsaBalance = Math.min(
-    Math.max(0, hsaBalance),
-    Math.max(0, balances.pretax),
-  );
+  return sumBalances(balances) + Math.max(0, hsaBalance);
+}
+
+function removeProtectedHsaFromPretax(
+  balances: Record<AccountBucketType, number>,
+  _hsaBalance: number,
+) {
   return {
-    protectedHsaBalance,
+    protectedHsaBalance: 0,
     spendableBalances: {
       ...balances,
-      pretax: Math.max(0, balances.pretax - protectedHsaBalance),
     },
   };
 }
@@ -4266,6 +4271,256 @@ function roundSeriesValue(value: number) {
   return Number(value.toFixed(0));
 }
 
+function buildCashflowReconciliationFromTraces(
+  traces: RunTrace[],
+): NonNullable<PathYearResult['cashflowReconciliation']> {
+  const medianOf = (selector: (trace: RunTrace) => number) =>
+    roundSeriesValue(median(traces.map(selector)));
+  const withdrawals = {
+    cash: medianOf((trace) => trace.withdrawalCash),
+    taxable: medianOf((trace) => trace.withdrawalTaxable),
+    ira401k: medianOf((trace) => trace.withdrawalIra401k),
+    roth: medianOf((trace) => trace.withdrawalRoth),
+  };
+  const withdrawalTotal =
+    withdrawals.cash + withdrawals.taxable + withdrawals.ira401k + withdrawals.roth;
+  const inflows = {
+    income: medianOf((trace) => trace.income),
+    adjustedWages: medianOf((trace) => trace.adjustedWages),
+    socialSecurity: medianOf((trace) => trace.socialSecurityIncome),
+    rmd: medianOf((trace) => trace.rmdAmount),
+    windfallCash: medianOf((trace) => trace.windfallCashInflow),
+  };
+  const outflows = {
+    spendingIncludingHealthcareAndLtc: medianOf((trace) => trace.spending),
+    federalTax: medianOf((trace) => trace.federalTax),
+    healthcarePremiums: medianOf((trace) => trace.totalHealthcarePremiumCost),
+    ltcCost: medianOf((trace) => trace.ltcCost),
+    hsaOffset: medianOf((trace) => trace.hsaOffsetUsed),
+  };
+  const totalOutflows = outflows.spendingIncludingHealthcareAndLtc + outflows.federalTax;
+  const totalAvailableForOutflows = inflows.income + withdrawalTotal;
+  const surplusOrGap = roundSeriesValue(totalAvailableForOutflows - totalOutflows);
+  const unresolvedFundingGap = medianOf((trace) => trace.unresolvedFundingGap);
+
+  return {
+    method: 'median_year_cashflow_components',
+    inflows,
+    withdrawals: {
+      ...withdrawals,
+      total: withdrawalTotal,
+    },
+    outflows: {
+      ...outflows,
+      total: totalOutflows,
+    },
+    totalAvailableForOutflows,
+    surplusOrGap,
+    unresolvedFundingGap,
+    equationCheck: {
+      availableMinusOutflowsMinusSurplusOrGap: roundSeriesValue(
+        totalAvailableForOutflows - totalOutflows - surplusOrGap,
+      ),
+    },
+    notes: [
+      'Withdrawals are cashflow funding sources, not additional wealth creation.',
+      'Market gains/losses and intra-account reallocations explain balance movement beyond this cashflow tie-out.',
+    ],
+  };
+}
+
+function buildMoneyPercentiles(values: number[]): MoneyPercentileSummary {
+  if (!values.length) {
+    return { p10: 0, p25: 0, p50: 0, p75: 0, p90: 0 };
+  }
+  return {
+    p10: roundSeriesValue(percentile(values, 0.1)),
+    p25: roundSeriesValue(percentile(values, 0.25)),
+    p50: roundSeriesValue(median(values)),
+    p75: roundSeriesValue(percentile(values, 0.75)),
+    p90: roundSeriesValue(percentile(values, 0.9)),
+  };
+}
+
+function buildDeterministicLtcHsaTrace(input: {
+  plan: SimPlan;
+  ages: { rob: number; debbie: number };
+  planningHorizonYears: number;
+  initialHsaBalance: number;
+  eventOccurs: boolean;
+}): LtcHsaDeterministicAuditYear[] {
+  let hsaBalance = input.initialHsaBalance;
+  return Array.from({ length: input.planningHorizonYears }, (_, yearOffset) => {
+    const year = input.plan.startYear + yearOffset;
+    const robAge = input.ages.rob + yearOffset;
+    const debbieAge = input.ages.debbie + yearOffset;
+    const ltcCost = calculateLtcCostForYear(
+      input.plan,
+      { rob: robAge, debbie: debbieAge },
+      input.eventOccurs,
+      yearOffset,
+    );
+    const hsaOffsetUsed = calculateHsaOffsetForYear({
+      plan: input.plan,
+      hsaBalance,
+      magi: 0,
+      healthcareCost: 0,
+      ltcCost,
+    });
+    const hsaLtcOffsetUsed = Math.min(hsaOffsetUsed, ltcCost);
+    hsaBalance = Math.max(0, hsaBalance - hsaOffsetUsed);
+    return {
+      year,
+      robAge,
+      debbieAge,
+      ltcEventActive: ltcCost > 0,
+      ltcCost: roundSeriesValue(ltcCost),
+      hsaOffsetUsed: roundSeriesValue(hsaOffsetUsed),
+      hsaLtcOffsetUsed: roundSeriesValue(hsaLtcOffsetUsed),
+      ltcCostRemainingAfterHsa: roundSeriesValue(Math.max(0, ltcCost - hsaLtcOffsetUsed)),
+      hsaBalanceEnd: roundSeriesValue(hsaBalance),
+    };
+  });
+}
+
+function expectedLtcHsaTrace(
+  noEvent: LtcHsaDeterministicAuditYear[],
+  withEvent: LtcHsaDeterministicAuditYear[],
+  eventProbability: number,
+): LtcHsaDeterministicAuditYear[] {
+  return withEvent.map((withEventYear, index) => {
+    const noEventYear = noEvent[index] ?? withEventYear;
+    const expected = (selector: (year: LtcHsaDeterministicAuditYear) => number) =>
+      roundSeriesValue(
+        eventProbability * selector(withEventYear) +
+          (1 - eventProbability) * selector(noEventYear),
+      );
+    return {
+      year: withEventYear.year,
+      robAge: withEventYear.robAge,
+      debbieAge: withEventYear.debbieAge,
+      ltcEventActive: eventProbability > 0 && withEventYear.ltcEventActive,
+      ltcCost: expected((year) => year.ltcCost),
+      hsaOffsetUsed: expected((year) => year.hsaOffsetUsed),
+      hsaLtcOffsetUsed: expected((year) => year.hsaLtcOffsetUsed),
+      ltcCostRemainingAfterHsa: expected((year) => year.ltcCostRemainingAfterHsa),
+      hsaBalanceEnd: expected((year) => year.hsaBalanceEnd),
+    };
+  });
+}
+
+function buildLtcHsaPathVisibilityFromTraces(traces: RunTrace[]): NonNullable<
+  PathYearResult['ltcHsaPathVisibility']
+> {
+  return {
+    ltcEventTriggeredRate: traces.length
+      ? traces.filter((trace) => trace.ltcEventOccurs).length / traces.length
+      : 0,
+    ltcEventActiveRate: traces.length
+      ? traces.filter((trace) => trace.ltcEventActive).length / traces.length
+      : 0,
+    ltcCostPercentiles: buildMoneyPercentiles(traces.map((trace) => trace.ltcCost)),
+    hsaOffsetUsedPercentiles: buildMoneyPercentiles(
+      traces.map((trace) => trace.hsaOffsetUsed),
+    ),
+    hsaLtcOffsetUsedPercentiles: buildMoneyPercentiles(
+      traces.map((trace) => trace.hsaLtcOffsetUsed),
+    ),
+    ltcCostRemainingAfterHsaPercentiles: buildMoneyPercentiles(
+      traces.map((trace) => trace.ltcCostRemainingAfterHsa),
+    ),
+    hsaBalancePercentiles: buildMoneyPercentiles(
+      traces.map((trace) => trace.hsaBalanceEnd),
+    ),
+  };
+}
+
+function buildLtcHsaDiagnostics(input: {
+  plan: SimPlan;
+  ages: { rob: number; debbie: number };
+  planningHorizonYears: number;
+  initialHsaBalance: number;
+  yearlySeries: PathYearResult[];
+  runs: SimulationRunResult[];
+}): LtcHsaDiagnostics {
+  const noEvent = buildDeterministicLtcHsaTrace({
+    plan: input.plan,
+    ages: input.ages,
+    planningHorizonYears: input.planningHorizonYears,
+    initialHsaBalance: input.initialHsaBalance,
+    eventOccurs: false,
+  });
+  const withEvent = buildDeterministicLtcHsaTrace({
+    plan: input.plan,
+    ages: input.ages,
+    planningHorizonYears: input.planningHorizonYears,
+    initialHsaBalance: input.initialHsaBalance,
+    eventOccurs: true,
+  });
+  const eventProbability = input.plan.ltcAssumptions.eventProbability;
+  const cap = input.plan.hsaStrategy.annualQualifiedExpenseWithdrawalCap;
+
+  return {
+    assumptions: {
+      enabled: input.plan.ltcAssumptions.enabled,
+      startAge: input.plan.ltcAssumptions.startAge,
+      annualCostToday: input.plan.ltcAssumptions.annualCostToday,
+      durationYears: input.plan.ltcAssumptions.durationYears,
+      inflationAnnual: input.plan.ltcAssumptions.inflationAnnual,
+      eventProbability,
+    },
+    hsaStrategy: {
+      enabled: input.plan.hsaStrategy.enabled,
+      withdrawalMode: input.plan.hsaStrategy.withdrawalMode,
+      annualQualifiedExpenseWithdrawalCap: Number.isFinite(cap) ? cap : 'uncapped',
+    },
+    monteCarlo: {
+      trialCount: input.runs.length,
+      ltcEventRunCount: input.runs.filter((run) => run.ltcEventOccurs).length,
+      ltcEventIncidenceRate: input.runs.length
+        ? input.runs.filter((run) => run.ltcEventOccurs).length / input.runs.length
+        : 0,
+      ltcCostYearCountPercentiles: buildMoneyPercentiles(
+        input.runs.map((run) => run.ltcCostYears),
+      ),
+      totalLtcCostPercentiles: buildMoneyPercentiles(
+        input.runs.map((run) => run.totalLtcCost),
+      ),
+      totalHsaOffsetUsedPercentiles: buildMoneyPercentiles(
+        input.runs.map((run) => run.totalHsaOffsetUsed),
+      ),
+      totalHsaLtcOffsetUsedPercentiles: buildMoneyPercentiles(
+        input.runs.map((run) => run.totalHsaLtcOffsetUsed),
+      ),
+      totalLtcCostRemainingAfterHsaPercentiles: buildMoneyPercentiles(
+        input.runs.map((run) => run.totalLtcCostRemainingAfterHsa),
+      ),
+    },
+    annualPath: input.yearlySeries.map((point) => ({
+      year: point.year,
+      ...(point.ltcHsaPathVisibility ?? {
+        ltcEventTriggeredRate: 0,
+        ltcEventActiveRate: 0,
+        ltcCostPercentiles: buildMoneyPercentiles([]),
+        hsaOffsetUsedPercentiles: buildMoneyPercentiles([]),
+        hsaLtcOffsetUsedPercentiles: buildMoneyPercentiles([]),
+        ltcCostRemainingAfterHsaPercentiles: buildMoneyPercentiles([]),
+        hsaBalancePercentiles: buildMoneyPercentiles([]),
+      }),
+    })),
+    deterministicAudit: {
+      method: 'isolated_ltc_hsa_reserve_trace',
+      noEvent,
+      withEvent,
+      expectedValue: expectedLtcHsaTrace(noEvent, withEvent, eventProbability),
+      notes: [
+        'Deterministic audit isolates LTC/HSA mechanics from market returns, taxes, and healthcare premiums.',
+        'Monte Carlo aggregates use the actual simulated yearly path, including failures before later LTC years.',
+      ],
+    },
+  };
+}
+
 function simulatePath(
   data: SeedData,
   assumptions: MarketAssumptions,
@@ -4423,9 +4678,9 @@ function simulatePath(
           marketPath[yearOffset] ??
           getStressAdjustedReturns(effectivePlan, assumptions, yearOffset, random, undefined, gaussian4);
         const { inflation, assetReturns, marketState } = marketPoint;
-        const pretaxBalanceForRmd = Math.max(0, balances.pretax - hsaBalance);
+        const pretaxBalanceForRmd = Math.max(0, balances.pretax);
 
-        const totalAssetsAtStart = sumBalances(balances);
+        const totalAssetsAtStart = sumBalancesWithHsa(balances, hsaBalance);
         const rothBalanceStartForYear = balances.roth;
         const yearsIntoRetirement = year - effectivePlan.retirementYear;
         // Travel phase applies from today through the end of the go-go
@@ -4506,9 +4761,12 @@ function simulatePath(
             hsa: hsaBalance,
           },
         });
-        balances.pretax = contributionResult.updatedAccountBalances.pretax;
-        balances.roth = contributionResult.updatedAccountBalances.roth ?? balances.roth;
-        hsaBalance = contributionResult.updatedAccountBalances.hsa ?? hsaBalance;
+        balances.pretax +=
+          contributionResult.employee401kPreTaxContribution +
+          contributionResult.employerMatchContribution;
+        balances.roth += contributionResult.employee401kRothContribution;
+        hsaBalance += contributionResult.hsaContribution;
+        const pretaxBalanceAfterContributionsForYear = balances.pretax;
         const rothContributionFlowForYear = balances.roth - rothBalanceStartForYear;
         const adjustedWages = contributionResult.adjustedWages;
         const socialSecurityIncome = getSocialSecurityIncome(
@@ -4711,6 +4969,7 @@ function simulatePath(
           federalTax: 0,
           healthcarePremium: 0,
         };
+        let closedLoopOutputsStable = false;
         let closedLoopNeeded = shortfallBeforeHealthcare;
         // Track oscillation: sign of (nextNeeded - closedLoopNeeded). When the sign
         // flips, we're bouncing around a cliff (ACA 400% FPL or IRMAA tier boundary)
@@ -4739,11 +4998,12 @@ function simulatePath(
           });
           const nextNeeded = Math.max(
             0,
-            shortfallBeforeHealthcare +
+            spendingBeforeHealthcare +
               healthcareForPass.totalHealthcarePremiumCost +
               attempt.result.taxResult.federalTax +
               ltcCostForYear -
-              hsaOffsetForPass,
+              hsaOffsetForPass -
+              baseIncome,
           );
 
           const currentState: ClosedLoopIterationState = {
@@ -4770,18 +5030,20 @@ function simulatePath(
                   closedLoopPreviousState.healthcarePremiumCost,
               ),
             };
-            const converged =
+            const neededDelta = Math.abs(currentState.nextNeeded - closedLoopNeeded);
+            closedLoopOutputsStable =
               closedLoopLastDeltas.magi <= convergenceThresholds.magiDeltaDollars &&
               closedLoopLastDeltas.federalTax <=
                 convergenceThresholds.federalTaxDeltaDollars &&
               closedLoopLastDeltas.healthcarePremium <=
                 convergenceThresholds.healthcarePremiumDeltaDollars;
+            const converged =
+              closedLoopOutputsStable && neededDelta <= 1;
             if (converged) {
               closedLoopConverged = true;
               closedLoopStopReason = 'converged_thresholds_met';
               break;
             }
-            const neededDelta = Math.abs(currentState.nextNeeded - closedLoopNeeded);
             if (neededDelta <= 1) {
               // Stationary/no-change is diagnostic information only. It does not
               // imply threshold convergence unless explicit deltas also satisfy
@@ -4814,7 +5076,9 @@ function simulatePath(
           }
           const dampingFactor = oscillationFlips >= 1 ? 0.3 : 0.5;
           closedLoopNeeded =
-            closedLoopNeeded + dampingFactor * (nextNeeded - closedLoopNeeded);
+            closedLoopOutputsStable
+              ? nextNeeded
+              : closedLoopNeeded + dampingFactor * (nextNeeded - closedLoopNeeded);
         }
 
         const resolvedClosedLoopState = closedLoopFinalState ?? (() => {
@@ -4845,20 +5109,17 @@ function simulatePath(
             irmaaTier: fallbackIrmaaTier,
             nextNeeded: Math.max(
               0,
-              shortfallBeforeHealthcare +
+              spendingBeforeHealthcare +
                 fallbackHealthcare.totalHealthcarePremiumCost +
                 fallback.result.taxResult.federalTax +
                 ltcCostForYear -
-                fallbackHsaOffset,
+                fallbackHsaOffset -
+                baseIncome,
             ),
           } satisfies ClosedLoopIterationState;
         })();
 
         const withdrawalResult = resolvedClosedLoopState.attempt;
-        const unresolvedWithdrawalNeed =
-          withdrawalResult.remaining >= MIN_FAILURE_SHORTFALL_DOLLARS
-            ? withdrawalResult.remaining
-            : 0;
         const {
           protectedHsaBalance: protectedHsaBalanceForConversion,
           spendableBalances: conversionBalances,
@@ -4929,27 +5190,98 @@ function simulatePath(
         balances.taxable = balancesAfterConversion.taxable;
         balances.cash = balancesAfterConversion.cash;
         if (hsaOffsetUsed > 0) {
-          const appliedOffset = Math.min(hsaOffsetUsed, hsaBalance, balances.pretax);
+          const appliedOffset = Math.min(hsaOffsetUsed, hsaBalance);
           hsaBalance = Math.max(0, hsaBalance - appliedOffset);
-          balances.pretax = Math.max(0, balances.pretax - appliedOffset);
           hsaOffsetUsed = appliedOffset;
           hsaLtcOffsetUsed = Math.min(hsaOffsetUsed, ltcCostForYear);
         }
         const ltcCostRemainingAfterHsa = Math.max(0, ltcCostForYear - hsaLtcOffsetUsed);
 
-        const federalTaxForYear = withdrawalResult.taxResult.federalTax;
-        magiHistory.set(year, magiForYear);
-        const spending =
+        let federalTaxForYear = withdrawalResult.taxResult.federalTax;
+        let spending =
           spendingBeforeHealthcare +
           healthcarePremiums.totalHealthcarePremiumCost +
           ltcCostForYear -
           hsaOffsetUsed;
-        const withdrawalTotal =
+        const calculateWithdrawalTotalForYear = () =>
           withdrawalResult.withdrawals.cash +
           withdrawalResult.withdrawals.taxable +
           withdrawalResult.withdrawals.pretax +
           withdrawalResult.withdrawals.roth;
+        const calculateWithdrawalAppliedToCashflow = () =>
+          Math.max(0, calculateWithdrawalTotalForYear() - withdrawalResult.rmdSurplusToCash);
+        const calculateUnresolvedCashflowGap = () =>
+          Math.max(
+            0,
+            spending + federalTaxForYear - baseIncome - calculateWithdrawalAppliedToCashflow(),
+          );
+        const refreshTaxAndHealthcareAfterSupplementalWithdrawal = () => {
+          withdrawalResult.taxResult = calculateFederalTax(withdrawalResult.taxInputs);
+          federalTaxForYear = withdrawalResult.taxResult.federalTax;
+          magiForYear = withdrawalResult.taxResult.MAGI;
+          irmaaReferenceMagi =
+            magiHistory.get(year - DEFAULT_IRMAA_CONFIG.lookbackYears) ?? magiForYear;
+          irmaaTier = calculateIrmaaTier(irmaaReferenceMagi, data.household.filingStatus);
+          healthcarePremiums = calculateHealthcarePremiums({
+            ...baseHealthcareInputs,
+            MAGI: magiForYear,
+            irmaaSurchargeAnnualPerEligible: irmaaTier.surchargeAnnual,
+          });
+          spending =
+            spendingBeforeHealthcare +
+            healthcarePremiums.totalHealthcarePremiumCost +
+            ltcCostForYear -
+            hsaOffsetUsed;
+        };
+        for (let supplementalPass = 0; supplementalPass < 12; supplementalPass += 1) {
+          let supplementalNeed = calculateUnresolvedCashflowGap();
+          if (supplementalNeed < MIN_FAILURE_SHORTFALL_DOLLARS) {
+            break;
+          }
+          let fundedThisPass = 0;
+          for (const bucket of ['cash', 'taxable', 'roth', 'pretax'] as AccountBucketType[]) {
+            if (supplementalNeed <= 0) {
+              break;
+            }
+            const take = Math.min(Math.max(0, balances[bucket]), supplementalNeed);
+            if (take <= 0) {
+              continue;
+            }
+            balances[bucket] -= take;
+            withdrawalResult.withdrawals[bucket] += take;
+            supplementalNeed -= take;
+            fundedThisPass += take;
+            if (bucket === 'taxable') {
+              withdrawalResult.taxInputs.realizedLTCG +=
+                take * DEFAULT_TAXABLE_WITHDRAWAL_LTCG_RATIO;
+              refreshTaxAndHealthcareAfterSupplementalWithdrawal();
+            } else if (bucket === 'pretax') {
+              withdrawalResult.taxInputs.ira401kWithdrawals += take;
+              refreshTaxAndHealthcareAfterSupplementalWithdrawal();
+            } else if (bucket === 'roth') {
+              withdrawalResult.taxInputs.rothWithdrawals += take;
+            }
+          }
+          if (fundedThisPass <= 0) {
+            break;
+          }
+        }
+        magiHistory.set(year, magiForYear);
+        const withdrawalTotal = calculateWithdrawalTotalForYear();
         const totalCashOutflow = spending + federalTaxForYear;
+        const withdrawalAppliedToCashflow = calculateWithdrawalAppliedToCashflow();
+        const cashflowSurplus = Math.max(
+          0,
+          baseIncome + withdrawalAppliedToCashflow - totalCashOutflow,
+        );
+        if (cashflowSurplus > 0) {
+          balances.cash += cashflowSurplus;
+        }
+        const rawUnresolvedCashflowGap = calculateUnresolvedCashflowGap();
+        const unresolvedWithdrawalNeed =
+          rawUnresolvedCashflowGap >= MIN_FAILURE_SHORTFALL_DOLLARS
+            ? rawUnresolvedCashflowGap
+            : 0;
         marketPoint.cashflow = {
           adjustedWages,
           spendingCutActive: optionalCutActive,
@@ -5013,7 +5345,7 @@ function simulatePath(
             withdrawalResult.withdrawals.roth +
             rothConversionTrace.amount);
 
-        const endingAssets = sumBalances(balances);
+        const endingAssets = sumBalancesWithHsa(balances, hsaBalance);
         const summaryTrace = {
           year,
           totalAssets: roundSeriesValue(endingAssets),
@@ -5198,6 +5530,8 @@ function simulatePath(
           ltcCostRemainingAfterHsa: roundSeriesValue(ltcCostRemainingAfterHsa),
           hsaBalanceEnd: roundSeriesValue(hsaBalance),
           ltcCost: roundSeriesValue(ltcCostForYear),
+          ltcEventOccurs,
+          ltcEventActive: ltcCostForYear > 0,
           withdrawalRationale: withdrawalResult.decisionTrace.rationale,
           withdrawalScoreSpendingNeed:
             withdrawalResult.decisionTrace.objectiveScores.spendingNeed,
@@ -5222,7 +5556,7 @@ function simulatePath(
           adjustedWages: roundSeriesValue(adjustedWages),
           taxableWageReduction: roundSeriesValue(contributionResult.taxableWageReduction),
           pretaxBalanceAfterContributions: roundSeriesValue(
-            contributionResult.updatedPretaxBalance,
+            pretaxBalanceAfterContributionsForYear,
           ),
           closedLoopConverged: closedLoopConverged,
           closedLoopConvergedBeforeMaxPasses,
@@ -5267,7 +5601,7 @@ function simulatePath(
       }
 
       if (randomTape?.mode === 'record') {
-        const endingWealth = sumBalances(balances);
+        const endingWealth = sumBalancesWithHsa(balances, hsaBalance);
         recordedTapeTrials.push({
           trialIndex,
           trialSeed,
@@ -5306,7 +5640,7 @@ function simulatePath(
       return {
         success: failureYear === null,
         failureYear,
-        endingWealth: sumBalances(balances),
+        endingWealth: sumBalancesWithHsa(balances, hsaBalance),
         spendingCutsTriggered,
         irmaaTriggered,
         homeSaleDependent,
@@ -5323,6 +5657,20 @@ function simulatePath(
         closedLoopFinalMagiDeltaMax,
         closedLoopFinalFederalTaxDeltaMax,
         closedLoopFinalHealthcarePremiumDeltaMax,
+        ltcEventOccurs,
+        totalLtcCost: roundSeriesValue(
+          yearly.reduce((total, trace) => total + trace.ltcCost, 0),
+        ),
+        totalHsaOffsetUsed: roundSeriesValue(
+          yearly.reduce((total, trace) => total + trace.hsaOffsetUsed, 0),
+        ),
+        totalHsaLtcOffsetUsed: roundSeriesValue(
+          yearly.reduce((total, trace) => total + trace.hsaLtcOffsetUsed, 0),
+        ),
+        totalLtcCostRemainingAfterHsa: roundSeriesValue(
+          yearly.reduce((total, trace) => total + trace.ltcCostRemainingAfterHsa, 0),
+        ),
+        ltcCostYears: yearly.filter((trace) => trace.ltcCost > 0).length,
         yearly: summaryOnly ? [] : yearly,
       };
     },
@@ -5498,6 +5846,7 @@ function simulatePath(
         ),
         medianHsaBalance: median(traces.map((trace) => trace.hsaBalanceEnd)),
         medianLtcCost: median(traces.map((trace) => trace.ltcCost)),
+        ltcHsaPathVisibility: buildLtcHsaPathVisibilityFromTraces(traces),
         dominantWithdrawalRationale: dominantValue(
           traces.map((trace) => trace.withdrawalRationale),
         ),
@@ -5559,6 +5908,7 @@ function simulatePath(
         dominantClosedLoopStopReason: dominantValue(
           traces.map((trace) => trace.closedLoopStopReason),
         ),
+        cashflowReconciliation: buildCashflowReconciliationFromTraces(traces),
       }));
 
   const successRate = monteCarlo.successRate;
@@ -5637,6 +5987,14 @@ function simulatePath(
         failureYearDistribution: monteCarlo.failureYearDistribution,
         runs,
       });
+  const ltcHsaDiagnostics = buildLtcHsaDiagnostics({
+    plan: effectivePlan,
+    ages,
+    planningHorizonYears,
+    initialHsaBalance: data.accounts.hsa?.balance ?? 0,
+    yearlySeries,
+    runs,
+  });
 
   return {
     simulationMode,
@@ -5654,6 +6012,7 @@ function simulatePath(
     },
     simulationConfiguration,
     simulationDiagnostics,
+    ltcHsaDiagnostics,
     spendingCutRate,
     irmaaExposureRate,
     homeSaleDependenceRate,
@@ -5753,6 +6112,7 @@ function toPathResult(
     simulationConfiguration: summary.simulationConfiguration,
     simulationDiagnostics: summary.simulationDiagnostics,
     riskMetrics: summary.riskMetrics,
+    ltcHsaDiagnostics: summary.ltcHsaDiagnostics,
     yearlySeries: summary.yearlySeries,
   };
 }

@@ -32,6 +32,19 @@
 export const POLICY_MINER_ENGINE_VERSION = 'policy-miner-v2-2026-05-01';
 
 /**
+ * Mining records are keyed by engineVersion as well as baseline. For
+ * randomized exploration, the session seed is part of the evaluated input
+ * surface, so it must be part of the corpus identity too; otherwise a fresh
+ * mine can silently reuse records from an older seed.
+ */
+export function buildPolicyMinerRunEngineVersion(
+  baseEngineVersion: string,
+  explorationSeed: number,
+): string {
+  return `${baseEngineVersion}+seed-${explorationSeed}`;
+}
+
+/**
  * The four axes the V1 miner sweeps. Adding a new axis means: (1) extend
  * this type, (2) extend `PolicyAxes` below with the corresponding option
  * list, (3) extend the enumerator's cartesian product, (4) extend

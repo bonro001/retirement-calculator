@@ -2900,7 +2900,7 @@ function MaxSustainableSpendCard({
             </dl>
           </div>
 
-          {/* Current seed spending */}
+          {/* Current lifestyle input */}
           <div className="rounded-xl bg-white/60 p-3 shadow-sm">
             <p className="text-[11px] font-semibold uppercase tracking-wider text-stone-500">
               Your current lifestyle
@@ -2931,7 +2931,7 @@ function MaxSustainableSpendCard({
               </>
             ) : (
               <p className="mt-2 text-[12px] text-stone-500">
-                Seed has no spending configured.
+                No lifestyle spending input is configured.
               </p>
             )}
           </div>
@@ -2996,8 +2996,8 @@ function MaxSustainableSpendCard({
  * spend optimizer cards: at the engine-recommended SS strategy + max
  * spend, sweeps the Roth-conversion-ceiling axis and picks the level
  * that maximizes p50 ending wealth (today's $) subject to both north
- * stars. The current household value is read from the seed's
- * `rules.rothConversionPolicy.magiBufferDollars` proxy.
+ * stars. The current household value is an input-policy comparison, not
+ * the answer; the recommended ceiling is the engine output.
  */
 function RecommendedRothCeilingCard({
   result,
@@ -3091,7 +3091,7 @@ function RecommendedRothCeilingCard({
 
           <div className="rounded-xl bg-white/60 p-3 shadow-sm">
             <p className="text-[11px] font-semibold uppercase tracking-wider text-stone-500">
-              Your current seed
+              Current policy input
             </p>
             {currentInRanked ? (
               <>
@@ -3119,7 +3119,7 @@ function RecommendedRothCeilingCard({
               </>
             ) : (
               <p className="mt-2 text-[12px] text-stone-500">
-                Seed Roth max is outside the searched grid — adopt the
+                Current Roth max is outside the searched grid — adopt the
                 recommendation to apply.
               </p>
             )}
@@ -3128,7 +3128,7 @@ function RecommendedRothCeilingCard({
           <div className="md:col-span-2 rounded-xl border border-violet-200/60 bg-white p-3 text-[12px]">
             {isSameCeiling ? (
               <p className="text-stone-700">
-                Your seed's Roth max already matches the recommendation —
+                Your current Roth max already matches the recommendation —
                 no change indicated.
               </p>
             ) : ewDelta !== null && ewDelta > 0 ? (
@@ -3146,7 +3146,7 @@ function RecommendedRothCeilingCard({
                 <span className="font-semibold tabular-nums">
                   {formatCurrency(ewDelta)}
                 </span>{' '}
-                vs your seed — that's because your seed sits at a more
+                vs your current input — that's because it sits at a more
                 aggressive level than the engine prefers under the
                 constraints. Use either; this is an information signal.
               </p>

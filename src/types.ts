@@ -69,6 +69,10 @@ export interface PreRetirementContributionSettings {
   employee401kRothAnnualAmount?: number;
   employee401kRothAnnualAmountByYear?: Record<string, number>;
   employee401kRothPercentOfSalary?: number;
+  priorYearFicaWagesFromEmployer?: number;
+  employerPlanSupportsRothDeferrals?: boolean;
+  employerPlanSupportsSuperCatchUp?: boolean;
+  planFeatureAssumptionSource?: string;
   // Legacy compatibility fields. When present, they map to pre-tax 401(k) targets.
   employee401kAnnualAmount?: number;
   employee401kAnnualAmountByYear?: Record<string, number>;
@@ -84,8 +88,13 @@ export interface ContributionLimitSettings {
   employee401kBaseLimit?: number;
   employee401kCatchUpAge?: number;
   employee401kCatchUpLimit?: number;
+  employee401kSuperCatchUpAges?: number[];
+  employee401kSuperCatchUpLimit?: number;
+  rothCatchUpWageThreshold?: number;
   employee401kBaseLimitByYear?: Record<string, number>;
   employee401kCatchUpLimitByYear?: Record<string, number>;
+  employee401kSuperCatchUpLimitByYear?: Record<string, number>;
+  rothCatchUpWageThresholdByYear?: Record<string, number>;
   hsaSelfLimit?: number;
   hsaFamilyLimit?: number;
   hsaCatchUpAge?: number;
@@ -503,6 +512,7 @@ export interface PathYearResult {
   medianLtcCostRemainingAfterHsa: number;
   medianHsaBalance: number;
   medianLtcCost: number;
+  ltcHsaPathVisibility?: LtcHsaPathVisibility;
   dominantWithdrawalRationale: string;
   medianWithdrawalScoreSpendingNeed: number;
   medianWithdrawalScoreMarginalTaxCost: number;
@@ -525,6 +535,38 @@ export interface PathYearResult {
   medianClosedLoopLastFederalTaxDelta: number;
   medianClosedLoopLastHealthcarePremiumDelta: number;
   dominantClosedLoopStopReason: string;
+  cashflowReconciliation?: {
+    method: string;
+    inflows: {
+      income: number;
+      adjustedWages: number;
+      socialSecurity: number;
+      rmd: number;
+      windfallCash: number;
+    };
+    withdrawals: {
+      cash: number;
+      taxable: number;
+      ira401k: number;
+      roth: number;
+      total: number;
+    };
+    outflows: {
+      spendingIncludingHealthcareAndLtc: number;
+      federalTax: number;
+      healthcarePremiums: number;
+      ltcCost: number;
+      hsaOffset: number;
+      total: number;
+    };
+    totalAvailableForOutflows: number;
+    surplusOrGap: number;
+    unresolvedFundingGap: number;
+    equationCheck: {
+      availableMinusOutflowsMinusSurplusOrGap: number;
+    };
+    notes: string[];
+  };
 }
 
 export interface ProjectionPoint {
@@ -870,6 +912,79 @@ export interface SimulationRiskMetrics {
   equitySalesInAdverseEarlyYearsRate: number;
 }
 
+export interface MoneyPercentileSummary {
+  p10: number;
+  p25: number;
+  p50: number;
+  p75: number;
+  p90: number;
+}
+
+export interface LtcHsaPathVisibility {
+  ltcEventTriggeredRate: number;
+  ltcEventActiveRate: number;
+  ltcCostPercentiles: MoneyPercentileSummary;
+  hsaOffsetUsedPercentiles: MoneyPercentileSummary;
+  hsaLtcOffsetUsedPercentiles: MoneyPercentileSummary;
+  ltcCostRemainingAfterHsaPercentiles: MoneyPercentileSummary;
+  hsaBalancePercentiles: MoneyPercentileSummary;
+}
+
+export interface LtcHsaDeterministicAuditYear {
+  year: number;
+  robAge: number;
+  debbieAge: number;
+  ltcEventActive: boolean;
+  ltcCost: number;
+  hsaOffsetUsed: number;
+  hsaLtcOffsetUsed: number;
+  ltcCostRemainingAfterHsa: number;
+  hsaBalanceEnd: number;
+}
+
+export interface LtcHsaDiagnostics {
+  assumptions: {
+    enabled: boolean;
+    startAge: number;
+    annualCostToday: number;
+    durationYears: number;
+    inflationAnnual: number;
+    eventProbability: number;
+  };
+  hsaStrategy: {
+    enabled: boolean;
+    withdrawalMode: string;
+    annualQualifiedExpenseWithdrawalCap: number | 'uncapped';
+  };
+  monteCarlo: {
+    trialCount: number;
+    ltcEventRunCount: number;
+    ltcEventIncidenceRate: number;
+    ltcCostYearCountPercentiles: MoneyPercentileSummary;
+    totalLtcCostPercentiles: MoneyPercentileSummary;
+    totalHsaOffsetUsedPercentiles: MoneyPercentileSummary;
+    totalHsaLtcOffsetUsedPercentiles: MoneyPercentileSummary;
+    totalLtcCostRemainingAfterHsaPercentiles: MoneyPercentileSummary;
+  };
+  annualPath: Array<{
+    year: number;
+    ltcEventTriggeredRate: number;
+    ltcEventActiveRate: number;
+    ltcCostPercentiles: MoneyPercentileSummary;
+    hsaOffsetUsedPercentiles: MoneyPercentileSummary;
+    hsaLtcOffsetUsedPercentiles: MoneyPercentileSummary;
+    ltcCostRemainingAfterHsaPercentiles: MoneyPercentileSummary;
+    hsaBalancePercentiles: MoneyPercentileSummary;
+  }>;
+  deterministicAudit: {
+    method: 'isolated_ltc_hsa_reserve_trace';
+    noEvent: LtcHsaDeterministicAuditYear[];
+    withEvent: LtcHsaDeterministicAuditYear[];
+    expectedValue: LtcHsaDeterministicAuditYear[];
+    notes: string[];
+  };
+}
+
 export type InputFidelityStatus = 'exact' | 'estimated' | 'inferred' | 'missing';
 export type ReliabilityImpactLevel = 'low' | 'medium' | 'high';
 
@@ -971,5 +1086,6 @@ export interface PathResult {
   simulationConfiguration: SimulationConfigurationSnapshot;
   simulationDiagnostics: SimulationModeDiagnostics;
   riskMetrics: SimulationRiskMetrics;
+  ltcHsaDiagnostics?: LtcHsaDiagnostics;
   yearlySeries: PathYearResult[];
 }
