@@ -10,7 +10,9 @@ fn main() {
         println!("cargo:rustc-cdylib-link-arg=-Wl,-undefined,dynamic_lookup");
     }
 
-    if target_os == "windows" {
+    let node_napi_enabled = std::env::var("CARGO_FEATURE_NODE_NAPI").is_ok();
+
+    if target_os == "windows" && node_napi_enabled {
         // Linux's default behavior is the same as the macOS rule above
         // (allow unresolved symbols), so no extra args needed there.
         //

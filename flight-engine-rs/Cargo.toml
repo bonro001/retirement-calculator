@@ -36,8 +36,11 @@ lto = true
 codegen-units = 1
 
 [features]
+allocation-counters = []
 console_error_panic_hook = []
+module-timers = []
 node-napi = []
+tax-counters = []
 
 [dependencies]
 # wasm-bindgen: glue layer between Rust and JS. Generates the JS shim
@@ -62,6 +65,10 @@ serde_json = "1"
 # statistical properties — we'll match to whatever the TS engine uses
 # to maintain trial-level determinism for parity testing.
 rand = { version = "0.8", default-features = false, features = ["small_rng"] }
+wgpu = "0.20"
+pollster = "0.3"
+rayon = "1"
+bytemuck = "1"
 
 [dev-dependencies]
 # wasm-bindgen-test: run tests in a real browser or Node WASM runtime
