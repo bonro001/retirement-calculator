@@ -560,6 +560,9 @@ function log(level: 'info' | 'warn' | 'error', message: string, meta?: Record<st
 // Per-peer batch_assign frame size + dispatcher→host RTT (send → batch_result
 // received). On when MINE_PERF=1; one summary line per peer per 10s window.
 const MINE_PERF = process.env.MINE_PERF === '1';
+const CLUSTER_VERBOSE_LOGS =
+  process.env.CLUSTER_VERBOSE_LOGS === '1' ||
+  process.env.CLUSTER_VERBOSE_LOGS === 'true';
 const PERF_WINDOW_MS = 10_000;
 interface PerfPeerSamples {
   batches: number;
@@ -1909,14 +1912,16 @@ function handleBatchNack(peer: Peer, message: Extract<ClusterMessage, { kind: 'b
   // second — plenty fast.
   const cooldownMs = isCapacityNack ? CAPACITY_NACK_COOLDOWN_MS : NACK_COOLDOWN_MS;
   peer.pumpCooldownUntilMs = Date.now() + cooldownMs;
-  log('info', 'batch nacked', {
-    from: peer.peerId,
-    batchId: message.batchId,
-    reason: message.reason,
-    requeuedPolicies: r?.requeued ?? 0,
-    droppedPolicies: r?.dropped ?? 0,
-    cooldownMs,
-  });
+  if (!isCapacityNack || CLUSTER_VERBOSE_LOGS || MINE_PERF) {
+    log(isCapacityNack ? 'info' : 'warn', 'batch nacked', {
+      from: peer.peerId,
+      batchId: message.batchId,
+      reason: message.reason,
+      requeuedPolicies: r?.requeued ?? 0,
+      droppedPolicies: r?.dropped ?? 0,
+      cooldownMs,
+    });
+  }
   if (r && r.dropped > 0) {
     log('warn', 'dropped policies after exhausting attempts', {
       peerId: peer.peerId,
