@@ -658,6 +658,7 @@ export function PolicyMiningStatusCard({
   const session = cluster.session;
   const stats = session?.stats ?? null;
   const sessionRunning = !!session;
+  const activeTrialCount = session?.trialCount ?? null;
   const canStart = !!controls && cluster.state === 'connected' && !sessionRunning;
   const canCancel = !!controls && cluster.state === 'connected' && sessionRunning;
 
@@ -1348,7 +1349,11 @@ export function PolicyMiningStatusCard({
           </p>
           <p className="mt-1 text-[11px] text-stone-500">
             {stats && stats.meanMsPerPolicy > 0
-              ? `cluster mean ${(stats.meanMsPerPolicy / 1000).toFixed(1)}s/policy`
+              ? `cluster mean ${(stats.meanMsPerPolicy / 1000).toFixed(1)}s/policy${
+                  activeTrialCount
+                    ? ` · ${activeTrialCount.toLocaleString()} trials/policy`
+                    : ''
+                }`
               : sessionRunning
                 ? 'awaiting first batch'
                 : ''}

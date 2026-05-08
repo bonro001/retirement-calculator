@@ -413,6 +413,7 @@ export interface ClusterSnapshot {
   session: {
     sessionId: string;
     startedAtIso: string;
+    trialCount: number;
     stats: MiningStats;
     metrics?: ClusterRuntimeMetrics;
   } | null;

@@ -751,6 +751,10 @@ function buildClusterSnapshot(): ClusterSnapshot {
     session = {
       sessionId: activeSession.sessionId,
       startedAtIso: activeSession.startedAtIso,
+      trialCount:
+        activeSession.currentStage === 'coarse'
+          ? activeSession.config.coarseStage?.trialCount ?? activeSession.trialCount
+          : activeSession.trialCount,
       stats,
       metrics: buildRuntimeMetrics(queueSnap),
     };
