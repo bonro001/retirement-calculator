@@ -27,11 +27,15 @@ export interface MiningPhaseSegmentsProps {
   pass1Total?: number | null;
   /** Pass-1 candidates evaluated so far. Shown during 'exploring'. */
   pass1Evaluated?: number | null;
+  /** Trials per policy used in pass 1. Lets UI normalize work units. */
+  pass1TrialCount?: number | null;
   /** Pass-2 candidate count (estimated or actual). Shown in "Refine"
    *  once the pipeline transitions out of 'exploring'. */
   pass2Total?: number | null;
   /** Pass-2 candidates evaluated so far. Shown during 'refining'. */
   pass2Evaluated?: number | null;
+  /** Trials per policy used in pass 2. Lets UI normalize work units. */
+  pass2TrialCount?: number | null;
   /** Best policy id from the corpus, shown in the "Ranked" segment when
    *  phase === 'done'. */
   bestPolicyId?: string | null;
@@ -47,8 +51,10 @@ export function MiningPhaseSegments({
   phase,
   pass1Total,
   pass1Evaluated,
+  pass1TrialCount,
   pass2Total,
   pass2Evaluated,
+  pass2TrialCount,
   bestPolicyId,
   hidden,
 }: MiningPhaseSegmentsProps) {
@@ -106,8 +112,8 @@ export function MiningPhaseSegments({
           subtitle={
             pass1Total != null
               ? phase === 'exploring' && pass1Evaluated != null
-                ? `${pass1Evaluated.toLocaleString()} / ${pass1Total.toLocaleString()} candidates`
-                : `${pass1Total.toLocaleString()} candidates`
+                ? formatCandidateProgress(pass1Evaluated, pass1Total, pass1TrialCount)
+                : formatCandidateTotal(pass1Total, pass1TrialCount)
               : 'wide grid sweep'
           }
           status={statusLabel('explore')}
@@ -119,8 +125,8 @@ export function MiningPhaseSegments({
           subtitle={
             pass2Total != null
               ? phase === 'refining' && pass2Evaluated != null
-                ? `${pass2Evaluated.toLocaleString()} / ${pass2Total.toLocaleString()} contenders`
-                : `~${pass2Total.toLocaleString()} contenders`
+                ? formatCandidateProgress(pass2Evaluated, pass2Total, pass2TrialCount)
+                : formatCandidateTotal(pass2Total, pass2TrialCount, true)
               : 'cliff + rule comparison'
           }
           status={statusLabel('refine')}
@@ -139,6 +145,39 @@ export function MiningPhaseSegments({
       </div>
     </div>
   );
+}
+
+function formatCandidateTotal(
+  policyCount: number,
+  trialCount?: number | null,
+  approximate = false,
+): string {
+  const prefix = approximate ? '~' : '';
+  if (!trialCount || trialCount <= 0) {
+    return `${prefix}${policyCount.toLocaleString()} contenders`;
+  }
+  const trialWork = policyCount * trialCount;
+  return `${prefix}${formatTrialWork(trialWork)} policy-trials`;
+}
+
+function formatCandidateProgress(
+  evaluated: number,
+  total: number,
+  trialCount?: number | null,
+): string {
+  if (!trialCount || trialCount <= 0) {
+    return `${evaluated.toLocaleString()} / ${total.toLocaleString()} candidates`;
+  }
+  return `${formatTrialWork(evaluated * trialCount)} / ${formatTrialWork(
+    total * trialCount,
+  )} policy-trials`;
+}
+
+function formatTrialWork(value: number): string {
+  if (value >= 1_000_000_000) return `${(value / 1_000_000_000).toFixed(1)}B`;
+  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
+  if (value >= 1_000) return `${(value / 1_000).toFixed(0)}k`;
+  return value.toLocaleString();
 }
 
 function Segment({

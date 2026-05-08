@@ -24,6 +24,7 @@ import {
 import {
   POLICY_MINING_REFINEMENT_MAX_WINDOW_DOLLARS,
   POLICY_MINING_REFINEMENT_TRIAL_COUNT,
+  POLICY_MINING_TRIAL_COUNT,
 } from './policy-mining-config';
 import {
   buildPeerViewList,
@@ -146,6 +147,13 @@ function choosePass2TrialCount(
     return baseTrialCount;
   }
   return Math.max(baseTrialCount ?? 0, POLICY_MINING_REFINEMENT_TRIAL_COUNT);
+}
+
+function formatTrialWork(value: number): string {
+  if (value >= 1_000_000_000) return `${(value / 1_000_000_000).toFixed(1)}B`;
+  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
+  if (value >= 1_000) return `${(value / 1_000).toFixed(0)}k`;
+  return value.toLocaleString();
 }
 
 function formatDuration(ms: number): string {
@@ -286,6 +294,8 @@ export function PolicyMiningStatusCard({
   const [pipelinePass2Total, setPipelinePass2Total] = useState<number | null>(
     null,
   );
+  const [pipelinePass2TrialCount, setPipelinePass2TrialCount] =
+    useState<number | null>(null);
   const [pipelineBestPolicyId, setPipelineBestPolicyId] = useState<string | null>(
     null,
   );
@@ -417,6 +427,7 @@ export function PolicyMiningStatusCard({
           recommendation.hasCliff,
           recommendation.axes.annualSpendTodayDollars,
         );
+        setPipelinePass2TrialCount(pass2TrialCount ?? null);
         if (pipelineExplorationSeedRef.current !== null && pass2TrialCount) {
           setCorpusEngineVersion(
             buildPolicyMinerRunEngineVersion(
@@ -604,6 +615,7 @@ export function PolicyMiningStatusCard({
       setPipelinePhase('exploring');
       setPipelinePass1Total(totalCandidates);
       setPipelinePass2Total(null);
+      setPipelinePass2TrialCount(null);
       setPipelineBestPolicyId(null);
     } else {
       pipelineActiveRef.current = false;
@@ -828,6 +840,14 @@ export function PolicyMiningStatusCard({
   // Live evaluated count for the active pass — feeds the segmented
   // progress control's per-segment subtitle.
   const liveEvaluatedCount = stats?.policiesEvaluated ?? null;
+  const pass1TrialCount = controls?.trialCount ?? POLICY_MINING_TRIAL_COUNT;
+  const currentTrialCount = activeTrialCount ?? pass1TrialCount;
+  const trialWorkLabel =
+    stats && sessionRunning
+      ? `${formatTrialWork(
+          stats.policiesEvaluated * currentTrialCount,
+        )} / ${formatTrialWork(stats.totalPolicies * currentTrialCount)} policy-trials`
+      : null;
   const renderControls = () =>
     !controls ? null : (
       <div className="mt-3 space-y-2">
@@ -835,8 +855,10 @@ export function PolicyMiningStatusCard({
           phase={pipelinePhase}
           pass1Total={pipelinePass1Total}
           pass1Evaluated={pipelinePhase === 'exploring' ? liveEvaluatedCount : null}
+          pass1TrialCount={pass1TrialCount}
           pass2Total={pipelinePass2Total}
           pass2Evaluated={pipelinePhase === 'refining' ? liveEvaluatedCount : null}
+          pass2TrialCount={pipelinePass2TrialCount}
           bestPolicyId={pipelineBestPolicyId}
         />
         <div className="flex flex-wrap items-center gap-2">
@@ -1348,15 +1370,16 @@ export function PolicyMiningStatusCard({
             {throughputLabel}
           </p>
           <p className="mt-1 text-[11px] text-stone-500">
-            {stats && stats.meanMsPerPolicy > 0
-              ? `cluster mean ${(stats.meanMsPerPolicy / 1000).toFixed(1)}s/policy${
+            {trialWorkLabel ??
+              (stats && stats.meanMsPerPolicy > 0
+                ? `cluster mean ${(stats.meanMsPerPolicy / 1000).toFixed(1)}s/policy${
                   activeTrialCount
                     ? ` · ${activeTrialCount.toLocaleString()} trials/policy`
                     : ''
                 }`
-              : sessionRunning
-                ? 'awaiting first batch'
-                : ''}
+                : sessionRunning
+                  ? 'awaiting first batch'
+                  : '')}
           </p>
         </div>
         <div>
