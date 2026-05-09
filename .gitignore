@@ -9,6 +9,10 @@ native-macos/**/DerivedData/
 backups/
 out/
 
+# local financial imports for the dev app
+public/local/*.json
+public/local/*.csv
+
 # secrets — never commit
 .env
 .env.local

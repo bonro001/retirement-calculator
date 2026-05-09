@@ -214,6 +214,15 @@ const navigation: {
       'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18Zm0-13.5V12l3 2.25',
   },
   {
+    id: 'spending',
+    label: 'Spending',
+    shortLabel: 'Spending',
+    section: 'today',
+    // Receipt / spend ledger
+    iconPath:
+      'M6.75 3h10.5A1.75 1.75 0 0 1 19 4.75V21l-3-1.5-3 1.5-3-1.5L7 21V4.75A1.75 1.75 0 0 1 8.75 3Zm3 5h4.5M9.75 12h4.5M9.75 16h2.5',
+  },
+  {
     id: 'accounts',
     label: 'Accounts',
     shortLabel: 'Accounts',
@@ -711,6 +720,7 @@ export function App() {
     'cockpit',
     'mining',
     'history',
+    'spending',
     'accounts',
     'social_security',
     'income',
