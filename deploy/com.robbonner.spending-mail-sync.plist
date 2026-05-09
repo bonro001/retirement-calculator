@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.robbonner.spending-mail-sync</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/opt/homebrew/bin/node</string>
+    <string>--import</string>
+    <string>tsx</string>
+    <string>scripts/sync-gmail-spending.ts</string>
+    <string>--mailbox</string>
+    <string>INBOX</string>
+    <string>--since</string>
+    <string>2026-01-01</string>
+    <string>--limit</string>
+    <string>250</string>
+    <string>--out</string>
+    <string>public/local/spending-ledger.gmail.json</string>
+    <string>--state</string>
+    <string>public/local/spending-mail-sync-state.json</string>
+  </array>
+
+  <key>WorkingDirectory</key>
+  <string>/Users/robbonner/retirement-calculator</string>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+  </dict>
+
+  <key>StartInterval</key>
+  <integer>300</integer>
+
+  <key>RunAtLoad</key>
+  <true/>
+
+  <key>StandardOutPath</key>
+  <string>/Users/robbonner/worker-logs/spending-mail-sync.log</string>
+
+  <key>StandardErrorPath</key>
+  <string>/Users/robbonner/worker-logs/spending-mail-sync.err.log</string>
+</dict>
+</plist>

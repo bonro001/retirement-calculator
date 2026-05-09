@@ -12,6 +12,8 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
+    "spending:gmail:sync": "node --import tsx scripts/sync-gmail-spending.ts",
+    "spending:gmail:launchd:install": "bash scripts/install-spending-mail-sync-launchd.sh",
     "test:calibration": "vitest run src/calibration.test.ts",
     "engine:compare": "node --import tsx scripts/engine-compare.ts",
     "engine:benchmark": "node --import tsx scripts/engine-benchmark.ts",
