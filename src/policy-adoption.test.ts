@@ -30,14 +30,23 @@ function makePolicy(overrides: Partial<Policy> = {}): Policy {
 }
 
 describe('buildAdoptedSeedData', () => {
-  it('scales the four spending categories proportionally to hit the policy target', () => {
+  it('keeps required and travel spending fixed while optional hits the policy target', () => {
     const policy = makePolicy({ annualSpendTodayDollars: 130_000 });
     const adopted = buildAdoptedSeedData(initialSeedData, policy);
     const newTotal = totalAnnualSpendFromCategories(adopted.spending);
     expect(Math.abs(newTotal - 130_000)).toBeLessThanOrEqual(0.01);
+    expect(adopted.spending.essentialMonthly).toBe(
+      initialSeedData.spending.essentialMonthly,
+    );
+    expect(adopted.spending.annualTaxesInsurance).toBe(
+      initialSeedData.spending.annualTaxesInsurance,
+    );
+    expect(adopted.spending.travelEarlyRetirementAnnual).toBe(
+      initialSeedData.spending.travelEarlyRetirementAnnual,
+    );
   });
 
-  it('reconciles monthly rounding drift back to the exact annual target', () => {
+  it('uses optional monthly as the exact annual target plug', () => {
     const seed: SeedData = {
       ...initialSeedData,
       spending: {
@@ -52,21 +61,25 @@ describe('buildAdoptedSeedData', () => {
     const adopted = buildAdoptedSeedData(seed, policy);
     const newTotal = totalAnnualSpendFromCategories(adopted.spending);
     expect(Math.abs(newTotal - 110_000)).toBeLessThanOrEqual(0.01);
+    expect(adopted.spending.essentialMonthly).toBe(4_333);
+    expect(adopted.spending.annualTaxesInsurance).toBe(8_888);
+    expect(adopted.spending.travelEarlyRetirementAnnual).toBe(6_666);
   });
 
-  it('preserves the relative split between categories', () => {
-    const policy = makePolicy({ annualSpendTodayDollars: 100_000 });
-    const baselineTotal = totalAnnualSpendFromCategories(
-      initialSeedData.spending,
+  it('does not cut required spending if the policy target is below fixed spend', () => {
+    const fixedAnnual =
+      initialSeedData.spending.essentialMonthly * 12 +
+      initialSeedData.spending.annualTaxesInsurance +
+      initialSeedData.spending.travelEarlyRetirementAnnual;
+    const adopted = buildAdoptedSeedData(
+      initialSeedData,
+      makePolicy({ annualSpendTodayDollars: fixedAnnual - 10_000 }),
     );
-    const adopted = buildAdoptedSeedData(initialSeedData, policy);
-    // Each category's share of the new total should match its share of
-    // the old total within 0.5 percentage points (rounding tolerance).
-    const oldShare =
-      (initialSeedData.spending.essentialMonthly * 12) / baselineTotal;
-    const newShare =
-      (adopted.spending.essentialMonthly * 12) / 100_000;
-    expect(Math.abs(oldShare - newShare)).toBeLessThan(0.005);
+    expect(adopted.spending.optionalMonthly).toBe(0);
+    expect(adopted.spending.essentialMonthly).toBe(
+      initialSeedData.spending.essentialMonthly,
+    );
+    expect(totalAnnualSpendFromCategories(adopted.spending)).toBe(fixedAnnual);
   });
 
   it('does not mutate the input seed', () => {

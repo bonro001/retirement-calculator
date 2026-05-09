@@ -91,13 +91,17 @@ afterEach(() => {
 const stubStressors: Stressor[] = [
   { id: 'market_down', name: 'Bad Markets', type: 'market' },
   { id: 'inflation', name: 'High Inflation', type: 'inflation' },
+  { id: 'layoff', name: 'Laid Off Early', type: 'income' },
   { id: 'delayed_inheritance', name: 'Delayed Inheritance', type: 'timing' },
 ];
 
 function buildSeed(): SeedData {
   return {
     stressors: stubStressors,
-    income: { socialSecurity: [{ claimAge: 67 }, { claimAge: 67 }] },
+    income: {
+      salaryAnnual: 240_000,
+      socialSecurity: [{ claimAge: 67 }, { claimAge: 67 }],
+    },
     rules: {},
     responses: [],
   } as unknown as SeedData;
@@ -124,6 +128,7 @@ describe('DEFAULT_STRESS_SCENARIOS', () => {
     const ids = DEFAULT_STRESS_SCENARIOS.map((s) => s.id);
     expect(ids).toContain('sequence_risk');
     expect(ids).toContain('high_inflation');
+    expect(ids).toContain('laid_off_october');
     expect(ids).toContain('delayed_inheritance');
     expect(ids).toContain('perfect_storm');
   });
@@ -229,6 +234,30 @@ describe('runPolicyStressTest', () => {
     expect(report.scenarios[0].scenario.id).toBe('just_markets');
   });
 
+  it('passes the October layoff date and three months severance to the engine', async () => {
+    await runPolicyStressTest(
+      buildPolicy(),
+      buildSeed(),
+      ASSUMPTIONS,
+      1_000_000,
+      cloner,
+    );
+
+    const scenarioIndex = DEFAULT_STRESS_SCENARIOS.findIndex(
+      (s) => s.id === 'laid_off_october',
+    );
+    expect(scenarioIndex).toBeGreaterThanOrEqual(0);
+
+    const engineCall = mockedBuildPathResults.mock.calls[scenarioIndex + 1];
+    expect(engineCall[2]).toEqual(['layoff']);
+    expect(engineCall[4]).toMatchObject({
+      stressorKnobs: {
+        layoffRetireDate: '2026-10-01',
+        layoffSeverance: 60_000,
+      },
+    });
+  });
+
   it('records a positive duration for each run', async () => {
     const report = await runPolicyStressTest(
       buildPolicy(),
@@ -313,6 +342,7 @@ describe('worstCaseSummary', () => {
       appliedStressors: [],
       outcome: {
         bequestAttainmentRate,
+        horizonYears: 30,
         p10EndingWealthTodayDollars: p50 * 0.4,
         p25EndingWealthTodayDollars: p50 * 0.7,
         p50EndingWealthTodayDollars: p50,

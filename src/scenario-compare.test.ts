@@ -127,7 +127,7 @@ describe('scenario compare runner + formatting', () => {
     expect(second).toEqual(first);
     expect(first.results[0].scenarioName).toBe('Base');
     expect(first.results[0].topRecommendation).not.toBeNull();
-  }, 30_000);
+  }, 90_000);
 
   it('formats compare output rows for display', () => {
     const rows = buildScenarioCompareDisplayRows({

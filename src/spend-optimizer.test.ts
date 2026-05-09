@@ -80,7 +80,7 @@ function buildAssumptions(): MarketAssumptions {
 describe('findMaxSustainableSpend — contract', () => {
   it('returns a spend within [min, max] and meets the target solvency (no legacy goal)', () => {
     const seed = buildSpendSeed({
-      startingBalance: 1_000_000,
+      startingBalance: 1_500_000,
       annualSpending: 50_000,
     });
 
@@ -106,7 +106,7 @@ describe('findMaxSustainableSpend — contract', () => {
 
   it('enforces both constraints when a legacy target is set', () => {
     const seed = buildSpendSeed({
-      startingBalance: 1_000_000,
+      startingBalance: 1_500_000,
       annualSpending: 50_000,
     });
 
@@ -181,7 +181,7 @@ describe('findMaxSustainableSpend — contract', () => {
 
   it('records every evaluation in trace', () => {
     const seed = buildSpendSeed({
-      startingBalance: 1_000_000,
+      startingBalance: 1_500_000,
       annualSpending: 50_000,
     });
 

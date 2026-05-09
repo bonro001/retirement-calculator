@@ -1,0 +1,27 @@
+import type { MarketAssumptions } from './types';
+
+export const defaultAssumptions: MarketAssumptions = {
+  equityMean: 0.074,
+  equityVolatility: 0.16,
+  internationalEquityMean: 0.074,
+  internationalEquityVolatility: 0.18,
+  bondMean: 0.038,
+  bondVolatility: 0.07,
+  cashMean: 0.02,
+  cashVolatility: 0.01,
+  inflation: 0.028,
+  inflationVolatility: 0.01,
+  simulationRuns: 5000,
+  irmaaThreshold: 200000,
+  guardrailFloorYears: 12,
+  guardrailCeilingYears: 18,
+  guardrailCutPercent: 0.2,
+  pivotSellHouseFloorYears: undefined,
+  pivotClaimSSEarlyFloorYears: undefined,
+  guardrailLadder: undefined,
+  robPlanningEndAge: 90,
+  debbiePlanningEndAge: 95,
+  travelPhaseYears: 10,
+  simulationSeed: 20260416,
+  assumptionsVersion: 'v1',
+};

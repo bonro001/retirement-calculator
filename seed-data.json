@@ -73,362 +73,569 @@
   },
   "accounts": {
     "pretax": {
-      "balance": 382925.53,
+      "balance": 386656.11,
       "targetAllocation": {
-        "CASH": 0.0031,
-        "BND": 0.3185,
-        "SCHD": 0.4876,
-        "TRP_2030": 0.0342,
-        "VTI": 0.1566
+        "CASH": 0.0027,
+        "BND": 0.3171,
+        "FAGIX": 0,
+        "FSRIX": 0,
+        "SCHD": 0.4913,
+        "TRP_2030": 0.0337,
+        "VTI": 0.1552
       },
       "sourceAccounts": [
-        {
-          "id": "267425112",
-          "name": "Rollover IRA",
-          "owner": "rob",
-          "balance": 369811.56,
-          "holdings": [
-            {
-              "symbol": "CASH",
-              "name": "Held in money market",
-              "value": 1189.34
-            },
-            {
-              "symbol": "BND",
-              "name": "Vanguard Bd Index Fds Total Bnd Mrkt",
-              "value": 121957.49
-            },
-            {
-              "symbol": "FAGIX",
-              "name": "Fidelity Capital & Income",
-              "value": 0.82
-            },
-            {
-              "symbol": "FSRIX",
-              "name": "Fidelity Advisor Strategic Inc Cl I",
-              "value": 0.68
-            },
-            {
-              "symbol": "SCHD",
-              "name": "Schwab Us Dividend Equity Etf",
-              "value": 186702.92
-            },
-            {
-              "symbol": "VTI",
-              "name": "Vanguard Index Fds Vanguard Total Stk Mkt Etf",
-              "value": 59960.31
-            }
-          ]
-        },
         {
           "id": "19098",
           "name": "ATHENAHEALTH 401(k)",
           "owner": "rob",
-          "balance": 13113.97,
+          "balance": 13037.99,
           "holdings": [
             {
               "symbol": "TRP_2030",
               "name": "T. Rowe Price Retirement 2030 Fund",
-              "value": 13113.97
+              "value": 13037.99,
+              "asOfDate": "2026-04-30",
+              "shares": 345.377,
+              "lastPrice": 37.75,
+              "costBasis": 12730.24
+            }
+          ]
+        },
+        {
+          "id": "267425112",
+          "name": "Rollover IRA",
+          "owner": "rob",
+          "balance": 373618.12,
+          "holdings": [
+            {
+              "symbol": "CASH",
+              "name": "Held in money market",
+              "value": 1053.63,
+              "asOfDate": "2026-04-30"
+            },
+            {
+              "symbol": "BND",
+              "name": "Vanguard Bd Index Fds Total Bnd Mrkt",
+              "value": 122608.06,
+              "asOfDate": "2026-04-30",
+              "shares": 1668.137,
+              "lastPrice": 73.5,
+              "costBasis": 122899.99
+            },
+            {
+              "symbol": "FAGIX",
+              "name": "Fidelity Capital & Income",
+              "value": 0.82,
+              "asOfDate": "2026-04-30",
+              "shares": 0.073,
+              "lastPrice": 11.34,
+              "costBasis": 0
+            },
+            {
+              "symbol": "FSRIX",
+              "name": "Fidelity Advisor Strategic Inc Cl I",
+              "value": 0.68,
+              "asOfDate": "2026-04-30",
+              "shares": 0.056,
+              "lastPrice": 12.21,
+              "costBasis": 0
+            },
+            {
+              "symbol": "SCHD",
+              "name": "Schwab Us Dividend Equity Etf",
+              "value": 189960.74,
+              "asOfDate": "2026-04-30",
+              "shares": 5923.316,
+              "lastPrice": 32.07,
+              "costBasis": 180749.99
+            },
+            {
+              "symbol": "VTI",
+              "name": "Vanguard Index Fds Vanguard Total Stk Mkt Etf",
+              "value": 59994.19,
+              "asOfDate": "2026-04-30",
+              "shares": 169.389,
+              "lastPrice": 354.18,
+              "costBasis": 56809.69
             }
           ]
         }
       ]
     },
     "roth": {
-      "balance": 306278.09,
+      "balance": 307059.87,
       "targetAllocation": {
-        "CASH": 0.0006,
-        "FCNTX": 0.8398,
-        "VTI": 0.1033,
-        "VXUS": 0.0563
+        "CASH": 0.0005,
+        "FCNTX": 0.8396,
+        "VTI": 0.1031,
+        "VXUS": 0.0567
       },
       "sourceAccounts": [
         {
-          "id": "262307959",
-          "name": "ROTH IRA",
-          "balance": 49072.22,
-          "holdings": [
-            {
-              "symbol": "CASH",
-              "name": "Held in money market",
-              "value": 184.32
-            },
-            {
-              "symbol": "VTI",
-              "name": "Vanguard Index Fds Vanguard Total Stk Mkt Etf",
-              "value": 31653.24
-            },
-            {
-              "symbol": "VXUS",
-              "name": "Vanguard Total International Stock Index Fund",
-              "value": 17234.66
-            }
-          ]
-        },
-        {
           "id": "194312991",
           "name": "Authorized ROTH IRA",
-          "balance": 257205.87,
+          "balance": 257817.77,
           "holdings": [
             {
               "symbol": "CASH",
               "name": "Held in money market",
-              "value": 1.9
+              "value": 1.89,
+              "asOfDate": "2026-04-30"
             },
             {
               "symbol": "FCNTX",
               "name": "Fidelity Contrafund",
-              "value": 257203.97
+              "value": 257815.88,
+              "asOfDate": "2026-04-30",
+              "shares": 10198.413,
+              "lastPrice": 25.28,
+              "costBasis": 72795.74
+            }
+          ]
+        },
+        {
+          "id": "262307959",
+          "name": "ROTH IRA",
+          "balance": 49242.1,
+          "holdings": [
+            {
+              "symbol": "CASH",
+              "name": "Held in money market",
+              "value": 166.59,
+              "asOfDate": "2026-04-30"
+            },
+            {
+              "symbol": "VTI",
+              "name": "Vanguard Index Fds Vanguard Total Stk Mkt Etf",
+              "value": 31671.12,
+              "asOfDate": "2026-04-30",
+              "shares": 89.421,
+              "lastPrice": 354.18,
+              "costBasis": 29999.86
+            },
+            {
+              "symbol": "VXUS",
+              "name": "Vanguard Total International Stock Index Fund",
+              "value": 17404.39,
+              "asOfDate": "2026-04-30",
+              "shares": 209.54,
+              "lastPrice": 83.06,
+              "costBasis": 16999.99
             }
           ]
         }
       ]
     },
     "taxable": {
-      "balance": 138606.71,
+      "balance": 138939.58,
       "targetAllocation": {
         "CASH": 0.0001,
-        "CENTRAL_MANAGED": 0.6036,
-        "FDGRX": 0.054,
+        "CENTRAL_MANAGED": 0.6034,
+        "FDGRX": 0.0532,
         "FDLO": 0.0228,
         "FELV": 0.0026,
-        "FXAIX": 0.138,
-        "HAIN": 0.0011,
-        "IEFA": 0.0761,
-        "IEMG": 0.0189,
-        "IJH": 0.0416,
-        "MUB": 0.0262,
-        "SCHH": 0.0149
+        "FXAIX": 0.1378,
+        "HAIN": 0.0012,
+        "IEFA": 0.077,
+        "IEMG": 0.0188,
+        "IJH": 0.0418,
+        "MUB": 0.0263,
+        "SCHH": 0.015
       },
       "sourceAccounts": [
         {
           "id": "Z30728530",
           "name": "Joint WROS - TOD",
-          "balance": 54941.95,
+          "balance": 55105.28,
           "holdings": [
             {
               "symbol": "CASH",
               "name": "Held in money market",
-              "value": 20.19
+              "value": 20.14,
+              "asOfDate": "2026-04-30"
             },
             {
               "symbol": "FDGRX",
               "name": "Fidelity Growth Company",
-              "value": 7483.24
+              "value": 7392.44,
+              "asOfDate": "2026-04-30",
+              "shares": 137.585,
+              "lastPrice": 53.73,
+              "costBasis": 4699.9
             },
             {
               "symbol": "FDLO",
               "name": "Fidelity Low Volatility Factor Etf",
-              "value": 3163.88
+              "value": 3173.53,
+              "asOfDate": "2026-04-30",
+              "shares": 45.92,
+              "lastPrice": 69.11,
+              "costBasis": 2668.87
             },
             {
               "symbol": "FELV",
               "name": "Fidelity Enhanced Large Cap Value Etf",
-              "value": 357.39
+              "value": 359.48,
+              "asOfDate": "2026-04-30",
+              "shares": 9.48,
+              "lastPrice": 37.92,
+              "costBasis": 278.81
             },
             {
               "symbol": "FXAIX",
               "name": "Fidelity 500 Index Fund",
-              "value": 19126.41
+              "value": 19147.04,
+              "asOfDate": "2026-04-30",
+              "shares": 76.417,
+              "lastPrice": 250.56,
+              "costBasis": 14354.31
             },
             {
               "symbol": "HAIN",
               "name": "Hain Celestial Group Inc",
-              "value": 158.6
+              "value": 163.3,
+              "asOfDate": "2026-04-30",
+              "shares": 250,
+              "lastPrice": 0.6532,
+              "costBasis": 0
             },
             {
               "symbol": "IEFA",
               "name": "Ishares Trust Core Msci Eafe Etf",
-              "value": 10541.97
+              "value": 10697.61,
+              "asOfDate": "2026-04-30",
+              "shares": 111.97,
+              "lastPrice": 95.54,
+              "costBasis": 8234.96
             },
             {
               "symbol": "IEMG",
               "name": "Ishares Core Msci Emerging Markets Etf",
-              "value": 2621.42
+              "value": 2618.42,
+              "asOfDate": "2026-04-30",
+              "shares": 33.36,
+              "lastPrice": 78.49,
+              "costBasis": 1741.9
             },
             {
               "symbol": "IJH",
               "name": "Ishares Core S&P Mid-Cap Etf",
-              "value": 5772.08
+              "value": 5805.59,
+              "asOfDate": "2026-04-30",
+              "shares": 79.78,
+              "lastPrice": 72.77,
+              "costBasis": 4425.87
             },
             {
               "symbol": "MUB",
               "name": "Ishares National Muni Bond Etf",
-              "value": 3634.92
+              "value": 3649.91,
+              "asOfDate": "2026-04-30",
+              "shares": 34.07,
+              "lastPrice": 107.13,
+              "costBasis": 3550.76
             },
             {
               "symbol": "SCHH",
               "name": "Schwab Strategic Tr Us Reit Etf",
-              "value": 2061.85
+              "value": 2077.82,
+              "asOfDate": "2026-04-30",
+              "shares": 88.72,
+              "lastPrice": 23.42,
+              "costBasis": 1796.19
             }
           ]
         },
         {
           "id": "Y81720699",
           "name": "Joint WROS - TOD (Managed)",
-          "balance": 83664.76,
+          "balance": 83834.3,
           "managed": true,
           "holdings": [
             {
               "symbol": "CASH",
               "name": "Held in money market",
-              "value": 1421.33
+              "value": 1323.02,
+              "asOfDate": "2026-04-30"
             },
             {
               "symbol": "DFEVX",
               "name": "Dimensional Emerging Mkts Val Prtf Instl",
-              "value": 4159.17
+              "value": 4140.67,
+              "asOfDate": "2026-04-30",
+              "shares": 97.359,
+              "lastPrice": 42.53,
+              "costBasis": 2860.65
             },
             {
               "symbol": "DIS",
               "name": "Disney Walt Co Com",
-              "value": 1207.61
+              "value": 1236.7,
+              "asOfDate": "2026-04-30",
+              "shares": 11.92,
+              "lastPrice": 103.75,
+              "costBasis": 249.01
             },
             {
               "symbol": "FDGRX",
               "name": "Fidelity Growth Company",
-              "value": 1163.07
+              "value": 1148.96,
+              "asOfDate": "2026-04-30",
+              "shares": 21.384,
+              "lastPrice": 53.73,
+              "costBasis": 1102.32
             },
             {
               "symbol": "FDIVX",
               "name": "Fidelity Diversified International",
-              "value": 1674.71
+              "value": 1702.03,
+              "asOfDate": "2026-04-30",
+              "shares": 32.525,
+              "lastPrice": 52.33,
+              "costBasis": 1391.41
             },
             {
               "symbol": "FDSSX",
               "name": "Fidelity Stock Selector Fund",
-              "value": 3838.43
+              "value": 3837.25,
+              "asOfDate": "2026-04-30",
+              "shares": 39.068,
+              "lastPrice": 98.22,
+              "costBasis": 3700.92
             },
             {
               "symbol": "FELC",
               "name": "Fidelity Enhanced Large Cap Core Etf",
-              "value": 590.67
+              "value": 589.93,
+              "asOfDate": "2026-04-30",
+              "shares": 14.73,
+              "lastPrice": 40.05,
+              "costBasis": 570.04
             },
             {
               "symbol": "FEMVX",
               "name": "Fid Sai Emerging Mkt Value Index Fund",
-              "value": 2755.8
+              "value": 2728.6,
+              "asOfDate": "2026-04-30",
+              "shares": 136.022,
+              "lastPrice": 20.06,
+              "costBasis": 1757.41
             },
             {
               "symbol": "FENCX",
               "name": "Fid Sai Enhanced Muni Income Fund",
-              "value": 2685.07
+              "value": 2690.39,
+              "asOfDate": "2026-04-30",
+              "shares": 265.849,
+              "lastPrice": 10.12,
+              "costBasis": 2614.18
             },
             {
               "symbol": "FENI",
               "name": "Fidelity Enhanced International Etf",
-              "value": 538.5
+              "value": 547.42,
+              "asOfDate": "2026-04-30",
+              "shares": 13.94,
+              "lastPrice": 39.27,
+              "costBasis": 511.95
             },
             {
               "symbol": "FFSM",
               "name": "Fidelity Fundamental Small-Mid Cap Etf",
-              "value": 488.32
+              "value": 490.25,
+              "asOfDate": "2026-04-30",
+              "shares": 13.81,
+              "lastPrice": 35.5,
+              "costBasis": 478.03
             },
             {
               "symbol": "FICQX",
               "name": "Fidelity Intl Cap Appreciation Fund",
-              "value": 1734.37
+              "value": 1748.83,
+              "asOfDate": "2026-04-30",
+              "shares": 46.648,
+              "lastPrice": 37.49,
+              "costBasis": 1648.03
             },
             {
               "symbol": "FIWCX",
               "name": "Fidelity Sai Int'L Value Index Fund",
-              "value": 1781.47
+              "value": 1804.84,
+              "asOfDate": "2026-04-30",
+              "shares": 129.845,
+              "lastPrice": 13.9,
+              "costBasis": 1290.72
             },
             {
               "symbol": "FMAGX",
               "name": "Fidelity Magellan",
-              "value": 2676.08
+              "value": 2689.87,
+              "asOfDate": "2026-04-30",
+              "shares": 172.428,
+              "lastPrice": 15.6,
+              "costBasis": 2424.33
             },
             {
               "symbol": "FOSFX",
               "name": "Fidelity Overseas",
-              "value": 262.64
+              "value": 268.57,
+              "asOfDate": "2026-04-30",
+              "shares": 3.591,
+              "lastPrice": 74.79,
+              "costBasis": 272.2
             },
             {
               "symbol": "FRESX",
               "name": "Fidelity Real Estate Investment",
-              "value": 884.94
+              "value": 892.93,
+              "asOfDate": "2026-04-30",
+              "shares": 21.04,
+              "lastPrice": 42.44,
+              "costBasis": 874.64
             },
             {
               "symbol": "FSKLX",
               "name": "Fid Sai Intnl Low Volatility Index Fd",
-              "value": 1164.45
+              "value": 1175.64,
+              "asOfDate": "2026-04-30",
+              "shares": 86.065,
+              "lastPrice": 13.66,
+              "costBasis": 1013.58
             },
             {
               "symbol": "FSMJX",
               "name": "Fidelity Sai Conserv Income Muni Bond Fd",
-              "value": 325.44
+              "value": 325.44,
+              "asOfDate": "2026-04-30",
+              "shares": 32.383,
+              "lastPrice": 10.05,
+              "costBasis": 325.77
             },
             {
               "symbol": "FSMNX",
               "name": "Fidelity Sai Municipal Income Fd",
-              "value": 21973.28
+              "value": 21995.5,
+              "asOfDate": "2026-04-30",
+              "shares": 2221.768,
+              "lastPrice": 9.9,
+              "costBasis": 20932.11
             },
             {
               "symbol": "FSPGX",
               "name": "Fidelity Large Cap Growth Index Fund",
-              "value": 1114.72
+              "value": 1109.73,
+              "asOfDate": "2026-04-30",
+              "shares": 23.758,
+              "lastPrice": 46.71,
+              "costBasis": 919.89
             },
             {
               "symbol": "FSPSX",
               "name": "Fidelity Internatl Index Fund",
-              "value": 1526.24
+              "value": 1548.9,
+              "asOfDate": "2026-04-30",
+              "shares": 23.855,
+              "lastPrice": 64.93,
+              "costBasis": 1564.43
             },
             {
               "symbol": "FSSNX",
               "name": "Fidelity Small Cap Index Fund",
-              "value": 2855.8
+              "value": 2859.88,
+              "asOfDate": "2026-04-30",
+              "shares": 81.641,
+              "lastPrice": 35.03,
+              "costBasis": 1940.63
             },
             {
               "symbol": "FSTFX",
               "name": "Fidelity Limited Term Muni Income Fd",
-              "value": 2203.41
+              "value": 2205.49,
+              "asOfDate": "2026-04-30",
+              "shares": 208.262,
+              "lastPrice": 10.59,
+              "costBasis": 2180.5
             },
             {
               "symbol": "FVAL",
               "name": "Fidelity Value Factor Etf",
-              "value": 2625.77
+              "value": 2635.82,
+              "asOfDate": "2026-04-30",
+              "shares": 34.65,
+              "lastPrice": 76.07,
+              "costBasis": 2250.19
             },
             {
               "symbol": "FZALX",
               "name": "Fidelity Advisor Mega Cap Stock Cl Z",
-              "value": 10457.46
+              "value": 10533.17,
+              "asOfDate": "2026-04-30",
+              "shares": 315.459,
+              "lastPrice": 33.39,
+              "costBasis": 7563.66
             },
             {
               "symbol": "HYD",
               "name": "Vaneck Etf Trust High Yld Munietf",
-              "value": 1240.43
+              "value": 1245.3,
+              "asOfDate": "2026-04-30",
+              "shares": 24.37,
+              "lastPrice": 51.1,
+              "costBasis": 1218.54
             },
             {
               "symbol": "IJH",
               "name": "Ishares Core S&P Mid-Cap Etf",
-              "value": 426.86
+              "value": 429.34,
+              "asOfDate": "2026-04-30",
+              "shares": 5.9,
+              "lastPrice": 72.77,
+              "costBasis": 421.78
             },
             {
               "symbol": "MTUM",
               "name": "Ishares Tr Msci Usa Mmentm",
-              "value": 3087.38
+              "value": 3084.02,
+              "asOfDate": "2026-04-30",
+              "shares": 10.86,
+              "lastPrice": 283.98,
+              "costBasis": 2166.05
             },
             {
               "symbol": "PEMGX",
               "name": "Principal Mid Cap Fund Class A",
-              "value": 669.21
+              "value": 678.26,
+              "asOfDate": "2026-04-30",
+              "shares": 18.087,
+              "lastPrice": 37.5,
+              "costBasis": 628.91
             },
             {
               "symbol": "QUAL",
               "name": "Ishares Tr Msci Usa Qlt Fct",
-              "value": 3056.46
+              "value": 3073.51,
+              "asOfDate": "2026-04-30",
+              "shares": 14.83,
+              "lastPrice": 207.25,
+              "costBasis": 3008.12
             },
             {
               "symbol": "SCZ",
               "name": "Ishares Tr Eafe Sml Cp Etf",
-              "value": 1130.92
+              "value": 1143.51,
+              "asOfDate": "2026-04-30",
+              "shares": 13.68,
+              "lastPrice": 83.59,
+              "costBasis": 806.5
             },
             {
               "symbol": "USMV",
               "name": "Ishares Tr Msci Usa Min Vol",
-              "value": 1944.75
+              "value": 1950.53,
+              "asOfDate": "2026-04-30",
+              "shares": 20.61,
+              "lastPrice": 94.64,
+              "costBasis": 1925.18
             }
           ]
         }
@@ -441,44 +648,61 @@
       }
     },
     "hsa": {
-      "balance": 50182.61,
+      "balance": 50493.12,
       "targetAllocation": {
-        "CASH": 0.0134,
-        "BND": 0.0988,
-        "SCHD": 0.2238,
-        "VTI": 0.4213,
-        "VXUS": 0.2428
+        "CASH": 0.0124,
+        "BND": 0.0987,
+        "SCHD": 0.2263,
+        "VTI": 0.4189,
+        "VXUS": 0.2437
       },
       "sourceAccounts": [
         {
           "id": "262675925",
           "name": "Health Savings Account",
-          "balance": 50182.61,
+          "balance": 50493.12,
           "holdings": [
             {
               "symbol": "CASH",
               "name": "Held in money market",
-              "value": 671.52
+              "value": 627.71,
+              "asOfDate": "2026-04-30"
             },
             {
               "symbol": "BND",
               "name": "Vanguard Bd Index Fds Total Bnd Mrkt",
-              "value": 4956.93
+              "value": 4983.37,
+              "asOfDate": "2026-04-30",
+              "shares": 67.801,
+              "lastPrice": 73.5,
+              "costBasis": 4999.99
             },
             {
               "symbol": "SCHD",
               "name": "Schwab Us Dividend Equity Etf",
-              "value": 11230.16
+              "value": 11426.12,
+              "asOfDate": "2026-04-30",
+              "shares": 356.287,
+              "lastPrice": 32.07,
+              "costBasis": 10864.97
             },
             {
               "symbol": "VTI",
               "name": "Vanguard Index Fds Vanguard Total Stk Mkt Etf",
-              "value": 21140.39
+              "value": 21152.33,
+              "asOfDate": "2026-04-30",
+              "shares": 59.722,
+              "lastPrice": 354.18,
+              "costBasis": 19999.71
             },
             {
               "symbol": "VXUS",
               "name": "Vanguard Total International Stock Index Fund",
-              "value": 12183.61
+              "value": 12303.59,
+              "asOfDate": "2026-04-30",
+              "shares": 148.129,
+              "lastPrice": 83.06,
+              "costBasis": 11999.93
             }
           ]
         }
@@ -497,7 +721,12 @@
       "employee401kBaseLimit": 24500,
       "employee401kCatchUpAge": 50,
       "employee401kCatchUpLimit": 8000,
-      "employee401kSuperCatchUpAges": [60, 61, 62, 63],
+      "employee401kSuperCatchUpAges": [
+        60,
+        61,
+        62,
+        63
+      ],
       "employee401kSuperCatchUpLimit": 11250,
       "rothCatchUpWageThreshold": 150000,
       "employee401kBaseLimitByYear": {

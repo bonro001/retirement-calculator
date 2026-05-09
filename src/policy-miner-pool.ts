@@ -64,9 +64,8 @@ let nextRequestSeq = 0;
  *                compute. Memory-safe; loses browser's ~720 pol/min
  *                contribution.
  *   - 'reduced': 4 Web Workers (cap regardless of hardwareConcurrency).
- *                Default. Memory-safe AND contributes ~240 pol/min on
- *                an M4 mini. Picks the right balance when other hosts
- *                are present.
+ *                Debug/fallback mode. Memory-safe AND contributes
+ *                ~240 pol/min on an M4 mini.
  *   - 'full':    Original 1.5× hardwareConcurrency capped at 12.
  *                Right when the browser is the ONLY host (no Node
  *                cluster running) — max throughput, accept the OOM
@@ -79,10 +78,10 @@ const BROWSER_HOST_MODE_KEY = 'cluster.browserHostMode';
 type BrowserHostMode = 'off' | 'reduced' | 'full';
 
 function readBrowserHostMode(): BrowserHostMode {
-  if (typeof localStorage === 'undefined') return 'reduced';
+  if (typeof localStorage === 'undefined') return 'off';
   const v = localStorage.getItem(BROWSER_HOST_MODE_KEY);
   if (v === 'off' || v === 'reduced' || v === 'full') return v;
-  return 'reduced';
+  return 'off';
 }
 
 /** Public read-accessor — also used by cluster-client.ts to decide

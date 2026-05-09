@@ -315,7 +315,7 @@ function targetInFlightBatchesForPeer(peer: Peer): number {
 
 function hostDispatchBlockedReason(peer: Peer): string | null {
   if (!peer.roles.includes('host') || ALLOW_BUILD_MISMATCH) return null;
-  const status = compareBuildInfo(DISPATCHER_BUILD_INFO, peer.buildInfo);
+  const status = compareBuildInfo(WIRE_DISPATCHER_BUILD_INFO, peer.buildInfo);
   if (status === 'match') return null;
   if (status === 'dirty' && !BLOCK_DIRTY_BUILDS) return null;
   return `build_${status}`;
@@ -441,6 +441,9 @@ function buildRuntimeMetrics(queueSnap: ReturnType<WorkQueue['snapshot']>): Clus
 
 const peers = new Map<string, Peer>();
 const DISPATCHER_BUILD_INFO = getLocalBuildInfo();
+const WIRE_DISPATCHER_BUILD_INFO = DISPATCHER_BUILD_INFO.gitDirty
+  ? { ...DISPATCHER_BUILD_INFO, gitDirty: false, gitDirtyFiles: [] }
+  : DISPATCHER_BUILD_INFO;
 
 // ---------------------------------------------------------------------------
 // Session state
@@ -764,14 +767,14 @@ function buildClusterSnapshot(): ClusterSnapshot {
   }
   return {
     protocolVersion: MINING_PROTOCOL_VERSION,
-    dispatcherBuildInfo: DISPATCHER_BUILD_INFO,
+    dispatcherBuildInfo: WIRE_DISPATCHER_BUILD_INFO,
     peers: [...peers.values()].map((p) => ({
       peerId: p.peerId,
       displayName: p.displayName,
       roles: p.roles,
       capabilities: p.capabilities,
       buildInfo: p.buildInfo,
-      buildStatus: compareBuildInfo(DISPATCHER_BUILD_INFO, p.buildInfo),
+      buildStatus: compareBuildInfo(WIRE_DISPATCHER_BUILD_INFO, p.buildInfo),
       lastHeartbeatTs: p.lastHeartbeatTs,
       meanMsPerPolicy: p.meanMsPerPolicy,
       inFlightBatchCount: p.inFlightBatchIds.size,
@@ -845,16 +848,16 @@ function requestHostUpdateIfNeeded(peer: Peer, source: string): void {
   if (!peer.roles.includes('host') || ALLOW_BUILD_MISMATCH) return;
   if (peer.socket.readyState !== peer.socket.OPEN) return;
 
-  const status = compareBuildInfo(DISPATCHER_BUILD_INFO, peer.buildInfo);
+  const status = compareBuildInfo(WIRE_DISPATCHER_BUILD_INFO, peer.buildInfo);
   if (status === 'match' || status === 'unknown') return;
   if (status === 'dirty' && !BLOCK_DIRTY_BUILDS) return;
 
-  const expectedKey = formatBuildInfo(DISPATCHER_BUILD_INFO);
+  const expectedKey = formatBuildInfo(WIRE_DISPATCHER_BUILD_INFO);
   const requestKey = [
     peer.displayName,
     peer.buildInfo?.gitBranch ?? 'unknown-branch',
     peer.buildInfo?.gitCommit ?? 'unknown-commit',
-    DISPATCHER_BUILD_INFO.gitCommit ?? expectedKey,
+    WIRE_DISPATCHER_BUILD_INFO.gitCommit ?? expectedKey,
   ].join('|');
   const nowMs = Date.now();
   if (
@@ -878,7 +881,7 @@ function requestHostUpdateIfNeeded(peer: Peer, source: string): void {
   sendTo(peer, {
     kind: 'host_control',
     action: 'cycle_for_update',
-    expectedBuildInfo: DISPATCHER_BUILD_INFO,
+    expectedBuildInfo: WIRE_DISPATCHER_BUILD_INFO,
     reason: `build_${status}`,
     from: 'dispatcher',
     to: peer.peerId,
@@ -989,8 +992,8 @@ function handleRegister(socket: WebSocket, registration: RegisterMessage, remote
     workers: peer.capabilities?.workerCount ?? '?',
     perfClass: peer.capabilities?.perfClass ?? 'unknown',
     build: formatBuildInfo(peer.buildInfo),
-    expectedBuild: formatBuildInfo(DISPATCHER_BUILD_INFO),
-    buildStatus: compareBuildInfo(DISPATCHER_BUILD_INFO, peer.buildInfo),
+    expectedBuild: formatBuildInfo(WIRE_DISPATCHER_BUILD_INFO),
+    buildStatus: compareBuildInfo(WIRE_DISPATCHER_BUILD_INFO, peer.buildInfo),
     remoteAddress,
   });
 
@@ -1739,8 +1742,8 @@ function handleBatchResult(peer: Peer, message: Extract<ClusterMessage, { kind: 
         reason: peer.quarantinedForSessionReason,
         incompleteResultBatches: peer.incompleteResultBatches,
         build: formatBuildInfo(peer.buildInfo),
-        expectedBuild: formatBuildInfo(DISPATCHER_BUILD_INFO),
-        buildStatus: compareBuildInfo(DISPATCHER_BUILD_INFO, peer.buildInfo),
+        expectedBuild: formatBuildInfo(WIRE_DISPATCHER_BUILD_INFO),
+        buildStatus: compareBuildInfo(WIRE_DISPATCHER_BUILD_INFO, peer.buildInfo),
       });
     }
     sendTo(peer, {
@@ -2002,17 +2005,23 @@ function handleMessage(peer: Peer, message: ClusterMessage): void {
 // Heartbeat sweep
 // ---------------------------------------------------------------------------
 
-const STALE_PEER_THRESHOLD_MS = HEARTBEAT_INTERVAL_MS * 6;
+const STALE_HOST_THRESHOLD_MS = HEARTBEAT_INTERVAL_MS * 30;
+const STALE_CONTROLLER_THRESHOLD_MS = HEARTBEAT_INTERVAL_MS * 100;
 
 function sweepStalePeers(): void {
   const now = Date.now();
   for (const peer of [...peers.values()]) {
     if (peer.lastHeartbeatTs === null) continue;
     const silentMs = now - peer.lastHeartbeatTs;
-    if (silentMs > STALE_PEER_THRESHOLD_MS) {
+    const staleThresholdMs = peer.roles.includes('host')
+      ? STALE_HOST_THRESHOLD_MS
+      : STALE_CONTROLLER_THRESHOLD_MS;
+    if (silentMs > staleThresholdMs) {
       log('warn', 'stale peer, disconnecting', {
         peerId: peer.peerId,
+        roles: peer.roles,
         silentMs,
+        staleThresholdMs,
       });
       try {
         peer.socket.close(1001, 'heartbeat timeout');

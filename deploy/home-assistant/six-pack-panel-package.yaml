@@ -1,0 +1,81 @@
+# Home Assistant package for the Retirement Calculator 6 Pack.
+#
+# Expected API:
+#   http://127.0.0.1:8787/api/home-assistant/six-pack/panel
+#
+# If Home Assistant runs on a different machine or container, replace
+# 127.0.0.1 with the Mac's LAN hostname or IP address.
+
+sensor:
+  - platform: rest
+    name: Six Pack Panel
+    unique_id: retirement_six_pack_panel
+    resource: http://127.0.0.1:8787/api/home-assistant/six-pack/panel
+    method: GET
+    scan_interval: 60
+    timeout: 15
+    value_template: "{{ value_json.state }}"
+    json_attributes_path: "$.attributes"
+    json_attributes:
+      - summary
+      - as_of
+      - action_required
+      - green
+      - amber
+      - red
+      - unknown
+      - pucks
+
+template:
+  - sensor:
+      - name: Six Pack Summary
+        unique_id: retirement_six_pack_summary
+        state: "{{ state_attr('sensor.six_pack_panel', 'summary') | default('UNKNOWN', true) }}"
+        icon: >-
+          {% if is_state('sensor.six_pack_panel', 'green') %}
+            mdi:check-circle
+          {% elif is_state('sensor.six_pack_panel', 'amber') %}
+            mdi:alert-circle
+          {% elif is_state('sensor.six_pack_panel', 'red') %}
+            mdi:alert-octagon
+          {% else %}
+            mdi:help-circle
+          {% endif %}
+        attributes:
+          green: "{{ state_attr('sensor.six_pack_panel', 'green') | default(0, true) }}"
+          amber: "{{ state_attr('sensor.six_pack_panel', 'amber') | default(0, true) }}"
+          red: "{{ state_attr('sensor.six_pack_panel', 'red') | default(0, true) }}"
+          unknown: "{{ state_attr('sensor.six_pack_panel', 'unknown') | default(0, true) }}"
+          as_of: "{{ state_attr('sensor.six_pack_panel', 'as_of') }}"
+
+      - name: Six Pack Lifestyle Pace
+        unique_id: retirement_six_pack_lifestyle_pace
+        state: >-
+          {% set pucks = state_attr('sensor.six_pack_panel', 'pucks') or [] %}
+          {% set puck = pucks | selectattr('id', 'equalto', 'lifestyle_pace') | first %}
+          {{ puck.status if puck else 'unknown' }}
+        attributes:
+          headline: >-
+            {% set pucks = state_attr('sensor.six_pack_panel', 'pucks') or [] %}
+            {% set puck = pucks | selectattr('id', 'equalto', 'lifestyle_pace') | first %}
+            {{ puck.headline if puck else 'NO DATA' }}
+          metric: >-
+            {% set pucks = state_attr('sensor.six_pack_panel', 'pucks') or [] %}
+            {% set puck = pucks | selectattr('id', 'equalto', 'lifestyle_pace') | first %}
+            {{ puck.front_metric if puck else none }}
+
+      - name: Six Pack Portfolio Weather
+        unique_id: retirement_six_pack_portfolio_weather
+        state: >-
+          {% set pucks = state_attr('sensor.six_pack_panel', 'pucks') or [] %}
+          {% set puck = pucks | selectattr('id', 'equalto', 'portfolio_weather') | first %}
+          {{ puck.status if puck else 'unknown' }}
+        attributes:
+          headline: >-
+            {% set pucks = state_attr('sensor.six_pack_panel', 'pucks') or [] %}
+            {% set puck = pucks | selectattr('id', 'equalto', 'portfolio_weather') | first %}
+            {{ puck.headline if puck else 'NO DATA' }}
+          reason: >-
+            {% set pucks = state_attr('sensor.six_pack_panel', 'pucks') or [] %}
+            {% set puck = pucks | selectattr('id', 'equalto', 'portfolio_weather') | first %}
+            {{ puck.reason if puck else 'No data.' }}

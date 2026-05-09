@@ -70,6 +70,7 @@ import {
   getHoldingExposure,
   type AssetClassMappingAssumptions,
 } from './asset-class-mapper';
+import { applyAnnualSpendTargetToOptionalSpending } from './policy-adoption';
 
 const CURRENT_DATE = new Date('2026-04-16T12:00:00');
 const CURRENT_YEAR = CURRENT_DATE.getFullYear();
@@ -735,19 +736,16 @@ function buildPlan(
   );
 
   const salaryEndDate = data.income.salaryEndDate;
-  const rawEssentialAnnual = data.spending.essentialMonthly * 12;
-  const rawOptionalAnnual = data.spending.optionalMonthly * 12;
-  const rawTaxesInsuranceAnnual = data.spending.annualTaxesInsurance;
-  const rawTravelAnnual = data.spending.travelEarlyRetirementAnnual;
-  const baselineAnnualSpend =
-    rawEssentialAnnual + rawOptionalAnnual + rawTaxesInsuranceAnnual + rawTravelAnnual;
-  const spendMultiplier =
+  const effectiveSpending =
     typeof annualSpendTarget === 'number' &&
       Number.isFinite(annualSpendTarget) &&
-      annualSpendTarget > 0 &&
-      baselineAnnualSpend > 0
-      ? annualSpendTarget / baselineAnnualSpend
-      : 1;
+      annualSpendTarget >= 0
+      ? applyAnnualSpendTargetToOptionalSpending(data.spending, annualSpendTarget)
+      : data.spending;
+  const rawEssentialAnnual = effectiveSpending.essentialMonthly * 12;
+  const rawOptionalAnnual = effectiveSpending.optionalMonthly * 12;
+  const rawTaxesInsuranceAnnual = effectiveSpending.annualTaxesInsurance;
+  const rawTravelAnnual = effectiveSpending.travelEarlyRetirementAnnual;
 
   const assetClassMappingAssumptions = deriveAssetClassMappingAssumptionsFromAccounts(
     data.accounts,
@@ -811,10 +809,10 @@ function buildPlan(
     retirementYear: new Date(salaryEndDate).getFullYear(),
     salaryAnnual: data.income.salaryAnnual,
     salaryEndDate,
-    essentialAnnual: rawEssentialAnnual * spendMultiplier,
-    optionalAnnual: rawOptionalAnnual * spendMultiplier,
-    taxesInsuranceAnnual: rawTaxesInsuranceAnnual * spendMultiplier,
-    travelAnnual: rawTravelAnnual * spendMultiplier,
+    essentialAnnual: rawEssentialAnnual,
+    optionalAnnual: rawOptionalAnnual,
+    taxesInsuranceAnnual: rawTaxesInsuranceAnnual,
+    travelAnnual: rawTravelAnnual,
     travelPhaseYears: assumptions.travelPhaseYears,
     housingAfterDownsizePolicy: data.rules.housingAfterDownsizePolicy
       ? { ...data.rules.housingAfterDownsizePolicy }

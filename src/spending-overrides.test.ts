@@ -1,10 +1,17 @@
 import { describe, expect, it } from 'vitest';
 import {
+  applySpendingMerchantCategoryRules,
   applySpendingTransactionOverrides,
+  buildSpendingMerchantCategoryRule,
   buildSpendingTransactionOverride,
+  normalizeSpendingMerchant,
+  readSpendingMerchantCategoryRules,
   readSpendingTransactionOverrides,
   SPENDING_CATEGORY_OVERRIDE_STORAGE_KEY,
+  SPENDING_MERCHANT_CATEGORY_RULE_STORAGE_KEY,
+  writeSpendingMerchantCategoryRules,
   writeSpendingTransactionOverrides,
+  type SpendingMerchantCategoryRuleMap,
   type SpendingTransactionOverrideMap,
 } from './spending-overrides';
 import type { SpendingTransaction } from './spending-ledger';
@@ -90,12 +97,30 @@ describe('spending transaction overrides', () => {
     expect(moved.tags).toContain('ignored');
   });
 
+  it('persists an optional readable title on transaction overrides', () => {
+    const [moved] = applySpendingTransactionOverrides([tx], {
+      'tx-1': buildSpendingTransactionOverride({
+        transactionId: 'tx-1',
+        categoryId: 'travel',
+        title: 'Oregon Trip',
+        updatedAtIso: '2026-05-08T12:00:00Z',
+      }),
+    });
+
+    expect(moved.displayTitle).toBe('Oregon Trip');
+    expect(moved.rawEvidence?.categoryOverride).toMatchObject({
+      title: 'Oregon Trip',
+      updatedAtIso: '2026-05-08T12:00:00Z',
+    });
+  });
+
   it('round-trips valid overrides through localStorage', () => {
     const storage = makeStorage();
     const overrides: SpendingTransactionOverrideMap = {
       'tx-1': buildSpendingTransactionOverride({
         transactionId: 'tx-1',
         categoryId: 'travel',
+        title: 'Oregon Trip',
         updatedAtIso: '2026-05-08T12:00:00Z',
       }),
     };
@@ -117,5 +142,61 @@ describe('spending transaction overrides', () => {
     );
 
     expect(Object.keys(readSpendingTransactionOverrides(storage))).toEqual(['good']);
+  });
+});
+
+describe('spending merchant category rules', () => {
+  it('normalizes common merchant variants', () => {
+    expect(normalizeSpendingMerchant('H-E-B #123')).toBe('heb');
+    expect(normalizeSpendingMerchant('SAMSCLUB #6453')).toBe('samsclub');
+  });
+
+  it('applies merchant rules as manual reviewed classifications', () => {
+    const rule = buildSpendingMerchantCategoryRule({
+      merchant: 'H-E-B #123',
+      categoryId: 'essential',
+      updatedAtIso: '2026-05-08T12:00:00Z',
+    });
+    const hebTransaction: SpendingTransaction = {
+      ...tx,
+      id: 'heb-1',
+      merchant: 'H-E-B #456',
+      categoryId: 'optional',
+      classificationMethod: 'rule',
+    };
+
+    const [moved] = applySpendingMerchantCategoryRules([hebTransaction], {
+      [rule.merchantKey]: rule,
+    });
+
+    expect(moved.categoryId).toBe('essential');
+    expect(moved.classificationMethod).toBe('manual');
+    expect(moved.tags).toContain('manual_override');
+    expect(moved.tags).toContain('merchant_rule');
+    expect(moved.rawEvidence?.merchantCategoryRule).toEqual({
+      merchantKey: 'heb',
+      merchantLabel: 'H-E-B #123',
+      previousCategoryId: 'optional',
+      previousClassificationMethod: 'rule',
+      previousIgnored: false,
+      updatedAtIso: '2026-05-08T12:00:00Z',
+      updatedFrom: 'retirenment',
+    });
+  });
+
+  it('round-trips valid merchant rules through localStorage', () => {
+    const storage = makeStorage();
+    const rule = buildSpendingMerchantCategoryRule({
+      merchant: 'H-E-B',
+      categoryId: 'essential',
+      updatedAtIso: '2026-05-08T12:00:00Z',
+    });
+    const rules: SpendingMerchantCategoryRuleMap = {
+      [rule.merchantKey]: rule,
+    };
+
+    writeSpendingMerchantCategoryRules(storage, rules);
+    expect(storage.getItem(SPENDING_MERCHANT_CATEGORY_RULE_STORAGE_KEY)).toBeTruthy();
+    expect(readSpendingMerchantCategoryRules(storage)).toEqual(rules);
   });
 });

@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.robbonner.six-pack-api</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/opt/homebrew/bin/node</string>
+    <string>--import</string>
+    <string>tsx</string>
+    <string>scripts/six-pack-api.ts</string>
+  </array>
+
+  <key>WorkingDirectory</key>
+  <string>/Users/robbonner/retirement-calculator</string>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    <key>SIX_PACK_API_HOST</key>
+    <string>127.0.0.1</string>
+    <key>SIX_PACK_API_PORT</key>
+    <string>8787</string>
+  </dict>
+
+  <key>RunAtLoad</key>
+  <true/>
+
+  <key>KeepAlive</key>
+  <true/>
+
+  <key>StandardOutPath</key>
+  <string>/Users/robbonner/worker-logs/six-pack-api.log</string>
+
+  <key>StandardErrorPath</key>
+  <string>/Users/robbonner/worker-logs/six-pack-api.err.log</string>
+</dict>
+</plist>

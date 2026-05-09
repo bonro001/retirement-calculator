@@ -1,4 +1,5 @@
 export type ScreenId =
+  | 'six_pack'
   | 'cockpit'
   | 'mining'
   | 'history'
@@ -192,6 +193,10 @@ export interface Holding {
   symbol: string;
   name?: string;
   value: number;
+  shares?: number;
+  lastPrice?: number;
+  asOfDate?: string;
+  costBasis?: number;
 }
 
 export interface SourceAccount {

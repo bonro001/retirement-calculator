@@ -15,6 +15,7 @@ import {
   getAnnualStretchSpend,
   getRetirementHorizonYears,
 } from './utils';
+import { applyAnnualSpendTargetToOptionalSpending } from './policy-adoption';
 
 export type HousingFundingPolicy =
   | 'allow_primary_residence_sale'
@@ -454,20 +455,12 @@ function toInheritanceMateriality(pathResult: PathResult): 'low' | 'medium' | 'h
 }
 
 function withAnnualSpendTarget(data: SeedData, annualSpend: number): SeedData {
-  const baselineAnnualSpend = getAnnualStretchSpend(data);
-  if (!(baselineAnnualSpend > 0)) {
-    return cloneSeedData(data);
-  }
-
-  const scale = Math.max(0, annualSpend) / baselineAnnualSpend;
   return {
     ...data,
-    spending: {
-      essentialMonthly: data.spending.essentialMonthly * scale,
-      optionalMonthly: data.spending.optionalMonthly * scale,
-      annualTaxesInsurance: data.spending.annualTaxesInsurance * scale,
-      travelEarlyRetirementAnnual: data.spending.travelEarlyRetirementAnnual * scale,
-    },
+    spending: applyAnnualSpendTargetToOptionalSpending(
+      data.spending,
+      Math.max(0, annualSpend),
+    ),
   };
 }
 

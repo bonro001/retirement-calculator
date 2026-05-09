@@ -42,25 +42,6 @@ import {
 const SENSITIVITY_HALF_WIDTH = 1;
 
 /**
- * Pick the value in `available` closest to `target`, matching by
- * absolute distance with a stable tiebreak (lower index wins). Used to
- * snap the adopted policy onto its grid neighbors.
- */
-function nearestIndex(available: number[], target: number): number {
-  if (available.length === 0) return -1;
-  let bestIdx = 0;
-  let bestDist = Math.abs(available[0] - target);
-  for (let i = 1; i < available.length; i += 1) {
-    const dist = Math.abs(available[i] - target);
-    if (dist < bestDist) {
-      bestDist = dist;
-      bestIdx = i;
-    }
-  }
-  return bestIdx;
-}
-
-/**
  * Pick a window of values centered on the adopted-value index, half-
  * width on each side. Clamps at the array boundaries — if the adopted
  * value is at the edge of the legal range (e.g. SS age 70 is the upper
@@ -70,6 +51,24 @@ function windowAround(values: number[], centerIdx: number, halfWidth: number): n
   const lo = Math.max(0, centerIdx - halfWidth);
   const hi = Math.min(values.length - 1, centerIdx + halfWidth);
   return values.slice(lo, hi + 1);
+}
+
+function uniqueSorted(values: number[]): number[] {
+  return Array.from(new Set(values)).sort((a, b) => a - b);
+}
+
+function windowAroundTarget(
+  values: number[],
+  target: number,
+  halfWidth: number,
+): number[] {
+  if (values.length === 0) return [target];
+  if (values.includes(target)) {
+    return windowAround(values, values.indexOf(target), halfWidth);
+  }
+  const below = values.filter((value) => value < target).slice(-halfWidth);
+  const above = values.filter((value) => value > target).slice(0, halfWidth);
+  return uniqueSorted([...below, target, ...above]);
 }
 
 /**
@@ -93,32 +92,18 @@ export function buildSensitivitySweepAxes(
 
   // Spend axis: snap to grid, then take a 3-wide window. Floor still
   // applies because we drew from `defaults`, which is already filtered.
-  const spendIdx = nearestIndex(
+  const spendValues = windowAroundTarget(
     defaults.annualSpendTodayDollars,
     adopted.annualSpendTodayDollars,
+    SENSITIVITY_HALF_WIDTH,
   );
-  const spendValues =
-    spendIdx >= 0
-      ? windowAround(
-          defaults.annualSpendTodayDollars,
-          spendIdx,
-          SENSITIVITY_HALF_WIDTH,
-        )
-      : [adopted.annualSpendTodayDollars];
 
   // Primary SS age axis.
-  const primaryIdx = nearestIndex(
+  const primaryValues = windowAroundTarget(
     defaults.primarySocialSecurityClaimAge,
     adopted.primarySocialSecurityClaimAge,
+    SENSITIVITY_HALF_WIDTH,
   );
-  const primaryValues =
-    primaryIdx >= 0
-      ? windowAround(
-          defaults.primarySocialSecurityClaimAge,
-          primaryIdx,
-          SENSITIVITY_HALF_WIDTH,
-        )
-      : [adopted.primarySocialSecurityClaimAge];
 
   // Spouse SS age axis — only if the household has a spouse SS record.
   let spouseValues: number[] | null = null;
@@ -126,33 +111,19 @@ export function buildSensitivitySweepAxes(
     defaults.spouseSocialSecurityClaimAge &&
     adopted.spouseSocialSecurityClaimAge !== null
   ) {
-    const spouseIdx = nearestIndex(
+    spouseValues = windowAroundTarget(
       defaults.spouseSocialSecurityClaimAge,
       adopted.spouseSocialSecurityClaimAge,
+      SENSITIVITY_HALF_WIDTH,
     );
-    spouseValues =
-      spouseIdx >= 0
-        ? windowAround(
-            defaults.spouseSocialSecurityClaimAge,
-            spouseIdx,
-            SENSITIVITY_HALF_WIDTH,
-          )
-        : [adopted.spouseSocialSecurityClaimAge];
   }
 
   // Roth max axis.
-  const rothIdx = nearestIndex(
+  const rothValues = windowAroundTarget(
     defaults.rothConversionAnnualCeiling,
     adopted.rothConversionAnnualCeiling,
+    SENSITIVITY_HALF_WIDTH,
   );
-  const rothValues =
-    rothIdx >= 0
-      ? windowAround(
-          defaults.rothConversionAnnualCeiling,
-          rothIdx,
-          SENSITIVITY_HALF_WIDTH,
-        )
-      : [adopted.rothConversionAnnualCeiling];
 
   // Defensive: the spend floor pre-filter could leave ZERO values in a
   // pathological case (very high floor + very low adopted). Fall back
