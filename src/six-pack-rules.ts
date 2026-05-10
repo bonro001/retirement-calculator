@@ -291,12 +291,12 @@ function buildPlanIntegrity(input: {
   return {
     id: 'plan_integrity',
     label: 'Plan Integrity',
-    question: 'Does retirement still close?',
+    question: 'Is long-range retirement funded?',
     status,
     trend: 'flat',
     headline:
       status === 'green'
-        ? 'CLOSES'
+        ? 'FUNDED'
         : status === 'amber'
           ? 'WATCH'
           : 'AT RISK',

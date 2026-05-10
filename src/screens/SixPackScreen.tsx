@@ -54,18 +54,18 @@ const statusDots: Record<SixPackStatus, string> = {
   unknown: 'bg-stone-400',
 };
 
-const trendLabel: Record<SixPackInstrument['trend'], string> = {
-  up: '↑',
-  down: '↓',
-  flat: '→',
-  none: '',
-};
-
 function statusCopy(status: SixPackStatus): string {
   if (status === 'green') return 'green';
   if (status === 'amber') return 'watch';
   if (status === 'red') return 'action';
   return 'unknown';
+}
+
+function displayHeadline(instrument: SixPackInstrument): string {
+  if (instrument.id === 'plan_integrity' && instrument.headline === 'CLOSES') {
+    return 'FUNDED';
+  }
+  return instrument.headline;
 }
 
 function progressWidth(value: number): string {
@@ -160,8 +160,7 @@ function SixPackPuck({
       </div>
       <div className="mt-2 min-w-0">
         <h3 className="truncate text-lg font-semibold leading-6 tracking-normal">
-          {instrument.headline}{' '}
-          <span className="text-base opacity-70">{trendLabel[instrument.trend]}</span>
+          {displayHeadline(instrument)}
         </h3>
         {instrument.frontMetric ? (
           <p className="mt-1 truncate text-base font-semibold leading-5 tracking-normal">
