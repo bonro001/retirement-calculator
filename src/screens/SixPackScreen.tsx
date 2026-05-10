@@ -99,9 +99,12 @@ function weatherMetricLabel(instrument: SixPackInstrument): string | null {
 
 function taxMetricLabel(instrument: SixPackInstrument): string | null {
   if (instrument.id !== 'tax_cliffs') return null;
-  if (instrument.frontMetric) return instrument.frontMetric;
   const expectedTax = numberDiagnostic(instrument, 'expectedFederalTax');
-  if (expectedTax !== null) return `Tax ${compactCurrency(expectedTax)}`;
+  const expectedTaxYear = numberDiagnostic(instrument, 'expectedFederalTaxYear');
+  if (expectedTax !== null) {
+    return `Tax: ${expectedTaxYear === null ? '' : `${Math.round(expectedTaxYear)} `}federal tax projected at ${compactCurrency(expectedTax)}.`;
+  }
+  if (instrument.frontMetric) return instrument.frontMetric;
   return 'Tax needs update';
 }
 
@@ -132,35 +135,39 @@ function portfolioProjectionLabel(instrument: SixPackInstrument): string | null 
   return `Proj ${sign}${Math.abs(projectedAnnualChangePercent).toFixed(1)}%/yr from ${Math.round(projectionWindowDays)}d`;
 }
 
-function taxMarginLabel(instrument: SixPackInstrument): string | null {
-  if (instrument.id !== 'tax_cliffs') return null;
+function taxContextLines(instrument: SixPackInstrument): string[] {
+  if (instrument.id !== 'tax_cliffs') return [];
   const acaMargin = numberDiagnostic(instrument, 'acaMargin');
   const acaAppliesThisYear = instrument.diagnostics.acaAppliesThisYear === true;
   const acaGuardrailYear = numberDiagnostic(instrument, 'acaGuardrailYear');
-  const acaThreshold = numberDiagnostic(instrument, 'acaIncomeThreshold');
   const irmaaMargin = numberDiagnostic(instrument, 'irmaaMargin');
-  const irmaaThreshold = numberDiagnostic(instrument, 'irmaaIncomeThreshold');
   const irmaaLookbackTaxYear = numberDiagnostic(instrument, 'irmaaLookbackTaxYear');
-  const parts = [
+  const expectedTaxYear = numberDiagnostic(instrument, 'expectedFederalTaxYear');
+  const yearLabel =
+    expectedTaxYear === null ? 'this year' : `${Math.round(expectedTaxYear)}`;
+
+  const acaLine =
     acaAppliesThisYear && acaMargin !== null
-      ? `ACA ${compactCurrency(acaMargin)}`
+      ? `ACA: projected MAGI is ${compactCurrency(Math.abs(acaMargin))} ${
+          acaMargin >= 0 ? 'below' : 'above'
+        } the ACA threshold.`
       : acaGuardrailYear !== null
-        ? `ACA ${Math.round(acaGuardrailYear)} not now`
-        : acaThreshold !== null
-          ? `ACA ${compactCurrency(acaThreshold)} threshold`
-          : 'ACA timing n/a',
-    irmaaMargin !== null
-      ? `IRMAA ${irmaaLookbackTaxYear === null ? '' : `${Math.round(irmaaLookbackTaxYear)} `}${compactCurrency(irmaaMargin)}`
-      : irmaaThreshold !== null
-        ? `IRMAA ${irmaaLookbackTaxYear === null ? '' : `${Math.round(irmaaLookbackTaxYear)} `}${compactCurrency(irmaaThreshold)} threshold`
-        : null,
-  ].filter((part): part is string => part !== null);
-  return parts.length ? parts.join(' · ') : null;
+        ? `ACA: not a ${yearLabel} guardrail; bridge starts around ${Math.round(acaGuardrailYear)}.`
+        : `ACA: timing needs an update.`;
+
+  const irmaaLine =
+    irmaaMargin !== null && irmaaLookbackTaxYear !== null
+      ? `IRMAA: projected ${Math.round(irmaaLookbackTaxYear)} MAGI is about ${compactCurrency(
+          Math.abs(irmaaMargin),
+        )} ${irmaaMargin >= 0 ? 'below' : 'above'} the first IRMAA threshold.`
+      : `IRMAA: margin needs an update.`;
+
+  return [acaLine, irmaaLine];
 }
 
 function frontMetricClass(instrument: SixPackInstrument): string {
   if (instrument.id === 'tax_cliffs') {
-    return 'text-sm font-semibold leading-5 tracking-normal';
+    return 'text-[13px] font-semibold leading-4 tracking-normal';
   }
   if (instrument.id === 'portfolio_weather') {
     return 'text-sm font-semibold leading-5 tracking-normal tabular-nums';
@@ -478,6 +485,7 @@ function TaxCliffReadout({ instrument }: { instrument: SixPackInstrument }) {
         }
       : null,
   ].filter((row): row is { label: string; value: string } => row !== null);
+  const plainEnglishLines = taxContextLines(instrument);
 
   return (
     <div className="mt-4 rounded-xl bg-stone-50 p-3">
@@ -492,27 +500,21 @@ function TaxCliffReadout({ instrument }: { instrument: SixPackInstrument }) {
           </div>
         ))}
       </dl>
-      {acaTiming === 'future_guardrail' ? (
-        <p className="mt-2 text-[11px] leading-4 text-stone-500">
-          ACA threshold is planning context here, not a current-year guardrail.
-        </p>
-      ) : null}
-      {irmaaGuardrailTiming ? (
-        <p className="mt-1 text-[11px] leading-4 text-stone-500">
-          {irmaaGuardrailTiming === 'current_tax_year'
-            ? `IRMAA guardrail is active this tax year${
-                irmaaFirstMedicareYear === null
-                  ? ''
-                  : ` for ${Math.round(irmaaFirstMedicareYear)} Medicare premiums`
-              }.`
-            : irmaaGuardrailTiming === 'future_tax_year'
-              ? `IRMAA guardrail starts in tax year ${
-                  irmaaLookbackTaxYear === null ? 'unknown' : Math.round(irmaaLookbackTaxYear)
-                }.`
-              : irmaaGuardrailTiming === 'unknown'
-                ? 'IRMAA guardrail timing is unavailable.'
-                : 'IRMAA guardrail is active or ongoing.'}
-        </p>
+      {plainEnglishLines.length ? (
+        <div className="mt-2 space-y-1 text-[11px] leading-4 text-stone-500">
+          {plainEnglishLines.map((line) => (
+            <p key={line}>{line}</p>
+          ))}
+          {irmaaGuardrailTiming === 'current_tax_year' && irmaaFirstMedicareYear !== null ? (
+            <p>
+              {Math.round(irmaaLookbackTaxYear ?? expectedTaxYear ?? 0)} income affects{' '}
+              {Math.round(irmaaFirstMedicareYear)} Medicare premiums.
+            </p>
+          ) : null}
+          {acaTiming === 'future_guardrail' ? (
+            <p>ACA threshold is planning context here, not a current-year guardrail.</p>
+          ) : null}
+        </div>
       ) : null}
     </div>
   );
@@ -632,7 +634,7 @@ function SixPackPuck({
     instrument.id === 'tax_cliffs' && headline === 'NO RUN' ? 'UPDATE' : headline;
   const frontMetric = displayFrontMetric(instrument);
   const projectionLabel = portfolioProjectionLabel(instrument);
-  const taxMargins = taxMarginLabel(instrument);
+  const taxLines = taxContextLines(instrument);
 
   return (
     <button
@@ -666,7 +668,11 @@ function SixPackPuck({
             {displayHeadline(instrument)}
           </p>
         ) : frontMetric ? (
-          <p className={`mt-1 truncate ${frontMetricClass(instrument)}`}>
+          <p
+            className={`mt-1 ${
+              instrument.id === 'tax_cliffs' ? '' : 'truncate'
+            } ${frontMetricClass(instrument)}`}
+          >
             {frontMetric}
           </p>
         ) : null}
@@ -679,10 +685,12 @@ function SixPackPuck({
             {projectionLabel}
           </p>
         ) : null}
-        {taxMargins ? (
-          <p className="mt-1 truncate text-xs font-semibold leading-4 opacity-75">
-            {taxMargins}
-          </p>
+        {taxLines.length ? (
+          <div className="mt-1 space-y-0.5 text-[11px] font-semibold leading-4 opacity-75">
+            {taxLines.map((line) => (
+              <p key={line}>{line}</p>
+            ))}
+          </div>
         ) : null}
       </div>
     </button>
