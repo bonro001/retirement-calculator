@@ -9,6 +9,7 @@ import {
   formatPerfClass,
   formatThroughput,
   GHOST_RETENTION_MS,
+  PEER_OFFLINE_THRESHOLD_MS,
   perWorkerPolPerMinute,
   PEER_STALE_THRESHOLD_MS,
   totalPolPerMinute,
@@ -58,18 +59,21 @@ describe('classifyPeerStatus', () => {
     expect(classifyPeerStatus(NOW - 100, NOW)).toBe('live');
   });
 
-  it('flips to stale exactly at the 2× threshold', () => {
-    // At the boundary we round UP to stale — the dispatcher's own cleanup
-    // sweep is coarser, but the UI wants earlier feedback.
+  it('flips to stale exactly at the UI stale threshold', () => {
+    // At the boundary we round UP to stale.
     expect(classifyPeerStatus(NOW - PEER_STALE_THRESHOLD_MS, NOW)).toBe('stale');
   });
 
-  it('returns stale between 2× and 6× heartbeat interval', () => {
-    expect(classifyPeerStatus(NOW - HEARTBEAT_INTERVAL_MS * 4, NOW)).toBe('stale');
+  it('stays live through brief heartbeat gaps', () => {
+    expect(classifyPeerStatus(NOW - HEARTBEAT_INTERVAL_MS * 4, NOW)).toBe('live');
   });
 
-  it('returns offline once the dispatcher would also requeue', () => {
-    expect(classifyPeerStatus(NOW - HEARTBEAT_INTERVAL_MS * 7, NOW)).toBe('offline');
+  it('returns stale between the stale and offline thresholds', () => {
+    expect(classifyPeerStatus(NOW - HEARTBEAT_INTERVAL_MS * 10, NOW)).toBe('stale');
+  });
+
+  it('returns offline once the heartbeat gap exceeds the offline threshold', () => {
+    expect(classifyPeerStatus(NOW - PEER_OFFLINE_THRESHOLD_MS, NOW)).toBe('offline');
   });
 });
 

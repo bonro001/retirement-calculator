@@ -71,6 +71,16 @@ function formatCompactDollars(amount: number): string {
   return `−$${Math.round(Math.abs(amount))}`;
 }
 
+function formatMonthlyDollars(amount: number): string {
+  if (!Number.isFinite(amount)) return '—';
+  return `$${Math.round(Math.max(0, amount)).toLocaleString()}/mo`;
+}
+
+function formatAnnualDollars(amount: number): string {
+  if (!Number.isFinite(amount)) return '—';
+  return `$${Math.round(Math.max(0, amount)).toLocaleString()}/yr`;
+}
+
 function deltaTone(deltaRate: number): string {
   switch (classifyFeasibilityDelta(deltaRate)) {
     case 'severe':
@@ -81,7 +91,53 @@ function deltaTone(deltaRate: number): string {
       return 'text-emerald-700';
     default:
       return 'text-stone-500';
+    }
+}
+
+function spendingReadForScenario(input: {
+  result: StressTestResult;
+  baselineP50: number;
+  adoptedAnnualSpend: number;
+}): {
+  headline: string;
+  detail: string;
+  toneClass: string;
+} {
+  const adoptedMonthlySpend = input.adoptedAnnualSpend / 12;
+  if (input.result.scenario.id === 'baseline') {
+    return {
+      headline: `Keep ${formatMonthlyDollars(adoptedMonthlySpend)}`,
+      detail: `${formatAnnualDollars(input.adoptedAnnualSpend)} adopted spend`,
+      toneClass: 'text-stone-700',
+    };
   }
+
+  const bequestLoss = Math.max(
+    0,
+    input.baselineP50 - input.result.outcome.p50EndingWealthTodayDollars,
+  );
+  const horizonYears = Math.max(1, input.result.outcome.horizonYears || 30);
+  const monthlyHeadroomEquivalent = bequestLoss / (horizonYears * 12);
+  const feasibility = input.result.outcome.bequestAttainmentRate;
+  const headline =
+    feasibility >= 0.95
+      ? 'No cut implied'
+      : feasibility >= 0.85
+        ? 'Still feasible'
+        : 'Spending review';
+  const toneClass =
+    feasibility >= 0.95
+      ? 'text-emerald-700'
+      : feasibility >= 0.85
+        ? 'text-amber-700'
+        : 'text-rose-700 font-semibold';
+  const detail =
+    bequestLoss <= 0
+      ? `tested at ${formatMonthlyDollars(adoptedMonthlySpend)}`
+      : `${formatMonthlyDollars(
+          monthlyHeadroomEquivalent,
+        )} of monthly headroom lost at P50`;
+  return { headline, detail, toneClass };
 }
 
 export function StressTestPanel({
@@ -144,8 +200,8 @@ export function StressTestPanel({
   const subtitle = (
     <p className="text-[12px] text-stone-500">
       Re-runs the adopted policy under {DEFAULT_STRESS_SCENARIOS.length} adverse
-      scenarios (sequence risk, high inflation, delayed inheritance, perfect
-      storm) so you can see whether your bequest target survives them.
+      scenarios (sequence risk, high inflation, layoff, delayed inheritance,
+      perfect storm) so you can see whether your bequest target survives them.
     </p>
   );
 
@@ -190,6 +246,11 @@ export function StressTestPanel({
     const noStressorsApplied =
       result.scenario.stressorIds.length > 0 &&
       result.appliedStressors.length === 0;
+    const spendingRead = spendingReadForScenario({
+      result,
+      baselineP50,
+      adoptedAnnualSpend: adoptedPolicy.annualSpendTodayDollars,
+    });
     return (
       <tr
         key={result.scenario.id}
@@ -207,6 +268,14 @@ export function StressTestPanel({
               this baseline doesn&apos;t define the required stressor — no-op
             </div>
           )}
+        </td>
+        <td className="py-1.5 pr-2">
+          <div className={`text-right text-[12px] font-semibold ${spendingRead.toneClass}`}>
+            {spendingRead.headline}
+          </div>
+          <div className="text-right text-[10px] leading-4 text-stone-500">
+            {spendingRead.detail}
+          </div>
         </td>
         <td className="py-1.5 pr-2 text-right tabular-nums text-stone-700">
           {Math.round(result.outcome.bequestAttainmentRate * 100)}%
@@ -236,6 +305,11 @@ export function StressTestPanel({
   const renderReport = (report: StressTestReport) => {
     const baselineRate = report.baseline.outcome.bequestAttainmentRate;
     const baselineP50 = report.baseline.outcome.p50EndingWealthTodayDollars;
+    const baselineSpendingRead = spendingReadForScenario({
+      result: report.baseline,
+      baselineP50,
+      adoptedAnnualSpend: adoptedPolicy.annualSpendTodayDollars,
+    });
     const worst = worstCaseSummary(report);
     return (
       <div className="mt-3 rounded-lg border border-stone-200 bg-white px-3 py-2">
@@ -265,6 +339,7 @@ export function StressTestPanel({
           <thead>
             <tr className="text-[10px] font-medium uppercase tracking-wider text-stone-400">
               <th className="py-1 pr-2">Scenario</th>
+              <th className="py-1 pr-2 text-right">Spending read</th>
               <th className="py-1 pr-2 text-right">Feasibility</th>
               <th className="py-1 pr-2 text-right">Δ vs base</th>
               <th className="py-1 pr-2 text-right">Bequest P50</th>
@@ -279,6 +354,16 @@ export function StressTestPanel({
                 <div className="font-medium text-stone-800">Baseline</div>
                 <div className="text-[11px] text-stone-500">
                   {report.baseline.scenario.description}
+                </div>
+              </td>
+              <td className="py-1.5 pr-2">
+                <div
+                  className={`text-right text-[12px] font-semibold ${baselineSpendingRead.toneClass}`}
+                >
+                  {baselineSpendingRead.headline}
+                </div>
+                <div className="text-right text-[10px] leading-4 text-stone-500">
+                  {baselineSpendingRead.detail}
                 </div>
               </td>
               <td className="py-1.5 pr-2 text-right tabular-nums font-semibold text-emerald-700">

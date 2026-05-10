@@ -282,13 +282,13 @@ export class ImapConnection {
     throw new Error('Timed out waiting for IMAP response');
   }
 
-  async command(command: string, options?: { redactLog?: boolean }): Promise<string> {
+  async command(command: string, options?: { redactLog?: boolean; timeoutMs?: number }): Promise<string> {
     const tag = this.nextTag();
     this.buffer = '';
     this.socket.write(`${tag} ${command}\r\n`);
     const response = await this.waitUntil(
       (buffer) => new RegExp(`^${tag} (?:OK|NO|BAD)`, 'm').test(buffer),
-      30000,
+      options?.timeoutMs ?? 30000,
     );
     if (new RegExp(`^${tag} (?:NO|BAD)`, 'm').test(response)) {
       const safeCommand = options?.redactLog ? '[redacted]' : command;

@@ -21,25 +21,11 @@
  *     run reads the four `SpendingData` categories to compute total
  *     spend (no `annualSpendTarget` override is in play).
  *
- *   - Spending category scaling needs a deliberate policy choice (do
- *     we cut essentials? travel only? proportional?), and that
- *     decision belongs next to the rest of the adoption mapping, not
- *     buried in the miner.
- *
- * The chosen scaling: PROPORTIONAL across all four spending
- * categories. This matches what `buildPlan`'s runtime spend-target
- * scaler already does when an `annualSpendTarget` override is
- * supplied. Two reasons it's the right default:
- *
- *   1. Apples-to-apples with what the miner evaluated. The mined
- *      $130k policy was simulated by scaling all four categories
- *      proportionally to hit $130k; writing them back the same way
- *      preserves the result the user just decided to adopt.
- *
- *   2. No cross-category judgement call ("cut essentials" vs "cut
- *      travel"). The user retains full control to manually rebalance
- *      categories afterward — adoption is the starting point, not
- *      the final word.
+ *   - Spending target mapping needs a deliberate policy choice. The
+ *     current household rule is that required spending is not a tuning
+ *     knob. The miner's annual spend axis adjusts flexible/optional
+ *     spending only; essential monthly, annual taxes/insurance, and
+ *     early-retirement travel stay fixed unless edited directly.
  */
 
 import type { Policy } from './policy-miner-types';
@@ -90,8 +76,7 @@ export interface SpendingBreakdownEntry {
 
 /**
  * Sum of the four spending categories in today's dollars / year.
- * Mirrors `utils.ts:buildPlan`'s `baselineAnnualSpend` calculation —
- * keep these in sync or proportional scaling will drift.
+ * Mirrors `utils.ts:buildPlan`'s annual spend calculation.
  */
 export function totalAnnualSpendFromCategories(spending: SpendingData): number {
   return (
@@ -103,54 +88,24 @@ export function totalAnnualSpendFromCategories(spending: SpendingData): number {
 }
 
 /**
- * Scale the four spending categories proportionally so their sum
- * equals `targetAnnual`. Returns a new SpendingData; doesn't mutate.
- *
- * Edge case: if the current total is 0 (or non-finite), we can't
- * scale — return the input unchanged. The caller is responsible for
- * surfacing "can't adopt: spending is unset" if it cares.
+ * Apply a mined annual spend target by changing only flexible spending.
+ * Required monthly, annual taxes/insurance, and travel stay as explicit
+ * model inputs. If the target is below those fixed buckets, optional is
+ * clamped to zero rather than inventing a required-spend cut.
  */
-function scaleSpendingProportional(
+export function applyAnnualSpendTargetToOptionalSpending(
   spending: SpendingData,
   targetAnnual: number,
 ): SpendingData {
-  const currentTotal = totalAnnualSpendFromCategories(spending);
-  if (!Number.isFinite(currentTotal) || currentTotal <= 0) return spending;
-  const multiplier = targetAnnual / currentTotal;
-  // Round to whole dollars on the unit each category is stored in (monthly
-  // for monthlies, annual for annuals). Avoids fractional-cent drift in the
-  // UI; the engine doesn't care about $1 rounding.
-  const scaled = {
-    ...spending,
-    essentialMonthly: Math.round(spending.essentialMonthly * multiplier),
-    optionalMonthly: Math.round(spending.optionalMonthly * multiplier),
-    annualTaxesInsurance: Math.round(spending.annualTaxesInsurance * multiplier),
-    travelEarlyRetirementAnnual: Math.round(
-      spending.travelEarlyRetirementAnnual * multiplier,
-    ),
-  };
-  const drift = targetAnnual - totalAnnualSpendFromCategories(scaled);
-  if (!Number.isFinite(drift) || Math.abs(drift) < 0.005) return scaled;
-
-  // Monthly buckets annualize in $12 jumps after rounding. Reconcile the
-  // tiny residual into an annual bucket so the adopted plan totals exactly
-  // to the mined policy target instead of surfacing as a false stale-plan
-  // warning in Cockpit.
-  if (scaled.travelEarlyRetirementAnnual + drift >= 0) {
-    return {
-      ...scaled,
-      travelEarlyRetirementAnnual: scaled.travelEarlyRetirementAnnual + drift,
-    };
-  }
-  if (scaled.annualTaxesInsurance + drift >= 0) {
-    return {
-      ...scaled,
-      annualTaxesInsurance: scaled.annualTaxesInsurance + drift,
-    };
-  }
+  if (!Number.isFinite(targetAnnual) || targetAnnual < 0) return spending;
+  const fixedAnnual =
+    (spending.essentialMonthly ?? 0) * 12 +
+    (spending.annualTaxesInsurance ?? 0) +
+    (spending.travelEarlyRetirementAnnual ?? 0);
+  const optionalAnnual = Math.max(0, targetAnnual - fixedAnnual);
   return {
-    ...scaled,
-    optionalMonthly: scaled.optionalMonthly + drift / 12,
+    ...spending,
+    optionalMonthly: optionalAnnual / 12,
   };
 }
 
@@ -162,9 +117,8 @@ function scaleSpendingProportional(
  * shallow-equality check (zustand, useMemo) can short-circuit.
  *
  * What gets written:
- *   - `spending.{essentialMonthly, optionalMonthly,
- *      annualTaxesInsurance, travelEarlyRetirementAnnual}`: scaled
- *      proportionally so sum = `policy.annualSpendTodayDollars`.
+ *   - `spending.optionalMonthly`: adjusted so total annual spend matches
+ *      `policy.annualSpendTodayDollars` when fixed spending allows.
  *   - `income.socialSecurity[0].claimAge`: primary's claim age.
  *   - `income.socialSecurity[1].claimAge`: spouse's claim age (if
  *      household has a spouse and the policy specifies one).
@@ -175,8 +129,8 @@ function scaleSpendingProportional(
 export function buildAdoptedSeedData(seed: SeedData, policy: Policy): SeedData {
   const next: SeedData = { ...seed };
 
-  // Spending: scale categories proportionally to hit policy target.
-  next.spending = scaleSpendingProportional(
+  // Spending: keep required/travel fixed; optional absorbs the mined target.
+  next.spending = applyAnnualSpendTargetToOptionalSpending(
     seed.spending,
     policy.annualSpendTodayDollars,
   );
@@ -251,7 +205,11 @@ function formatDollars(amount: number): string {
  */
 export function diffAdoption(seed: SeedData, policy: Policy): AdoptionDiff {
   const currentAnnualSpend = totalAnnualSpendFromCategories(seed.spending);
-  const proposedAnnualSpend = policy.annualSpendTodayDollars;
+  const scaled = applyAnnualSpendTargetToOptionalSpending(
+    seed.spending,
+    policy.annualSpendTodayDollars,
+  );
+  const proposedAnnualSpend = totalAnnualSpendFromCategories(scaled);
 
   const currentPrimarySs = seed.income?.socialSecurity?.[0]?.claimAge ?? null;
   const currentSpouseSs = seed.income?.socialSecurity?.[1]?.claimAge ?? null;
@@ -307,8 +265,7 @@ export function diffAdoption(seed: SeedData, policy: Policy): AdoptionDiff {
       Math.round(policy.rothConversionAnnualCeiling),
   });
 
-  // Spending breakdown: scaled values for the modal sub-line.
-  const scaled = scaleSpendingProportional(seed.spending, proposedAnnualSpend);
+  // Spending breakdown: fixed required/travel values plus optional plug.
   const spendingBreakdown: SpendingBreakdownEntry[] = [
     {
       key: 'essentialMonthly',

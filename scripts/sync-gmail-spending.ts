@@ -121,12 +121,22 @@ function maxSeenUidFromPayload(payload: GmailSpendingLedgerPayload | null): numb
   return Math.max(payload.source?.lastSyncedUid ?? 0, payload.summary?.lastSyncedUid ?? 0, transactionMax, issueMax);
 }
 
+function transactionMergeKey(transaction: SpendingTransaction): string {
+  const sourceId = transaction.source?.sourceId;
+  if (sourceId) {
+    return [
+      transaction.accountId ?? 'unknown-account',
+      transaction.rawEvidence?.gmailUid ?? 'unknown-uid',
+      sourceId,
+    ].join('|');
+  }
+  return transaction.id;
+}
+
 function mergeById(transactions: SpendingTransaction[]): SpendingTransaction[] {
   const byId = new Map<string, SpendingTransaction>();
   transactions.forEach((transaction) => {
-    if (!byId.has(transaction.id)) {
-      byId.set(transaction.id, transaction);
-    }
+    byId.set(transactionMergeKey(transaction), transaction);
   });
   return Array.from(byId.values()).sort((left, right) => {
     const dateCompare = right.postedDate.localeCompare(left.postedDate);
@@ -151,6 +161,10 @@ function countBy<T>(values: T[], readKey: (value: T) => string | undefined): Rec
     counts[key] = (counts[key] ?? 0) + 1;
     return counts;
   }, {});
+}
+
+function uniqueUids(uids: number[]): number[] {
+  return Array.from(new Set(uids.filter((uid) => Number.isInteger(uid) && uid > 0)));
 }
 
 async function writeJsonAtomic(filePath: string, value: unknown): Promise<void> {
@@ -215,7 +229,9 @@ async function main() {
     const newUids = candidateUids
       .filter((uid) => uid > lastSeenUid)
       .slice(-options.limit);
-    const rawMessages = await fetchRawMessages({ connection, uids: newUids });
+    const retryIssueUids = uniqueUids((existingPayload?.issues ?? []).map((issue) => issue.uid));
+    const fetchUids = uniqueUids([...retryIssueUids, ...newUids]).slice(-options.limit);
+    const rawMessages = await fetchRawMessages({ connection, uids: fetchUids });
     await connection.command('LOGOUT').catch(() => undefined);
 
     const emails = rawMessages.map((message) => {
@@ -239,7 +255,11 @@ async function main() {
       ...(existingPayload?.transactions ?? []),
       ...imported.transactions,
     ]);
-    const issues = mergeIssues([...(existingPayload?.issues ?? []), ...imported.issues]);
+    const resolvedIssueUids = new Set(imported.transactions.map(uidFromTransaction));
+    const unresolvedExistingIssues = (existingPayload?.issues ?? []).filter(
+      (issue) => !resolvedIssueUids.has(issue.uid),
+    );
+    const issues = mergeIssues([...unresolvedExistingIssues, ...imported.issues]);
     const maxFetchedUid = Math.max(0, ...newUids);
     const nextLastSeenUid = Math.max(lastSeenUid, maxFetchedUid);
     const nowIso = new Date().toISOString();
@@ -284,7 +304,8 @@ async function main() {
           previousLastSeenUid: lastSeenUid,
           lastSeenUid: nextLastSeenUid,
           checkedUidCount: candidateUids.length,
-          fetchedUidCount: newUids.length,
+          fetchedUidCount: fetchUids.length,
+          retriedIssueCount: retryIssueUids.length,
           newTransactionCount: imported.transactions.length,
           newIssueCount: imported.issues.length,
           totalTransactionCount: transactions.length,

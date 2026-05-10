@@ -516,7 +516,8 @@ export function decodeMessage(raw: string): ClusterMessage {
 }
 
 /** Heartbeat cadence in ms. Hosts emit at this interval; dispatcher
- *  considers a host stale at 3× this (~9s) and disconnected at 6× (~18s). */
+ *  disconnects only after a wide silence window so CPU-bound hosts do
+ *  not flap during long mining batches. */
 export const HEARTBEAT_INTERVAL_MS = 3000;
 
 /** Cluster state broadcast cadence — slow enough that a 10-host cluster

@@ -49,6 +49,7 @@ export interface SpendingTransaction {
   id: string;
   postedDate: string;
   transactionDate?: string;
+  displayTitle?: string;
   merchant: string;
   description?: string;
   /**
@@ -188,6 +189,18 @@ function parseIsoDateParts(value: string): { year: number; month: number; day: n
 export function monthKeyFromIsoDate(value: string): string {
   const { year, month } = parseIsoDateParts(value);
   return `${year}-${String(month).padStart(2, '0')}`;
+}
+
+export function spendingTransactionBudgetDate(
+  transaction: SpendingTransaction,
+): string {
+  return transaction.transactionDate ?? transaction.postedDate;
+}
+
+export function spendingTransactionMonthKey(
+  transaction: SpendingTransaction,
+): string {
+  return monthKeyFromIsoDate(spendingTransactionBudgetDate(transaction));
 }
 
 export function daysInMonthKey(monthKey: string): number {
@@ -405,7 +418,7 @@ export function buildSpendingMonthSummary(
   let ignoredTransactionCount = 0;
 
   input.transactions
-    .filter((transaction) => monthKeyFromIsoDate(transaction.postedDate) === month)
+    .filter((transaction) => spendingTransactionMonthKey(transaction) === month)
     .forEach((transaction) => {
       transactionCount += 1;
       explicitInputCount += 1;

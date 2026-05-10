@@ -1,0 +1,11 @@
+type: markdown
+title: 6 Pack
+content: >-
+  {% set pucks = state_attr('sensor.six_pack_panel', 'pucks') or [] %}
+  ## {{ state_attr('sensor.six_pack_panel', 'summary') | default('UNKNOWN', true) }}
+
+  {% for puck in pucks %}
+  {% set tag = 'GREEN' if puck.status == 'green' else 'WATCH' if puck.status == 'amber' else 'ACTION' if puck.status == 'red' else 'UNKNOWN' %}
+  **[{{ tag }}] {{ puck.label }}:** {{ puck.headline }} {{ puck.trend_symbol }}{% if puck.front_metric %} - {{ puck.front_metric }}{% endif %}
+
+  {% endfor %}

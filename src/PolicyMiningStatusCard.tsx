@@ -11,7 +11,7 @@ import type {
 import { buildPolicyMinerRunEngineVersion } from './policy-miner-types';
 import type { MarketAssumptions, SeedData } from './types';
 import { useClusterSession } from './useClusterSession';
-import { browserPoolHint, setBrowserHostMode } from './cluster-client';
+import { setBrowserHostMode } from './cluster-client';
 import { MiningPhaseSegments, type PipelinePhase } from './MiningPhaseSegments';
 import { recommendCombinedPass2 } from './combined-pass2-analyzer';
 import { loadCorpusEvaluations } from './policy-mining-corpus-source';
@@ -93,19 +93,7 @@ interface Props {
 }
 
 const POLL_INTERVAL_MS = 5_000;
-
-/**
- * Quick-mine cap. Sized so a re-validation pass after a baseline tweak
- * fits inside a 5-minute window on a single 8-core box and ~1-2 minutes
- * on a 24-worker cluster — the "I changed something, does my winner
- * still hold?" use case. Not a Pareto-smart subset (yet — see E.5
- * sensitivity sweep); just the first N policies in axis-enumeration
- * order, which is consistent across runs so the household isn't
- * comparing apples-to-oranges across Quick mines.
- */
-const QUICK_MINE_POLICY_COUNT = 200;
-
-type SessionSize = 'quick' | 'full';
+const CONNECTION_DISPLAY_GRACE_MS = 30_000;
 
 function makeUiMiningSessionSeed(): number {
   const max = 2_147_483_647;
@@ -150,10 +138,15 @@ function choosePass2TrialCount(
 }
 
 function formatTrialWork(value: number): string {
-  if (value >= 1_000_000_000) return `${(value / 1_000_000_000).toFixed(1)}B`;
-  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
+  if (value >= 1_000_000_000) return `${Math.round(value / 1_000_000_000)}B`;
+  if (value >= 1_000_000) return `${Math.round(value / 1_000_000)}M`;
   if (value >= 1_000) return `${(value / 1_000).toFixed(0)}k`;
   return value.toLocaleString();
+}
+
+function formatWholeWork(value: number): string {
+  if (!Number.isFinite(value)) return '—';
+  return Math.max(0, Math.round(value)).toLocaleString();
 }
 
 function formatDuration(ms: number): string {
@@ -166,8 +159,6 @@ function formatDuration(ms: number): string {
 }
 
 /** More precise wall-time formatter for elapsed/last-run displays.
- *  Distinct from formatDuration (which rounds to whole minutes) because
- *  Quick mines complete in under a minute and "0 min" reads as broken.
  *  Sub-minute: "23s". Sub-hour: "2m 14s". Beyond: "1h 23m". */
 function formatWallTime(ms: number): string {
   if (!Number.isFinite(ms) || ms < 0) return '—';
@@ -238,11 +229,6 @@ export function PolicyMiningStatusCard({
     const id = setInterval(() => setNowMs(Date.now()), 2_000);
     return () => clearInterval(id);
   }, []);
-  // Session size picker — Quick (200 policies) for fast re-validation
-  // after a baseline tweak, Full (whole corpus) for initial exploration
-  // or final certification. Default flips to Quick once a corpus exists,
-  // since at that point the household is iterating, not exploring.
-  const [sessionSize, setSessionSize] = useState<SessionSize>('full');
   // Track wall time for the household: live elapsed during a running
   // session, and the just-completed wall time between sessions so they
   // can compare runs. The cluster snapshot drops session info the
@@ -253,6 +239,12 @@ export function PolicyMiningStatusCard({
   const runningStartMsRef = useRef<number | null>(null);
   const [lastRunWallMs, setLastRunWallMs] = useState<number | null>(null);
   const [lastRunMetrics, setLastRunMetrics] = useState<ClusterRuntimeMetrics | null>(null);
+  const [lastConnectedAtMs, setLastConnectedAtMs] = useState<number | null>(null);
+  useEffect(() => {
+    if (cluster.state === 'connected') {
+      setLastConnectedAtMs(Date.now());
+    }
+  }, [cluster.state]);
   useEffect(() => {
     if (cluster.session) {
       if (cluster.session.metrics) setLastRunMetrics(cluster.session.metrics);
@@ -280,12 +272,24 @@ export function PolicyMiningStatusCard({
       ? nowMs - runningStartMsRef.current
       : null;
 
+  // Household UI is controller-only. Browser worker modes remain in the
+  // lower-level cluster code for debugging, but normal mining should run on
+  // Node hosts so the app stays responsive.
+  useEffect(() => {
+    setBrowserHostMode('off');
+    if (!cluster.session) {
+      cluster.reconnect();
+    }
+    // Run once on mount; reconnect is intentionally skipped while a session
+    // is active to avoid disturbing an in-flight mine.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // -------------------------------------------------------------------------
   // Auto-pipeline: pass-1 (default rule, full grid) → combined pass-2 (cliff
   // refine + rule sweep on contenders) → done. Replaces the household's
-  // need to manually click cliff and rule-sweep cards. Activated only on
-  // Start Full Mine with no axesOverride; Quick mines and manual overrides
-  // skip the pipeline (single-pass, segmented control hidden).
+  // need to manually click cliff and rule-sweep cards. Activated on Start
+  // when no axesOverride is present; manual overrides remain single-pass.
   // -------------------------------------------------------------------------
   const [pipelinePhase, setPipelinePhase] = useState<PipelinePhase>('idle');
   const [pipelinePass1Total, setPipelinePass1Total] = useState<number | null>(
@@ -296,6 +300,9 @@ export function PolicyMiningStatusCard({
   );
   const [pipelinePass2TrialCount, setPipelinePass2TrialCount] =
     useState<number | null>(null);
+  const [pipelinePass1Evaluated, setPipelinePass1Evaluated] = useState<
+    number | null
+  >(null);
   const [pipelineBestPolicyId, setPipelineBestPolicyId] = useState<string | null>(
     null,
   );
@@ -407,6 +414,7 @@ export function PolicyMiningStatusCard({
         if (!pipelineActiveRef.current) return; // user cancelled mid-fetch
         const ctrls2 = controlsRef.current;
         if (!ctrls2) return;
+        setPipelinePass1Evaluated(evals.length);
         const recommendation = recommendCombinedPass2(
           evals,
           ctrls2.baseline,
@@ -505,26 +513,6 @@ export function PolicyMiningStatusCard({
     if (!showUrlEditor) setUrlDraft(cluster.snapshot.dispatcherUrl);
   }, [cluster.snapshot.dispatcherUrl, showUrlEditor]);
 
-  // Once a corpus exists for THIS baseline, default to Quick — the
-  // household is now iterating (tweak baseline, re-validate winner),
-  // not exploring from scratch. Resets when the baseline fingerprint
-  // changes so a fresh plan can also auto-flip the first time its
-  // corpus appears. Only flips on transitions, so an explicit user
-  // choice mid-session sticks until the baseline changes.
-  const [flippedForFingerprint, setFlippedForFingerprint] = useState<
-    string | null
-  >(null);
-  useEffect(() => {
-    if (
-      baselineFingerprint &&
-      evalCount > 0 &&
-      flippedForFingerprint !== baselineFingerprint
-    ) {
-      setSessionSize('quick');
-      setFlippedForFingerprint(baselineFingerprint);
-    }
-  }, [baselineFingerprint, evalCount, flippedForFingerprint]);
-
   // Poll the canonical corpus source for "best so far". Cluster sessions
   // write to the dispatcher's on-disk corpus; legacy pre-D.3 sessions wrote
   // to IDB. The shared loader checks cluster first and falls back to IDB so
@@ -587,18 +575,10 @@ export function PolicyMiningStatusCard({
       setStartError('Set a legacy target before mining.');
       return;
     }
-    // The picker (Quick / Full) wins over any cap the caller passed,
-    // since the picker is the household's just-now choice. Caller's
-    // cap is the floor for legacy code paths that don't show a picker.
-    const cap =
-      sessionSize === 'quick'
-        ? QUICK_MINE_POLICY_COUNT
-        : controls.maxPoliciesPerSession;
-    // Auto-pipeline activation: a Full mine with no manual axesOverride
-    // gets the pass-1 → combined pass-2 pipeline. Quick mines and
-    // manual override paths skip the pipeline (single-pass behavior).
-    const enablePipeline =
-      sessionSize === 'full' && !axesOverride;
+    const cap = controls.maxPoliciesPerSession;
+    // Auto-pipeline activation: the default full mine gets pass-1 →
+    // combined pass-2. Manual override paths remain single-pass.
+    const enablePipeline = !axesOverride;
     const explorationSeed = makeUiMiningSessionSeed();
     setCorpusEngineVersion(
       buildPolicyMinerRunEngineVersion(
@@ -616,6 +596,7 @@ export function PolicyMiningStatusCard({
       setPipelinePass1Total(totalCandidates);
       setPipelinePass2Total(null);
       setPipelinePass2TrialCount(null);
+      setPipelinePass1Evaluated(null);
       setPipelineBestPolicyId(null);
     } else {
       pipelineActiveRef.current = false;
@@ -674,25 +655,48 @@ export function PolicyMiningStatusCard({
   const canStart = !!controls && cluster.state === 'connected' && !sessionRunning;
   const canCancel = !!controls && cluster.state === 'connected' && sessionRunning;
 
-  // Connection state badge color
-  const connColor =
+  // Connection state badge color. The websocket can briefly flap while
+  // idle; keep those tiny reconnect windows calm unless the outage sticks.
+  const recentlyConnected =
+    lastConnectedAtMs !== null &&
+    nowMs - lastConnectedAtMs < CONNECTION_DISPLAY_GRACE_MS;
+  const suppressIdleConnectionAlarm =
+    !sessionRunning && lastConnectedAtMs !== null && cluster.state === 'error';
+  const displayConnectionState =
     cluster.state === 'connected'
+      ? 'connected'
+      : ((cluster.state === 'connecting' || cluster.state === 'error') &&
+          recentlyConnected) ||
+          suppressIdleConnectionAlarm
+        ? 'reconnecting'
+        : cluster.state;
+  const connColor =
+    displayConnectionState === 'connected'
       ? 'text-emerald-700'
-      : cluster.state === 'connecting'
+      : displayConnectionState === 'connecting' ||
+          displayConnectionState === 'reconnecting'
         ? 'text-amber-700'
-        : cluster.state === 'error'
+        : displayConnectionState === 'error'
           ? 'text-rose-700'
           : 'text-stone-500';
   const connLabel =
-    cluster.state === 'connected'
-      ? `connected · ${cluster.peers.length} peer${cluster.peers.length === 1 ? '' : 's'}`
-      : cluster.state === 'connecting'
+    displayConnectionState === 'connected'
+      ? `connected`
+      : displayConnectionState === 'reconnecting'
+        ? 'reconnecting...'
+        : displayConnectionState === 'connecting'
         ? 'connecting…'
-        : cluster.state === 'error'
+        : displayConnectionState === 'error'
           ? 'disconnected'
-          : cluster.state === 'disconnected'
+          : displayConnectionState === 'disconnected'
             ? 'disconnected'
             : 'idle';
+  const showConnectionError =
+    cluster.state === 'error' &&
+    !recentlyConnected &&
+    !suppressIdleConnectionAlarm;
+  const showReconnectEta =
+    Boolean(cluster.snapshot.nextReconnectAtMs) && !recentlyConnected;
 
   // Session state for the upper-right badge
   const sessionStateLabel: string | null = sessionRunning
@@ -704,8 +708,6 @@ export function PolicyMiningStatusCard({
     ? 'text-emerald-700'
     : 'text-stone-500';
 
-  // Pool hint for the diagnostics line
-  const poolHint = browserPoolHint();
   const spendFloor = controls
     ? computeMinimumSpendFloor(controls.baseline)
     : 0;
@@ -774,7 +776,7 @@ export function PolicyMiningStatusCard({
           disconnect
         </button>
       )}
-      {cluster.state === 'error' && (
+      {showConnectionError && (
         <button
           type="button"
           className="rounded-full bg-rose-50 px-2 py-0.5 text-[11px] font-semibold text-rose-700 hover:bg-rose-100"
@@ -783,10 +785,10 @@ export function PolicyMiningStatusCard({
           retry now
         </button>
       )}
-      {cluster.snapshot.lastError && (
+      {cluster.snapshot.lastError && showConnectionError && (
         <span className="text-rose-600">{cluster.snapshot.lastError}</span>
       )}
-      {cluster.snapshot.nextReconnectAtMs && (
+      {showReconnectEta && cluster.snapshot.nextReconnectAtMs && (
         <span className="text-stone-500">
           retrying in{' '}
           {Math.max(
@@ -844,7 +846,6 @@ export function PolicyMiningStatusCard({
     return (policyCount * meanMsPerPolicy) / totalWorkers;
   };
 
-  const quickEtaMs = estimateSessionMs(QUICK_MINE_POLICY_COUNT);
   const fullEtaMs =
     totalCandidates !== null ? estimateSessionMs(totalCandidates) : null;
 
@@ -858,6 +859,55 @@ export function PolicyMiningStatusCard({
       ? `${formatTrialWork(
           stats.policiesEvaluated * currentTrialCount,
         )} / ${formatTrialWork(stats.totalPolicies * currentTrialCount)} policy-trials`
+      : null;
+  const evaluatedWorkLabel =
+    stats && activeTrialCount
+      ? `${formatTrialWork(
+          stats.policiesEvaluated * activeTrialCount,
+        )} / ${formatTrialWork(stats.totalPolicies * activeTrialCount)}`
+      : null;
+  const pipelineIsVisible = pipelinePhase !== 'idle';
+  const pipelinePass1EvaluatedForDisplay =
+    pipelinePhase === 'exploring' && stats
+      ? stats.policiesEvaluated
+      : pipelinePass1Evaluated ?? (pipelinePhase === 'done' ? pipelinePass1Total : null);
+  const pipelinePass2EvaluatedForDisplay =
+    pipelinePhase === 'refining' && stats
+      ? stats.policiesEvaluated
+      : pipelinePhase === 'done'
+        ? pipelinePass2Total
+        : null;
+  const pipelinePass1TrialWork =
+    pipelinePass1EvaluatedForDisplay != null
+      ? pipelinePass1EvaluatedForDisplay * pass1TrialCount
+      : 0;
+  const pipelinePass2TrialWork =
+    pipelinePass2EvaluatedForDisplay != null && pipelinePass2TrialCount
+      ? pipelinePass2EvaluatedForDisplay * pipelinePass2TrialCount
+      : 0;
+  const pipelineEvaluatedTrialWork =
+    pipelinePass1TrialWork + pipelinePass2TrialWork;
+  const pipelineTotalTrialWork =
+    pipelinePass1Total != null
+      ? pipelinePass1Total * pass1TrialCount +
+        (pipelinePass2Total != null && pipelinePass2TrialCount
+          ? pipelinePass2Total * pipelinePass2TrialCount
+          : 0)
+      : null;
+  const pipelineEvaluatedPolicyRuns =
+    (pipelinePass1EvaluatedForDisplay ?? 0) +
+    (pipelinePass2EvaluatedForDisplay ?? 0);
+  const pipelineEvaluatedWorkLabel =
+    pipelineIsVisible && pipelineEvaluatedTrialWork > 0
+      ? pipelineTotalTrialWork && pipelineTotalTrialWork > 0
+        ? `${formatWholeWork(pipelineEvaluatedTrialWork)} / ${formatWholeWork(
+            pipelineTotalTrialWork,
+          )}`
+        : formatWholeWork(pipelineEvaluatedTrialWork)
+      : null;
+  const pipelineEvaluatedDetail =
+    pipelineIsVisible && pipelineEvaluatedPolicyRuns > 0
+      ? `policy-trials across all mine passes · ${pipelineEvaluatedPolicyRuns.toLocaleString()} policy runs`
       : null;
   const renderControls = () =>
     !controls ? null : (
@@ -873,66 +923,20 @@ export function PolicyMiningStatusCard({
           bestPolicyId={pipelineBestPolicyId}
         />
         <div className="flex flex-wrap items-center gap-2">
-          {/* Session size picker — the iteration-vs-exploration choice.
-              Disabled while a session runs so the picker can't drift
-              away from what's actually being mined. */}
-          <div
-            role="radiogroup"
-            aria-label="Session size"
-            className="inline-flex overflow-hidden rounded-full border border-stone-200 text-[11px]"
-          >
-            <button
-              type="button"
-              role="radio"
-              aria-checked={sessionSize === 'quick'}
-              disabled={sessionRunning}
-              onClick={() => setSessionSize('quick')}
-              className={`px-3 py-1 font-semibold transition ${
-                sessionSize === 'quick'
-                  ? 'bg-emerald-600 text-white'
-                  : 'bg-white text-stone-600 hover:bg-stone-50'
-              } disabled:cursor-not-allowed disabled:opacity-60`}
-            >
-              Quick · {QUICK_MINE_POLICY_COUNT}
-              {quickEtaMs !== null && (
-                <span className="ml-1 font-normal opacity-90">
-                  (~{formatDuration(quickEtaMs)})
-                </span>
-              )}
-            </button>
-            <button
-              type="button"
-              role="radio"
-              aria-checked={sessionSize === 'full'}
-              disabled={sessionRunning}
-              onClick={() => setSessionSize('full')}
-              className={`border-l border-stone-200 px-3 py-1 font-semibold transition ${
-                sessionSize === 'full'
-                  ? 'bg-emerald-600 text-white'
-                  : 'bg-white text-stone-600 hover:bg-stone-50'
-              } disabled:cursor-not-allowed disabled:opacity-60`}
-            >
-              Full
-              {totalCandidates !== null && (
-                <span className="ml-1 font-normal opacity-90">
-                  · {totalCandidates.toLocaleString()}
-                </span>
-              )}
-              {fullEtaMs !== null && (
-                <span className="ml-1 font-normal opacity-90">
-                  (~{formatDuration(fullEtaMs)})
-                </span>
-              )}
-            </button>
-          </div>
           <button
             type="button"
             disabled={!canStart}
             onClick={startMining}
             className="rounded-full bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-stone-200 disabled:text-stone-400"
           >
-            {sessionSize === 'quick' ? 'Start quick mine' : 'Start full mine'}
+            Start mine
           </button>
+          {totalCandidates !== null && !sessionRunning && (
+            <span className="text-[11px] text-stone-500">
+              {totalCandidates.toLocaleString()} candidates
+              {fullEtaMs !== null ? ` · ~${formatDuration(fullEtaMs)}` : ''}
+            </span>
+          )}
           <button
             type="button"
             disabled={!canCancel}
@@ -946,87 +950,20 @@ export function PolicyMiningStatusCard({
           )}
           <span className="ml-auto text-[11px] text-stone-500">
             floor: {formatCurrency(spendFloor)}/yr
-            {' · '}
-            pool:{' '}
-            {poolHint.actualPoolSize !== null &&
-            poolHint.actualPoolSize !== poolHint.poolSize
-              ? `${poolHint.actualPoolSize} actual / ${poolHint.poolSize} target`
-              : `${poolHint.poolSize}`}{' '}
-            workers
-            {' · '}
-            {poolHint.hardwareConcurrency} cores
           </span>
         </div>
-        {/* Phase 2.C UX — compute mode picker. Lets the household decide
-            whether this browser contributes workers or only controls a
-            dedicated Node/Rust host pool. Changing modes reconnects the
-            browser so the dispatcher immediately sees the new role.
-            Stays visible (disabled) during sessions so the operator
-            always knows what mode the running session is using —
-            screenshots of in-flight progress carry the configuration
-            context. */}
-        <div className="flex flex-wrap items-center gap-2 text-[11px] text-stone-600">
-          <span className="font-semibold text-stone-700">
-            Compute:
-          </span>
-          <div
-            role="radiogroup"
-            className="inline-flex overflow-hidden rounded-full border border-stone-200"
-          >
-            {(['off', 'reduced', 'full'] as const).map((mode) => {
-              const labels: Record<typeof mode, string> = {
-                off: 'Node hosts only',
-                reduced: 'Mixed',
-                full: 'Browser max',
-              };
-              const isActive = poolHint.mode === mode;
-              return (
-                <button
-                  key={mode}
-                  type="button"
-                  role="radio"
-                  aria-checked={isActive}
-                  disabled={sessionRunning}
-                  onClick={() => {
-                    setBrowserHostMode(mode);
-                    setNowMs(Date.now());
-                    cluster.reconnect();
-                  }}
-                  className={`px-2.5 py-0.5 transition ${
-                    isActive
-                      ? 'bg-stone-700 text-white'
-                      : 'bg-white text-stone-600 hover:bg-stone-50'
-                  } ${mode === 'reduced' ? 'border-l border-r border-stone-200' : ''} disabled:cursor-not-allowed disabled:opacity-60`}
-                >
-                  {labels[mode]}
-                </button>
-              );
-            })}
-          </div>
-          <span className="text-stone-400">
-            {poolHint.mode === 'off'
-              ? 'controller only'
-              : poolHint.mode === 'reduced'
-                ? `${Math.min(4, poolHint.hardwareConcurrency)} browser workers`
-                : `${poolHint.poolSize} browser workers`}
-          </span>
-        </div>
-        {/* One-line caption tying the picker to the iteration loop so
-            the household understands WHY the picker exists. Hidden once
-            a session is running — the throughput row above tells the
-            same story live. */}
         {!sessionRunning && (
           <p className="text-[11px] text-stone-500">
-            {sessionSize === 'quick'
-              ? `Validates the top of the frontier against your current baseline. Use after editing the plan.`
-              : `Searches every spend × SS × Roth combination. Use for initial exploration or final certification.`}
+            Searches every spend × SS × Roth combination, then automatically refines the contenders.
           </p>
         )}
       </div>
     );
 
   const renderHostPanel = () => {
-    const views = buildPeerViewList(cluster.peers, cluster.ghosts, nowMs);
+    const views = buildPeerViewList(cluster.peers, cluster.ghosts, nowMs).filter(
+      (view) => view.roles.includes('host') && (view.workerCount ?? 0) > 0,
+    );
     if (views.length === 0) return null;
 
     const statusPill = (view: PeerView) => {
@@ -1058,7 +995,7 @@ export function PolicyMiningStatusCard({
       <div className="mt-4 border-t border-stone-100 pt-3">
         <div className="mb-2 flex items-baseline justify-between">
           <p className="text-[11px] font-medium uppercase tracking-wider text-stone-500">
-            Cluster peers
+            Compute hosts
           </p>
           <span className="text-[10px] text-stone-400">
             {views.filter((v) => v.status === 'live').length} live ·{' '}
@@ -1068,7 +1005,6 @@ export function PolicyMiningStatusCard({
         </div>
         <div className="space-y-1.5">
           {views.map((v) => {
-            const isHost = v.roles.includes('host');
             const isGhost = v.status === 'offline';
             // Load bar: in-flight / worker count, capped at 1.0. Visual
             // cue for "this host is busy" without the operator having to
@@ -1077,13 +1013,11 @@ export function PolicyMiningStatusCard({
               v.workerCount && v.workerCount > 0
                 ? Math.min(1, v.reservedWorkerSlots / v.workerCount)
                 : 0;
-            const throughputLabel = isHost
-              ? v.dispatchBlockedReason
+            const throughputLabel = v.dispatchBlockedReason
                 ? v.dispatchBlockedReason.replace(/^build_/, 'build ')
                 : v.totalPolPerMin !== null
                   ? formatThroughput(v.totalPolPerMin)
-                  : 'awaiting first batch'
-              : v.roles.join('+');
+                  : 'awaiting first batch';
             return (
               <div
                 key={v.peerId}
@@ -1115,7 +1049,7 @@ export function PolicyMiningStatusCard({
                   {throughputLabel}
                 </span>
                 <span className="col-span-2">
-                  {isHost && v.workerCount !== null && !isGhost ? (
+                  {v.workerCount !== null && !isGhost ? (
                     <span className="flex items-center gap-1.5">
                       <span className="relative h-1.5 w-12 overflow-hidden rounded-full bg-stone-200">
                         <span
@@ -1311,16 +1245,22 @@ export function PolicyMiningStatusCard({
               : 0;
 
             if (inCoarse) {
+              const coarseWorkLabel = activeTrialCount
+                ? `${formatTrialWork(
+                    stats!.coarseEvaluated * activeTrialCount,
+                  )} / ${formatTrialWork(stats!.totalPolicies * activeTrialCount)}`
+                : `${stats!.coarseEvaluated.toLocaleString()} / ${stats!.totalPolicies.toLocaleString()}`;
               return (
                 <>
                   <p className="text-[11px] font-medium uppercase tracking-wider text-emerald-700">
                     Pass 1 of 2 · Screening
                   </p>
                   <p className="mt-1 text-2xl font-semibold tabular-nums text-stone-900">
-                    {stats!.coarseEvaluated.toLocaleString()} /{' '}
-                    {stats!.totalPolicies.toLocaleString()}
+                    {coarseWorkLabel}
                   </p>
                   <p className="mt-1 text-[11px] text-stone-500">
+                    policy-trials · {stats!.coarseEvaluated.toLocaleString()} /{' '}
+                    {stats!.totalPolicies.toLocaleString()} policies ·{' '}
                     {Math.round(
                       (stats!.coarseEvaluated / Math.max(1, stats!.totalPolicies)) * 100,
                     )}
@@ -1334,16 +1274,22 @@ export function PolicyMiningStatusCard({
               );
             }
             if (inFine) {
+              const fineWorkLabel = activeTrialCount
+                ? `${formatTrialWork(
+                    stats!.policiesEvaluated * activeTrialCount,
+                  )} / ${formatTrialWork(survivors * activeTrialCount)}`
+                : `${stats!.policiesEvaluated.toLocaleString()} / ${survivors.toLocaleString()}`;
               return (
                 <>
                   <p className="text-[11px] font-medium uppercase tracking-wider text-emerald-700">
                     Pass 2 of 2 · Full evaluation
                   </p>
                   <p className="mt-1 text-2xl font-semibold tabular-nums text-stone-900">
-                    {stats!.policiesEvaluated.toLocaleString()} /{' '}
-                    {survivors.toLocaleString()}
+                    {fineWorkLabel}
                   </p>
                   <p className="mt-1 text-[11px] text-stone-500">
+                    policy-trials · {stats!.policiesEvaluated.toLocaleString()} /{' '}
+                    {survivors.toLocaleString()} policies ·{' '}
                     {Math.round((stats!.policiesEvaluated / Math.max(1, survivors)) * 100)}
                     % of survivors
                   </p>
@@ -1360,15 +1306,23 @@ export function PolicyMiningStatusCard({
                   Evaluated
                 </p>
                 <p className="mt-1 text-2xl font-semibold tabular-nums text-stone-900">
-                  {stats
+                  {pipelineEvaluatedWorkLabel
+                    ? pipelineEvaluatedWorkLabel
+                    : evaluatedWorkLabel
+                    ? evaluatedWorkLabel
+                    : stats
                     ? `${stats.policiesEvaluated.toLocaleString()} / ${stats.totalPolicies.toLocaleString()}`
                     : evalCount.toLocaleString()}
                 </p>
-                {progressPct !== null && (
-                  <p className="mt-1 text-[11px] text-stone-500">
-                    {progressPct}% complete
-                  </p>
-                )}
+                <p className="mt-1 text-[11px] text-stone-500">
+                  {pipelineEvaluatedDetail
+                    ? pipelineEvaluatedDetail
+                    : stats && activeTrialCount
+                    ? `policy-trials · ${stats.policiesEvaluated.toLocaleString()} / ${stats.totalPolicies.toLocaleString()} policies${progressPct !== null ? ` · ${progressPct}% complete` : ''}`
+                    : progressPct !== null
+                      ? `${progressPct}% complete`
+                      : ''}
+                </p>
               </>
             );
           })()}
@@ -1410,8 +1364,8 @@ export function PolicyMiningStatusCard({
               </p>
               <p className="mt-1 text-[11px] text-stone-500">
                 {stats
-                  ? `~${formatDuration(stats.estimatedRemainingMs)} remaining · browser host: ${poolHint.mode}`
-                  : `browser host: ${poolHint.mode}`}
+                  ? `~${formatDuration(stats.estimatedRemainingMs)} remaining`
+                  : ''}
               </p>
             </>
           ) : lastRunWallMs !== null ? (
@@ -1424,8 +1378,8 @@ export function PolicyMiningStatusCard({
               </p>
               <p className="mt-1 text-[11px] text-stone-500">
                 {stats?.feasiblePolicies != null
-                  ? `${stats.feasiblePolicies.toLocaleString()} feasible · browser host: ${poolHint.mode}`
-                  : `browser host: ${poolHint.mode}`}
+                  ? `${stats.feasiblePolicies.toLocaleString()} feasible`
+                  : ''}
               </p>
             </>
           ) : (

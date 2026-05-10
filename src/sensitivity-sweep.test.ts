@@ -57,6 +57,14 @@ describe('buildSensitivitySweepAxes', () => {
     expect(axes.annualSpendTodayDollars.length).toBeLessThanOrEqual(3);
   });
 
+  it('includes the exact adopted spend when it is between coarse grid values', () => {
+    const adopted = makePolicy({ annualSpendTodayDollars: 114_000 });
+    const axes = buildSensitivitySweepAxes(adopted, initialSeedData);
+    expect(axes.annualSpendTodayDollars).toContain(114_000);
+    expect(axes.annualSpendTodayDollars).toContain(110_000);
+    expect(axes.annualSpendTodayDollars).toContain(115_000);
+  });
+
   it('clamps the SS age window at the upper edge (70)', () => {
     const adopted = makePolicy({ primarySocialSecurityClaimAge: 70 });
     const axes = buildSensitivitySweepAxes(adopted, initialSeedData);

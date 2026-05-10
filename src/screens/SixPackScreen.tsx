@@ -1,0 +1,374 @@
+import { useEffect, useMemo, useState } from 'react';
+import {
+  applySpendingMerchantCategoryRules,
+  applySpendingTransactionOverrides,
+  readSpendingMerchantCategoryRules,
+  readSpendingTransactionOverrides,
+} from '../spending-overrides';
+import type { SpendingTransaction } from '../spending-ledger';
+import {
+  applySpendingCategoryInferences,
+  splitAmazonCreditCardTransactionsForBudget,
+} from '../spending-classification';
+import { dedupeOverlappingLiveFeedTransactions } from '../spending-live-feed-dedupe';
+import { buildSixPackSpendingContext } from '../six-pack-spending';
+import { buildSixPackSnapshot } from '../six-pack-rules';
+import {
+  buildPortfolioWeatherSnapshot,
+  type PortfolioQuoteSnapshot,
+} from '../portfolio-weather';
+import type { SixPackInstrument, SixPackSnapshot, SixPackStatus } from '../six-pack-types';
+import { useAppStore } from '../store';
+import { Panel } from '../ui-primitives';
+
+const LOCAL_SPENDING_LEDGER_URLS = [
+  '/local/spending-ledger.chase4582.json',
+  '/local/spending-ledger.amex.json',
+  '/local/spending-ledger.sofi.json',
+  '/local/spending-ledger.gmail.json',
+] as const;
+const PORTFOLIO_QUOTES_URL = '/local/portfolio-quotes.json';
+const LOCAL_SIX_PACK_API_URL = 'http://127.0.0.1:8787/api/six-pack';
+
+interface LocalSpendingLedgerPayload {
+  importedAtIso?: string;
+  fetchedAtIso?: string;
+  source?: {
+    kind?: string;
+  };
+  transactions?: SpendingTransaction[];
+}
+
+const statusStyles: Record<SixPackStatus, string> = {
+  green: 'border-emerald-200 bg-emerald-50 text-emerald-950',
+  amber: 'border-amber-200 bg-amber-50 text-amber-950',
+  red: 'border-rose-200 bg-rose-50 text-rose-950',
+  unknown: 'border-stone-200 bg-stone-100 text-stone-800',
+};
+
+const statusDots: Record<SixPackStatus, string> = {
+  green: 'bg-emerald-500',
+  amber: 'bg-amber-500',
+  red: 'bg-rose-500',
+  unknown: 'bg-stone-400',
+};
+
+const trendLabel: Record<SixPackInstrument['trend'], string> = {
+  up: '↑',
+  down: '↓',
+  flat: '→',
+  none: '',
+};
+
+function statusCopy(status: SixPackStatus): string {
+  if (status === 'green') return 'green';
+  if (status === 'amber') return 'watch';
+  if (status === 'red') return 'action';
+  return 'unknown';
+}
+
+function SixPackPuck({
+  instrument,
+  selected,
+  onSelect,
+}: {
+  instrument: SixPackInstrument;
+  selected: boolean;
+  onSelect: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      className={`min-h-32 rounded-2xl border p-4 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md ${statusStyles[instrument.status]} ${
+        selected ? 'ring-2 ring-blue-500 ring-offset-2' : ''
+      }`}
+    >
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <p className="text-xs font-semibold uppercase tracking-[0.14em] opacity-70">
+            {instrument.label}
+          </p>
+          <h3 className="mt-2 text-xl font-semibold tracking-normal">
+            {instrument.headline}{' '}
+            <span className="text-lg opacity-70">{trendLabel[instrument.trend]}</span>
+          </h3>
+        </div>
+        <span className={`mt-1 h-2.5 w-2.5 shrink-0 rounded-full ${statusDots[instrument.status]}`} />
+      </div>
+      {instrument.frontMetric ? (
+        <p className="mt-3 text-2xl font-semibold tracking-normal">
+          {instrument.frontMetric}
+        </p>
+      ) : null}
+      <p className="mt-3 text-xs font-semibold uppercase tracking-[0.12em] opacity-75">
+        {statusCopy(instrument.status)}
+      </p>
+    </button>
+  );
+}
+
+function SixPackDetail({ instrument }: { instrument: SixPackInstrument }) {
+  return (
+    <aside className="rounded-2xl border border-stone-200 bg-white p-4 shadow-sm">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-stone-400">
+            {instrument.question}
+          </p>
+          <h3 className="mt-2 text-xl font-semibold text-stone-950">
+            {instrument.label}
+          </h3>
+        </div>
+        <span
+          className={`rounded-full px-3 py-1 text-xs font-semibold uppercase ${statusStyles[instrument.status]}`}
+        >
+          {statusCopy(instrument.status)}
+        </span>
+      </div>
+
+      <div className="mt-4 space-y-3 text-sm leading-6 text-stone-700">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-stone-400">
+            Why
+          </p>
+          <p className="mt-1">{instrument.reason}</p>
+        </div>
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-stone-400">
+            Detail
+          </p>
+          <p className="mt-1">{instrument.detail}</p>
+        </div>
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-stone-400">
+            Rule
+          </p>
+          <p className="mt-1">{instrument.rule}</p>
+        </div>
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-stone-400">
+            Source
+          </p>
+          <p className="mt-1">
+            {instrument.sourceFreshness.label}
+            {instrument.sourceFreshness.stale ? ' · stale' : ''}
+          </p>
+        </div>
+      </div>
+
+      {Object.keys(instrument.diagnostics).length ? (
+        <dl className="mt-4 grid gap-2 border-t border-stone-200 pt-4 text-xs">
+          {Object.entries(instrument.diagnostics).map(([key, value]) => (
+            <div key={key} className="flex justify-between gap-3">
+              <dt className="text-stone-500">{key}</dt>
+              <dd className="font-semibold text-stone-900">{String(value)}</dd>
+            </div>
+          ))}
+        </dl>
+      ) : null}
+    </aside>
+  );
+}
+
+export function SixPackScreen() {
+  const data = useAppStore((state) => state.appliedData);
+  const latestEvaluationContext = useAppStore(
+    (state) => state.latestUnifiedPlanEvaluationContext,
+  );
+  const [localLedgers, setLocalLedgers] = useState<LocalSpendingLedgerPayload[]>([]);
+  const [quoteSnapshot, setQuoteSnapshot] = useState<PortfolioQuoteSnapshot | null>(null);
+  const [apiSnapshot, setApiSnapshot] = useState<SixPackSnapshot | null>(null);
+  const [ledgerStatus, setLedgerStatus] = useState<'loading' | 'loaded' | 'missing' | 'error'>(
+    'loading',
+  );
+  const [selectedId, setSelectedId] = useState<SixPackInstrument['id']>('lifestyle_pace');
+  const [asOfIso] = useState(() => new Date().toISOString());
+
+  useEffect(() => {
+    let cancelled = false;
+    Promise.all(
+      LOCAL_SPENDING_LEDGER_URLS.map((url) =>
+        fetch(url, { cache: 'no-store' })
+          .then(async (response) => {
+            if (!response.ok) return null;
+            return (await response.json()) as LocalSpendingLedgerPayload;
+          })
+          .catch(() => null),
+      ),
+    )
+      .then((payloads) => {
+        if (cancelled) return;
+        const ledgers = payloads.filter(
+          (payload): payload is LocalSpendingLedgerPayload =>
+            Boolean(payload && Array.isArray(payload.transactions)),
+        );
+        setLocalLedgers(ledgers);
+        setLedgerStatus(ledgers.length ? 'loaded' : 'missing');
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setLocalLedgers([]);
+        setLedgerStatus('error');
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch(PORTFOLIO_QUOTES_URL, { cache: 'no-store' })
+      .then(async (response) => {
+        if (!response.ok) return null;
+        return (await response.json()) as PortfolioQuoteSnapshot;
+      })
+      .then((payload) => {
+        if (cancelled) return;
+        setQuoteSnapshot(payload);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setQuoteSnapshot(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (latestEvaluationContext) {
+      setApiSnapshot(null);
+      return;
+    }
+    let cancelled = false;
+    fetch(LOCAL_SIX_PACK_API_URL, { cache: 'no-store' })
+      .then(async (response) => {
+        if (!response.ok) return null;
+        return (await response.json()) as SixPackSnapshot;
+      })
+      .then((payload) => {
+        if (cancelled) return;
+        setApiSnapshot(payload?.version === 'six_pack_v1' ? payload : null);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setApiSnapshot(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [latestEvaluationContext]);
+
+  const transactions = useMemo(() => {
+    const loadedTransactions = localLedgers.flatMap((ledger) => ledger.transactions ?? []);
+    if (!loadedTransactions.length) return [];
+    const deduped = dedupeOverlappingLiveFeedTransactions(loadedTransactions);
+    if (typeof window === 'undefined' || !window.localStorage) {
+      return splitAmazonCreditCardTransactionsForBudget(
+        applySpendingCategoryInferences(deduped),
+      );
+    }
+    const overrides = readSpendingTransactionOverrides(window.localStorage);
+    const merchantRules = readSpendingMerchantCategoryRules(window.localStorage);
+    return splitAmazonCreditCardTransactionsForBudget(
+      applySpendingTransactionOverrides(
+        applySpendingMerchantCategoryRules(
+          applySpendingCategoryInferences(deduped),
+          merchantRules,
+        ),
+        overrides,
+      ),
+    );
+  }, [localLedgers]);
+
+  const spending = useMemo(
+    () =>
+      ledgerStatus === 'loaded'
+        ? buildSixPackSpendingContext({
+            data,
+            transactions,
+            asOfIso,
+            ledgerStatus: 'loaded',
+          })
+        : null,
+    [asOfIso, data, ledgerStatus, transactions],
+  );
+
+  const localSnapshot = useMemo(
+    () => {
+      const portfolioWeather = buildPortfolioWeatherSnapshot({
+        data,
+        quoteSnapshot,
+        asOfIso,
+      });
+      return buildSixPackSnapshot({
+        data,
+        spending,
+        portfolioWeather,
+        evaluation: latestEvaluationContext?.evaluation ?? null,
+        evaluationCapturedAtIso: latestEvaluationContext?.capturedAtIso ?? null,
+        asOfIso,
+      });
+    },
+    [asOfIso, data, latestEvaluationContext, quoteSnapshot, spending],
+  );
+
+  const snapshot =
+    !latestEvaluationContext &&
+    apiSnapshot &&
+    apiSnapshot.counts.unknown < localSnapshot.counts.unknown
+      ? apiSnapshot
+      : localSnapshot;
+
+  const selectedInstrument =
+    snapshot.instruments.find((instrument) => instrument.id === selectedId) ??
+    snapshot.instruments[0];
+
+  return (
+    <Panel
+      title="6 Pack"
+      subtitle="Monthly sweep status across lifestyle pace, runway, market weather, plan integrity, tax cliffs, and watch items."
+    >
+      <div className={`rounded-2xl border p-4 ${statusStyles[snapshot.overallStatus]}`}>
+        <div className="flex flex-wrap items-end justify-between gap-4">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.14em] opacity-70">
+              Sweep
+            </p>
+            <h2 className="mt-1 text-3xl font-semibold tracking-normal">
+              {snapshot.summary}
+            </h2>
+          </div>
+          <p className="text-sm font-semibold opacity-80">
+            {snapshot.counts.green} green · {snapshot.counts.amber} watch ·{' '}
+            {snapshot.counts.red} action · {snapshot.counts.unknown} unknown
+          </p>
+        </div>
+      </div>
+
+      {ledgerStatus === 'loading' ? (
+        <p className="mt-3 text-sm text-stone-500">Loading local spending ledger...</p>
+      ) : null}
+      {snapshot === apiSnapshot ? (
+        <p className="mt-3 text-xs font-medium text-stone-500">
+          Using the local 6 Pack API plan read for plan and tax pucks.
+        </p>
+      ) : null}
+
+      <div className="mt-4 grid gap-4 xl:grid-cols-[1fr_340px]">
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+          {snapshot.instruments.map((instrument) => (
+            <SixPackPuck
+              key={instrument.id}
+              instrument={instrument}
+              selected={selectedInstrument.id === instrument.id}
+              onSelect={() => setSelectedId(instrument.id)}
+            />
+          ))}
+        </div>
+        <SixPackDetail instrument={selectedInstrument} />
+      </div>
+    </Panel>
+  );
+}

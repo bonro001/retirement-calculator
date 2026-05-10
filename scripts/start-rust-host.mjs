@@ -83,6 +83,15 @@ function buildInfo() {
   };
 }
 
+function sameBuildCommit(a, b) {
+  return Boolean(
+    a?.gitCommit &&
+      b?.gitCommit &&
+      a.gitCommit === b.gitCommit &&
+      a.packageVersion === b.packageVersion,
+  );
+}
+
 /**
  * Query the dispatcher's HTTP status endpoint for its current build
  * info, including which branch it's running. Lets the launcher follow
@@ -397,14 +406,29 @@ function startChild() {
       }
       if (!advanced) {
         const dispatcherBuildInfo = fetchDispatcherBuildInfo();
+        const localBuildInfo = buildInfo();
+        const localAlreadyAtDispatcherCommit = sameBuildCommit(
+          dispatcherBuildInfo,
+          localBuildInfo,
+        );
         autoUpdateExhausted = true;
         autoUpdateExhaustedForCommit = dispatcherBuildInfo?.gitCommit ?? null;
-        autoUpdateExhaustedAtMs = Date.now();
-        console.warn(
-          "[start-rust-host] auto-update can't catch up with the dispatcher — " +
-            'continuing without host-triggered auto-update for now; the ' +
-            'supervisor will retry periodically.',
-        );
+        autoUpdateExhaustedAtMs = localAlreadyAtDispatcherCommit
+          ? Number.POSITIVE_INFINITY
+          : Date.now();
+        if (localAlreadyAtDispatcherCommit) {
+          console.warn(
+            '[start-rust-host] auto-update reached dispatcher commit; ' +
+              'dispatcher has local dirty edits, so keeping host-triggered ' +
+              'auto-update disabled until the dispatcher commit changes.',
+          );
+        } else {
+          console.warn(
+            "[start-rust-host] auto-update can't catch up with the dispatcher — " +
+              'continuing without host-triggered auto-update for now; the ' +
+              'supervisor will retry periodically.',
+          );
+        }
       } else {
         relaunchSupervisorAfterUpdate();
         return;

@@ -43,19 +43,46 @@ interface ParsedEmailTransaction {
   ignored: boolean;
   tags: string[];
   sourceKind: SpendingLedgerSourceKind;
+  amazonEvidence?: AmazonEmailEvidence;
+}
+
+interface ExtractedAmount {
+  amount: number;
+  tags: string[];
+  confidence: number | null;
+  ignored: boolean;
+}
+
+interface AmazonEmailEvidence {
+  orderId?: string;
+  emailKind: 'ordered' | 'shipped' | 'delivered' | 'refund' | 'other';
+  items: string[];
+  itemDetails: AmazonItemDetail[];
+}
+
+interface AmazonItemDetail {
+  name: string;
+  quantity?: number;
+  price?: number;
 }
 
 const CHASE_TRANSACTION_SUBJECT_RE =
   /^You made a \$(\d[\d,]*(?:\.\d{2})?) transaction with (.+?)\.?$/i;
 const AMAZON_ORDER_RE = /\b(?:ordered:|amazon(?:\.com)? order\b|your amazon(?:\.com)? order\b)/i;
+const AMAZON_DELIVERY_NOTICE_RE =
+  /\b(?:delivered(?::|\b)|out for delivery|arriving(?: today| tomorrow)?\b|package (?:was )?delivered\b)/i;
 const AMAZON_RE = /\b(?:amazon|amzn)\b|amazon\.com/i;
-const REFUND_RE = /\b(?:refund|refunded|credit|reversal)\b/i;
+const REFUND_RE = /\b(?:refund|refunded|return request|dropoff confirmed|credit pending|credit issued|reversal)\b/i;
 const SECURITY_OR_ACCOUNT_RE =
   /\b(?:security alert|verification code|password|statement|payment due|autopay|available credit|balance alert)\b/i;
 const AMOUNT_RE = /\$\s*(\d[\d,]*(?:\.\d{2})?)/g;
 const HAS_AMOUNT_RE = /\$\s*\d[\d,]*(?:\.\d{2})?/;
 const LABELED_AMOUNT_RE =
   /\b(?:amount|transaction amount|purchase amount|order total|refund amount|total)\b[:\s$]*(\d[\d,]*(?:\.\d{2})?)/i;
+const AMAZON_PAYMENT_TOTAL_RE =
+  /\b(?:grand total|order total|total charged|order value|total)\b[:\s$]*(\d[\d,]*(?:\.\d{2})?)/i;
+const AMAZON_ORDER_VALUE_RE =
+  /\b(?:items? subtotal|item subtotal|subtotal|merchandise total|order subtotal)\b[:\s$]*(\d[\d,]*(?:\.\d{2})?)/i;
 const RFC_2822_DATE_RE = /^(?:[A-Z][a-z]{2},\s*)?(\d{1,2})\s+([A-Z][a-z]{2})\s+(\d{4})\b/;
 const MONTH_INDEX: Record<string, string> = {
   Jan: '01',
@@ -89,6 +116,15 @@ function parseDollarAmount(value: string): number {
   return Number(value.replace(/,/g, ''));
 }
 
+function parseLooseMoney(value: string): number | undefined {
+  const match = /^(?:\$?\s*)?(\d[\d,]*(?:\.\d{2})?)(?:\s+USD)?$/i.exec(
+    value.trim(),
+  );
+  if (!match) return undefined;
+  const amount = parseDollarAmount(match[1]);
+  return Number.isFinite(amount) ? roundMoney(amount) : undefined;
+}
+
 function parseEmailDate(value: string | null): string | null {
   if (!value) return null;
   const rfcDate = RFC_2822_DATE_RE.exec(value.trim());
@@ -110,6 +146,118 @@ function cleanMerchant(value: string): string {
     .trim();
 }
 
+function stripForwardedQuotePrefix(value: string): string {
+  return value.replace(/^(?:>+\s*)+/, '').trim();
+}
+
+function extractAmazonOrderId(text: string): string | undefined {
+  const normalized = text.replace(/[\u202A-\u202E]/g, ' ');
+  const decoded = normalized.replace(/%3D/gi, '=').replace(/%2D/gi, '-');
+  const patterns = [
+    /\border\s*#\s*[^\d]*(\d{3}-\d{7}-\d{7})/i,
+    /\borderId=(\d{3}-\d{7}-\d{7})/i,
+    /\borderID=(\d{3}-\d{7}-\d{7})/i,
+    /\border-id=(\d{3}-\d{7}-\d{7})/i,
+  ];
+  for (const pattern of patterns) {
+    const match = pattern.exec(decoded);
+    if (match?.[1]) return match[1];
+  }
+  return undefined;
+}
+
+function inferAmazonEmailKind(
+  subject: string,
+  isRefund: boolean,
+  isAmazonDeliveryNotice: boolean,
+): AmazonEmailEvidence['emailKind'] {
+  if (isRefund) return 'refund';
+  if (isAmazonDeliveryNotice) return 'delivered';
+  if (/\bshipped(?::|\b)/i.test(subject)) return 'shipped';
+  if (/\bordered(?::|\b)/i.test(subject)) return 'ordered';
+  return 'other';
+}
+
+function cleanAmazonItemLine(value: string): string {
+  return stripForwardedQuotePrefix(value)
+    .replace(/\[[^\]]+\]\([^)]+\)/g, '')
+    .replace(/<https?:\/\/[^>]+>/gi, '')
+    .replace(/^Item:\s*/i, '')
+    .replace(/^\*\s*/, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function isAmazonItemLine(value: string): boolean {
+  if (value.length < 8) return false;
+  if (value.length > 220) return false;
+  if (/https?:\/\//i.test(value)) return false;
+  if (/\$\s*\d/.test(value)) return false;
+  if (/^(?:from|to|subject|date|reply-to|message-id|content-type|mime-version):/i.test(value)) return false;
+  if (
+    /^(?:fwd:|begin forwarded message|thanks for your order|your orders|ordered|shipped|delivered|order #|view or edit order|track package|quantity:|grand total|order total|item subtotal|gift card|return or replace|more items to consider|the payment for your invoice|by placing your order|have questions|reason for refund|we'll apply your refund|this refund is for the following item)/i.test(
+      value,
+    )
+  ) {
+    return false;
+  }
+  return /[A-Za-z]/.test(value);
+}
+
+function extractAmazonItemDetails(text: string): AmazonItemDetail[] {
+  const items: AmazonItemDetail[] = [];
+  const seen = new Set<string>();
+  const lines = text
+    .split(/\r?\n/)
+    .map((raw) => ({
+      raw: stripForwardedQuotePrefix(raw).trim(),
+      clean: cleanAmazonItemLine(raw),
+    }))
+    .filter((line) => Boolean(line.clean));
+
+  lines.forEach((line, index) => {
+    const nextLine = lines[index + 1]?.clean ?? '';
+    const priceLine = lines[index + 2]?.clean ?? '';
+    const isExplicitRefundItem = /^Item:\s*/i.test(line.raw);
+    const quantityMatch = /^Quantity:\s*(\d+)/i.exec(nextLine);
+    const isOrderItemWithQuantity = Boolean(quantityMatch);
+    if (!isExplicitRefundItem && !isOrderItemWithQuantity) return;
+    if (!isAmazonItemLine(line.clean)) return;
+    const normalized = line.clean.toLowerCase();
+    if (seen.has(normalized)) return;
+    seen.add(normalized);
+    items.push({
+      name: line.clean,
+      quantity: quantityMatch ? Number(quantityMatch[1]) : undefined,
+      price: parseLooseMoney(priceLine),
+    });
+  });
+
+  return items.slice(0, 10);
+}
+
+function extractAmazonItems(text: string): string[] {
+  return extractAmazonItemDetails(text).map((item) => item.name);
+}
+
+function extractAmazonEmailEvidence(input: {
+  subject: string;
+  combined: string;
+  isRefund: boolean;
+  isAmazonDeliveryNotice: boolean;
+}): AmazonEmailEvidence {
+  return {
+    orderId: extractAmazonOrderId(input.combined),
+    emailKind: inferAmazonEmailKind(
+      input.subject,
+      input.isRefund,
+      input.isAmazonDeliveryNotice,
+    ),
+    itemDetails: extractAmazonItemDetails(input.combined),
+    items: extractAmazonItems(input.combined),
+  };
+}
+
 function extractFirstAmount(text: string): number | null {
   const labeled = LABELED_AMOUNT_RE.exec(text);
   if (labeled) return parseDollarAmount(labeled[1]);
@@ -118,6 +266,53 @@ function extractFirstAmount(text: string): number | null {
     .map((match) => parseDollarAmount(match[1]))
     .filter((amount) => Number.isFinite(amount) && amount > 0);
   return amounts[0] ?? null;
+}
+
+function extractAmazonOrderAmount(text: string): ExtractedAmount | null {
+  const paymentTotal = AMAZON_PAYMENT_TOTAL_RE.exec(text);
+  const paymentAmount = paymentTotal ? parseDollarAmount(paymentTotal[1]) : null;
+  if (paymentAmount !== null && paymentAmount > 0) {
+    return {
+      amount: paymentAmount,
+      tags: [],
+      confidence: null,
+      ignored: false,
+    };
+  }
+
+  const orderValue = AMAZON_ORDER_VALUE_RE.exec(text);
+  if (orderValue) {
+    const orderValueAmount = parseDollarAmount(orderValue[1]);
+    if (orderValueAmount > 0) {
+      return {
+        amount: orderValueAmount,
+        tags:
+          paymentAmount === 0
+            ? ['amazon_credit_spend', 'zero_payment_total']
+            : ['amazon_order_value_inferred'],
+        confidence: paymentAmount === 0 ? 0.72 : 0.6,
+        ignored: false,
+      };
+    }
+  }
+
+  if (paymentAmount === 0) {
+    return {
+      amount: 0,
+      tags: ['zero_total', 'needs_order_value', 'ignored'],
+      confidence: 0.9,
+      ignored: true,
+    };
+  }
+
+  const amount = extractFirstAmount(text);
+  if (amount === null) return null;
+  return {
+    amount,
+    tags: [],
+    confidence: null,
+    ignored: amount === 0,
+  };
 }
 
 function extractMerchantFromText(text: string): string | null {
@@ -139,7 +334,7 @@ function extractMerchantFromText(text: string): string | null {
 function parseEmailTransaction(email: GmailTransactionEmail): ParsedEmailTransaction | null {
   const subject = email.subject ?? '';
   const body = email.bodyText ?? '';
-  const combined = `${subject}\n${body}`;
+  const combined = `${email.from ?? ''}\n${subject}\n${body}`;
 
   const chaseSubject = CHASE_TRANSACTION_SUBJECT_RE.exec(subject);
   if (chaseSubject) {
@@ -165,22 +360,68 @@ function parseEmailTransaction(email: GmailTransactionEmail): ParsedEmailTransac
   const isAmazonOrder = AMAZON_ORDER_RE.test(combined);
   const isAmazon = isAmazonOrder || AMAZON_RE.test(combined);
   const isRefund = REFUND_RE.test(combined);
-  const amount = extractFirstAmount(combined);
-  if (!amount) return null;
+  const isAmazonDeliveryNotice = isAmazon && AMAZON_DELIVERY_NOTICE_RE.test(subject);
+  const amazonEvidence = isAmazon
+    ? extractAmazonEmailEvidence({
+        subject,
+        combined,
+        isRefund,
+        isAmazonDeliveryNotice,
+      })
+    : undefined;
+
+  if (isAmazonDeliveryNotice && !isRefund) {
+    return {
+      amount: 0,
+      merchant: 'Amazon',
+      categoryId: 'ignored',
+      classificationMethod: 'inferred',
+      categoryConfidence: 0.9,
+      ignored: true,
+      tags: ['amazon', 'needs_item_data', 'delivery_notice', 'ignored'],
+      sourceKind: 'amazon_order_email',
+      amazonEvidence,
+    };
+  }
+
+  const amountInfo = isAmazon && !isRefund
+    ? extractAmazonOrderAmount(combined)
+    : (() => {
+        const amount = extractFirstAmount(combined);
+        if (amount === null) return null;
+        return {
+          amount,
+          tags: amount === 0 ? ['zero_total', 'ignored'] : [],
+          confidence: amount === 0 ? 0.9 : null,
+          ignored: amount === 0,
+        };
+      })();
+  if (amountInfo === null) return null;
+  const amount = amountInfo.amount;
 
   const merchant = isAmazon ? 'Amazon' : extractMerchantFromText(combined);
   if (!merchant && !isRefund) return null;
+  const isAmazonEmailEvidence = isAmazon;
+  const isZeroTotal = amount === 0 && amountInfo.ignored;
 
   return {
     amount: roundMoney(isRefund ? -amount : amount),
     merchant: merchant ?? 'Refund',
-    categoryId: isAmazon ? 'amazon_uncategorized' : isRefund ? 'refund' : 'uncategorized',
+    categoryId: isAmazonEmailEvidence
+      ? 'ignored'
+      : isZeroTotal
+        ? 'ignored'
+        : isRefund
+          ? 'refund'
+          : 'uncategorized',
     classificationMethod: isAmazon || isRefund ? 'inferred' : 'uncategorized',
-    categoryConfidence: isAmazon ? 0.45 : isRefund ? 0.6 : 0,
-    ignored: false,
+    categoryConfidence: amountInfo.confidence ?? (isAmazon ? 0.45 : isRefund ? 0.6 : 0),
+    ignored: isAmazonEmailEvidence || amountInfo.ignored,
     tags: [
       ...(isAmazon ? ['amazon', 'needs_item_data'] : []),
       ...(isRefund ? ['refund', 'needs_match'] : []),
+      ...(isAmazonEmailEvidence ? ['amazon_evidence_only', 'ignored'] : []),
+      ...amountInfo.tags,
       ...(!isAmazon && !isRefund ? ['needs_review', 'credit_card_email'] : []),
     ],
     sourceKind: isAmazon
@@ -190,6 +431,7 @@ function parseEmailTransaction(email: GmailTransactionEmail): ParsedEmailTransac
       : isRefund
         ? 'refund_email'
         : 'credit_card_email',
+    amazonEvidence,
   };
 }
 
@@ -265,6 +507,14 @@ export function importGmailTransactionEmails(
         subject: email.subject,
         messageId: email.messageId,
         size: email.size ?? null,
+        ...(parsed.amazonEvidence
+          ? {
+              amazonOrderId: parsed.amazonEvidence.orderId,
+              amazonEmailKind: parsed.amazonEvidence.emailKind,
+              amazonItems: parsed.amazonEvidence.items,
+              amazonItemDetails: parsed.amazonEvidence.itemDetails,
+            }
+          : {}),
       },
     });
   });

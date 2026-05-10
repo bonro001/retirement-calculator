@@ -30,6 +30,7 @@ import { TaxesScreen } from './screens/TaxesScreen';
 import { IncomeScreen } from './screens/IncomeScreen';
 import { SocialSecurityScreen } from './screens/SocialSecurityScreen';
 import { SpendingScreen } from './screens/SpendingScreen';
+import { SixPackScreen } from './screens/SixPackScreen';
 
 const Plan20Screen = lazy(() =>
   import('./Plan20Screen').then((m) => ({ default: m.Plan20Screen })),
@@ -188,6 +189,15 @@ const navigation: {
   iconPath: string;
 }[] = [
   {
+    id: 'six_pack',
+    label: '6 Pack',
+    shortLabel: '6 Pack',
+    section: 'today',
+    // Six round gauges — the monthly sweep.
+    iconPath:
+      'M7 8a3 3 0 1 0 0-6 3 3 0 0 0 0 6Zm10 0a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM7 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Zm10 0a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM7 22a3 3 0 1 0 0-6 3 3 0 0 0 0 6Zm10 0a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z',
+  },
+  {
     id: 'cockpit',
     label: 'Cockpit',
     shortLabel: 'Cockpit',
@@ -203,6 +213,15 @@ const navigation: {
     section: 'analyze',
     // Lightning bolt — "compute / generate"
     iconPath: 'M13 2 4.09 12.97a.5.5 0 0 0 .39.81H11l-1 8.22 8.91-10.97a.5.5 0 0 0-.39-.81H13l0-7.22Z',
+  },
+  {
+    id: 'simulation',
+    label: 'Stress Test',
+    shortLabel: 'Stress',
+    section: 'analyze',
+    // Branching path — "what if this happens?"
+    iconPath:
+      'M5 4.5v4.25A3.25 3.25 0 0 0 8.25 12H12m0 0h3.75A3.25 3.25 0 0 1 19 15.25V19.5M12 12h3.75A3.25 3.25 0 0 0 19 8.75V4.5M5 19.5v-4.25A3.25 3.25 0 0 1 8.25 12',
   },
   {
     id: 'history',
@@ -697,8 +716,6 @@ export function App() {
   const currentPlanSelectedResponses = useAppStore((state) => state.appliedSelectedResponses);
   const currentPlanSelectedStressors = useAppStore((state) => state.appliedSelectedStressors);
   const currentPlanStressorKnobs = useAppStore((state) => state.appliedStressorKnobs);
-  const commitDraftToApplied = useAppStore((state) => state.commitDraftToApplied);
-  const hasPendingSimulationChanges = useAppStore((state) => state.hasPendingSimulationChanges);
   const requestUnifiedPlanRerun = useAppStore((state) => state.requestUnifiedPlanRerun);
   const draftTradeSetActivities = useAppStore((state) => state.draftTradeSetActivities);
   const clearDraftTradeSetActivities = useAppStore((state) => state.clearDraftTradeSetActivities);
@@ -717,8 +734,10 @@ export function App() {
   // === 'overview' from before the navigation cleanup) from landing on
   // an unreachable screen.
   const REACHABLE_SCREENS: ScreenId[] = [
+    'six_pack',
     'cockpit',
     'mining',
+    'simulation',
     'history',
     'spending',
     'accounts',
@@ -1163,28 +1182,6 @@ export function App() {
     stopTrackedAnalysis,
   ]);
 
-  const commitSimulationToPlan = useCallback(() => {
-    const nextPlanInput: AnalysisInput = {
-      data: simulationDraft,
-      assumptions: simulationDraftAssumptions,
-      selectedStressors: simulationDraftSelectedStressors,
-      selectedResponses: simulationDraftSelectedResponses,
-      stressorKnobs: simulationDraftStressorKnobs,
-      fingerprint: simulationInputFingerprint,
-    };
-    commitDraftToApplied();
-    runAnalysis('plan', nextPlanInput);
-  }, [
-    commitDraftToApplied,
-    runAnalysis,
-    simulationDraft,
-    simulationDraftAssumptions,
-    simulationDraftSelectedResponses,
-    simulationDraftSelectedStressors,
-    simulationDraftStressorKnobs,
-    simulationInputFingerprint,
-  ]);
-
   useEffect(() => {
     latestPlanInputFingerprintRef.current = planInputFingerprint;
     if (!lastPlanRunInputsRef.current || planResultStatus === 'running') {
@@ -1436,8 +1433,6 @@ export function App() {
     setSuggestionRankingStatus('idle');
   }, []);
 
-  const applySuggestion = useAppStore((state) => state.toggleResponse);
-
   // Tear down the suggestion ranker worker on unmount.
   useEffect(() => {
     return () => {
@@ -1470,8 +1465,6 @@ export function App() {
 
   const currentAges = calculateCurrentAges(currentPlan);
   const totalPortfolio = getTotalPortfolioBalance(currentPlan);
-  const annualCoreSpend = getAnnualCoreSpend(currentPlan);
-  const annualStretchSpend = getAnnualStretchSpend(currentPlan);
   const horizonYears = getRetirementHorizonYears(currentPlan, currentPlanAssumptions);
   const planPrimaryPath = displayedPlanPathResults[2] ?? displayedPlanPathResults[0];
   const { payload: planExportPayload } = usePlanningExportPayload('compact');
@@ -1740,6 +1733,7 @@ export function App() {
                   <CockpitScreen />
                 </Suspense>
               )}
+              {currentScreen === 'six_pack' && <SixPackScreen />}
               {currentScreen === 'mining' && (
                 <Suspense fallback={<LazyScreenFallback label="Loading Mining…" />}>
                   <MiningScreen />
@@ -1802,8 +1796,6 @@ export function App() {
               {currentScreen === 'accounts' && <AccountsScreen />}
               {currentScreen === 'spending' && (
                 <SpendingScreen
-                  annualCoreSpend={annualCoreSpend}
-                  annualStretchSpend={annualStretchSpend}
                   retirementDate={currentPlan.income.salaryEndDate}
                 />
               )}
@@ -1829,16 +1821,12 @@ export function App() {
                   isSimulationRunning={isSimulationRunning}
                   onRunSimulation={() => runAnalysis('simulation')}
                   onCancelSimulation={cancelSimulation}
-                  onCommitToPlan={commitSimulationToPlan}
-                  canCommitToPlan={hasPendingSimulationChanges}
-                  isPlanResultRunning={planResultStatus === 'running'}
                   suggestionRankingStatus={suggestionRankingStatus}
                   suggestionRankingProgress={suggestionRankingProgress}
                   suggestionRankingError={suggestionRankingError}
                   suggestionRankingResults={suggestionRankingResults}
                   onRunSuggestionRanking={runSuggestionRanking}
                   onCancelSuggestionRanking={cancelSuggestionRanking}
-                  onApplySuggestion={applySuggestion}
                 />
               )}
               {currentScreen === 'insights' && (
@@ -7454,16 +7442,12 @@ function SimulationScreen({
   isSimulationRunning,
   onRunSimulation,
   onCancelSimulation,
-  onCommitToPlan,
-  canCommitToPlan,
-  isPlanResultRunning,
   suggestionRankingStatus,
   suggestionRankingProgress,
   suggestionRankingError,
   suggestionRankingResults,
   onRunSuggestionRanking,
   onCancelSuggestionRanking,
-  onApplySuggestion,
 }: {
   assumptions: MarketAssumptions;
   distributionSeries: ReturnType<typeof buildDistributionSeries>;
@@ -7479,9 +7463,6 @@ function SimulationScreen({
   isSimulationRunning: boolean;
   onRunSimulation: () => void;
   onCancelSimulation: () => void;
-  onCommitToPlan: () => void;
-  canCommitToPlan: boolean;
-  isPlanResultRunning: boolean;
   suggestionRankingStatus: 'idle' | 'running' | 'ready' | 'error';
   suggestionRankingProgress: { completed: number; total: number };
   suggestionRankingError: string | null;
@@ -7493,7 +7474,6 @@ function SimulationScreen({
   } | null;
   onRunSuggestionRanking: () => void;
   onCancelSuggestionRanking: () => void;
-  onApplySuggestion: (responseId: string) => void;
 }) {
   const data = useAppStore((state) => state.data);
   const stressors = useAppStore((state) => state.data.stressors);
@@ -7543,30 +7523,38 @@ function SimulationScreen({
     primaryPath.medianEndingWealth !== 0 ||
     primaryPath.yearsFunded !== 0 ||
     primaryPath.successRate !== 0;
+  const hasBaselineData =
+    baselinePath.medianEndingWealth !== 0 ||
+    baselinePath.yearsFunded !== 0 ||
+    baselinePath.successRate !== 0;
 
   const verb = describeSpendDelta(monthlyDelta);
   const spendNumberLabel = usingSolvedNumber
     ? `sustainable monthly spend (${formatPercent(successTarget)} success)`
     : 'starting monthly spend';
-  const spendHeadline = showDelta
-    ? `Your ${spendNumberLabel} ${verb} ${formatCurrency(Math.round(simMonthly))} (${formatDeltaCurrency(Math.round(monthlyDelta))}/mo, ${formatDeltaCurrency(Math.round(annualDelta))}/yr).`
-    : `This input run supports ${formatCurrency(Math.round(baseMonthly))}/mo (${formatCurrency(Math.round(baseMonthly * 12))}/yr) ${usingSolvedNumber ? `at ${formatPercent(successTarget)} success` : 'as a starting pace'}. Tick tweaks or solutions, then Run to see what changes.`;
+  const spendHeadline = !hasBaselineData
+    ? 'Stress-test diagnostics need a fresh simulation run.'
+    : showDelta
+      ? `Your ${spendNumberLabel} ${verb} ${formatCurrency(Math.round(simMonthly))} (${formatDeltaCurrency(Math.round(monthlyDelta))}/mo, ${formatDeltaCurrency(Math.round(annualDelta))}/yr).`
+      : `Current baseline ${spendNumberLabel}: ${formatCurrency(Math.round(baseMonthly))}/mo (${formatCurrency(Math.round(baseMonthly * 12))}/yr). Pick stressors, then run diagnostics to see what changes.`;
 
-  const successHeadline = showDelta
-    ? `Flex success ${formatDeltaPercent(successDelta)} (now ${formatPercent(primaryPath.successRate)}).`
-    : `Flex success: ${formatPercent(baselinePath.successRate)}.`;
+  const successHeadline = !hasBaselineData
+    ? 'No stress-test result is loaded yet; this does not change your adopted plan.'
+    : showDelta
+      ? `Flex success ${formatDeltaPercent(successDelta)} (now ${formatPercent(primaryPath.successRate)}).`
+      : `Flex success: ${formatPercent(baselinePath.successRate)}.`;
 
   return (
     <Panel
-      title="Simulations"
-      subtitle="Sandbox. Tweak your model, see what changes in plain English, then commit to Plan if you like it."
+      title="Stress Test"
+      subtitle="Diagnostic-only Monte Carlo stress checks. These runs do not change the adopted policy or Spending budget."
     >
       {/* Hero + controls */}
       <div className="mb-6 rounded-[28px] border border-stone-200 bg-white p-5 shadow-sm">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="min-w-0 flex-1">
             <p className="text-xs font-semibold uppercase tracking-[0.18em] text-stone-500">
-              {showDelta ? 'What changes with your tweaks' : 'Your current plan'}
+              {showDelta ? 'What changes with your stressors' : 'Stress-test diagnostics'}
             </p>
             <p className="mt-2 text-xl font-semibold leading-snug text-stone-900">
               {spendHeadline}
@@ -7574,7 +7562,7 @@ function SimulationScreen({
             <p className="mt-2 text-sm text-stone-600">{successHeadline}</p>
             {!isFresh && hasToggles ? (
               <p className="mt-2 text-xs text-amber-700">
-                Results are out of date — press Run Simulation to refresh.
+                Results are out of date — press Run Simulation to refresh diagnostics.
               </p>
             ) : null}
           </div>
@@ -7589,14 +7577,6 @@ function SimulationScreen({
                 {isSimulationRunning
                   ? `Running… ${Math.round(simulationProgress * 100)}%`
                   : 'Run Simulation'}
-              </button>
-              <button
-                type="button"
-                onClick={onCommitToPlan}
-                disabled={isSimulationRunning || isPlanResultRunning || !canCommitToPlan}
-                className="rounded-full border border-blue-300 bg-blue-50 px-4 py-2 text-sm font-semibold text-blue-700 transition hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {isPlanResultRunning ? 'Committing…' : 'Commit to Plan'}
               </button>
               {isSimulationRunning ? (
                 <button
@@ -7823,7 +7803,6 @@ function SimulationScreen({
         selectedResponses={selectedResponses}
         onRun={onRunSuggestionRanking}
         onCancel={onCancelSuggestionRanking}
-        onApply={onApplySuggestion}
       />
 
       {/* Effects breakdown */}
@@ -7834,6 +7813,8 @@ function SimulationScreen({
         <p className="mt-1 text-sm text-stone-600">
           {isSimulationRunning && !hasSimulationData
             ? 'Running the Monte Carlo against your tweaks. Typically 60–90 seconds.'
+            : !hasSimulationData
+              ? 'No stress-test result is loaded yet. Run diagnostics to populate these effects.'
             : showDelta
               ? 'How the tweaks and solutions you picked change the ride, compared to your current plan.'
               : 'Pick some tweaks/solutions and press Run to see deltas here.'}
@@ -7865,6 +7846,10 @@ function SimulationScreen({
               populate together when the run finishes — no partial results to avoid misleading
               early reads.
             </p>
+          </div>
+        ) : !hasSimulationData ? (
+          <div className="mt-4 rounded-2xl border border-stone-100 bg-stone-50/70 p-4 text-sm text-stone-600">
+            No diagnostic numbers yet. Choose a stressor and press Run Simulation.
           </div>
         ) : (
         <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
@@ -9153,7 +9138,6 @@ function SuggestionsCard({
   selectedResponses,
   onRun,
   onCancel,
-  onApply,
 }: {
   status: 'idle' | 'running' | 'ready' | 'error';
   progress: { completed: number; total: number };
@@ -9168,7 +9152,6 @@ function SuggestionsCard({
   selectedResponses: string[];
   onRun: () => void;
   onCancel: () => void;
-  onApply: (responseId: string) => void;
 }) {
   const data = useAppStore((state) => state.data);
   const hasTweaks = selectedStressors.length > 0;
@@ -9319,20 +9302,13 @@ function SuggestionsCard({
                           )}/mo vs baseline`}
                     </span>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => onApply(s.responseId)}
-                    className="rounded-full border border-indigo-300 bg-indigo-50 px-3 py-1.5 text-xs font-semibold text-indigo-800 transition hover:bg-indigo-100"
-                  >
-                    Apply
-                  </button>
                 </li>
               );
             })}
           </ol>
           <p className="mt-3 text-[11px] text-stone-400">
-            Ranking uses a reduced-run simulation (1,500 trials) for speed; commit to Plan to
-            refresh at full resolution.
+            Ranking uses a reduced-run simulation for speed and is diagnostic only; it does not
+            change the adopted policy.
           </p>
         </div>
       ) : null}

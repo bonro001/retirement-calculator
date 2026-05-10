@@ -1,0 +1,1317 @@
+Analysis of sampling engine_candidate (pid 10362) every 1 millisecond
+Process:         engine_candidate [10362]
+Path:            /Users/USER/*/engine_candidate
+Load Address:    0x100800000
+Identifier:      engine_candidate
+Version:         0
+Code Type:       ARM64
+Platform:        macOS
+Parent Process:  zsh [10360]
+Target Type:     live task
+
+Date/Time:       2026-05-08 08:37:10.517 -0500
+Launch Time:     2026-05-08 08:37:09.445 -0500
+OS Version:      macOS 26.3 (25D125)
+Report Version:  7
+Analysis Tool:   /usr/bin/sample
+
+Physical footprint:         2.6G
+Physical footprint (peak):  2.6G
+Idle exit:                  untracked
+----
+
+Call graph:
+    8489 Thread_19977280   DispatchQueue_1: com.apple.main-thread  (serial)
+      8179 start  (in dyld) + 7184  [0x19bbbdd54]
+      + 8179 main  (in engine_candidate) + 864  [0x100805808]
+      +   8179 std::sys::backtrace::__rust_begin_short_backtrace::h7b2426b53f40027e  (in engine_candidate) + 12  [0x1008040fc]  backtrace.rs:166
+      +     3558 engine_candidate::main::h8db767a27172677d  (in engine_candidate) + 2636  [0x1008035b0]  engine_candidate.rs:85
+      +     ! 3558 serde_json::de::from_trait::h005f94cbbf16c01c  (in engine_candidate) + 64  [0x100800b04]  de.rs:2503
+      +     !   3552 serde_json::value::de::_$LT$impl$u20$serde_core..de..Deserialize$u20$for$u20$serde_json..value..Value$GT$::deserialize::h232c2f2c16f55f2f  (in engine_candidate) + 2140  [0x100801a68]  de.rs:151
+      +     !   : 3552 serde_json::value::de::_$LT$impl$u20$serde_core..de..Deserialize$u20$for$u20$serde_json..value..Value$GT$::deserialize::h232c2f2c16f55f2f  (in engine_candidate) + 2140  [0x100801a68]  de.rs:151
+      +     !   :   3548 serde_json::value::de::_$LT$impl$u20$serde_core..de..Deserialize$u20$for$u20$serde_json..value..Value$GT$::deserialize::h232c2f2c16f55f2f  (in engine_candidate) + 536  [0x100801424]  de.rs:151
+      +     !   :   | 3524 serde_json::value::de::_$LT$impl$u20$serde_core..de..Deserialize$u20$for$u20$serde_json..value..Value$GT$::deserialize::h232c2f2c16f55f2f  (in engine_candidate) + 2140  [0x100801a68]  de.rs:151
+      +     !   :   | + 3449 serde_json::value::de::_$LT$impl$u20$serde_core..de..Deserialize$u20$for$u20$serde_json..value..Value$GT$::deserialize::h232c2f2c16f55f2f  (in engine_candidate) + 536  [0x100801424]  de.rs:151
+      +     !   :   | + ! 2290 serde_json::value::de::_$LT$impl$u20$serde_core..de..Deserialize$u20$for$u20$serde_json..value..Value$GT$::deserialize::h232c2f2c16f55f2f  (in engine_candidate) + 2140  [0x100801a68]  de.rs:151
+      +     !   :   | + ! : 576 serde_json::value::de::_$LT$impl$u20$serde_core..de..Deserialize$u20$for$u20$serde_json..value..Value$GT$::deserialize::h232c2f2c16f55f2f  (in engine_candidate) + 2140  [0x100801a68]  de.rs:151
+      +     !   :   | + ! : | 324 serde_json::value::de::_$LT$impl$u20$serde_core..de..Deserialize$u20$for$u20$serde_json..value..Value$GT$::deserialize::h232c2f2c16f55f2f  (in engine_candidate) + 884  [0x100801580]  de.rs:151
+      +     !   :   | + ! : | + 291 serde_json::de::Deserializer$LT$R$GT$::parse_number::h2782eb30d519aacc  (in engine_candidate) + 244,208,...  [0x100800ccc,0x100800ca8,...]  de.rs:511
+      +     !   :   | + ! : | + 11 serde_json::de::Deserializer$LT$R$GT$::parse_integer::h46d805335737c2f5  (in engine_candidate) + 16,40,...  [0x100800e88,0x100800ea0,...]  de.rs:463
+      +     !   :   | + ! : | + 11 serde_json::de::Deserializer$LT$R$GT$::parse_number::h2782eb30d519aacc  (in engine_candidate) + 32,16  [0x100800bf8,0x100800be8]  de.rs:510
+      +     !   :   | + ! : | + 7 serde_json::de::Deserializer$LT$R$GT$::parse_integer::h46d805335737c2f5  (in engine_candidate) + 60,52  [0x100800eb4,0x100800eac]  de.rs:473
+      +     !   :   | + ! : | + 4 serde_json::de::Deserializer$LT$R$GT$::parse_number::h2782eb30d519aacc  (in engine_candidate) + 0  [0x100800bd8]  de.rs:509
+      +     !   :   | + ! : | 117 serde_json::value::de::_$LT$impl$u20$serde_core..de..Deserialize$u20$for$u20$serde_json..value..Value$GT$::deserialize::h232c2f2c16f55f2f  (in engine_candidate) + 1196  [0x1008016b8]  de.rs:151
+      +     !   :   | + ! : | + 111 serde_json::de::Deserializer$LT$R$GT$::parse_number::h2782eb30d519aacc  (in engine_candidate) + 244,228,...  [0x100800ccc,0x100800cbc,...]  de.rs:511
+      +     !   :   | + ! : | + 3 serde_json::de::Deserializer$LT$R$GT$::parse_integer::h46d805335737c2f5  (in engine_candidate) + 16  [0x100800e88]  de.rs:463
+      +     !   :   | + ! : | + 3 serde_json::de::Deserializer$LT$R$GT$::parse_number::h2782eb30d519aacc  (in engine_candidate) + 32,16  [0x100800bf8,0x100800be8]  de.rs:510
+      +     !   :   | + ! : | 92 serde_json::value::de::_$LT$impl$u20$serde_core..de..Deserialize$u20$for$u20$serde_json..value..Value$GT$::deserialize::h232c2f2c16f55f2f  (in engine_candidate) + 1172,296,...  [0x1008016a0,0x100801334,...]  de.rs:151
+      +     !   :   | + ! : | 26 serde_json::value::de::_$LT$impl$u20$serde_core..de..Deserialize$u20$for$u20$serde_json..value..Value$GT$::deserialize::h232c2f2c16f55f2f  (in engine_candidate) + 40,20,...  [0x100801234,0x100801220,...]  de.rs:24
+      +     !   :   | + ! : | 7 serde_json::value::de::_$LT$impl$u20$serde_core..de..Deserialize$u20$for$u20$serde_json..value..Value$GT$::deserialize::h232c2f2c16f55f2f  (in engine_candidate) + 1736  [0x1008018d4]  de.rs:151
+      +     !   :   | + ! : | + 7 core::ptr::drop_in_place$LT$serde_json..value..Value$GT$::hde50045e8a0cbd96  (in engine_candidate) + 24,0  [0x1008042e8,0x1008042d0]  mod.rs:805
+      +     !   :   | + ! : | 6 core::ptr::drop_in_place$LT$serde_json..value..Value$GT$::hde50045e8a0cbd96  (in engine_candidate) + 40,48  [0x1008042f8,0x100804300]  mod.rs:805
+      +     !   :   | + ! : | 4 serde_json::de::Deserializer$LT$R$GT$::parse_number::h2782eb30d519aacc  (in engine_candidate) + 660  [0x100800e6c]  de.rs:528
+      +     !   :   | + ! : 244 serde_json::value::de::_$LT$impl$u20$serde_core..de..Deserialize$u20$for$u20$serde_json..value..Value$GT$::deserialize::h232c2f2c16f55f2f  (in engine_candidate) + 2016  [0x1008019ec]  de.rs:151
+      +     !   :   | + ! : | 100 _xzm_xzone_malloc_tiny  (in libsystem_malloc.dylib) + 260,88,...  [0x19bdab284,0x19bdab1d8,...]
+      +     !   :   | + ! : | 46 _malloc_zone_malloc  (in libsystem_malloc.dylib) + 12,44,...  [0x19bdb3e10,0x19bdb3e30,...]
+      +     !   :   | + ! : | 39 _xzm_xzone_malloc  (in libsystem_malloc.dylib) + 8,184,...  [0x19bda7094,0x19bda7144,...]
+      +     !   :   | + ! : | 37 <deduplicated_symbol>  (in libsystem_malloc.dylib) + 208,160,...  [0x19bda6cf0,0x19bda6cc0,...]
+      +     !   :   | + ! : | 8 _RNvCsfLfy6EI15iL_7___rustc12___rust_alloc  (in engine_candidate) + 12,0  [0x100805afc,0x100805af0]
+      +     !   :   | + ! : | 7 DYLD-STUB$$malloc  (in engine_candidate) + 4  [0x10085610c]
+      +     !   :   | + ! : | 6 _xzm_xzone_malloc_freelist_outlined  (in libsystem_malloc.dylib) + 324  [0x19bdac940]
+      +     !   :   | + ! : | + 6 _xzm_xzone_find_and_malloc_from_freelist_chunk  (in libsystem_malloc.dylib) + 952  [0x19bdad4ac]
+      +     !   :   | + ! : | +   6 xzm_chunk_mark_used  (in libsystem_malloc.dylib) + 176  [0x19bd90d08]
+      +     !   :   | + ! : | +     5 _xzm_reclaim_mark_used  (in libsystem_malloc.dylib) + 176  [0x19bd90df0]
+      +     !   :   | + ! : | +     ! 5 mach_vm_reclaim_update_kernel_accounting  (in libsystem_kernel.dylib) + 92  [0x19bf57f74]
+      +     !   :   | + ! : | +     !   5 mach_vm_reclaim_update_kernel_accounting_trap  (in libsystem_kernel.dylib) + 8  [0x19bf44cb8]
+      +     !   :   | + ! : | +     1 _xzm_reclaim_mark_used  (in libsystem_malloc.dylib) + 124  [0x19bd90dbc]
+      +     !   :   | + ! : | +       1 _xzm_reclaim_mark_used_locked  (in libsystem_malloc.dylib) + 60  [0x19bd932d0]
+      +     !   :   | + ! : | +         1 mach_vm_reclaim_try_cancel  (in libsystem_kernel.dylib) + 260  [0x19bf57dd4]
+      +     !   :   | + ! : | +           1 mach_absolute_time  (in libsystem_kernel.dylib) + 108  [0x19bf450fc]
+      +     !   :   | + ! : | 1 _xzm_xzone_malloc_freelist_outlined  (in libsystem_malloc.dylib) + 764  [0x19bdacaf8]
+      +     !   :   | + ! : 219 serde_json::value::de::_$LT$impl$u20$serde_core..de..Deserialize$u20$for$u20$serde_json..value..Value$GT$::deserialize::h232c2f2c16f55f2f  (in engine_candidate) + 2212  [0x100801ab0]  de.rs:151
+      +     !   :   | + ! : | 55 alloc::collections::btree::map::BTreeMap$LT$K$C$V$C$A$GT$::insert::hf14b873031d04593  (in engine_candidate) + 140,168,...  [0x100804780,0x10080479c,...]  map.rs:1050
+      +     !   :   | + ! : | 49 alloc::collections::btree::map::BTreeMap$LT$K$C$V$C$A$GT$::insert::hf14b873031d04593  (in engine_candidate) + 532  [0x100804908]  map.rs:1053
+      +     !   :   | + ! : | + 36 _platform_memmove  (in libsystem_platform.dylib) + 0,464,...  [0x19bf91380,0x19bf91550,...]
+      +     !   :   | + ! : | + 13 DYLD-STUB$$memmove  (in engine_candidate) + 4,0  [0x100856130,0x10085612c]
+      +     !   :   | + ! : | 44 alloc::collections::btree::map::BTreeMap$LT$K$C$V$C$A$GT$::insert::hf14b873031d04593  (in engine_candidate) + 112  [0x100804764]  map.rs:1050
+      +     !   :   | + ! : | + 30 _platform_memcmp  (in libsystem_platform.dylib) + 236,0,...  [0x19bf8efdc,0x19bf8eef0,...]
+      +     !   :   | + ! : | + 14 DYLD-STUB$$memcmp  (in engine_candidate) + 4,0  [0x100856118,0x100856114]
+      +     !   :   | + ! : | 42 alloc::collections::btree::map::BTreeMap$LT$K$C$V$C$A$GT$::insert::hf14b873031d04593  (in engine_candidate) + 496  [0x1008048e4]  map.rs:1053
+      +     !   :   | + ! : | + 37 _platform_memmove  (in libsystem_platform.dylib) + 676,428,...  [0x19bf91624,0x19bf9152c,...]
+      +     !   :   | + ! : | + 5 DYLD-STUB$$memmove  (in engine_candidate) + 4  [0x100856130]
+      +     !   :   | + ! : | 12 alloc::collections::btree::map::BTreeMap$LT$K$C$V$C$A$GT$::insert::hf14b873031d04593  (in engine_candidate) + 604,412,...  [0x100804950,0x100804890,...]  map.rs:1053
+      +     !   :   | + ! : | 7 alloc::collections::btree::map::BTreeMap$LT$K$C$V$C$A$GT$::insert::hf14b873031d04593  (in engine_candidate) + 440  [0x1008048ac]  node.rs:0
+      +     !   :   | + ! : | 6 alloc::collections::btree::map::BTreeMap$LT$K$C$V$C$A$GT$::insert::hf14b873031d04593  (in engine_candidate) + 20,0  [0x100804708,0x1008046f4]  map.rs:1046
+      +     !   :   | + ! : | 4 alloc::collections::btree::map::BTreeMap$LT$K$C$V$C$A$GT$::insert::hf14b873031d04593  (in engine_candidate) + 352  [0x100804854]  map.rs:1057
+      +     !   :   | + ! : 213 serde_json::value::de::_$LT$impl$u20$serde_core..de..Deserialize$u20$for$u20$serde_json..value..Value$GT$::deserialize::h232c2f2c16f55f2f  (in engine_candidate) + 2052,76,...  [0x100801a10,0x100801258,...]  de.rs:151
+      +     !   :   | + ! : 202 serde_json::value::de::_$LT$impl$u20$serde_core..de..Deserialize$u20$for$u20$serde_json..value..Value$GT$::deserialize::h232c2f2c16f55f2f  (in engine_candidate) + 1820  [0x100801928]  de.rs:151
+      +     !   :   | + ! : | 105 serde_json::value::de::_$LT$impl$u20$serde_core..de..Deserialize$u20$for$u20$serde_json..value..Value$GT$::deserialize::h232c2f2c16f55f2f  (in engine_candidate) + 884  [0x100801580]  de.rs:151
+      +     !   :   | + ! : | + 84 serde_json::de::Deserializer$LT$R$GT$::parse_number::h2782eb30d519aacc  (in engine_candidate) + 228,244,...  [0x100800cbc,0x100800ccc,...]  de.rs:511
+      +     !   :   | + ! : | + 10 serde_json::de::Deserializer$LT$R$GT$::parse_integer::h46d805335737c2f5  (in engine_candidate) + 16,40  [0x100800e88,0x100800ea0]  de.rs:463
+      +     !   :   | + ! : | + 7 serde_json::de::Deserializer$LT$R$GT$::parse_integer::h46d805335737c2f5  (in engine_candidate) + 60  [0x100800eb4]  de.rs:473
+      +     !   :   | + ! : | + 3 serde_json::de::Deserializer$LT$R$GT$::parse_number::h2782eb30d519aacc  (in engine_candidate) + 32,16  [0x100800bf8,0x100800be8]  de.rs:510
+      +     !   :   | + ! : | + 1 serde_json::de::Deserializer$LT$R$GT$::parse_number::h2782eb30d519aacc  (in engine_candidate) + 0  [0x100800bd8]  de.rs:509
+      +     !   :   | + ! : | 36 serde_json::value::de::_$LT$impl$u20$serde_core..de..Deserialize$u20$for$u20$serde_json..value..Value$GT$::deserialize::h232c2f2c16f55f2f  (in engine_candidate) + 1196  [0x1008016b8]  de.rs:151
+      +     !   :   | + ! : | + 32 serde_json::de::Deserializer$LT$R$GT$::parse_number::h2782eb30d519aacc  (in engine_candidate) + 244,228,...  [0x100800ccc,0x100800cbc,...]  de.rs:511
+      +     !   :   | + ! : | + 2 serde_json::de::Deserializer$LT$R$GT$::parse_integer::h46d805335737c2f5  (in engine_candidate) + 16  [0x100800e88]  de.rs:463
+      +     !   :   | + ! : | + 1 serde_json::de::Deserializer$LT$R$GT$::parse_integer::h46d805335737c2f5  (in engine_candidate) + 0  [0x100800e78]  de.rs:462
+      +     !   :   | + ! : | + 1 serde_json::de::Deserializer$LT$R$GT$::parse_number::h2782eb30d519aacc  (in engine_candidate) + 16  [0x100800be8]  de.rs:510
+      +     !   :   | + ! : | 32 serde_json::value::de::_$LT$impl$u20$serde_core..de..Deserialize$u20$for$u20$serde_json..value..Value$GT$::deserialize::h232c2f2c16f55f2f  (in engine_candidate) + 1172,76,...  [0x1008016a0,0x100801258,...]  de.rs:151
+      +     !   :   | + ! : | 8 _$LT$serde_json..de..MapAccess$LT$R$GT$$u20$as$u20$serde_core..de..MapAccess$GT$::next_value_seed::h8dba4c1bc5511711  (in engine_candidate) + 20,140  [0x100805404,0x10080547c]  de.rs:0
+      +     !   :   | + ! : | 8 serde_json::value::de::_$LT$impl$u20$serde_core..de..Deserialize$u20$for$u20$serde_json..value..Value$GT$::deserialize::h232c2f2c16f55f2f  (in engine_candidate) + 40,16  [0x100801234,0x10080121c]  de.rs:24
+      +     !   :   | + ! : | 5 serde_json::de::Deserializer$LT$R$GT$::parse_number::h2782eb30d519aacc  (in engine_candidate) + 660  [0x100800e6c]  de.rs:528
+      +     !   :   | + ! : | 3 _$LT$serde_json..de..MapAccess$LT$R$GT$$u20$as$u20$serde_core..de..MapAccess$GT$::next_value_seed::h8dba4c1bc5511711  (in engine_candidate) + 48,16  [0x100805420,0x100805400]  de.rs:2031
+      +     !   :   | + ! : | 2 _$LT$serde_json..de..MapAccess$LT$R$GT$$u20$as$u20$serde_core..de..MapAccess$GT$::next_value_seed::h8dba4c1bc5511711  (in engine_candidate) + 0  [0x1008053f0]  de.rs:2027
+      +     !   :   | + ! : | 2 serde_json::value::de::_$LT$impl$u20$serde_core..de..Deserialize$u20$for$u20$serde_json..value..Value$GT$::deserialize::h232c2f2c16f55f2f  (in engine_candidate) + 1736  [0x1008018d4]  de.rs:151
+      +     !   :   | + ! : | + 2 core::ptr::drop_in_place$LT$serde_json..value..Value$GT$::hde50045e8a0cbd96  (in engine_candidate) + 24  [0x1008042e8]  mod.rs:805
+      +     !   :   | + ! : | 1 core::ptr::drop_in_place$LT$serde_json..value..Value$GT$::hde50045e8a0cbd96  (in engine_candidate) + 40  [0x1008042f8]  mod.rs:805
+      +     !   :   | + ! : 161 serde_json::value::de::_$LT$impl$u20$serde_core..de..Deserialize$u20$for$u20$serde_json..value..Value$GT$::deserialize::h232c2f2c16f55f2f  (in engine_candidate) + 1868  [0x100801958]  de.rs:151
+      +     !   :   | + ! : | 152 alloc::collections::btree::map::BTreeMap$LT$K$C$V$C$A$GT$::insert::hf14b873031d04593  (in engine_candidate) + 292  [0x100804818]  map.rs:1053
+      +     !   :   | + ! : | + 69 _xzm_xzone_malloc_freelist_outlined  (in libsystem_malloc.dylib) + 324  [0x19bdac940]
+      +     !   :   | + ! : | + ! 65 _xzm_xzone_find_and_malloc_from_freelist_chunk  (in libsystem_malloc.dylib) + 952  [0x19bdad4ac]
+      +     !   :   | + ! : | + ! : 65 xzm_chunk_mark_used  (in libsystem_malloc.dylib) + 176  [0x19bd90d08]
+      +     !   :   | + ! : | + ! :   51 _xzm_reclaim_mark_used  (in libsystem_malloc.dylib) + 176  [0x19bd90df0]
+      +     !   :   | + ! : | + ! :   | 49 mach_vm_reclaim_update_kernel_accounting  (in libsystem_kernel.dylib) + 92  [0x19bf57f74]
+      +     !   :   | + ! : | + ! :   | + 49 mach_vm_reclaim_update_kernel_accounting_trap  (in libsystem_kernel.dylib) + 8,4  [0x19bf44cb8,0x19bf44cb4]
+      +     !   :   | + ! : | + ! :   | 2 mach_vm_reclaim_update_kernel_accounting  (in libsystem_kernel.dylib) + 36  [0x19bf57f3c]
+      +     !   :   | + ! : | + ! :   |   2 mach_absolute_time  (in libsystem_kernel.dylib) + 108,112  [0x19bf450fc,0x19bf45100]
+      +     !   :   | + ! : | + ! :   14 _xzm_reclaim_mark_used  (in libsystem_malloc.dylib) + 124  [0x19bd90dbc]
+      +     !   :   | + ! : | + ! :     14 _xzm_reclaim_mark_used_locked  (in libsystem_malloc.dylib) + 60  [0x19bd932d0]
+      +     !   :   | + ! : | + ! :       14 mach_vm_reclaim_try_cancel  (in libsystem_kernel.dylib) + 260  [0x19bf57dd4]
+      +     !   :   | + ! : | + ! :         14 mach_absolute_time  (in libsystem_kernel.dylib) + 108  [0x19bf450fc]
+      +     !   :   | + ! : | + ! 1 _xzm_chunk_list_pop  (in libsystem_malloc.dylib) + 272  [0x19bdadb24]
+      +     !   :   | + ! : | + ! 1 _xzm_xzone_find_and_malloc_from_freelist_chunk  (in libsystem_malloc.dylib) + 172  [0x19bdad1a0]
+      +     !   :   | + ! : | + ! : 1 _xzm_chunk_list_pop  (in libsystem_malloc.dylib) + 76  [0x19bdada60]
+      +     !   :   | + ! : | + ! 1 _xzm_xzone_find_and_malloc_from_freelist_chunk  (in libsystem_malloc.dylib) + 872  [0x19bdad45c]
+      +     !   :   | + ! : | + ! : 1 _xzm_chunk_list_pop  (in libsystem_malloc.dylib) + 88  [0x19bdada6c]
+      +     !   :   | + ! : | + ! 1 _xzm_xzone_find_and_malloc_from_freelist_chunk  (in libsystem_malloc.dylib) + 84  [0x19bdad148]
+      +     !   :   | + ! : | + 27 _xzm_xzone_malloc_tiny  (in libsystem_malloc.dylib) + 240,104,...  [0x19bdab270,0x19bdab1e8,...]
+      +     !   :   | + ! : | + 22 _malloc_zone_malloc  (in libsystem_malloc.dylib) + 12,80,...  [0x19bdb3e10,0x19bdb3e54,...]
+      +     !   :   | + ! : | + 11 _xzm_xzone_malloc  (in libsystem_malloc.dylib) + 336,324,...  [0x19bda71dc,0x19bda71d0,...]
+      +     !   :   | + ! : | + 9 DYLD-STUB$$malloc  (in engine_candidate) + 4  [0x10085610c]
+      +     !   :   | + ! : | + 8 <deduplicated_symbol>  (in libsystem_malloc.dylib) + 108,208,...  [0x19bda6c8c,0x19bda6cf0,...]
+      +     !   :   | + ! : | + 3 _xzm_xzone_malloc_freelist_outlined  (in libsystem_malloc.dylib) + 252  [0x19bdac8f8]
+      +     !   :   | + ! : | + ! 3 _xzm_xzone_malloc_from_freelist_chunk  (in libsystem_malloc.dylib) + 24,252  [0x19bdaccfc,0x19bdacde0]
+      +     !   :   | + ! : | + 3 _xzm_xzone_malloc_freelist_outlined  (in libsystem_malloc.dylib) + 764,36  [0x19bdacaf8,0x19bdac820]
+      +     !   :   | + ! : | 5 alloc::collections::btree::map::BTreeMap$LT$K$C$V$C$A$GT$::insert::hf14b873031d04593  (in engine_candidate) + 40  [0x10080471c]  map.rs:1050
+      +     !   :   | + ! : | 2 alloc::collections::btree::map::BTreeMap$LT$K$C$V$C$A$GT$::insert::hf14b873031d04593  (in engine_candidate) + 0,24  [0x1008046f4,0x10080470c]  map.rs:1046
+      +     !   :   | + ! : | 1 alloc::collections::btree::map::BTreeMap$LT$K$C$V$C$A$GT$::insert::hf14b873031d04593  (in engine_candidate) + 280  [0x10080480c]  map.rs:0
+      +     !   :   | + ! : | 1 alloc::collections::btree::map::BTreeMap$LT$K$C$V$C$A$GT$::insert::hf14b873031d04593  (in engine_candidate) + 292  [0x100804818]  map.rs:1053
+      +     !   :   | + ! : 97 serde_json::value::de::_$LT$impl$u20$serde_core..de..Deserialize$u20$for$u20$serde_json..value..Value$GT$::deserialize::h232c2f2c16f55f2f  (in engine_candidate) + 1972  [0x1008019c0]  de.rs:151
+      +     !   :   | + ! : | 89 _$LT$serde_json..read..StrRead$u20$as$u20$serde_json..read..Read$GT$::parse_str::h0dd36eb81bd069c9  (in engine_candidate) + 84,412,...  [0x10082ad44,0x10082ae8c,...]  read.rs:710
+      +     !   :   | + ! : | 7 _$LT$serde_json..read..StrRead$u20$as$u20$serde_json..read..Read$GT$::parse_str::h0dd36eb81bd069c9  (in engine_candidate) + 16,12,...  [0x10082ad00,0x10082acfc,...]  read.rs:709
+      +     !   :   | + ! : | 1 _$LT$serde_json..read..StrRead$u20$as$u20$serde_json..read..Read$GT$::parse_str::h0dd36eb81bd069c9  (in engine_candidate) + 900  [0x10082b074]  read.rs:716
+      +     !   :   | + ! : 95 serde_json::value::de::_$LT$impl$u20$serde_core..de..Deserialize$u20$for$u20$serde_json..value..Value$GT$::deserialize::h232c2f2c16f55f2f  (in engine_candidate) + 884  [0x100801580]  de.rs:151
+      +     !   :   | + ! : | 60 serde_json::de::Deserializer$LT$R$GT$::parse_number::h2782eb30d519aacc  (in engine_candidate) + 228,244,...  [0x100800cbc,0x100800ccc,...]  de.rs:511
+      +     !   :   | + ! : | 9 serde_json::de::Deserializer$LT$R$GT$::parse_integer::h46d805335737c2f5  (in engine_candidate) + 260  [0x100800f7c]  lib.rs:0
+      +     !   :   | + ! : | 8 serde_json::de::Deserializer$LT$R$GT$::parse_integer::h46d805335737c2f5  (in engine_candidate) + 16,40  [0x100800e88,0x100800ea0]  de.rs:463
+      +     !   :   | + ! : | 4 serde_json::de::Deserializer$LT$R$GT$::parse_integer::h46d805335737c2f5  (in engine_candidate) + 188  [0x100800f34]  de.rs:104
+      +     !   :   | + ! : | 3 serde_json::de::Deserializer$LT$R$GT$::parse_integer::h46d805335737c2f5  (in engine_candidate) + 108  [0x100800ee4]  de.rs:478
+      +     !   :   | + ! : | 3 serde_json::de::Deserializer$LT$R$GT$::parse_number::h2782eb30d519aacc  (in engine_candidate) + 16,32  [0x100800be8,0x100800bf8]  de.rs:510
+      +     !   :   | + ! : | 3 serde_json::de::Deserializer$LT$R$GT$::parse_number::h2782eb30d519aacc  (in engine_candidate) + 36,52  [0x100800bfc,0x100800c0c]  lib.rs:412
+      +     !   :   | + ! : | 2 serde_json::de::Deserializer$LT$R$GT$::parse_integer::h46d805335737c2f5  (in engine_candidate) + 52,60  [0x100800eac,0x100800eb4]  de.rs:473
+      +     !   :   | + ! : | 2 serde_json::de::Deserializer$LT$R$GT$::parse_number::h2782eb30d519aacc  (in engine_candidate) + 0  [0x100800bd8]  de.rs:509
+      +     !   :   | + ! : | 1 serde_json::de::Deserializer$LT$R$GT$::parse_integer::h46d805335737c2f5  (in engine_candidate) + 268  [0x100800f84]  de.rs:0
+      +     !   :   | + ! : 92 serde_json::value::de::_$LT$impl$u20$serde_core..de..Deserialize$u20$for$u20$serde_json..value..Value$GT$::deserialize::h232c2f2c16f55f2f  (in engine_candidate) + 1628  [0x100801868]  de.rs:151
+      +     !   :   | + ! : | 40 _xzm_xzone_malloc_tiny  (in libsystem_malloc.dylib) + 276,260,...  [0x19bdab294,0x19bdab284,...]
+      +     !   :   | + ! : | 19 _malloc_zone_malloc  (in libsystem_malloc.dylib) + 12,56,...  [0x19bdb3e10,0x19bdb3e3c,...]
+      +     !   :   | + ! : | 15 _xzm_xzone_malloc  (in libsystem_malloc.dylib) + 184,8,...  [0x19bda7144,0x19bda7094,...]
+      +     !   :   | + ! : | 13 <deduplicated_symbol>  (in libsystem_malloc.dylib) + 108,160,...  [0x19bda6c8c,0x19bda6cc0,...]
+      +     !   :   | + ! : | 4 _xzm_xzone_malloc_freelist_outlined  (in libsystem_malloc.dylib) + 324  [0x19bdac940]
+      +     !   :   | + ! : | + 4 _xzm_xzone_find_and_malloc_from_freelist_chunk  (in libsystem_malloc.dylib) + 952  [0x19bdad4ac]
+      +     !   :   | + ! : | +   4 xzm_chunk_mark_used  (in libsystem_malloc.dylib) + 176  [0x19bd90d08]
+      +     !   :   | + ! : | +     2 _xzm_reclaim_mark_used  (in libsystem_malloc.dylib) + 124  [0x19bd90dbc]
+      +     !   :   | + ! : | +     ! 2 _xzm_reclaim_mark_used_locked  (in libsystem_malloc.dylib) + 60  [0x19bd932d0]
+      +     !   :   | + ! : | +     !   2 mach_vm_reclaim_try_cancel  (in libsystem_kernel.dylib) + 260  [0x19bf57dd4]
+      +     !   :   | + ! : | +     !     2 mach_absolute_time  (in libsystem_kernel.dylib) + 108  [0x19bf450fc]
+      +     !   :   | + ! : | +     2 _xzm_reclaim_mark_used  (in libsystem_malloc.dylib) + 176  [0x19bd90df0]
+      +     !   :   | + ! : | +       2 mach_vm_reclaim_update_kernel_accounting  (in libsystem_kernel.dylib) + 92  [0x19bf57f74]
+      +     !   :   | + ! : | +         2 mach_vm_reclaim_update_kernel_accounting_trap  (in libsystem_kernel.dylib) + 8  [0x19bf44cb8]
+      +     !   :   | + ! : | 1 DYLD-STUB$$malloc  (in engine_candidate) + 4  [0x10085610c]
+      +     !   :   | + ! : 80 serde_json::value::de::_$LT$impl$u20$serde_core..de..Deserialize$u20$for$u20$serde_json..value..Value$GT$::deserialize::h232c2f2c16f55f2f  (in engine_candidate) + 2036  [0x100801a00]  de.rs:151
+      +     !   :   | + ! : | 67 _platform_memmove  (in libsystem_platform.dylib) + 452,12,...  [0x19bf91544,0x19bf9138c,...]
+      +     !   :   | + ! : | 13 DYLD-STUB$$memcpy  (in engine_candidate) + 4  [0x100856124]
+      +     !   :   | + ! : 66 serde_json::value::de::_$LT$impl$u20$serde_core..de..Deserialize$u20$for$u20$serde_json..value..Value$GT$::deserialize::h232c2f2c16f55f2f  (in engine_candidate) + 1912  [0x100801984]  de.rs:151
+      +     !   :   | + ! : | 31 _$LT$serde_json..de..MapAccess$LT$R$GT$$u20$as$u20$serde_core..de..MapAccess$GT$::next_key_seed::has_next_key::ha40356d9c6b9029f  (in engine_candidate) + 132,20,...  [0x100805318,0x1008052a8,...]  de.rs:1991
+      +     !   :   | + ! : | 14 _$LT$serde_json..de..MapAccess$LT$R$GT$$u20$as$u20$serde_core..de..MapAccess$GT$::next_key_seed::has_next_key::ha40356d9c6b9029f  (in engine_candidate) + 264,284  [0x10080539c,0x1008053b0]  de.rs:0
+      +     !   :   | + ! : | 8 _$LT$serde_json..de..MapAccess$LT$R$GT$$u20$as$u20$serde_core..de..MapAccess$GT$::next_key_seed::has_next_key::ha40356d9c6b9029f  (in engine_candidate) + 152  [0x10080532c]  de.rs:2000
+      +     !   :   | + ! : | 7 _$LT$serde_json..de..MapAccess$LT$R$GT$$u20$as$u20$serde_core..de..MapAccess$GT$::next_key_seed::has_next_key::ha40356d9c6b9029f  (in engine_candidate) + 216  [0x10080536c]  de.rs:2009
+      +     !   :   | + ! : | 6 _$LT$serde_json..de..MapAccess$LT$R$GT$$u20$as$u20$serde_core..de..MapAccess$GT$::next_key_seed::has_next_key::ha40356d9c6b9029f  (in engine_candidate) + 180  [0x100805348]  de.rs:2007
+      +     !   :   | + ! : 43 serde_json::value::de::_$LT$impl$u20$serde_core..de..Deserialize$u20$for$u20$serde_json..value..Value$GT$::deserialize::h232c2f2c16f55f2f  (in engine_candidate) + 1480  [0x1008017d4]  de.rs:151
+      +     !   :   | + ! : | 14 _xzm_xzone_malloc_tiny  (in libsystem_malloc.dylib) + 12,276,...  [0x19bdab18c,0x19bdab294,...]
+      +     !   :   | + ! : | 11 _malloc_zone_malloc  (in libsystem_malloc.dylib) + 56,12,...  [0x19bdb3e3c,0x19bdb3e10,...]
+      +     !   :   | + ! : | 7 _xzm_xzone_malloc  (in libsystem_malloc.dylib) + 8,32,...  [0x19bda7094,0x19bda70ac,...]
+      +     !   :   | + ! : | 6 <deduplicated_symbol>  (in libsystem_malloc.dylib) + 208,108,...  [0x19bda6cf0,0x19bda6c8c,...]
+      +     !   :   | + ! : | 3 _RNvCsfLfy6EI15iL_7___rustc12___rust_alloc  (in engine_candidate) + 0,12  [0x100805af0,0x100805afc]
+      +     !   :   | + ! : | 2 DYLD-STUB$$malloc  (in engine_candidate) + 4  [0x10085610c]
+      +     !   :   | + ! : 36 serde_json::value::de::_$LT$impl$u20$serde_core..de..Deserialize$u20$for$u20$serde_json..value..Value$GT$::deserialize::h232c2f2c16f55f2f  (in engine_candidate) + 1584  [0x10080183c]  de.rs:151
+      +     !   :   | + ! : | 32 _$LT$serde_json..read..StrRead$u20$as$u20$serde_json..read..Read$GT$::parse_str::h0dd36eb81bd069c9  (in engine_candidate) + 84,412,...  [0x10082ad44,0x10082ae8c,...]  read.rs:710
+      +     !   :   | + ! : | 4 _$LT$serde_json..read..StrRead$u20$as$u20$serde_json..read..Read$GT$::parse_str::h0dd36eb81bd069c9  (in engine_candidate) + 16  [0x10082ad00]  read.rs:709
+      +     !   :   | + ! : 25 serde_json::value::de::_$LT$impl$u20$serde_core..de..Deserialize$u20$for$u20$serde_json..value..Value$GT$::deserialize::h232c2f2c16f55f2f  (in engine_candidate) + 2980,2960,...  [0x100801db0,0x100801d9c,...]  de.rs:152
+      +     !   :   | + ! : 24 serde_json::value::de::_$LT$impl$u20$serde_core..de..Deserialize$u20$for$u20$serde_json..value..Value$GT$::deserialize::h232c2f2c16f55f2f  (in engine_candidate) + 1648  [0x10080187c]  de.rs:151
+      +     !   :   | + ! : | 24 _platform_memmove  (in libsystem_platform.dylib) + 452,428,...  [0x19bf91544,0x19bf9152c,...]
+      +     !   :   | + ! : 21 alloc::collections::btree::map::BTreeMap$LT$K$C$V$C$A$GT$::insert::hf14b873031d04593  (in engine_candidate) + 372,368,...  [0x100804868,0x100804864,...]  map.rs:1057
+      +     !   :   | + ! : 20 serde_json::value::de::_$LT$impl$u20$serde_core..de..Deserialize$u20$for$u20$serde_json..value..Value$GT$::deserialize::h232c2f2c16f55f2f  (in engine_candidate) + 836  [0x100801550]  de.rs:151
+      +     !   :   | + ! : | 14 _$LT$serde_json..read..StrRead$u20$as$u20$serde_json..read..Read$GT$::parse_str::h0dd36eb81bd069c9  (in engine_candidate) + 84,144,...  [0x10082ad44,0x10082ad80,...]  read.rs:710
+      +     !   :   | + ! : | 5 _$LT$serde_json..read..StrRead$u20$as$u20$serde_json..read..Read$GT$::parse_str::h0dd36eb81bd069c9  (in engine_candidate) + 0,40,...  [0x10082acf0,0x10082ad18,...]  read.rs:709
+      +     !   :   | + ! : | 1 _$LT$serde_json..read..StrRead$u20$as$u20$serde_json..read..Read$GT$::parse_str::h0dd36eb81bd069c9  (in engine_candidate) + 900  [0x10082b074]  read.rs:716
+      +     !   :   | + ! : 19 serde_json::value::de::_$LT$impl$u20$serde_core..de..Deserialize$u20$for$u20$serde_json..value..Value$GT$::deserialize::h232c2f2c16f55f2f  (in engine_candidate) + 776  [0x100801514]  de.rs:151
+      +     !   :   | + ! : | 14 _$LT$serde_json..de..MapAccess$LT$R$GT$$u20$as$u20$serde_core..de..MapAccess$GT$::next_key_seed::has_next_key::ha40356d9c6b9029f  (in engine_candidate) + 20,132,...  [0x1008052a8,0x100805318,...]  de.rs:1991
+      +     !   :   | + ! : | 3 _$LT$serde_json..de..MapAccess$LT$R$GT$$u20$as$u20$serde_core..de..MapAccess$GT$::next_key_seed::has_next_key::ha40356d9c6b9029f  (in engine_candidate) + 284  [0x1008053b0]  de.rs:0
+      +     !   :   | + ! : | 1 _$LT$serde_json..de..MapAccess$LT$R$GT$$u20$as$u20$serde_core..de..MapAccess$GT$::next_key_seed::has_next_key::ha40356d9c6b9029f  (in engine_candidate) + 152  [0x10080532c]  de.rs:2000
+      +     !   :   | + ! : | 1 _$LT$serde_json..de..MapAccess$LT$R$GT$$u20$as$u20$serde_core..de..MapAccess$GT$::next_key_seed::has_next_key::ha40356d9c6b9029f  (in engine_candidate) + 160  [0x100805334]  de.rs:2001
+      +     !   :   | + ! : 18 serde_json::value::de::_$LT$impl$u20$serde_core..de..Deserialize$u20$for$u20$serde_json..value..Value$GT$::deserialize::h232c2f2c16f55f2f  (in engine_candidate) + 40,20,...  [0x100801234,0x100801220,...]  de.rs:24
+      +     !   :   | + ! : 14 _$LT$serde_json..de..MapAccess$LT$R$GT$$u20$as$u20$serde_core..de..MapAccess$GT$::next_key_seed::has_next_key::ha40356d9c6b9029f  (in engine_candidate) + 292  [0x1008053b8]  de.rs:2018
+      +     !   :   | + ! : 11 _$LT$serde_json..read..StrRead$u20$as$u20$serde_json..read..Read$GT$::parse_str::h0dd36eb81bd069c9  (in engine_candidate) + 912,908,...  [0x10082b080,0x10082b07c,...]  read.rs:716
+      +     !   :   | + ! : 10 serde_json::value::de::_$LT$impl$u20$serde_core..de..Deserialize$u20$for$u20$serde_json..value..Value$GT$::deserialize::h232c2f2c16f55f2f  (in engine_candidate) + 1500  [0x1008017e8]  de.rs:151
+      +     !   :   | + ! : | 9 _platform_memmove  (in libsystem_platform.dylib) + 452,0,...  [0x19bf91544,0x19bf91380,...]
+      +     !   :   | + ! : | 1 DYLD-STUB$$memcpy  (in engine_candidate) + 4  [0x100856124]
+      +     !   :   | + ! : 2 serde_json::de::Deserializer$LT$R$GT$::parse_number::h2782eb30d519aacc  (in engine_candidate) + 660  [0x100800e6c]  de.rs:528
+      +     !   :   | + ! : 1 core::ptr::drop_in_place$LT$serde_json..value..Value$GT$::hde50045e8a0cbd96  (in engine_candidate) + 48  [0x100804300]  mod.rs:805
+      +     !   :   | + ! : 1 serde_json::value::de::_$LT$impl$u20$serde_core..de..Deserialize$u20$for$u20$serde_json..value..Value$GT$::deserialize::h232c2f2c16f55f2f  (in engine_candidate) + 1736  [0x1008018d4]  de.rs:151
+      +     !   :   | + ! :   1 core::ptr::drop_in_place$LT$serde_json..value..Value$GT$::hde50045e8a0cbd96  (in engine_candidate) + 24  [0x1008042e8]  mod.rs:805
+      +     !   :   | + ! 292 serde_json::value::de::_$LT$impl$u20$serde_core..de..Deserialize$u20$for$u20$serde_json..value..Value$GT$::deserialize::h232c2f2c16f55f2f  (in engine_candidate) + 2212  [0x100801ab0]  de.rs:151
+      +     !   :   | + ! : 74 alloc::collections::btree::map::BTreeMap$LT$K$C$V$C$A$GT$::insert::hf14b873031d04593  (in engine_candidate) + 140,152,...  [0x100804780,0x10080478c,...]  map.rs:1050
+      +     !   :   | + ! : 71 alloc::collections::btree::map::BTreeMap$LT$K$C$V$C$A$GT$::insert::hf14b873031d04593  (in engine_candidate) + 496  [0x1008048e4]  map.rs:1053
+      +     !   :   | + ! : | 60 _platform_memmove  (in libsystem_platform.dylib) + 676,464,...  [0x19bf91624,0x19bf91550,...]
+      +     !   :   | + ! : | 11 DYLD-STUB$$memmove  (in engine_candidate) + 4  [0x100856130]
+      +     !   :   | + ! : 70 alloc::collections::btree::map::BTreeMap$LT$K$C$V$C$A$GT$::insert::hf14b873031d04593  (in engine_candidate) + 112  [0x100804764]  map.rs:1050
+      +     !   :   | + ! : | 55 _platform_memcmp  (in libsystem_platform.dylib) + 0,236,...  [0x19bf8eef0,0x19bf8efdc,...]
+      +     !   :   | + ! : | 15 DYLD-STUB$$memcmp  (in engine_candidate) + 4  [0x100856118]
+      +     !   :   | + ! : 34 alloc::collections::btree::map::BTreeMap$LT$K$C$V$C$A$GT$::insert::hf14b873031d04593  (in engine_candidate) + 532  [0x100804908]  map.rs:1053
+      +     !   :   | + ! : | 23 _platform_memmove  (in libsystem_platform.dylib) + 484,648,...  [0x19bf91564,0x19bf91608,...]
+      +     !   :   | + ! : | 11 DYLD-STUB$$memmove  (in engine_candidate) + 4,0  [0x100856130,0x10085612c]
+      +     !   :   | + ! : 27 alloc::collections::btree::map::BTreeMap$LT$K$C$V$C$A$GT$::insert::hf14b873031d04593  (in engine_candidate) + 532,412,...  [0x100804908,0x100804890,...]  map.rs:1053
+      +     !   :   | + ! : 7 alloc::collections::btree::map::BTreeMap$LT$K$C$V$C$A$GT$::insert::hf14b873031d04593  (in engine_candidate) + 20  [0x100804708]  map.rs:1046
+      +     !   :   | + ! : 7 alloc::collections::btree::map::BTreeMap$LT$K$C$V$C$A$GT$::insert::hf14b873031d04593  (in engine_candidate) + 440  [0x1008048ac]  node.rs:0
+      +     !   :   | + ! : 2 alloc::collections::btree::map::BTreeMap$LT$K$C$V$C$A$GT$::insert::hf14b873031d04593  (in engine_candidate) + 352  [0x100804854]  map.rs:1057
+      +     !   :   | + ! 234 serde_json::value::de::_$LT$impl$u20$serde_core..de..Deserialize$u20$for$u20$serde_json..value..Value$GT$::deserialize::h232c2f2c16f55f2f  (in engine_candidate) + 2016  [0x1008019ec]  de.rs:151
+      +     !   :   | + ! : 102 _xzm_xzone_malloc_tiny  (in libsystem_malloc.dylib) + 88,260,...  [0x19bdab1d8,0x19bdab284,...]
+      +     !   :   | + ! : 41 _xzm_xzone_malloc  (in libsystem_malloc.dylib) + 8,32,...  [0x19bda7094,0x19bda70ac,...]
+      +     !   :   | + ! : 37 _malloc_zone_malloc  (in libsystem_malloc.dylib) + 12,56,...  [0x19bdb3e10,0x19bdb3e3c,...]
+      +     !   :   | + ! : 34 <deduplicated_symbol>  (in libsystem_malloc.dylib) + 108,160,...  [0x19bda6c8c,0x19bda6cc0,...]
+      +     !   :   | + ! : 7 DYLD-STUB$$malloc  (in engine_candidate) + 4  [0x10085610c]
+      +     !   :   | + ! : 6 _RNvCsfLfy6EI15iL_7___rustc12___rust_alloc  (in engine_candidate) + 0,12  [0x100805af0,0x100805afc]
+      +     !   :   | + ! : 5 _xzm_xzone_malloc_freelist_outlined  (in libsystem_malloc.dylib) + 324  [0x19bdac940]
+      +     !   :   | + ! : | 5 _xzm_xzone_find_and_malloc_from_freelist_chunk  (in libsystem_malloc.dylib) + 952  [0x19bdad4ac]
+      +     !   :   | + ! : |   5 xzm_chunk_mark_used  (in libsystem_malloc.dylib) + 176  [0x19bd90d08]
+      +     !   :   | + ! : |     5 _xzm_reclaim_mark_used  (in libsystem_malloc.dylib) + 176  [0x19bd90df0]
+      +     !   :   | + ! : |       5 mach_vm_reclaim_update_kernel_accounting  (in libsystem_kernel.dylib) + 92  [0x19bf57f74]
+      +     !   :   | + ! : |         5 mach_vm_reclaim_update_kernel_accounting_trap  (in libsystem_kernel.dylib) + 8,4  [0x19bf44cb8,0x19bf44cb4]
+      +     !   :   | + ! : 2 _xzm_xzone_malloc_freelist_outlined  (in libsystem_malloc.dylib) + 764  [0x19bdacaf8]
+      +     !   :   | + ! 127 serde_json::value::de::_$LT$impl$u20$serde_core..de..Deserialize$u20$for$u20$serde_json..value..Value$GT$::deserialize::h232c2f2c16f55f2f  (in engine_candidate) + 2052,2080,...  [0x100801a10,0x100801a2c,...]  de.rs:151
+      +     !   :   | + ! 96 serde_json::value::de::_$LT$impl$u20$serde_core..de..Deserialize$u20$for$u20$serde_json..value..Value$GT$::deserialize::h232c2f2c16f55f2f  (in engine_candidate) + 1868  [0x100801958]  de.rs:151
+      +     !   :   | + ! : 86 alloc::collections::btree::map::BTreeMap$LT$K$C$V$C$A$GT$::insert::hf14b873031d04593  (in engine_candidate) + 292  [0x100804818]  map.rs:1053
+      +     !   :   | + ! : | 35 _xzm_xzone_malloc_freelist_outlined  (in libsystem_malloc.dylib) + 324  [0x19bdac940]
+      +     !   :   | + ! : | + 33 _xzm_xzone_find_and_malloc_from_freelist_chunk  (in libsystem_malloc.dylib) + 952  [0x19bdad4ac]
+      +     !   :   | + ! : | + ! 30 xzm_chunk_mark_used  (in libsystem_malloc.dylib) + 176  [0x19bd90d08]
+      +     !   :   | + ! : | + ! : 21 _xzm_reclaim_mark_used  (in libsystem_malloc.dylib) + 176  [0x19bd90df0]
+      +     !   :   | + ! : | + ! : | 20 mach_vm_reclaim_update_kernel_accounting  (in libsystem_kernel.dylib) + 92  [0x19bf57f74]
+      +     !   :   | + ! : | + ! : | + 20 mach_vm_reclaim_update_kernel_accounting_trap  (in libsystem_kernel.dylib) + 8  [0x19bf44cb8]
+      +     !   :   | + ! : | + ! : | 1 mach_vm_reclaim_update_kernel_accounting  (in libsystem_kernel.dylib) + 36  [0x19bf57f3c]
+      +     !   :   | + ! : | + ! : |   1 mach_absolute_time  (in libsystem_kernel.dylib) + 108  [0x19bf450fc]
+      +     !   :   | + ! : | + ! : 7 _xzm_reclaim_mark_used  (in libsystem_malloc.dylib) + 124  [0x19bd90dbc]
+      +     !   :   | + ! : | + ! : | 7 _xzm_reclaim_mark_used_locked  (in libsystem_malloc.dylib) + 60  [0x19bd932d0]
+      +     !   :   | + ! : | + ! : |   7 mach_vm_reclaim_try_cancel  (in libsystem_kernel.dylib) + 260  [0x19bf57dd4]
+      +     !   :   | + ! : | + ! : |     7 mach_absolute_time  (in libsystem_kernel.dylib) + 108  [0x19bf450fc]
+      +     !   :   | + ! : | + ! : 1 _xzm_reclaim_mark_used  (in libsystem_malloc.dylib) + 76  [0x19bd90d8c]
+      +     !   :   | + ! : | + ! : 1 mach_vm_reclaim_update_kernel_accounting  (in libsystem_kernel.dylib) + 132  [0x19bf57f9c]
+      +     !   :   | + ! : | + ! 2 xzm_chunk_mark_used  (in libsystem_malloc.dylib) + 0,36  [0x19bd90c58,0x19bd90c7c]
+      +     !   :   | + ! : | + ! 1 xzm_chunk_mark_used  (in libsystem_malloc.dylib) + 196  [0x19bd90d1c]
+      +     !   :   | + ! : | + !   1 DYLD-STUB$$mach_vm_reclaim_is_reusable  (in libsystem_malloc.dylib) + 12  [0x19bdbc800]
+      +     !   :   | + ! : | + 1 _xzm_xzone_find_and_malloc_from_freelist_chunk  (in libsystem_malloc.dylib) + 592  [0x19bdad344]
+      +     !   :   | + ! : | + ! 1 _xzm_chunk_list_pop  (in libsystem_malloc.dylib) + 72  [0x19bdada5c]
+      +     !   :   | + ! : | + 1 _xzm_xzone_find_and_malloc_from_freelist_chunk  (in libsystem_malloc.dylib) + 892  [0x19bdad470]
+      +     !   :   | + ! : | 17 _xzm_xzone_malloc_tiny  (in libsystem_malloc.dylib) + 408,12,...  [0x19bdab318,0x19bdab18c,...]
+      +     !   :   | + ! : | 15 _xzm_xzone_malloc  (in libsystem_malloc.dylib) + 8,324,...  [0x19bda7094,0x19bda71d0,...]
+      +     !   :   | + ! : | 7 <deduplicated_symbol>  (in libsystem_malloc.dylib) + 108,8,...  [0x19bda6c8c,0x19bda6c28,...]
+      +     !   :   | + ! : | 6 _malloc_zone_malloc  (in libsystem_malloc.dylib) + 12,44  [0x19bdb3e10,0x19bdb3e30]
+      +     !   :   | + ! : | 4 _xzm_xzone_malloc_freelist_outlined  (in libsystem_malloc.dylib) + 764  [0x19bdacaf8]
+      +     !   :   | + ! : | 2 DYLD-STUB$$malloc  (in engine_candidate) + 4  [0x10085610c]
+      +     !   :   | + ! : 5 alloc::collections::btree::map::BTreeMap$LT$K$C$V$C$A$GT$::insert::hf14b873031d04593  (in engine_candidate) + 292,324,...  [0x100804818,0x100804838,...]  map.rs:1053
+      +     !   :   | + ! : 3 alloc::collections::btree::map::BTreeMap$LT$K$C$V$C$A$GT$::insert::hf14b873031d04593  (in engine_candidate) + 40  [0x10080471c]  map.rs:1050
+      +     !   :   | + ! : 2 alloc::collections::btree::map::BTreeMap$LT$K$C$V$C$A$GT$::insert::hf14b873031d04593  (in engine_candidate) + 24  [0x10080470c]  map.rs:1046
+      +     !   :   | + ! 96 serde_json::value::de::_$LT$impl$u20$serde_core..de..Deserialize$u20$for$u20$serde_json..value..Value$GT$::deserialize::h232c2f2c16f55f2f  (in engine_candidate) + 1972  [0x1008019c0]  de.rs:151
+      +     !   :   | + ! : 91 _$LT$serde_json..read..StrRead$u20$as$u20$serde_json..read..Read$GT$::parse_str::h0dd36eb81bd069c9  (in engine_candidate) + 84,412,...  [0x10082ad44,0x10082ae8c,...]  read.rs:710
+      +     !   :   | + ! : 3 _$LT$serde_json..read..StrRead$u20$as$u20$serde_json..read..Read$GT$::parse_str::h0dd36eb81bd069c9  (in engine_candidate) + 8,16  [0x10082acf8,0x10082ad00]  read.rs:709
+      +     !   :   | + ! : 2 _$LT$serde_json..read..StrRead$u20$as$u20$serde_json..read..Read$GT$::parse_str::h0dd36eb81bd069c9  (in engine_candidate) + 900  [0x10082b074]  read.rs:716
+      +     !   :   | + ! 70 serde_json::value::de::_$LT$impl$u20$serde_core..de..Deserialize$u20$for$u20$serde_json..value..Value$GT$::deserialize::h232c2f2c16f55f2f  (in engine_candidate) + 1912  [0x100801984]  de.rs:151
+      +     !   :   | + ! : 39 _$LT$serde_json..de..MapAccess$LT$R$GT$$u20$as$u20$serde_core..de..MapAccess$GT$::next_key_seed::has_next_key::ha40356d9c6b9029f  (in engine_candidate) + 20,132,...  [0x1008052a8,0x100805318,...]  de.rs:1991
+      +     !   :   | + ! : 10 _$LT$serde_json..de..MapAccess$LT$R$GT$$u20$as$u20$serde_core..de..MapAccess$GT$::next_key_seed::has_next_key::ha40356d9c6b9029f  (in engine_candidate) + 216,228  [0x10080536c,0x100805378]  de.rs:2009
+      +     !   :   | + ! : 8 _$LT$serde_json..de..MapAccess$LT$R$GT$$u20$as$u20$serde_core..de..MapAccess$GT$::next_key_seed::has_next_key::ha40356d9c6b9029f  (in engine_candidate) + 264,284  [0x10080539c,0x1008053b0]  de.rs:0
+      +     !   :   | + ! : 8 _$LT$serde_json..de..MapAccess$LT$R$GT$$u20$as$u20$serde_core..de..MapAccess$GT$::next_key_seed::has_next_key::ha40356d9c6b9029f  (in engine_candidate) + 152  [0x10080532c]  de.rs:2000
+      +     !   :   | + ! : 4 _$LT$serde_json..de..MapAccess$LT$R$GT$$u20$as$u20$serde_core..de..MapAccess$GT$::next_key_seed::has_next_key::ha40356d9c6b9029f  (in engine_candidate) + 180  [0x100805348]  de.rs:2007
+      +     !   :   | + ! : 1 _$LT$serde_json..de..MapAccess$LT$R$GT$$u20$as$u20$serde_core..de..MapAccess$GT$::next_key_seed::has_next_key::ha40356d9c6b9029f  (in engine_candidate) + 0  [0x100805294]  de.rs:1990
+      +     !   :   | + ! 64 serde_json::value::de::_$LT$impl$u20$serde_core..de..Deserialize$u20$for$u20$serde_json..value..Value$GT$::deserialize::h232c2f2c16f55f2f  (in engine_candidate) + 2036  [0x100801a00]  de.rs:151
+      +     !   :   | + ! : 58 _platform_memmove  (in libsystem_platform.dylib) + 428,452,...  [0x19bf9152c,0x19bf91544,...]
+      +     !   :   | + ! : 6 DYLD-STUB$$memcpy  (in engine_candidate) + 4  [0x100856124]
+      +     !   :   | + ! 37 serde_json::value::de::_$LT$impl$u20$serde_core..de..Deserialize$u20$for$u20$serde_json..value..Value$GT$::deserialize::h232c2f2c16f55f2f  (in engine_candidate) + 1820  [0x100801928]  de.rs:151
+      +     !   :   | + ! : 21 serde_json::value::de::_$LT$impl$u20$serde_core..de..Deserialize$u20$for$u20$serde_json..value..Value$GT$::deserialize::h232c2f2c16f55f2f  (in engine_candidate) + 884  [0x100801580]  de.rs:151
+      +     !   :   | + ! : | 5 serde_json::de::Deserializer$LT$R$GT$::parse_integer::h46d805335737c2f5  (in engine_candidate) + 172  [0x100800f24]  de.rs:482
+      +     !   :   | + ! : | 4 serde_json::de::Deserializer$LT$R$GT$::parse_integer::h46d805335737c2f5  (in engine_candidate) + 156  [0x100800f14]  de.rs:496
+      +     !   :   | + ! : | 3 serde_json::de::Deserializer$LT$R$GT$::parse_integer::h46d805335737c2f5  (in engine_candidate) + 108  [0x100800ee4]  de.rs:478
+      +     !   :   | + ! : | 2 serde_json::de::Deserializer$LT$R$GT$::parse_integer::h46d805335737c2f5  (in engine_candidate) + 188  [0x100800f34]  de.rs:104
+      +     !   :   | + ! : | 2 serde_json::de::Deserializer$LT$R$GT$::parse_integer::h46d805335737c2f5  (in engine_candidate) + 40  [0x100800ea0]  de.rs:463
+      +     !   :   | + ! : | 2 serde_json::de::Deserializer$LT$R$GT$::parse_number::h2782eb30d519aacc  (in engine_candidate) + 16,32  [0x100800be8,0x100800bf8]  de.rs:510
+      +     !   :   | + ! : | 1 serde_json::de::Deserializer$LT$R$GT$::parse_integer::h46d805335737c2f5  (in engine_candidate) + 0  [0x100800e78]  de.rs:462
+      +     !   :   | + ! : | 1 serde_json::de::Deserializer$LT$R$GT$::parse_number::h2782eb30d519aacc  (in engine_candidate) + 100  [0x100800c3c]  de.rs:514
+      +     !   :   | + ! : | 1 serde_json::de::Deserializer$LT$R$GT$::parse_number::h2782eb30d519aacc  (in engine_candidate) + 52  [0x100800c0c]  lib.rs:412
+      +     !   :   | + ! : 6 serde_json::value::de::_$LT$impl$u20$serde_core..de..Deserialize$u20$for$u20$serde_json..value..Value$GT$::deserialize::h232c2f2c16f55f2f  (in engine_candidate) + 896,76,...  [0x10080158c,0x100801258,...]  de.rs:151
+      +     !   :   | + ! : 5 serde_json::value::de::_$LT$impl$u20$serde_core..de..Deserialize$u20$for$u20$serde_json..value..Value$GT$::deserialize::h232c2f2c16f55f2f  (in engine_candidate) + 16,40  [0x10080121c,0x100801234]  de.rs:24
+      +     !   :   | + ! : 4 _$LT$serde_json..de..MapAccess$LT$R$GT$$u20$as$u20$serde_core..de..MapAccess$GT$::next_value_seed::h8dba4c1bc5511711  (in engine_candidate) + 20,140  [0x100805404,0x10080547c]  de.rs:0
+      +     !   :   | + ! : 1 _$LT$serde_json..de..MapAccess$LT$R$GT$$u20$as$u20$serde_core..de..MapAccess$GT$::next_value_seed::h8dba4c1bc5511711  (in engine_candidate) + 48  [0x100805420]  de.rs:2031
+      +     !   :   | + ! 36 serde_json::value::de::_$LT$impl$u20$serde_core..de..Deserialize$u20$for$u20$serde_json..value..Value$GT$::deserialize::h232c2f2c16f55f2f  (in engine_candidate) + 1628  [0x100801868]  de.rs:151
+      +     !   :   | + ! : 15 _xzm_xzone_malloc_tiny  (in libsystem_malloc.dylib) + 260,408,...  [0x19bdab284,0x19bdab318,...]
+      +     !   :   | + ! : 7 _malloc_zone_malloc  (in libsystem_malloc.dylib) + 92,44,...  [0x19bdb3e60,0x19bdb3e30,...]
+      +     !   :   | + ! : 6 _xzm_xzone_malloc  (in libsystem_malloc.dylib) + 8,0,...  [0x19bda7094,0x19bda708c,...]
+      +     !   :   | + ! : 5 <deduplicated_symbol>  (in libsystem_malloc.dylib) + 108,208  [0x19bda6c8c,0x19bda6cf0]
+      +     !   :   | + ! : 2 _xzm_xzone_malloc_freelist_outlined  (in libsystem_malloc.dylib) + 324  [0x19bdac940]
+      +     !   :   | + ! : | 2 _xzm_xzone_find_and_malloc_from_freelist_chunk  (in libsystem_malloc.dylib) + 952  [0x19bdad4ac]
+      +     !   :   | + ! : |   2 xzm_chunk_mark_used  (in libsystem_malloc.dylib) + 176  [0x19bd90d08]
+      +     !   :   | + ! : |     2 _xzm_reclaim_mark_used  (in libsystem_malloc.dylib) + 124  [0x19bd90dbc]
+      +     !   :   | + ! : |       2 _xzm_reclaim_mark_used_locked  (in libsystem_malloc.dylib) + 60  [0x19bd932d0]
+      +     !   :   | + ! : |         2 mach_vm_reclaim_try_cancel  (in libsystem_kernel.dylib) + 260  [0x19bf57dd4]
+      +     !   :   | + ! : |           2 mach_absolute_time  (in libsystem_kernel.dylib) + 108  [0x19bf450fc]
+      +     !   :   | + ! : 1 _RNvCsfLfy6EI15iL_7___rustc12___rust_alloc  (in engine_candidate) + 12  [0x100805afc]
+      +     !   :   | + ! 24 serde_json::value::de::_$LT$impl$u20$serde_core..de..Deserialize$u20$for$u20$serde_json..value..Value$GT$::deserialize::h232c2f2c16f55f2f  (in engine_candidate) + 2980,2972,...  [0x100801db0,0x100801da8,...]  de.rs:152
+      +     !   :   | + ! 19 _$LT$serde_json..read..StrRead$u20$as$u20$serde_json..read..Read$GT$::parse_str::h0dd36eb81bd069c9  (in engine_candidate) + 912,904,...  [0x10082b080,0x10082b078,...]  read.rs:716
+      +     !   :   | + ! 17 alloc::collections::btree::map::BTreeMap$LT$K$C$V$C$A$GT$::insert::hf14b873031d04593  (in engine_candidate) + 372,360,...  [0x100804868,0x10080485c,...]  map.rs:1057
+      +     !   :   | + ! 13 serde_json::value::de::_$LT$impl$u20$serde_core..de..Deserialize$u20$for$u20$serde_json..value..Value$GT$::deserialize::h232c2f2c16f55f2f  (in engine_candidate) + 1584  [0x10080183c]  de.rs:151
+      +     !   :   | + ! : 13 _$LT$serde_json..read..StrRead$u20$as$u20$serde_json..read..Read$GT$::parse_str::h0dd36eb81bd069c9  (in engine_candidate) + 92,104,...  [0x10082ad4c,0x10082ad58,...]  read.rs:710
+      +     !   :   | + ! 13 serde_json::value::de::_$LT$impl$u20$serde_core..de..Deserialize$u20$for$u20$serde_json..value..Value$GT$::deserialize::h232c2f2c16f55f2f  (in engine_candidate) + 1648  [0x10080187c]  de.rs:151
+      +     !   :   | + ! : 12 _platform_memmove  (in libsystem_platform.dylib) + 452,0,...  [0x19bf91544,0x19bf91380,...]
+      +     !   :   | + ! : 1 DYLD-STUB$$memcpy  (in engine_candidate) + 4  [0x100856124]
+      +     !   :   | + ! 10 _$LT$serde_json..de..MapAccess$LT$R$GT$$u20$as$u20$serde_core..de..MapAccess$GT$::next_key_seed::has_next_key::ha40356d9c6b9029f  (in engine_candidate) + 292  [0x1008053b8]  de.rs:2018
+      +     !   :   | + ! 7 serde_json::value::de::_$LT$impl$u20$serde_core..de..Deserialize$u20$for$u20$serde_json..value..Value$GT$::deserialize::h232c2f2c16f55f2f  (in engine_candidate) + 776  [0x100801514]  de.rs:151
+      +     !   :   | + ! : 3 _$LT$serde_json..de..MapAccess$LT$R$GT$$u20$as$u20$serde_core..de..MapAccess$GT$::next_key_seed::has_next_key::ha40356d9c6b9029f  (in engine_candidate) + 8,0  [0x10080529c,0x100805294]  de.rs:1990
+      +     !   :   | + ! : 2 _$LT$serde_json..de..MapAccess$LT$R$GT$$u20$as$u20$serde_core..de..MapAccess$GT$::next_key_seed::has_next_key::ha40356d9c6b9029f  (in engine_candidate) + 152  [0x10080532c]  de.rs:2000
+      +     !   :   | + ! : 1 _$LT$serde_json..de..MapAccess$LT$R$GT$$u20$as$u20$serde_core..de..MapAccess$GT$::next_key_seed::has_next_key::ha40356d9c6b9029f  (in engine_candidate) + 16  [0x1008052a4]  de.rs:1991
+      +     !   :   | + ! : 1 _$LT$serde_json..de..MapAccess$LT$R$GT$$u20$as$u20$serde_core..de..MapAccess$GT$::next_key_seed::has_next_key::ha40356d9c6b9029f  (in engine_candidate) + 160  [0x100805334]  de.rs:2001
+      +     !   :   | + ! 4 serde_json::value::de::_$LT$impl$u20$serde_core..de..Deserialize$u20$for$u20$serde_json..value..Value$GT$::deserialize::h232c2f2c16f55f2f  (in engine_candidate) + 40,24  [0x100801234,0x100801224]  de.rs:24
+      +     !   :   | + 58 serde_json::value::de::_$LT$impl$u20$serde_core..de..Deserialize$u20$for$u20$serde_json..value..Value$GT$::deserialize::h232c2f2c16f55f2f  (in engine_candidate) + 612  [0x100801470]  de.rs:151
+      +     !   :   | + ! 44 alloc::raw_vec::RawVec$LT$T$C$A$GT$::grow_one::h4faf09827e30e45c  (in engine_candidate) + 60  [0x100851c58]  mod.rs:188
+      +     !   :   | + ! : 38 alloc::raw_vec::RawVecInner$LT$A$GT$::finish_grow::h8a450bd788843f3a  (in engine_candidate) + 228  [0x100851bcc]  mod.rs:555
+      +     !   :   | + ! : | 38 _realloc  (in libsystem_malloc.dylib) + 452  [0x19bdb4c70]
+      +     !   :   | + ! : |   36 _malloc_zone_realloc  (in libsystem_malloc.dylib) + 148  [0x19bdb4440]
+      +     !   :   | + ! : |   + 18 xzm_realloc  (in libsystem_malloc.dylib) + 812  [0x19bda75e8]
+      +     !   :   | + ! : |   + ! 8 _xzm_xzone_malloc_tiny  (in libsystem_malloc.dylib) + 356,0,...  [0x19bdab2e4,0x19bdab180,...]
+      +     !   :   | + ! : |   + ! 7 _xzm_xzone_malloc_freelist_outlined  (in libsystem_malloc.dylib) + 324  [0x19bdac940]
+      +     !   :   | + ! : |   + ! : 6 _xzm_xzone_find_and_malloc_from_freelist_chunk  (in libsystem_malloc.dylib) + 952  [0x19bdad4ac]
+      +     !   :   | + ! : |   + ! : | 6 xzm_chunk_mark_used  (in libsystem_malloc.dylib) + 176  [0x19bd90d08]
+      +     !   :   | + ! : |   + ! : |   3 _xzm_reclaim_mark_used  (in libsystem_malloc.dylib) + 124  [0x19bd90dbc]
+      +     !   :   | + ! : |   + ! : |   + 3 _xzm_reclaim_mark_used_locked  (in libsystem_malloc.dylib) + 60  [0x19bd932d0]
+      +     !   :   | + ! : |   + ! : |   +   3 mach_vm_reclaim_try_cancel  (in libsystem_kernel.dylib) + 260  [0x19bf57dd4]
+      +     !   :   | + ! : |   + ! : |   +     3 mach_absolute_time  (in libsystem_kernel.dylib) + 108  [0x19bf450fc]
+      +     !   :   | + ! : |   + ! : |   3 _xzm_reclaim_mark_used  (in libsystem_malloc.dylib) + 176  [0x19bd90df0]
+      +     !   :   | + ! : |   + ! : |     3 mach_vm_reclaim_update_kernel_accounting  (in libsystem_kernel.dylib) + 92  [0x19bf57f74]
+      +     !   :   | + ! : |   + ! : |       3 mach_vm_reclaim_update_kernel_accounting_trap  (in libsystem_kernel.dylib) + 8  [0x19bf44cb8]
+      +     !   :   | + ! : |   + ! : 1 _xzm_xzone_find_and_malloc_from_freelist_chunk  (in libsystem_malloc.dylib) + 172  [0x19bdad1a0]
+      +     !   :   | + ! : |   + ! :   1 _xzm_chunk_list_pop  (in libsystem_malloc.dylib) + 16  [0x19bdada24]
+      +     !   :   | + ! : |   + ! 1 <deduplicated_symbol>  (in libsystem_malloc.dylib) + 108  [0x19bda6c8c]
+      +     !   :   | + ! : |   + ! 1 _xzm_xzone_malloc  (in libsystem_malloc.dylib) + 180  [0x19bda7140]
+      +     !   :   | + ! : |   + ! 1 _xzm_xzone_malloc_freelist_outlined  (in libsystem_malloc.dylib) + 764  [0x19bdacaf8]
+      +     !   :   | + ! : |   + 9 xzm_realloc  (in libsystem_malloc.dylib) + 884,60,...  [0x19bda7630,0x19bda72f8,...]
+      +     !   :   | + ! : |   + 6 xzm_realloc  (in libsystem_malloc.dylib) + 908  [0x19bda7648]
+      +     !   :   | + ! : |   + ! 4 _xzm_free  (in libsystem_malloc.dylib) + 204,508,...  [0x19bda7810,0x19bda7940,...]
+      +     !   :   | + ! : |   + ! 2 _xzm_free  (in libsystem_malloc.dylib) + 348  [0x19bda78a0]
+      +     !   :   | + ! : |   + !   1 __bzero  (in libsystem_platform.dylib) + 0  [0x19bf91050]
+      +     !   :   | + ! : |   + !   1 _platform_memset  (in libsystem_platform.dylib) + 160  [0x19bf91150]
+      +     !   :   | + ! : |   + 2 xzm_realloc  (in libsystem_malloc.dylib) + 884  [0x19bda7630]
+      +     !   :   | + ! : |   + ! 2 _platform_memmove  (in libsystem_platform.dylib) + 180  [0x19bf91434]
+      +     !   :   | + ! : |   + 1 default_zone_realloc  (in libsystem_malloc.dylib) + 24  [0x19bd80d90]
+      +     !   :   | + ! : |   2 _malloc_zone_realloc  (in libsystem_malloc.dylib) + 124  [0x19bdb4428]
+      +     !   :   | + ! : 4 alloc::raw_vec::RawVecInner$LT$A$GT$::finish_grow::h8a450bd788843f3a  (in engine_candidate) + 260  [0x100851bec]  mod.rs:558
+      +     !   :   | + ! : | 2 _malloc_zone_malloc  (in libsystem_malloc.dylib) + 56  [0x19bdb3e3c]
+      +     !   :   | + ! : | 1 <deduplicated_symbol>  (in libsystem_malloc.dylib) + 108  [0x19bda6c8c]
+      +     !   :   | + ! : | 1 _xzm_xzone_malloc_tiny  (in libsystem_malloc.dylib) + 828  [0x19bdab4bc]
+      +     !   :   | + ! : 1 alloc::raw_vec::RawVecInner$LT$A$GT$::finish_grow::h8a450bd788843f3a  (in engine_candidate) + 44  [0x100851b14]  mod.rs:547
+      +     !   :   | + ! : 1 alloc::raw_vec::RawVecInner$LT$A$GT$::finish_grow::h8a450bd788843f3a  (in engine_candidate) + 168  [0x100851b90]  mod.rs:558
+      +     !   :   | + ! 13 alloc::raw_vec::RawVec$LT$T$C$A$GT$::grow_one::h4faf09827e30e45c  (in engine_candidate) + 60,72,...  [0x100851c58,0x100851c64,...]  mod.rs:188
+      +     !   :   | + ! 1 alloc::raw_vec::RawVec$LT$T$C$A$GT$::grow_one::h4faf09827e30e45c  (in engine_candidate) + 0  [0x100851c1c]  mod.rs:186
+      +     !   :   | + 13 serde_json::value::de::_$LT$impl$u20$serde_core..de..Deserialize$u20$for$u20$serde_json..value..Value$GT$::deserialize::h232c2f2c16f55f2f  (in engine_candidate) + 612,436,...  [0x100801470,0x1008013c0,...]  de.rs:151
+      +     !   :   | + 2 serde_json::value::de::_$LT$impl$u20$serde_core..de..Deserialize$u20$for$u20$serde_json..value..Value$GT$::deserialize::h232c2f2c16f55f2f  (in engine_candidate) + 2980  [0x100801db0]  de.rs:152
+      +     !   :   | + 1 serde_json::value::de::_$LT$impl$u20$serde_core..de..Deserialize$u20$for$u20$serde_json..value..Value$GT$::deserialize::h232c2f2c16f55f2f  (in engine_candidate) + 884  [0x100801580]  de.rs:151
+      +     !   :   | + ! 1 serde_json::de::Deserializer$LT$R$GT$::parse_integer::h46d805335737c2f5  (in engine_candidate) + 16  [0x100800e88]  de.rs:463
+      +     !   :   | + 1 serde_json::value::de::_$LT$impl$u20$serde_core..de..Deserialize$u20$for$u20$serde_json..value..Value$GT$::deserialize::h232c2f2c16f55f2f  (in engine_candidate) + 20  [0x100801220]  de.rs:24
+      +     !   :   | 6 serde_json::value::de::_$LT$impl$u20$serde_core..de..Deserialize$u20$for$u20$serde_json..value..Value$GT$::deserialize::h232c2f2c16f55f2f  (in engine_candidate) + 2016  [0x1008019ec]  de.rs:151
+      +     !   :   | + 3 _xzm_xzone_malloc  (in libsystem_malloc.dylib) + 8,32,...  [0x19bda7094,0x19bda70ac,...]
+      +     !   :   | + 2 _xzm_xzone_malloc_tiny  (in libsystem_malloc.dylib) + 88,260  [0x19bdab1d8,0x19bdab284]
+      +     !   :   | + 1 _malloc_zone_malloc  (in libsystem_malloc.dylib) + 44  [0x19bdb3e30]
+      +     !   :   | 4 serde_json::value::de::_$LT$impl$u20$serde_core..de..Deserialize$u20$for$u20$serde_json..value..Value$GT$::deserialize::h232c2f2c16f55f2f  (in engine_candidate) + 1868  [0x100801958]  de.rs:151
+      +     !   :   | + 3 alloc::collections::btree::map::BTreeMap$LT$K$C$V$C$A$GT$::insert::hf14b873031d04593  (in engine_candidate) + 292  [0x100804818]  map.rs:1053
+      +     !   :   | + ! 1 <deduplicated_symbol>  (in libsystem_malloc.dylib) + 108  [0x19bda6c8c]
+      +     !   :   | + ! 1 DYLD-STUB$$malloc  (in engine_candidate) + 4  [0x10085610c]
+      +     !   :   | + ! 1 _xzm_xzone_malloc_tiny  (in libsystem_malloc.dylib) + 88  [0x19bdab1d8]
+      +     !   :   | + 1 alloc::collections::btree::map::BTreeMap$LT$K$C$V$C$A$GT$::insert::hf14b873031d04593  (in engine_candidate) + 24  [0x10080470c]  map.rs:1046
+      +     !   :   | 3 serde_json::value::de::_$LT$impl$u20$serde_core..de..Deserialize$u20$for$u20$serde_json..value..Value$GT$::deserialize::h232c2f2c16f55f2f  (in engine_candidate) + 1820  [0x100801928]  de.rs:151
+      +     !   :   | + 1 _$LT$serde_json..de..MapAccess$LT$R$GT$$u20$as$u20$serde_core..de..MapAccess$GT$::next_value_seed::h8dba4c1bc5511711  (in engine_candidate) + 48  [0x100805420]  de.rs:2031
+      +     !   :   | + 1 serde_json::value::de::_$LT$impl$u20$serde_core..de..Deserialize$u20$for$u20$serde_json..value..Value$GT$::deserialize::h232c2f2c16f55f2f  (in engine_candidate) + 884  [0x100801580]  de.rs:151
+      +     !   :   | + ! 1 serde_json::de::Deserializer$LT$R$GT$::parse_number::h2782eb30d519aacc  (in engine_candidate) + 32  [0x100800bf8]  de.rs:510
+      +     !   :   | + 1 serde_json::value::de::_$LT$impl$u20$serde_core..de..Deserialize$u20$for$u20$serde_json..value..Value$GT$::deserialize::h232c2f2c16f55f2f  (in engine_candidate) + 280  [0x100801324]  de.rs:151
+      +     !   :   | 2 serde_json::value::de::_$LT$impl$u20$serde_core..de..Deserialize$u20$for$u20$serde_json..value..Value$GT$::deserialize::h232c2f2c16f55f2f  (in engine_candidate) + 1648  [0x10080187c]  de.rs:151
+      +     !   :   | + 2 _platform_memmove  (in libsystem_platform.dylib) + 452  [0x19bf91544]
+      +     !   :   | 2 serde_json::value::de::_$LT$impl$u20$serde_core..de..Deserialize$u20$for$u20$serde_json..value..Value$GT$::deserialize::h232c2f2c16f55f2f  (in engine_candidate) + 1972  [0x1008019c0]  de.rs:151
+      +     !   :   | + 2 _$LT$serde_json..read..StrRead$u20$as$u20$serde_json..read..Read$GT$::parse_str::h0dd36eb81bd069c9  (in engine_candidate) + 84,152  [0x10082ad44,0x10082ad88]  read.rs:710
+      +     !   :   | 2 serde_json::value::de::_$LT$impl$u20$serde_core..de..Deserialize$u20$for$u20$serde_json..value..Value$GT$::deserialize::h232c2f2c16f55f2f  (in engine_candidate) + 2212  [0x100801ab0]  de.rs:151
+      +     !   :   | + 2 alloc::collections::btree::map::BTreeMap$LT$K$C$V$C$A$GT$::insert::hf14b873031d04593  (in engine_candidate) + 140,172  [0x100804780,0x1008047a0]  map.rs:1050
+      +     !   :   | 2 serde_json::value::de::_$LT$impl$u20$serde_core..de..Deserialize$u20$for$u20$serde_json..value..Value$GT$::deserialize::h232c2f2c16f55f2f  (in engine_candidate) + 2016,2172  [0x1008019ec,0x100801a88]  de.rs:151
+      +     !   :   | 1 serde_json::value::de::_$LT$impl$u20$serde_core..de..Deserialize$u20$for$u20$serde_json..value..Value$GT$::deserialize::h232c2f2c16f55f2f  (in engine_candidate) + 776  [0x100801514]  de.rs:151
+      +     !   :   | + 1 _$LT$serde_json..de..MapAccess$LT$R$GT$$u20$as$u20$serde_core..de..MapAccess$GT$::next_key_seed::has_next_key::ha40356d9c6b9029f  (in engine_candidate) + 152  [0x10080532c]  de.rs:2000
+      +     !   :   | 1 serde_json::value::de::_$LT$impl$u20$serde_core..de..Deserialize$u20$for$u20$serde_json..value..Value$GT$::deserialize::h232c2f2c16f55f2f  (in engine_candidate) + 1584  [0x10080183c]  de.rs:151
+      +     !   :   | + 1 _$LT$serde_json..read..StrRead$u20$as$u20$serde_json..read..Read$GT$::parse_str::h0dd36eb81bd069c9  (in engine_candidate) + 1036  [0x10082b0fc]  read.rs:710
+      +     !   :   | 1 serde_json::value::de::_$LT$impl$u20$serde_core..de..Deserialize$u20$for$u20$serde_json..value..Value$GT$::deserialize::h232c2f2c16f55f2f  (in engine_candidate) + 1628  [0x100801868]  de.rs:151
+      +     !   :   |   1 _malloc_zone_malloc  (in libsystem_malloc.dylib) + 12  [0x19bdb3e10]
+      +     !   :   3 serde_json::value::de::_$LT$impl$u20$serde_core..de..Deserialize$u20$for$u20$serde_json..value..Value$GT$::deserialize::h232c2f2c16f55f2f  (in engine_candidate) + 2140  [0x100801a68]  de.rs:151
+      +     !   :   | 2 serde_json::value::de::_$LT$impl$u20$serde_core..de..Deserialize$u20$for$u20$serde_json..value..Value$GT$::deserialize::h232c2f2c16f55f2f  (in engine_candidate) + 2140  [0x100801a68]  de.rs:151
+      +     !   :   | + 2 serde_json::value::de::_$LT$impl$u20$serde_core..de..Deserialize$u20$for$u20$serde_json..value..Value$GT$::deserialize::h232c2f2c16f55f2f  (in engine_candidate) + 536  [0x100801424]  de.rs:151
+      +     !   :   | +   2 serde_json::value::de::_$LT$impl$u20$serde_core..de..Deserialize$u20$for$u20$serde_json..value..Value$GT$::deserialize::h232c2f2c16f55f2f  (in engine_candidate) + 2140  [0x100801a68]  de.rs:151
+      +     !   :   | +     1 serde_json::value::de::_$LT$impl$u20$serde_core..de..Deserialize$u20$for$u20$serde_json..value..Value$GT$::deserialize::h232c2f2c16f55f2f  (in engine_candidate) + 884  [0x100801580]  de.rs:151
+      +     !   :   | +     ! 1 serde_json::de::Deserializer$LT$R$GT$::parse_number::h2782eb30d519aacc  (in engine_candidate) + 156  [0x100800c74]  de.rs:511
+      +     !   :   | +     1 serde_json::value::de::_$LT$impl$u20$serde_core..de..Deserialize$u20$for$u20$serde_json..value..Value$GT$::deserialize::h232c2f2c16f55f2f  (in engine_candidate) + 1500  [0x1008017e8]  de.rs:151
+      +     !   :   | +       1 _platform_memmove  (in libsystem_platform.dylib) + 452  [0x19bf91544]
+      +     !   :   | 1 serde_json::value::de::_$LT$impl$u20$serde_core..de..Deserialize$u20$for$u20$serde_json..value..Value$GT$::deserialize::h232c2f2c16f55f2f  (in engine_candidate) + 1648  [0x10080187c]  de.rs:151
+      +     !   :   |   1 _platform_memmove  (in libsystem_platform.dylib) + 436  [0x19bf91534]
+      +     !   :   1 serde_json::value::de::_$LT$impl$u20$serde_core..de..Deserialize$u20$for$u20$serde_json..value..Value$GT$::deserialize::h232c2f2c16f55f2f  (in engine_candidate) + 392  [0x100801394]  de.rs:151
+      +     !   3 serde_json::value::de::_$LT$impl$u20$serde_core..de..Deserialize$u20$for$u20$serde_json..value..Value$GT$::deserialize::h232c2f2c16f55f2f  (in engine_candidate) + 1868  [0x100801958]  de.rs:151
+      +     !   : 3 alloc::collections::btree::map::BTreeMap$LT$K$C$V$C$A$GT$::insert::hf14b873031d04593  (in engine_candidate) + 292  [0x100804818]  map.rs:1053
+      +     !   :   3 _xzm_xzone_malloc_freelist_outlined  (in libsystem_malloc.dylib) + 324  [0x19bdac940]
+      +     !   :     2 _xzm_xzone_find_and_malloc_from_freelist_chunk  (in libsystem_malloc.dylib) + 344  [0x19bdad24c]
+      +     !   :     | 2 _xzm_xzone_malloc_from_freelist_chunk  (in libsystem_malloc.dylib) + 100,652  [0x19bdacd48,0x19bdacf70]
+      +     !   :     1 _xzm_xzone_find_and_malloc_from_freelist_chunk  (in libsystem_malloc.dylib) + 172  [0x19bdad1a0]
+      +     !   :       1 _xzm_chunk_list_pop  (in libsystem_malloc.dylib) + 196  [0x19bdadad8]
+      +     !   2 serde_json::value::de::_$LT$impl$u20$serde_core..de..Deserialize$u20$for$u20$serde_json..value..Value$GT$::deserialize::h232c2f2c16f55f2f  (in engine_candidate) + 1628  [0x100801868]  de.rs:151
+      +     !   : 2 _xzm_xzone_malloc_freelist_outlined  (in libsystem_malloc.dylib) + 324  [0x19bdac940]
+      +     !   :   1 _xzm_xzone_find_and_malloc_from_freelist_chunk  (in libsystem_malloc.dylib) + 344  [0x19bdad24c]
+      +     !   :   | 1 _xzm_xzone_malloc_from_freelist_chunk  (in libsystem_malloc.dylib) + 312  [0x19bdace1c]
+      +     !   :   1 _xzm_xzone_malloc_from_freelist_chunk  (in libsystem_malloc.dylib) + 680  [0x19bdacf8c]
+      +     !   1 serde_json::value::de::_$LT$impl$u20$serde_core..de..Deserialize$u20$for$u20$serde_json..value..Value$GT$::deserialize::h232c2f2c16f55f2f  (in engine_candidate) + 2016  [0x1008019ec]  de.rs:151
+      +     !     1 _xzm_xzone_malloc_freelist_outlined  (in libsystem_malloc.dylib) + 324  [0x19bdac940]
+      +     !       1 _xzm_xzone_find_and_malloc_from_freelist_chunk  (in libsystem_malloc.dylib) + 80  [0x19bdad144]
+      +     2648 engine_candidate::main::h8db767a27172677d  (in engine_candidate) + 2708  [0x1008035f8]  engine_candidate.rs:90
+      +     ! 1870 flight_engine::candidate_engine::handle_request::h0592da939d4c80f2  (in engine_candidate) + 1576  [0x10080a2cc]  candidate_engine.rs:2684
+      +     ! : 1766 flight_engine::candidate_engine::handle_request_with_replay_tape::h2f13c9eb946d62d0  (in engine_candidate) + 5188  [0x10080ca20]  candidate_engine.rs:2818
+      +     ! : | 1186 flight_engine::candidate_engine::bucket_return_from_parts::h9f92daabcbdea3c6  (in engine_candidate) + 104  [0x10081eb64]  candidate_engine.rs:2541
+      +     ! : | + 334 serde_json::value::Value::pointer::h74ddbef6c3c93ac6  (in engine_candidate) + 176  [0x10082bc94]  mod.rs:790
+      +     ! : | + ! 167 alloc::str::_$LT$impl$u20$str$GT$::replace::hf8b11fa864e6fd24  (in engine_candidate) + 944  [0x10082b818]  str.rs:292
+      +     ! : | + ! : 149 alloc::raw_vec::RawVecInner$LT$A$GT$::reserve::do_reserve_and_handle::hbb5b9d8f91bfae93  (in engine_candidate) + 76  [0x100851ab4]  mod.rs:666
+      +     ! : | + ! : | 128 alloc::raw_vec::RawVecInner$LT$A$GT$::finish_grow::h8a450bd788843f3a  (in engine_candidate) + 260  [0x100851bec]  mod.rs:558
+      +     ! : | + ! : | + 59 _xzm_xzone_malloc_tiny  (in libsystem_malloc.dylib) + 252,88,...  [0x19bdab27c,0x19bdab1d8,...]
+      +     ! : | + ! : | + 25 _malloc_zone_malloc  (in libsystem_malloc.dylib) + 12,56,...  [0x19bdb3e10,0x19bdb3e3c,...]
+      +     ! : | + ! : | + 23 <deduplicated_symbol>  (in libsystem_malloc.dylib) + 108,208,...  [0x19bda6c8c,0x19bda6cf0,...]
+      +     ! : | + ! : | + 21 _xzm_xzone_malloc  (in libsystem_malloc.dylib) + 8,192,...  [0x19bda7094,0x19bda714c,...]
+      +     ! : | + ! : | 8 alloc::raw_vec::RawVecInner$LT$A$GT$::finish_grow::h8a450bd788843f3a  (in engine_candidate) + 44,40  [0x100851b14,0x100851b10]  mod.rs:547
+      +     ! : | + ! : | 6 alloc::raw_vec::RawVecInner$LT$A$GT$::finish_grow::h8a450bd788843f3a  (in engine_candidate) + 172  [0x100851b94]  mod.rs:558
+      +     ! : | + ! : | 3 alloc::raw_vec::RawVecInner$LT$A$GT$::finish_grow::h8a450bd788843f3a  (in engine_candidate) + 76  [0x100851b34]  mod.rs:0
+      +     ! : | + ! : | 3 alloc::raw_vec::RawVecInner$LT$A$GT$::finish_grow::h8a450bd788843f3a  (in engine_candidate) + 80  [0x100851b38]  mod.rs:549
+      +     ! : | + ! : | 1 alloc::raw_vec::RawVecInner$LT$A$GT$::finish_grow::h8a450bd788843f3a  (in engine_candidate) + 16  [0x100851af8]  mod.rs:542
+      +     ! : | + ! : 14 alloc::raw_vec::RawVecInner$LT$A$GT$::reserve::do_reserve_and_handle::hbb5b9d8f91bfae93  (in engine_candidate) + 8  [0x100851a70]  mod.rs:659
+      +     ! : | + ! : 4 alloc::raw_vec::RawVecInner$LT$A$GT$::finish_grow::h8a450bd788843f3a  (in engine_candidate) + 292,296  [0x100851c0c,0x100851c10]  mod.rs:566
+      +     ! : | + ! 94 alloc::str::_$LT$impl$u20$str$GT$::replace::hf8b11fa864e6fd24  (in engine_candidate) + 72  [0x10082b4b0]  str.rs:287
+      +     ! : | + ! : 69 _RNvMsu_NtNtCsl8K0bEFm1U0_4core3str7patternNtB5_11StrSearcher3new  (in engine_candidate) + 48,100,...  [0x100808438,0x10080846c,...]  pattern.rs:1103
+      +     ! : | + ! : 17 _RNvMsu_NtNtCsl8K0bEFm1U0_4core3str7patternNtB5_11StrSearcher3new  (in engine_candidate) + 368  [0x100808578]  pattern.rs:1103
+      +     ! : | + ! : | 16 _platform_memcmp  (in libsystem_platform.dylib) + 168,280,...  [0x19bf8ef98,0x19bf8f008,...]
+      +     ! : | + ! : | 1 DYLD-STUB$$memcmp  (in engine_candidate) + 4  [0x100856118]
+      +     ! : | + ! : 4 _RNvMsu_NtNtCsl8K0bEFm1U0_4core3str7patternNtB5_11StrSearcher3new  (in engine_candidate) + 1616  [0x100808a58]  pattern.rs:1100
+      +     ! : | + ! : 2 _RNvMsu_NtNtCsl8K0bEFm1U0_4core3str7patternNtB5_11StrSearcher3new  (in engine_candidate) + 16  [0x100808418]  pattern.rs:1086
+      +     ! : | + ! : 2 _RNvMsu_NtNtCsl8K0bEFm1U0_4core3str7patternNtB5_11StrSearcher3new  (in engine_candidate) + 1620  [0x100808a5c]  pattern.rs:1109
+      +     ! : | + ! 28 alloc::str::_$LT$impl$u20$str$GT$::replace::hf8b11fa864e6fd24  (in engine_candidate) + 800  [0x10082b788]  str.rs:292
+      +     ! : | + ! : 26 _platform_memmove  (in libsystem_platform.dylib) + 428,460,...  [0x19bf9152c,0x19bf9154c,...]
+      +     ! : | + ! : 2 DYLD-STUB$$memcpy  (in engine_candidate) + 4  [0x100856124]
+      +     ! : | + ! 25 alloc::str::_$LT$impl$u20$str$GT$::replace::hf8b11fa864e6fd24  (in engine_candidate) + 188,164,...  [0x10082b524,0x10082b50c,...]  str.rs:287
+      +     ! : | + ! 7 alloc::raw_vec::RawVecInner$LT$A$GT$::reserve::do_reserve_and_handle::hbb5b9d8f91bfae93  (in engine_candidate) + 100  [0x100851acc]  mod.rs:669
+      +     ! : | + ! 6 _RNvMsu_NtNtCsl8K0bEFm1U0_4core3str7patternNtB5_11StrSearcher3new  (in engine_candidate) + 1640  [0x100808a70]  pattern.rs:1109
+      +     ! : | + ! 3 alloc::str::_$LT$impl$u20$str$GT$::replace::hf8b11fa864e6fd24  (in engine_candidate) + 24  [0x10082b480]  str.rs:268
+      +     ! : | + ! 3 alloc::str::_$LT$impl$u20$str$GT$::replace::hf8b11fa864e6fd24  (in engine_candidate) + 748  [0x10082b754]  str.rs:292
+      +     ! : | + ! 1 alloc::str::_$LT$impl$u20$str$GT$::replace::hf8b11fa864e6fd24  (in engine_candidate) + 736  [0x10082b748]  index.rs:0
+      +     ! : | + 325 serde_json::value::Value::pointer::h74ddbef6c3c93ac6  (in engine_candidate) + 200  [0x10082bcac]  mod.rs:790
+      +     ! : | + ! 171 alloc::str::_$LT$impl$u20$str$GT$::replace::hf8b11fa864e6fd24  (in engine_candidate) + 944  [0x10082b818]  str.rs:292
+      +     ! : | + ! : 160 alloc::raw_vec::RawVecInner$LT$A$GT$::reserve::do_reserve_and_handle::hbb5b9d8f91bfae93  (in engine_candidate) + 76  [0x100851ab4]  mod.rs:666
+      +     ! : | + ! : | 134 alloc::raw_vec::RawVecInner$LT$A$GT$::finish_grow::h8a450bd788843f3a  (in engine_candidate) + 260  [0x100851bec]  mod.rs:558
+      +     ! : | + ! : | + 57 _xzm_xzone_malloc_tiny  (in libsystem_malloc.dylib) + 276,88,...  [0x19bdab294,0x19bdab1d8,...]
+      +     ! : | + ! : | + 32 <deduplicated_symbol>  (in libsystem_malloc.dylib) + 208,160,...  [0x19bda6cf0,0x19bda6cc0,...]
+      +     ! : | + ! : | + 21 _xzm_xzone_malloc  (in libsystem_malloc.dylib) + 32,336,...  [0x19bda70ac,0x19bda71dc,...]
+      +     ! : | + ! : | + 20 _malloc_zone_malloc  (in libsystem_malloc.dylib) + 12,44,...  [0x19bdb3e10,0x19bdb3e30,...]
+      +     ! : | + ! : | + 3 DYLD-STUB$$malloc  (in engine_candidate) + 4  [0x10085610c]
+      +     ! : | + ! : | + 1 xzm_malloc_zone_malloc_type_malloc  (in libsystem_malloc.dylib) + 0  [0x19bdb0be0]
+      +     ! : | + ! : | 8 alloc::raw_vec::RawVecInner$LT$A$GT$::finish_grow::h8a450bd788843f3a  (in engine_candidate) + 44  [0x100851b14]  mod.rs:547
+      +     ! : | + ! : | 7 alloc::raw_vec::RawVecInner$LT$A$GT$::finish_grow::h8a450bd788843f3a  (in engine_candidate) + 172  [0x100851b94]  mod.rs:558
+      +     ! : | + ! : | 6 alloc::raw_vec::RawVecInner$LT$A$GT$::finish_grow::h8a450bd788843f3a  (in engine_candidate) + 16  [0x100851af8]  mod.rs:542
+      +     ! : | + ! : | 3 alloc::raw_vec::RawVecInner$LT$A$GT$::finish_grow::h8a450bd788843f3a  (in engine_candidate) + 76  [0x100851b34]  mod.rs:0
+      +     ! : | + ! : | 2 alloc::raw_vec::RawVecInner$LT$A$GT$::finish_grow::h8a450bd788843f3a  (in engine_candidate) + 80  [0x100851b38]  mod.rs:549
+      +     ! : | + ! : 7 alloc::raw_vec::RawVecInner$LT$A$GT$::reserve::do_reserve_and_handle::hbb5b9d8f91bfae93  (in engine_candidate) + 8  [0x100851a70]  mod.rs:659
+      +     ! : | + ! : 3 alloc::raw_vec::RawVecInner$LT$A$GT$::finish_grow::h8a450bd788843f3a  (in engine_candidate) + 292,296  [0x100851c0c,0x100851c10]  mod.rs:566
+      +     ! : | + ! : 1 alloc::raw_vec::RawVecInner$LT$A$GT$::reserve::do_reserve_and_handle::hbb5b9d8f91bfae93  (in engine_candidate) + 76  [0x100851ab4]  mod.rs:666
+      +     ! : | + ! 71 alloc::str::_$LT$impl$u20$str$GT$::replace::hf8b11fa864e6fd24  (in engine_candidate) + 72  [0x10082b4b0]  str.rs:287
+      +     ! : | + ! : 49 _RNvMsu_NtNtCsl8K0bEFm1U0_4core3str7patternNtB5_11StrSearcher3new  (in engine_candidate) + 188,288,...  [0x1008084c4,0x100808528,...]  pattern.rs:1103
+      +     ! : | + ! : 17 _RNvMsu_NtNtCsl8K0bEFm1U0_4core3str7patternNtB5_11StrSearcher3new  (in engine_candidate) + 368  [0x100808578]  pattern.rs:1103
+      +     ! : | + ! : | 13 _platform_memcmp  (in libsystem_platform.dylib) + 140,260,...  [0x19bf8ef7c,0x19bf8eff4,...]
+      +     ! : | + ! : | 4 DYLD-STUB$$memcmp  (in engine_candidate) + 4  [0x100856118]
+      +     ! : | + ! : 3 _RNvMsu_NtNtCsl8K0bEFm1U0_4core3str7patternNtB5_11StrSearcher3new  (in engine_candidate) + 16  [0x100808418]  pattern.rs:1086
+      +     ! : | + ! : 2 _RNvMsu_NtNtCsl8K0bEFm1U0_4core3str7patternNtB5_11StrSearcher3new  (in engine_candidate) + 1616  [0x100808a58]  pattern.rs:1100
+      +     ! : | + ! 44 alloc::str::_$LT$impl$u20$str$GT$::replace::hf8b11fa864e6fd24  (in engine_candidate) + 188,148,...  [0x10082b524,0x10082b4fc,...]  str.rs:287
+      +     ! : | + ! 26 alloc::str::_$LT$impl$u20$str$GT$::replace::hf8b11fa864e6fd24  (in engine_candidate) + 800  [0x10082b788]  str.rs:292
+      +     ! : | + ! : 19 _platform_memmove  (in libsystem_platform.dylib) + 428,460,...  [0x19bf9152c,0x19bf9154c,...]
+      +     ! : | + ! : 7 DYLD-STUB$$memcpy  (in engine_candidate) + 4  [0x100856124]
+      +     ! : | + ! 4 _RNvMsu_NtNtCsl8K0bEFm1U0_4core3str7patternNtB5_11StrSearcher3new  (in engine_candidate) + 1640  [0x100808a70]  pattern.rs:1109
+      +     ! : | + ! 4 alloc::str::_$LT$impl$u20$str$GT$::replace::hf8b11fa864e6fd24  (in engine_candidate) + 32,24  [0x10082b488,0x10082b480]  str.rs:268
+      +     ! : | + ! 3 alloc::raw_vec::RawVecInner$LT$A$GT$::reserve::do_reserve_and_handle::hbb5b9d8f91bfae93  (in engine_candidate) + 100  [0x100851acc]  mod.rs:669
+      +     ! : | + ! 1 alloc::str::_$LT$impl$u20$str$GT$::replace::hf8b11fa864e6fd24  (in engine_candidate) + 736  [0x10082b748]  index.rs:0
+      +     ! : | + ! 1 alloc::str::_$LT$impl$u20$str$GT$::replace::hf8b11fa864e6fd24  (in engine_candidate) + 748  [0x10082b754]  str.rs:292
+      +     ! : | + 121 serde_json::value::Value::pointer::h74ddbef6c3c93ac6  (in engine_candidate) + 216  [0x10082bcbc]  mod.rs:790
+      +     ! : | + ! 98 _xzm_free  (in libsystem_malloc.dylib) + 0,952,...  [0x19bda7744,0x19bda7afc,...]
+      +     ! : | + ! 22 _free  (in libsystem_malloc.dylib) + 24,0,...  [0x19bdb4a44,0x19bdb4a2c,...]
+      +     ! : | + ! 1 DYLD-STUB$$free  (in engine_candidate) + 4  [0x1008560dc]
+      +     ! : | + 112 serde_json::value::Value::pointer::h74ddbef6c3c93ac6  (in engine_candidate) + 660  [0x10082be78]  mod.rs:790
+      +     ! : | + ! 87 _xzm_free  (in libsystem_malloc.dylib) + 0,952,...  [0x19bda7744,0x19bda7afc,...]
+      +     ! : | + ! 21 _free  (in libsystem_malloc.dylib) + 0,24,...  [0x19bdb4a2c,0x19bdb4a44,...]
+      +     ! : | + ! 4 DYLD-STUB$$free  (in engine_candidate) + 4  [0x1008560dc]
+      +     ! : | + 93 serde_json::value::Value::pointer::h74ddbef6c3c93ac6  (in engine_candidate) + 144  [0x10082bc74]  mod.rs:790
+      +     ! : | + ! 73 _$LT$core..str..iter..Split$LT$P$GT$$u20$as$u20$core..iter..traits..iterator..Iterator$GT$::next::hb69044652035ff7a  (in engine_candidate) + 316,196,...  [0x10082b318,0x10082b2a0,...]  iter.rs:512
+      +     ! : | + ! 18 _$LT$core..str..iter..Split$LT$P$GT$$u20$as$u20$core..iter..traits..iterator..Iterator$GT$::next::hb69044652035ff7a  (in engine_candidate) + 380  [0x10082b358]  iter.rs:512
+      +     ! : | + ! : 18 _platform_memcmp  (in libsystem_platform.dylib) + 272,260,...  [0x19bf8f000,0x19bf8eff4,...]
+      +     ! : | + ! 1 _$LT$core..str..iter..Split$LT$P$GT$$u20$as$u20$core..iter..traits..iterator..Iterator$GT$::next::hb69044652035ff7a  (in engine_candidate) + 16  [0x10082b1ec]  iter.rs:511
+      +     ! : | + ! 1 _$LT$core..str..iter..Split$LT$P$GT$$u20$as$u20$core..iter..traits..iterator..Iterator$GT$::next::hb69044652035ff7a  (in engine_candidate) + 600  [0x10082b434]  iter.rs:513
+      +     ! : | + 58 serde_json::value::Value::pointer::h74ddbef6c3c93ac6  (in engine_candidate) + 348  [0x10082bd40]  mod.rs:790
+      +     ! : | + ! 54 _platform_memcmp  (in libsystem_platform.dylib) + 272,0,...  [0x19bf8f000,0x19bf8eef0,...]
+      +     ! : | + ! 4 DYLD-STUB$$memcmp  (in engine_candidate) + 4  [0x100856118]
+      +     ! : | + 46 serde_json::value::Value::pointer::h74ddbef6c3c93ac6  (in engine_candidate) + 376,128,...  [0x10082bd5c,0x10082bc64,...]  mod.rs:790
+      +     ! : | + 34 serde_json::value::Value::pointer::h74ddbef6c3c93ac6  (in engine_candidate) + 100  [0x10082bc48]  mod.rs:790
+      +     ! : | + ! 23 _$LT$core..str..iter..Split$LT$P$GT$$u20$as$u20$core..iter..traits..iterator..Iterator$GT$::next::hb69044652035ff7a  (in engine_candidate) + 68,256,...  [0x10082b220,0x10082b2dc,...]  iter.rs:512
+      +     ! : | + ! 11 _$LT$core..str..iter..Split$LT$P$GT$$u20$as$u20$core..iter..traits..iterator..Iterator$GT$::next::hb69044652035ff7a  (in engine_candidate) + 380  [0x10082b358]  iter.rs:512
+      +     ! : | + !   10 _platform_memcmp  (in libsystem_platform.dylib) + 272,168,...  [0x19bf8f000,0x19bf8ef98,...]
+      +     ! : | + !   1 DYLD-STUB$$memcmp  (in engine_candidate) + 4  [0x100856118]
+      +     ! : | + 23 alloc::str::_$LT$impl$u20$str$GT$::replace::hf8b11fa864e6fd24  (in engine_candidate) + 836,840,...  [0x10082b7ac,0x10082b7b0,...]  str.rs:294
+      +     ! : | + 21 _$LT$core..str..iter..Split$LT$P$GT$$u20$as$u20$core..iter..traits..iterator..Iterator$GT$::next::hb69044652035ff7a  (in engine_candidate) + 620,616  [0x10082b448,0x10082b444]  iter.rs:513
+      +     ! : | + 18 _xzm_free  (in libsystem_malloc.dylib) + 1352  [0x19bda7c8c]
+      +     ! : | + 1 serde_json::value::Value::pointer::h74ddbef6c3c93ac6  (in engine_candidate) + 24  [0x10082bbfc]  mod.rs:779
+      +     ! : | 139 flight_engine::candidate_engine::bucket_return_from_parts::h9f92daabcbdea3c6  (in engine_candidate) + 84  [0x10081eb50]  candidate_engine.rs:2541
+      +     ! : | + 78 _RNvNvNtCs1OjIl8oxbrv_5alloc3fmt6format12format_inner  (in engine_candidate) + 300  [0x1008062f0]  fmt.rs:654
+      +     ! : | + ! 33 _RNvNtCsl8K0bEFm1U0_4core3fmt5write  (in engine_candidate) + 96  [0x100806744]  mod.rs:1686
+      +     ! : | + ! : 9 _RNvMsa_NtCsl8K0bEFm1U0_4core3fmtNtB5_9Formatter3pad  (in engine_candidate) + 632,652,...  [0x100806b10,0x100806b24,...]  mod.rs:0
+      +     ! : | + ! : 9 _RNvXsZ_NtCs1OjIl8oxbrv_5alloc6stringNtB5_6StringNtNtCsl8K0bEFm1U0_4core3fmt5Write9write_str  (in engine_candidate) + 64  [0x1008063d0]  string.rs:3345
+      +     ! : | + ! : | 5 _platform_memmove  (in libsystem_platform.dylib) + 436,452,...  [0x19bf91534,0x19bf91544,...]
+      +     ! : | + ! : | 4 DYLD-STUB$$memcpy  (in engine_candidate) + 4  [0x100856124]
+      +     ! : | + ! : 8 _RNvMsa_NtCsl8K0bEFm1U0_4core3fmtNtB5_9Formatter3pad  (in engine_candidate) + 32  [0x1008068b8]  mod.rs:1911
+      +     ! : | + ! : 6 _RNvXsZ_NtCs1OjIl8oxbrv_5alloc6stringNtB5_6StringNtNtCsl8K0bEFm1U0_4core3fmt5Write9write_str  (in engine_candidate) + 28  [0x1008063ac]  string.rs:3345
+      +     ! : | + ! : 1 _RNvMsa_NtCsl8K0bEFm1U0_4core3fmtNtB5_9Formatter3pad  (in engine_candidate) + 0  [0x100806898]  mod.rs:1909
+      +     ! : | + ! 17 _RNvNtCsl8K0bEFm1U0_4core3fmt5write  (in engine_candidate) + 144  [0x100806774]  mod.rs:1664
+      +     ! : | + ! : 11 _RNvXsZ_NtCs1OjIl8oxbrv_5alloc6stringNtB5_6StringNtNtCsl8K0bEFm1U0_4core3fmt5Write9write_str  (in engine_candidate) + 64  [0x1008063d0]  string.rs:3345
+      +     ! : | + ! : | 9 _platform_memmove  (in libsystem_platform.dylib) + 12,428,...  [0x19bf9138c,0x19bf9152c,...]
+      +     ! : | + ! : | 2 DYLD-STUB$$memcpy  (in engine_candidate) + 4  [0x100856124]
+      +     ! : | + ! : 6 _RNvXsZ_NtCs1OjIl8oxbrv_5alloc6stringNtB5_6StringNtNtCsl8K0bEFm1U0_4core3fmt5Write9write_str  (in engine_candidate) + 44,24,...  [0x1008063bc,0x1008063a8,...]  string.rs:3345
+      +     ! : | + ! 12 _RNvMsa_NtCsl8K0bEFm1U0_4core3fmtNtB5_9Formatter3pad  (in engine_candidate) + 668,672,...  [0x100806b34,0x100806b38,...]  mod.rs:0
+      +     ! : | + ! 5 _RNvNtCsl8K0bEFm1U0_4core3fmt5write  (in engine_candidate) + 104  [0x10080674c]  mod.rs:1647
+      +     ! : | + ! 3 _RNvNtCsl8K0bEFm1U0_4core3fmt5write  (in engine_candidate) + 20  [0x1008066f8]  mod.rs:1630
+      +     ! : | + ! 3 _RNvNtCsl8K0bEFm1U0_4core3fmt5write  (in engine_candidate) + 124  [0x100806760]  mod.rs:1660
+      +     ! : | + ! 2 _RNvNtCsl8K0bEFm1U0_4core3fmt5write  (in engine_candidate) + 84  [0x100806738]  mod.rs:1686
+      +     ! : | + ! 1 _RNvNtCsl8K0bEFm1U0_4core3fmt5write  (in engine_candidate) + 396  [0x100806870]  mod.rs:0
+      +     ! : | + ! 1 _RNvNtCsl8K0bEFm1U0_4core3fmt5write  (in engine_candidate) + 116  [0x100806758]  mod.rs:1648
+      +     ! : | + ! 1 _RNvNtCsl8K0bEFm1U0_4core3fmt5write  (in engine_candidate) + 156  [0x100806780]  mod.rs:1665
+      +     ! : | + 51 _RNvNvNtCs1OjIl8oxbrv_5alloc3fmt6format12format_inner  (in engine_candidate) + 248  [0x1008062bc]  fmt.rs:652
+      +     ! : | + ! 32 _xzm_xzone_malloc_tiny  (in libsystem_malloc.dylib) + 408,12,...  [0x19bdab318,0x19bdab18c,...]
+      +     ! : | + ! 6 _malloc_zone_malloc  (in libsystem_malloc.dylib) + 64,12,...  [0x19bdb3e44,0x19bdb3e10,...]
+      +     ! : | + ! 6 _xzm_xzone_malloc  (in libsystem_malloc.dylib) + 8,24,...  [0x19bda7094,0x19bda70a4,...]
+      +     ! : | + ! 5 DYLD-STUB$$malloc  (in engine_candidate) + 4  [0x10085610c]
+      +     ! : | + ! 2 <deduplicated_symbol>  (in libsystem_malloc.dylib) + 108,132  [0x19bda6c8c,0x19bda6ca4]
+      +     ! : | + 6 _RNvNvNtCs1OjIl8oxbrv_5alloc3fmt6format12format_inner  (in engine_candidate) + 88,96,...  [0x10080621c,0x100806224,...]  fmt.rs:651
+      +     ! : | + 3 _RNvNvNtCs1OjIl8oxbrv_5alloc3fmt6format12format_inner  (in engine_candidate) + 12,0  [0x1008061d0,0x1008061c4]  fmt.rs:650
+      +     ! : | + 1 _RNvNvNtCs1OjIl8oxbrv_5alloc3fmt6format12format_inner  (in engine_candidate) + 228  [0x1008062a8]  mod.rs:0
+      +     ! : | 130 flight_engine::candidate_engine::bucket_return_from_parts::h9f92daabcbdea3c6  (in engine_candidate) + 136  [0x10081eb84]  candidate_engine.rs:2545
+      +     ! : | + 64 _xzm_free  (in libsystem_malloc.dylib) + 728  [0x19bda7a1c]
+      +     ! : | + ! 63 mach_absolute_time  (in libsystem_kernel.dylib) + 108,112,...  [0x19bf450fc,0x19bf45100,...]
+      +     ! : | + ! 1 DYLD-STUB$$mach_absolute_time  (in libsystem_malloc.dylib) + 12  [0x19bdbc760]
+      +     ! : | + 35 _xzm_free  (in libsystem_malloc.dylib) + 0,348,...  [0x19bda7744,0x19bda78a0,...]
+      +     ! : | + 17 _xzm_free  (in libsystem_malloc.dylib) + 348  [0x19bda78a0]
+      +     ! : | + ! 12 __bzero  (in libsystem_platform.dylib) + 0  [0x19bf91050]
+      +     ! : | + ! 4 _platform_memset  (in libsystem_platform.dylib) + 160  [0x19bf91150]
+      +     ! : | + ! 1 DYLD-STUB$$_platform_bzero  (in libsystem_malloc.dylib) + 12  [0x19bdbc460]
+      +     ! : | + 14 _free  (in libsystem_malloc.dylib) + 0,44,...  [0x19bdb4a2c,0x19bdb4a58,...]
+      +     ! : | 121 flight_engine::candidate_engine::handle_request_with_replay_tape::h2f13c9eb946d62d0  (in engine_candidate) + 5188  [0x10080ca20]  candidate_engine.rs:2818
+      +     ! : | + 25 flight_engine::candidate_engine::handle_request_with_replay_tape::h2f13c9eb946d62d0  (in engine_candidate) + 7844,7968,...  [0x10080d480,0x10080d4fc,...]  candidate_engine.rs:0
+      +     ! : | + 25 flight_engine::candidate_engine::handle_request_with_replay_tape::h2f13c9eb946d62d0  (in engine_candidate) + 6144,5800,...  [0x10080cddc,0x10080cc84,...]  candidate_engine.rs:2825
+      +     ! : | + 24 flight_engine::candidate_engine::handle_request_with_replay_tape::h2f13c9eb946d62d0  (in engine_candidate) + 10088,10048,...  [0x10080dd44,0x10080dd1c,...]  candidate_engine.rs:2955
+      +     ! : | + 10 flight_engine::candidate_engine::handle_request_with_replay_tape::h2f13c9eb946d62d0  (in engine_candidate) + 8284,8372,...  [0x10080d638,0x10080d690,...]  candidate_engine.rs:2892
+      +     ! : | + 9 flight_engine::candidate_engine::handle_request_with_replay_tape::h2f13c9eb946d62d0  (in engine_candidate) + 7856,7908,...  [0x10080d48c,0x10080d4c0,...]  candidate_engine.rs:2868
+      +     ! : | + 5 flight_engine::candidate_engine::handle_request_with_replay_tape::h2f13c9eb946d62d0  (in engine_candidate) + 9804,9796  [0x10080dc28,0x10080dc20]  candidate_engine.rs:2912
+      +     ! : | + 4 flight_engine::candidate_engine::handle_request_with_replay_tape::h2f13c9eb946d62d0  (in engine_candidate) + 7240,7316,...  [0x10080d224,0x10080d270,...]  candidate_engine.rs:2826
+      +     ! : | + 4 flight_engine::candidate_engine::handle_request_with_replay_tape::h2f13c9eb946d62d0  (in engine_candidate) + 8568,8580,...  [0x10080d754,0x10080d760,...]  candidate_engine.rs:2900
+      +     ! : | + 4 flight_engine::candidate_engine::handle_request_with_replay_tape::h2f13c9eb946d62d0  (in engine_candidate) + 9236,9240  [0x10080d9f0,0x10080d9f4]  candidate_engine.rs:2907
+      +     ! : | + 3 flight_engine::candidate_engine::handle_request_with_replay_tape::h2f13c9eb946d62d0  (in engine_candidate) + 7720  [0x10080d404]  candidate_engine.rs:2841
+      +     ! : | + 2 flight_engine::candidate_engine::handle_request_with_replay_tape::h2f13c9eb946d62d0  (in engine_candidate) + 7640,13476  [0x10080d3b4,0x10080ea80]  candidate_engine.rs:2831
+      +     ! : | + 2 flight_engine::candidate_engine::handle_request_with_replay_tape::h2f13c9eb946d62d0  (in engine_candidate) + 7800  [0x10080d454]  candidate_engine.rs:2854
+      +     ! : | + 2 flight_engine::candidate_engine::handle_request_with_replay_tape::h2f13c9eb946d62d0  (in engine_candidate) + 9896,9904  [0x10080dc84,0x10080dc8c]  candidate_engine.rs:2926
+      +     ! : | + 1 flight_engine::candidate_engine::handle_request_with_replay_tape::h2f13c9eb946d62d0  (in engine_candidate) + 8008  [0x10080d524]  candidate_engine.rs:2876
+      +     ! : | + 1 flight_engine::candidate_engine::handle_request_with_replay_tape::h2f13c9eb946d62d0  (in engine_candidate) + 9888  [0x10080dc7c]  f64.rs:0
+      +     ! : | 87 flight_engine::candidate_engine::handle_request_with_replay_tape::h2f13c9eb946d62d0  (in engine_candidate) + 10340  [0x10080de40]  candidate_engine.rs:2955
+      +     ! : | + 25 flight_engine::candidate_engine::federal_tax_exact::h8338aa5c574c0016  (in engine_candidate) + 384,360  [0x10081efb8,0x10081efa0]  candidate_engine.rs:2054
+      +     ! : | + 18 flight_engine::candidate_engine::federal_tax_exact::h8338aa5c574c0016  (in engine_candidate) + 424  [0x10081efe0]  candidate_engine.rs:2048
+      +     ! : | + 16 flight_engine::candidate_engine::handle_request_with_replay_tape::h2f13c9eb946d62d0  (in engine_candidate) + 12432,10956,...  [0x10080e66c,0x10080e0a8,...]  candidate_engine.rs:2955
+      +     ! : | + 6 flight_engine::candidate_engine::federal_tax_exact::h8338aa5c574c0016  (in engine_candidate) + 20  [0x10081ee4c]  candidate_engine.rs:2026
+      +     ! : | + 5 flight_engine::candidate_engine::federal_tax_exact::h8338aa5c574c0016  (in engine_candidate) + 52  [0x10081ee6c]  candidate_engine.rs:2029
+      +     ! : | + 5 flight_engine::candidate_engine::federal_tax_exact::h8338aa5c574c0016  (in engine_candidate) + 88  [0x10081ee90]  candidate_engine.rs:2034
+      +     ! : | + 5 flight_engine::candidate_engine::federal_tax_exact::h8338aa5c574c0016  (in engine_candidate) + 600,584  [0x10081f090,0x10081f080]  candidate_engine.rs:2068
+      +     ! : | + 2 flight_engine::candidate_engine::federal_tax_exact::h8338aa5c574c0016  (in engine_candidate) + 316  [0x10081ef74]  candidate_engine.rs:2051
+      +     ! : | + 1 flight_engine::candidate_engine::federal_tax_exact::h8338aa5c574c0016  (in engine_candidate) + 152  [0x10081eed0]  candidate_engine.rs:0
+      +     ! : | + 1 flight_engine::candidate_engine::federal_tax_exact::h8338aa5c574c0016  (in engine_candidate) + 0  [0x10081ee38]  candidate_engine.rs:2024
+      +     ! : | + 1 flight_engine::candidate_engine::federal_tax_exact::h8338aa5c574c0016  (in engine_candidate) + 240  [0x10081ef28]  candidate_engine.rs:2042
+      +     ! : | + 1 flight_engine::candidate_engine::federal_tax_exact::h8338aa5c574c0016  (in engine_candidate) + 204  [0x10081ef04]  candidate_engine.rs:2050
+      +     ! : | + 1 flight_engine::candidate_engine::federal_tax_exact::h8338aa5c574c0016  (in engine_candidate) + 532  [0x10081f04c]  candidate_engine.rs:2055
+      +     ! : | 35 flight_engine::candidate_engine::handle_request_with_replay_tape::h2f13c9eb946d62d0  (in engine_candidate) + 12488  [0x10080e6a4]  candidate_engine.rs:2955
+      +     ! : | + 8 flight_engine::candidate_engine::federal_tax_exact::h8338aa5c574c0016  (in engine_candidate) + 360,384,...  [0x10081efa0,0x10081efb8,...]  candidate_engine.rs:2054
+      +     ! : | + 5 flight_engine::candidate_engine::handle_request_with_replay_tape::h2f13c9eb946d62d0  (in engine_candidate) + 12616,12644,...  [0x10080e724,0x10080e740,...]  candidate_engine.rs:2962
+      +     ! : | + 4 flight_engine::candidate_engine::federal_tax_exact::h8338aa5c574c0016  (in engine_candidate) + 556,512,...  [0x10081f064,0x10081f038,...]  candidate_engine.rs:2055
+      +     ! : | + 3 flight_engine::candidate_engine::federal_tax_exact::h8338aa5c574c0016  (in engine_candidate) + 88  [0x10081ee90]  candidate_engine.rs:2034
+      +     ! : | + 3 flight_engine::candidate_engine::federal_tax_exact::h8338aa5c574c0016  (in engine_candidate) + 316  [0x10081ef74]  candidate_engine.rs:2051
+      +     ! : | + 3 flight_engine::candidate_engine::federal_tax_exact::h8338aa5c574c0016  (in engine_candidate) + 600  [0x10081f090]  candidate_engine.rs:2068
+      +     ! : | + 3 flight_engine::candidate_engine::handle_request_with_replay_tape::h2f13c9eb946d62d0  (in engine_candidate) + 12524  [0x10080e6c8]  candidate_engine.rs:2955
+      +     ! : | + 2 flight_engine::candidate_engine::federal_tax_exact::h8338aa5c574c0016  (in engine_candidate) + 52  [0x10081ee6c]  candidate_engine.rs:2029
+      +     ! : | + 2 flight_engine::candidate_engine::federal_tax_exact::h8338aa5c574c0016  (in engine_candidate) + 204  [0x10081ef04]  candidate_engine.rs:2050
+      +     ! : | + 1 flight_engine::candidate_engine::federal_tax_exact::h8338aa5c574c0016  (in engine_candidate) + 152  [0x10081eed0]  candidate_engine.rs:0
+      +     ! : | + 1 flight_engine::candidate_engine::federal_tax_exact::h8338aa5c574c0016  (in engine_candidate) + 128  [0x10081eeb8]  candidate_engine.rs:2039
+      +     ! : | 33 flight_engine::candidate_engine::bucket_return_from_parts::h9f92daabcbdea3c6  (in engine_candidate) + 300,484,...  [0x10081ec28,0x10081ece0,...]  candidate_engine.rs:2546
+      +     ! : | 19 flight_engine::candidate_engine::bucket_return_from_parts::h9f92daabcbdea3c6  (in engine_candidate) + 268  [0x10081ec08]  candidate_engine.rs:2546
+      +     ! : | + 12 flight_engine::candidate_engine::symbol_exposure::h92d779f1067e6fa6  (in engine_candidate) + 0,108,...  [0x10081f500,0x10081f56c,...]  candidate_engine.rs:2530
+      +     ! : | + 3 flight_engine::candidate_engine::symbol_exposure::h92d779f1067e6fa6  (in engine_candidate) + 376,204  [0x10081f678,0x10081f5cc]  candidate_engine.rs:0
+      +     ! : | + 3 flight_engine::candidate_engine::symbol_exposure::h92d779f1067e6fa6  (in engine_candidate) + 316,344  [0x10081f63c,0x10081f658]  candidate_engine.rs:2531
+      +     ! : | + 1 flight_engine::candidate_engine::symbol_exposure::h92d779f1067e6fa6  (in engine_candidate) + 164  [0x10081f5a4]  candidate_engine.rs:2532
+      +     ! : | 8 flight_engine::candidate_engine::handle_request_with_replay_tape::h2f13c9eb946d62d0  (in engine_candidate) + 11196  [0x10080e198]  candidate_engine.rs:2955
+      +     ! : | + 7 flight_engine::candidate_engine::handle_request_with_replay_tape::h2f13c9eb946d62d0  (in engine_candidate) + 11216,12472,...  [0x10080e1ac,0x10080e694,...]  candidate_engine.rs:2955
+      +     ! : | + 1 flight_engine::candidate_engine::take_from_bucket::he9814b3cc1f595ed  (in engine_candidate) + 44  [0x10081f0cc]  candidate_engine.rs:2160
+      +     ! : | 3 flight_engine::candidate_engine::handle_request_with_replay_tape::h2f13c9eb946d62d0  (in engine_candidate) + 7940  [0x10080d4e0]  candidate_engine.rs:2868
+      +     ! : | + 1 __powidf2  (in engine_candidate) + 28  [0x100850a2c]
+      +     ! : | + 1 flight_engine::candidate_engine::handle_request_with_replay_tape::h2f13c9eb946d62d0  (in engine_candidate) + 8592  [0x10080d76c]  candidate_engine.rs:2900
+      +     ! : | + 1 flight_engine::candidate_engine::handle_request_with_replay_tape::h2f13c9eb946d62d0  (in engine_candidate) + 9796  [0x10080dc20]  candidate_engine.rs:2912
+      +     ! : | 3 serde_json::value::Value::pointer::h74ddbef6c3c93ac6  (in engine_candidate) + 692  [0x10082be98]  mod.rs:795
+      +     ! : | 1 _RNvNvNtCs1OjIl8oxbrv_5alloc3fmt6format12format_inner  (in engine_candidate) + 328  [0x10080630c]  fmt.rs:657
+      +     ! : | 1 flight_engine::candidate_engine::handle_request_with_replay_tape::h2f13c9eb946d62d0  (in engine_candidate) + 12676  [0x10080e760]  candidate_engine.rs:2963
+      +     ! : |   1 flight_engine::candidate_engine::compute_healthcare_premium_cost::h0717241e88fc8052  (in engine_candidate) + 0  [0x10081f1d4]  candidate_engine.rs:1983
+      +     ! : 55 flight_engine::candidate_engine::handle_request_with_replay_tape::h2f13c9eb946d62d0  (in engine_candidate) + 35836  [0x1008141d8]  candidate_engine.rs:3460
+      +     ! : | 43 core::ptr::drop_in_place$LT$flight_engine..candidate_engine..ReplayTapeInput$GT$::h9eb9afc33b250915  (in engine_candidate) + 124  [0x100815ee8]  mod.rs:805
+      +     ! : | + 32 _xzm_free  (in libsystem_malloc.dylib) + 952,0,...  [0x19bda7afc,0x19bda7744,...]
+      +     ! : | + 9 _free  (in libsystem_malloc.dylib) + 0,24,...  [0x19bdb4a2c,0x19bdb4a44,...]
+      +     ! : | + 2 DYLD-STUB$$free  (in engine_candidate) + 4  [0x1008560dc]
+      +     ! : | 5 _xzm_free  (in libsystem_malloc.dylib) + 1352  [0x19bda7c8c]
+      +     ! : | 4 core::ptr::drop_in_place$LT$flight_engine..candidate_engine..ReplayTapeInput$GT$::h9eb9afc33b250915  (in engine_candidate) + 144  [0x100815efc]  mod.rs:805
+      +     ! : | + 3 _xzm_free  (in libsystem_malloc.dylib) + 240,260,...  [0x19bda7834,0x19bda7848,...]
+      +     ! : | + 1 _xzm_xzone_madvise_batch  (in libsystem_malloc.dylib) + 516  [0x19bdae238]
+      +     ! : | +   1 mach_vm_reclaim_update_kernel_accounting  (in libsystem_kernel.dylib) + 36  [0x19bf57f3c]
+      +     ! : | +     1 mach_absolute_time  (in libsystem_kernel.dylib) + 108  [0x19bf450fc]
+      +     ! : | 3 core::ptr::drop_in_place$LT$flight_engine..candidate_engine..ReplayTapeInput$GT$::h9eb9afc33b250915  (in engine_candidate) + 96,108,...  [0x100815ecc,0x100815ed8,...]  mod.rs:805
+      +     ! : 32 flight_engine::candidate_engine::handle_request_with_replay_tape::h2f13c9eb946d62d0  (in engine_candidate) + 22080  [0x100810c1c]  candidate_engine.rs:3291
+      +     ! : | 32 _$LT$alloc..vec..Vec$LT$T$GT$$u20$as$u20$alloc..vec..spec_from_iter_nested..SpecFromIterNested$LT$T$C$I$GT$$GT$::from_iter::h00f7693a288c8625  (in engine_candidate) + 384  [0x10081c9c4]  spec_from_iter_nested.rs:60
+      +     ! : |   32 core::slice::sort::stable::driftsort_main::h851d7026db04bbd6  (in engine_candidate) + 172  [0x100820078]  mod.rs:135
+      +     ! : |     26 core::slice::sort::stable::quicksort::quicksort::h37591f519c96d013  (in engine_candidate) + 660  [0x100820888]  quicksort.rs:78
+      +     ! : |     + 20 core::slice::sort::stable::quicksort::quicksort::h37591f519c96d013  (in engine_candidate) + 660  [0x100820888]  quicksort.rs:78
+      +     ! : |     + ! 14 core::slice::sort::stable::quicksort::quicksort::h37591f519c96d013  (in engine_candidate) + 660  [0x100820888]  quicksort.rs:78
+      +     ! : |     + ! : 9 core::slice::sort::stable::quicksort::quicksort::h37591f519c96d013  (in engine_candidate) + 660  [0x100820888]  quicksort.rs:78
+      +     ! : |     + ! : | 6 core::slice::sort::stable::quicksort::quicksort::h37591f519c96d013  (in engine_candidate) + 660  [0x100820888]  quicksort.rs:78
+      +     ! : |     + ! : | + 3 core::slice::sort::stable::quicksort::quicksort::h37591f519c96d013  (in engine_candidate) + 1572,1664,...  [0x100820c18,0x100820c74,...]  quicksort.rs:27
+      +     ! : |     + ! : | + 2 core::slice::sort::stable::quicksort::quicksort::h37591f519c96d013  (in engine_candidate) + 660  [0x100820888]  quicksort.rs:78
+      +     ! : |     + ! : | + ! 1 core::slice::sort::stable::quicksort::quicksort::h37591f519c96d013  (in engine_candidate) + 1804  [0x100820d00]  quicksort.rs:27
+      +     ! : |     + ! : | + ! 1 core::slice::sort::stable::quicksort::quicksort::h37591f519c96d013  (in engine_candidate) + 660  [0x100820888]  quicksort.rs:78
+      +     ! : |     + ! : | + !   1 core::slice::sort::stable::quicksort::quicksort::h37591f519c96d013  (in engine_candidate) + 1204  [0x100820aa8]  quicksort.rs:27
+      +     ! : |     + ! : | + !     1 core::slice::sort::shared::smallsort::sort8_stable::h65bb1bb99081aecc  (in engine_candidate) + 412  [0x100821e08]  smallsort.rs:678
+      +     ! : |     + ! : | + 1 core::slice::sort::stable::quicksort::quicksort::h37591f519c96d013  (in engine_candidate) + 412  [0x100820790]  quicksort.rs:65
+      +     ! : |     + ! : | 3 core::slice::sort::stable::quicksort::quicksort::h37591f519c96d013  (in engine_candidate) + 1664,1804,...  [0x100820c74,0x100820d00,...]  quicksort.rs:27
+      +     ! : |     + ! : 2 core::slice::sort::stable::quicksort::quicksort::h37591f519c96d013  (in engine_candidate) + 1776,1908  [0x100820ce4,0x100820d68]  quicksort.rs:27
+      +     ! : |     + ! : 1 core::slice::sort::stable::quicksort::quicksort::h37591f519c96d013  (in engine_candidate) + 660  [0x100820888]  quicksort.rs:0
+      +     ! : |     + ! : 1 core::slice::sort::stable::quicksort::quicksort::h37591f519c96d013  (in engine_candidate) + 1204  [0x100820aa8]  quicksort.rs:27
+      +     ! : |     + ! : | 1 core::slice::sort::shared::smallsort::sort8_stable::h65bb1bb99081aecc  (in engine_candidate) + 296  [0x100821d94]  smallsort.rs:672
+      +     ! : |     + ! : 1 core::slice::sort::stable::quicksort::quicksort::h37591f519c96d013  (in engine_candidate) + 344  [0x10082074c]  quicksort.rs:65
+      +     ! : |     + ! 3 core::slice::sort::stable::quicksort::quicksort::h37591f519c96d013  (in engine_candidate) + 344,428,...  [0x10082074c,0x1008207a0,...]  quicksort.rs:65
+      +     ! : |     + ! 1 core::slice::sort::stable::quicksort::quicksort::h37591f519c96d013  (in engine_candidate) + 1188  [0x100820a98]  quicksort.rs:27
+      +     ! : |     + ! : 1 core::slice::sort::shared::smallsort::sort8_stable::h65bb1bb99081aecc  (in engine_candidate) + 176  [0x100821d1c]  smallsort.rs:672
+      +     ! : |     + ! 1 core::slice::sort::stable::quicksort::quicksort::h37591f519c96d013  (in engine_candidate) + 1708  [0x100820ca0]  quicksort.rs:27
+      +     ! : |     + ! 1 core::slice::sort::stable::quicksort::quicksort::h37591f519c96d013  (in engine_candidate) + 476  [0x1008207d0]  quicksort.rs:65
+      +     ! : |     + !   1 _platform_memmove  (in libsystem_platform.dylib) + 180  [0x19bf91434]
+      +     ! : |     + 4 core::slice::sort::stable::quicksort::quicksort::h37591f519c96d013  (in engine_candidate) + 344,364,...  [0x10082074c,0x100820760,...]  quicksort.rs:65
+      +     ! : |     + 1 core::slice::sort::stable::quicksort::quicksort::h37591f519c96d013  (in engine_candidate) + 1808  [0x100820d04]  quicksort.rs:27
+      +     ! : |     + 1 core::slice::sort::stable::quicksort::quicksort::h37591f519c96d013  (in engine_candidate) + 176  [0x1008206a4]  quicksort.rs:39
+      +     ! : |     +   1 core::slice::sort::shared::pivot::median3_rec::h32d3d4885bae77d8  (in engine_candidate) + 92  [0x100821f30]  pivot.rs:68
+      +     ! : |     +     1 core::slice::sort::shared::pivot::median3_rec::h32d3d4885bae77d8  (in engine_candidate) + 196  [0x100821f98]  pivot.rs:73
+      +     ! : |     3 core::slice::sort::stable::quicksort::quicksort::h37591f519c96d013  (in engine_candidate) + 344,556  [0x10082074c,0x100820820]  quicksort.rs:65
+      +     ! : |     1 core::slice::sort::stable::drift::sort::hcdb73b89377a1290  (in engine_candidate) + 412  [0x10082026c]  drift.rs:64
+      +     ! : |     1 core::slice::sort::stable::drift::sort::hcdb73b89377a1290  (in engine_candidate) + 1048  [0x1008204e8]  merge.rs:0
+      +     ! : |     1 core::slice::sort::stable::quicksort::quicksort::h37591f519c96d013  (in engine_candidate) + 476  [0x1008207d0]  quicksort.rs:65
+      +     ! : |       1 _platform_memmove  (in libsystem_platform.dylib) + 88  [0x19bf913d8]
+      +     ! : 7 flight_engine::candidate_engine::handle_request_with_replay_tape::h2f13c9eb946d62d0  (in engine_candidate) + 21620  [0x100810a50]  candidate_engine.rs:3270
+      +     ! : | 5 _xzm_free  (in libsystem_malloc.dylib) + 728  [0x19bda7a1c]
+      +     ! : | + 5 mach_absolute_time  (in libsystem_kernel.dylib) + 108,112,...  [0x19bf450fc,0x19bf45100,...]
+      +     ! : | 2 _xzm_free  (in libsystem_malloc.dylib) + 348  [0x19bda78a0]
+      +     ! : |   1 __bzero  (in libsystem_platform.dylib) + 0  [0x19bf91050]
+      +     ! : |   1 _platform_memset  (in libsystem_platform.dylib) + 140  [0x19bf9113c]
+      +     ! : 4 flight_engine::candidate_engine::bucket_return_from_parts::h9f92daabcbdea3c6  (in engine_candidate) + 228,232  [0x10081ebe0,0x10081ebe4]  candidate_engine.rs:2556
+      +     ! : 4 flight_engine::candidate_engine::handle_request_with_replay_tape::h2f13c9eb946d62d0  (in engine_candidate) + 21908  [0x100810b70]  candidate_engine.rs:3275
+      +     ! : | 3 core::slice::sort::stable::driftsort_main::h4dc685fb754a77e8  (in engine_candidate) + 172  [0x100820ec8]  mod.rs:135
+      +     ! : | + 2 core::slice::sort::stable::quicksort::quicksort::haf4689c32e072196  (in engine_candidate) + 660  [0x1008216d8]  quicksort.rs:78
+      +     ! : | + ! 1 core::slice::sort::stable::quicksort::quicksort::haf4689c32e072196  (in engine_candidate) + 1916  [0x100821bc0]  quicksort.rs:27
+      +     ! : | + ! 1 core::slice::sort::stable::quicksort::quicksort::haf4689c32e072196  (in engine_candidate) + 660  [0x1008216d8]  quicksort.rs:78
+      +     ! : | + !   1 core::slice::sort::stable::quicksort::quicksort::haf4689c32e072196  (in engine_candidate) + 660  [0x1008216d8]  quicksort.rs:78
+      +     ! : | + !     1 core::slice::sort::stable::quicksort::quicksort::haf4689c32e072196  (in engine_candidate) + 660  [0x1008216d8]  quicksort.rs:78
+      +     ! : | + !       1 core::slice::sort::stable::quicksort::quicksort::haf4689c32e072196  (in engine_candidate) + 1960  [0x100821bec]  quicksort.rs:27
+      +     ! : | + 1 core::slice::sort::stable::quicksort::quicksort::haf4689c32e072196  (in engine_candidate) + 344  [0x10082159c]  quicksort.rs:65
+      +     ! : | 1 core::slice::sort::stable::driftsort_main::h4dc685fb754a77e8  (in engine_candidate) + 124  [0x100820e98]  mod.rs:127
+      +     ! : |   1 _xzm_malloc_large_huge  (in libsystem_malloc.dylib) + 272  [0x19bda6e58]
+      +     ! : |     1 xzm_segment_group_alloc_chunk  (in libsystem_malloc.dylib) + 556  [0x19bd9103c]
+      +     ! : |       1 _xzm_segment_group_find_and_allocate_chunk  (in libsystem_malloc.dylib) + 448  [0x19bd91648]
+      +     ! : |         1 _xzm_segment_group_span_mark_smaller  (in libsystem_malloc.dylib) + 248  [0x19bd929e8]
+      +     ! : |           1 _xzm_reclaim_mark_used_locked  (in libsystem_malloc.dylib) + 60  [0x19bd932d0]
+      +     ! : |             1 mach_vm_reclaim_try_cancel  (in libsystem_kernel.dylib) + 184  [0x19bf57d88]
+      +     ! : 1 flight_engine::candidate_engine::handle_request_with_replay_tape::h2f13c9eb946d62d0  (in engine_candidate) + 1500  [0x10080bbb8]  candidate_engine.rs:2706
+      +     ! : | 1 flight_engine::candidate_engine::SimulationConstants::from::h0399f792797e0193  (in engine_candidate) + 2708  [0x1008169f8]  candidate_engine.rs:613
+      +     ! : |   1 flight_engine::candidate_engine::bucket_balance::h6d9c38517e1e918b  (in engine_candidate) + 88  [0x100821ff8]  candidate_engine.rs:1336
+      +     ! : |     1 serde_json::value::Value::pointer::h74ddbef6c3c93ac6  (in engine_candidate) + 216  [0x10082bcbc]  mod.rs:790
+      +     ! : |       1 _xzm_free  (in libsystem_malloc.dylib) + 0  [0x19bda7744]
+      +     ! : 1 flight_engine::candidate_engine::handle_request_with_replay_tape::h2f13c9eb946d62d0  (in engine_candidate) + 35748  [0x100814180]  candidate_engine.rs:3460
+      +     ! :   1 core::ptr::drop_in_place$LT$alloc..vec..Vec$LT$alloc..vec..Vec$LT$f64$GT$$GT$$GT$::hed3e34ba55dc75fc  (in engine_candidate) + 64  [0x10081c5d8]  mod.rs:805
+      +     ! :     1 xzm_segment_group_free_chunk  (in libsystem_malloc.dylib) + 576  [0x19bd91c7c]
+      +     ! :       1 _xzm_segment_group_segment_span_free_coalesce  (in libsystem_malloc.dylib) + 420  [0x19bd92348]
+      +     ! :         1 _xzm_segment_group_span_mark_used  (in libsystem_malloc.dylib) + 120  [0x19bd93b38]
+      +     ! :           1 _xzm_reclaim_mark_used  (in libsystem_malloc.dylib) + 176  [0x19bd90df0]
+      +     ! :             1 mach_vm_reclaim_update_kernel_accounting  (in libsystem_kernel.dylib) + 92  [0x19bf57f74]
+      +     ! :               1 mach_vm_reclaim_update_kernel_accounting_trap  (in libsystem_kernel.dylib) + 8  [0x19bf44cb8]
+      +     ! 778 flight_engine::candidate_engine::handle_request::h0592da939d4c80f2  (in engine_candidate) + 1112  [0x10080a0fc]  candidate_engine.rs:2683
+      +     !   131 _$LT$core..iter..adapters..GenericShunt$LT$I$C$R$GT$$u20$as$u20$core..iter..traits..iterator..Iterator$GT$::next::h4b4d27b4ce1623aa  (in engine_candidate) + 3420  [0x10080b0d4]  mod.rs:174
+      +     !   | 122 _$LT$str$u20$as$u20$serde_json..value..index..Index$GT$::index_into::h2f70ee684a7af9ca  (in engine_candidate) + 108  [0x10082bf2c]  index.rs:86
+      +     !   | + 100 _platform_memcmp  (in libsystem_platform.dylib) + 168,180,...  [0x19bf8ef98,0x19bf8efa4,...]
+      +     !   | + 13 _$LT$str$u20$as$u20$serde_json..value..index..Index$GT$::index_into::h2f70ee684a7af9ca  (in engine_candidate) + 80,148,...  [0x10082bf10,0x10082bf54,...]  index.rs:86
+      +     !   | + 9 DYLD-STUB$$memcmp  (in engine_candidate) + 4  [0x100856118]
+      +     !   | 3 _$LT$core..iter..adapters..GenericShunt$LT$I$C$R$GT$$u20$as$u20$core..iter..traits..iterator..Iterator$GT$::next::h4b4d27b4ce1623aa  (in engine_candidate) + 3424  [0x10080b0d8]  mod.rs:174
+      +     !   | 3 _$LT$str$u20$as$u20$serde_json..value..index..Index$GT$::index_into::h2f70ee684a7af9ca  (in engine_candidate) + 0  [0x10082bec0]  index.rs:85
+      +     !   | 2 _$LT$core..iter..adapters..GenericShunt$LT$I$C$R$GT$$u20$as$u20$core..iter..traits..iterator..Iterator$GT$::next::h4b4d27b4ce1623aa  (in engine_candidate) + 3420  [0x10080b0d4]  mod.rs:174
+      +     !   | + 2 _$LT$str$u20$as$u20$serde_json..value..index..Index$GT$::index_into::h2f70ee684a7af9ca  (in engine_candidate) + 40,76  [0x10082bee8,0x10082bf0c]  index.rs:86
+      +     !   | 1 _$LT$str$u20$as$u20$serde_json..value..index..Index$GT$::index_into::h2f70ee684a7af9ca  (in engine_candidate) + 228  [0x10082bfa4]  index.rs:0
+      +     !   110 _$LT$core..iter..adapters..GenericShunt$LT$I$C$R$GT$$u20$as$u20$core..iter..traits..iterator..Iterator$GT$::next::h4b4d27b4ce1623aa  (in engine_candidate) + 1272  [0x10080a870]  mod.rs:174
+      +     !   | 52 _platform_memcmp  (in libsystem_platform.dylib) + 140,168,...  [0x19bf8ef7c,0x19bf8ef98,...]
+      +     !   | 47 _$LT$core..iter..adapters..GenericShunt$LT$I$C$R$GT$$u20$as$u20$core..iter..traits..iterator..Iterator$GT$::next::h4b4d27b4ce1623aa  (in engine_candidate) + 1300,1272,...  [0x10080a88c,0x10080a870,...]  mod.rs:174
+      +     !   | 11 DYLD-STUB$$memcmp  (in engine_candidate) + 4  [0x100856118]
+      +     !   72 _$LT$core..iter..adapters..GenericShunt$LT$I$C$R$GT$$u20$as$u20$core..iter..traits..iterator..Iterator$GT$::next::h4b4d27b4ce1623aa  (in engine_candidate) + 3228  [0x10080b014]  mod.rs:174
+      +     !   | 44 _platform_memcmp  (in libsystem_platform.dylib) + 236,272,...  [0x19bf8efdc,0x19bf8f000,...]
+      +     !   | 19 _$LT$core..iter..adapters..GenericShunt$LT$I$C$R$GT$$u20$as$u20$core..iter..traits..iterator..Iterator$GT$::next::h4b4d27b4ce1623aa  (in engine_candidate) + 3256,3308,...  [0x10080b030,0x10080b064,...]  mod.rs:174
+      +     !   | 9 DYLD-STUB$$memcmp  (in engine_candidate) + 4,0  [0x100856118,0x100856114]
+      +     !   50 _$LT$core..iter..adapters..GenericShunt$LT$I$C$R$GT$$u20$as$u20$core..iter..traits..iterator..Iterator$GT$::next::h4b4d27b4ce1623aa  (in engine_candidate) + 1060  [0x10080a79c]  mod.rs:174
+      +     !   | 29 _platform_memcmp  (in libsystem_platform.dylib) + 236,0,...  [0x19bf8efdc,0x19bf8eef0,...]
+      +     !   | 14 _$LT$core..iter..adapters..GenericShunt$LT$I$C$R$GT$$u20$as$u20$core..iter..traits..iterator..Iterator$GT$::next::h4b4d27b4ce1623aa  (in engine_candidate) + 1088,3400,...  [0x10080a7b8,0x10080b0c0,...]  mod.rs:174
+      +     !   | 7 DYLD-STUB$$memcmp  (in engine_candidate) + 4  [0x100856118]
+      +     !   48 _$LT$core..iter..adapters..GenericShunt$LT$I$C$R$GT$$u20$as$u20$core..iter..traits..iterator..Iterator$GT$::next::h4b4d27b4ce1623aa  (in engine_candidate) + 1976  [0x10080ab30]  mod.rs:174
+      +     !   | 33 _platform_memcmp  (in libsystem_platform.dylib) + 0,140,...  [0x19bf8eef0,0x19bf8ef7c,...]
+      +     !   | 14 _$LT$core..iter..adapters..GenericShunt$LT$I$C$R$GT$$u20$as$u20$core..iter..traits..iterator..Iterator$GT$::next::h4b4d27b4ce1623aa  (in engine_candidate) + 2004,2176,...  [0x10080ab4c,0x10080abf8,...]  mod.rs:174
+      +     !   | 1 DYLD-STUB$$memcmp  (in engine_candidate) + 4  [0x100856118]
+      +     !   48 _$LT$core..iter..adapters..GenericShunt$LT$I$C$R$GT$$u20$as$u20$core..iter..traits..iterator..Iterator$GT$::next::h4b4d27b4ce1623aa  (in engine_candidate) + 2244  [0x10080ac3c]  mod.rs:174
+      +     !   | 27 _platform_memcmp  (in libsystem_platform.dylib) + 260,0,...  [0x19bf8eff4,0x19bf8eef0,...]
+      +     !   | 16 _$LT$core..iter..adapters..GenericShunt$LT$I$C$R$GT$$u20$as$u20$core..iter..traits..iterator..Iterator$GT$::next::h4b4d27b4ce1623aa  (in engine_candidate) + 2272,2440,...  [0x10080ac58,0x10080ad00,...]  mod.rs:174
+      +     !   | 5 DYLD-STUB$$memcmp  (in engine_candidate) + 4  [0x100856118]
+      +     !   46 _$LT$core..iter..adapters..GenericShunt$LT$I$C$R$GT$$u20$as$u20$core..iter..traits..iterator..Iterator$GT$::next::h4b4d27b4ce1623aa  (in engine_candidate) + 3348  [0x10080b08c]  mod.rs:174
+      +     !   | 19 _xzm_xzone_malloc_tiny  (in libsystem_malloc.dylib) + 260,12,...  [0x19bdab284,0x19bdab18c,...]
+      +     !   | 12 <deduplicated_symbol>  (in libsystem_malloc.dylib) + 160,108,...  [0x19bda6cc0,0x19bda6c8c,...]
+      +     !   | 8 _malloc_zone_malloc  (in libsystem_malloc.dylib) + 80,12,...  [0x19bdb3e54,0x19bdb3e10,...]
+      +     !   | 6 _xzm_xzone_malloc  (in libsystem_malloc.dylib) + 184,32,...  [0x19bda7144,0x19bda70ac,...]
+      +     !   | 1 _$LT$core..iter..adapters..GenericShunt$LT$I$C$R$GT$$u20$as$u20$core..iter..traits..iterator..Iterator$GT$::next::h4b4d27b4ce1623aa  (in engine_candidate) + 3348  [0x10080b08c]  mod.rs:174
+      +     !   39 _$LT$core..iter..adapters..GenericShunt$LT$I$C$R$GT$$u20$as$u20$core..iter..traits..iterator..Iterator$GT$::next::h4b4d27b4ce1623aa  (in engine_candidate) + 1536  [0x10080a978]  mod.rs:174
+      +     !   | 28 _platform_memcmp  (in libsystem_platform.dylib) + 140,272,...  [0x19bf8ef7c,0x19bf8f000,...]
+      +     !   | 6 _$LT$core..iter..adapters..GenericShunt$LT$I$C$R$GT$$u20$as$u20$core..iter..traits..iterator..Iterator$GT$::next::h4b4d27b4ce1623aa  (in engine_candidate) + 1564,1536,...  [0x10080a994,0x10080a978,...]  mod.rs:174
+      +     !   | 5 DYLD-STUB$$memcmp  (in engine_candidate) + 4  [0x100856118]
+      +     !   37 _$LT$core..iter..adapters..GenericShunt$LT$I$C$R$GT$$u20$as$u20$core..iter..traits..iterator..Iterator$GT$::next::h4b4d27b4ce1623aa  (in engine_candidate) + 3504  [0x10080b128]  mod.rs:174
+      +     !   | 15 _$LT$str$u20$as$u20$serde_json..value..index..Index$GT$::index_into::h2f70ee684a7af9ca  (in engine_candidate) + 108  [0x10082bf2c]  index.rs:86
+      +     !   | + 8 _platform_memcmp  (in libsystem_platform.dylib) + 168,140,...  [0x19bf8ef98,0x19bf8ef7c,...]
+      +     !   | + 6 _$LT$str$u20$as$u20$serde_json..value..index..Index$GT$::index_into::h2f70ee684a7af9ca  (in engine_candidate) + 136,196  [0x10082bf48,0x10082bf84]  index.rs:86
+      +     !   | + 1 DYLD-STUB$$memcmp  (in engine_candidate) + 4  [0x100856118]
+      +     !   | 9 _$LT$str$u20$as$u20$serde_json..value..index..Index$GT$::index_into::h2f70ee684a7af9ca  (in engine_candidate) + 228,224,...  [0x10082bfa4,0x10082bfa0,...]  index.rs:0
+      +     !   | 7 _$LT$core..iter..adapters..GenericShunt$LT$I$C$R$GT$$u20$as$u20$core..iter..traits..iterator..Iterator$GT$::next::h4b4d27b4ce1623aa  (in engine_candidate) + 1208,3508,...  [0x10080a830,0x10080b12c,...]  mod.rs:174
+      +     !   | 3 _$LT$core..iter..adapters..GenericShunt$LT$I$C$R$GT$$u20$as$u20$core..iter..traits..iterator..Iterator$GT$::next::h4b4d27b4ce1623aa  (in engine_candidate) + 3504  [0x10080b128]  mod.rs:174
+      +     !   | + 3 _$LT$str$u20$as$u20$serde_json..value..index..Index$GT$::index_into::h2f70ee684a7af9ca  (in engine_candidate) + 40  [0x10082bee8]  index.rs:86
+      +     !   | 3 _$LT$str$u20$as$u20$serde_json..value..index..Index$GT$::index_into::h2f70ee684a7af9ca  (in engine_candidate) + 0  [0x10082bec0]  index.rs:85
+      +     !   34 _$LT$core..iter..adapters..GenericShunt$LT$I$C$R$GT$$u20$as$u20$core..iter..traits..iterator..Iterator$GT$::next::h4b4d27b4ce1623aa  (in engine_candidate) + 2956  [0x10080af04]  mod.rs:174
+      +     !   | 17 _platform_memcmp  (in libsystem_platform.dylib) + 0,280,...  [0x19bf8eef0,0x19bf8f008,...]
+      +     !   | 13 _$LT$core..iter..adapters..GenericShunt$LT$I$C$R$GT$$u20$as$u20$core..iter..traits..iterator..Iterator$GT$::next::h4b4d27b4ce1623aa  (in engine_candidate) + 2984,3160,...  [0x10080af20,0x10080afd0,...]  mod.rs:174
+      +     !   | 4 DYLD-STUB$$memcmp  (in engine_candidate) + 4  [0x100856118]
+      +     !   30 _$LT$core..iter..adapters..GenericShunt$LT$I$C$R$GT$$u20$as$u20$core..iter..traits..iterator..Iterator$GT$::next::h4b4d27b4ce1623aa  (in engine_candidate) + 836  [0x10080a6bc]  mod.rs:174
+      +     !   | 22 _platform_memcmp  (in libsystem_platform.dylib) + 140,168,...  [0x19bf8ef7c,0x19bf8ef98,...]
+      +     !   | 8 _$LT$core..iter..adapters..GenericShunt$LT$I$C$R$GT$$u20$as$u20$core..iter..traits..iterator..Iterator$GT$::next::h4b4d27b4ce1623aa  (in engine_candidate) + 876,956,...  [0x10080a6e4,0x10080a734,...]  mod.rs:174
+      +     !   29 _$LT$core..iter..adapters..GenericShunt$LT$I$C$R$GT$$u20$as$u20$core..iter..traits..iterator..Iterator$GT$::next::h4b4d27b4ce1623aa  (in engine_candidate) + 2716  [0x10080ae14]  mod.rs:174
+      +     !   | 12 _$LT$core..iter..adapters..GenericShunt$LT$I$C$R$GT$$u20$as$u20$core..iter..traits..iterator..Iterator$GT$::next::h4b4d27b4ce1623aa  (in engine_candidate) + 2744,2680,...  [0x10080ae30,0x10080adf0,...]  mod.rs:174
+      +     !   | 11 _platform_memcmp  (in libsystem_platform.dylib) + 168,0,...  [0x19bf8ef98,0x19bf8eef0,...]
+      +     !   | 6 DYLD-STUB$$memcmp  (in engine_candidate) + 4  [0x100856118]
+      +     !   26 _$LT$core..iter..adapters..GenericShunt$LT$I$C$R$GT$$u20$as$u20$core..iter..traits..iterator..Iterator$GT$::next::h4b4d27b4ce1623aa  (in engine_candidate) + 2492  [0x10080ad34]  mod.rs:174
+      +     !   | 13 _platform_memcmp  (in libsystem_platform.dylib) + 168,272,...  [0x19bf8ef98,0x19bf8f000,...]
+      +     !   | 12 _$LT$core..iter..adapters..GenericShunt$LT$I$C$R$GT$$u20$as$u20$core..iter..traits..iterator..Iterator$GT$::next::h4b4d27b4ce1623aa  (in engine_candidate) + 2520,2576,...  [0x10080ad50,0x10080ad88,...]  mod.rs:174
+      +     !   | 1 DYLD-STUB$$memcmp  (in engine_candidate) + 0  [0x100856114]
+      +     !   24 _$LT$core..iter..adapters..GenericShunt$LT$I$C$R$GT$$u20$as$u20$core..iter..traits..iterator..Iterator$GT$::next::h4b4d27b4ce1623aa  (in engine_candidate) + 3080  [0x10080af80]  mod.rs:174
+      +     !   | 14 _platform_memmove  (in libsystem_platform.dylib) + 452,460,...  [0x19bf91544,0x19bf9154c,...]
+      +     !   | 9 _$LT$core..iter..adapters..GenericShunt$LT$I$C$R$GT$$u20$as$u20$core..iter..traits..iterator..Iterator$GT$::next::h4b4d27b4ce1623aa  (in engine_candidate) + 596,644,...  [0x10080a5cc,0x10080a5fc,...]  mod.rs:174
+      +     !   | 1 DYLD-STUB$$memcpy  (in engine_candidate) + 4  [0x100856124]
+      +     !   21 _$LT$core..iter..adapters..GenericShunt$LT$I$C$R$GT$$u20$as$u20$core..iter..traits..iterator..Iterator$GT$::next::h4b4d27b4ce1623aa  (in engine_candidate) + 648  [0x10080a600]  mod.rs:174
+      +     !   | 11 _platform_memcmp  (in libsystem_platform.dylib) + 164,140,...  [0x19bf8ef94,0x19bf8ef7c,...]
+      +     !   | 8 _$LT$core..iter..adapters..GenericShunt$LT$I$C$R$GT$$u20$as$u20$core..iter..traits..iterator..Iterator$GT$::next::h4b4d27b4ce1623aa  (in engine_candidate) + 676,784,...  [0x10080a61c,0x10080a688,...]  mod.rs:174
+      +     !   | 2 DYLD-STUB$$memcmp  (in engine_candidate) + 4  [0x100856118]
+      +     !   17 _$LT$core..iter..adapters..GenericShunt$LT$I$C$R$GT$$u20$as$u20$core..iter..traits..iterator..Iterator$GT$::next::h4b4d27b4ce1623aa  (in engine_candidate) + 1776  [0x10080aa68]  mod.rs:174
+      +     !   | 10 _platform_memcmp  (in libsystem_platform.dylib) + 272,0,...  [0x19bf8f000,0x19bf8eef0,...]
+      +     !   | 4 _$LT$core..iter..adapters..GenericShunt$LT$I$C$R$GT$$u20$as$u20$core..iter..traits..iterator..Iterator$GT$::next::h4b4d27b4ce1623aa  (in engine_candidate) + 1804,1872,...  [0x10080aa84,0x10080aac8,...]  mod.rs:174
+      +     !   | 3 DYLD-STUB$$memcmp  (in engine_candidate) + 4  [0x100856118]
+      +     !   14 _$LT$core..iter..adapters..GenericShunt$LT$I$C$R$GT$$u20$as$u20$core..iter..traits..iterator..Iterator$GT$::next::h4b4d27b4ce1623aa  (in engine_candidate) + 500  [0x10080a56c]  mod.rs:174
+      +     !   | 8 _xzm_xzone_malloc_freelist_outlined  (in libsystem_malloc.dylib) + 324  [0x19bdac940]
+      +     !   | + 8 _xzm_xzone_find_and_malloc_from_freelist_chunk  (in libsystem_malloc.dylib) + 952  [0x19bdad4ac]
+      +     !   | +   8 xzm_chunk_mark_used  (in libsystem_malloc.dylib) + 176  [0x19bd90d08]
+      +     !   | +     5 _xzm_reclaim_mark_used  (in libsystem_malloc.dylib) + 176  [0x19bd90df0]
+      +     !   | +     ! 5 mach_vm_reclaim_update_kernel_accounting  (in libsystem_kernel.dylib) + 92  [0x19bf57f74]
+      +     !   | +     !   5 mach_vm_reclaim_update_kernel_accounting_trap  (in libsystem_kernel.dylib) + 8  [0x19bf44cb8]
+      +     !   | +     3 _xzm_reclaim_mark_used  (in libsystem_malloc.dylib) + 124  [0x19bd90dbc]
+      +     !   | +       3 _xzm_reclaim_mark_used_locked  (in libsystem_malloc.dylib) + 60  [0x19bd932d0]
+      +     !   | +         3 mach_vm_reclaim_try_cancel  (in libsystem_kernel.dylib) + 260  [0x19bf57dd4]
+      +     !   | +           3 mach_absolute_time  (in libsystem_kernel.dylib) + 108  [0x19bf450fc]
+      +     !   | 3 _xzm_xzone_malloc_tiny  (in libsystem_malloc.dylib) + 12,164,...  [0x19bdab18c,0x19bdab224,...]
+      +     !   | 1 <deduplicated_symbol>  (in libsystem_malloc.dylib) + 108  [0x19bda6c8c]
+      +     !   | 1 _xzm_xzone_find_and_malloc_from_freelist_chunk  (in libsystem_malloc.dylib) + 1936  [0x19bdad884]
+      +     !   | 1 _xzm_xzone_malloc  (in libsystem_malloc.dylib) + 180  [0x19bda7140]
+      +     !   1 _$LT$core..iter..adapters..GenericShunt$LT$I$C$R$GT$$u20$as$u20$core..iter..traits..iterator..Iterator$GT$::next::h4b4d27b4ce1623aa  (in engine_candidate) + 3952  [0x10080b2e8]  mod.rs:174
+      +     !   | 1 _platform_memcmp  (in libsystem_platform.dylib) + 272  [0x19bf8f000]
+      +     !   1 flight_engine::candidate_engine::handle_request::h0592da939d4c80f2  (in engine_candidate) + 1112  [0x10080a0fc]  candidate_engine.rs:2683
+      +     !     1 _$LT$core..iter..adapters..GenericShunt$LT$I$C$R$GT$$u20$as$u20$core..iter..traits..iterator..Iterator$GT$::next::h4b4d27b4ce1623aa  (in engine_candidate) + 76  [0x10080a3c4]  mod.rs:174
+      +     1231 engine_candidate::main::h8db767a27172677d  (in engine_candidate) + 3024  [0x100803734]  engine_candidate.rs:97
+      +     ! 1231 core::ptr::drop_in_place$LT$serde_json..value..Value$GT$::hde50045e8a0cbd96  (in engine_candidate) + 236  [0x1008043bc]  mod.rs:805
+      +     !   1231 core::ptr::drop_in_place$LT$serde_json..value..Value$GT$::hde50045e8a0cbd96  (in engine_candidate) + 236  [0x1008043bc]  mod.rs:805
+      +     !     1230 core::ptr::drop_in_place$LT$serde_json..value..Value$GT$::hde50045e8a0cbd96  (in engine_candidate) + 104  [0x100804338]  mod.rs:805
+      +     !     : 1214 core::ptr::drop_in_place$LT$serde_json..value..Value$GT$::hde50045e8a0cbd96  (in engine_candidate) + 236  [0x1008043bc]  mod.rs:805
+      +     !     : | 1207 core::ptr::drop_in_place$LT$serde_json..value..Value$GT$::hde50045e8a0cbd96  (in engine_candidate) + 104  [0x100804338]  mod.rs:805
+      +     !     : | + 741 core::ptr::drop_in_place$LT$serde_json..value..Value$GT$::hde50045e8a0cbd96  (in engine_candidate) + 236  [0x1008043bc]  mod.rs:805
+      +     !     : | + ! 331 core::ptr::drop_in_place$LT$serde_json..value..Value$GT$::hde50045e8a0cbd96  (in engine_candidate) + 284  [0x1008043ec]  mod.rs:805
+      +     !     : | + ! : 267 _xzm_free  (in libsystem_malloc.dylib) + 28,952,...  [0x19bda7760,0x19bda7afc,...]
+      +     !     : | + ! : 57 _free  (in libsystem_malloc.dylib) + 0,24,...  [0x19bdb4a2c,0x19bdb4a44,...]
+      +     !     : | + ! : 7 DYLD-STUB$$free  (in engine_candidate) + 4  [0x1008560dc]
+      +     !     : | + ! 197 core::ptr::drop_in_place$LT$serde_json..value..Value$GT$::hde50045e8a0cbd96  (in engine_candidate) + 248  [0x1008043c8]  mod.rs:805
+      +     !     : | + ! : 133 alloc::collections::btree::map::IntoIter$LT$K$C$V$C$A$GT$::dying_next::h1f4f4a7eae26a15f  (in engine_candidate) + 332  [0x100805248]  map.rs:1934
+      +     !     : | + ! : | 58 _xzm_free  (in libsystem_malloc.dylib) + 28,952,...  [0x19bda7760,0x19bda7afc,...]
+      +     !     : | + ! : | 48 _xzm_free  (in libsystem_malloc.dylib) + 348  [0x19bda78a0]
+      +     !     : | + ! : | + 23 __bzero  (in libsystem_platform.dylib) + 0  [0x19bf91050]
+      +     !     : | + ! : | + 19 _platform_memset  (in libsystem_platform.dylib) + 140,160  [0x19bf9113c,0x19bf91150]
+      +     !     : | + ! : | + 6 DYLD-STUB$$_platform_bzero  (in libsystem_malloc.dylib) + 0,12  [0x19bdbc454,0x19bdbc460]
+      +     !     : | + ! : | 20 _free  (in libsystem_malloc.dylib) + 24,0,...  [0x19bdb4a44,0x19bdb4a2c,...]
+      +     !     : | + ! : | 6 DYLD-STUB$$free  (in engine_candidate) + 4  [0x1008560dc]
+      +     !     : | + ! : | 1 _xzm_chunk_list_slot_push  (in libsystem_malloc.dylib) + 136  [0x19bdaeb60]
+      +     !     : | + ! : 25 alloc::collections::btree::map::IntoIter$LT$K$C$V$C$A$GT$::dying_next::h1f4f4a7eae26a15f  (in engine_candidate) + 24,28  [0x100805114,0x100805118]  map.rs:1933
+      +     !     : | + ! : 23 alloc::collections::btree::map::IntoIter$LT$K$C$V$C$A$GT$::dying_next::h1f4f4a7eae26a15f  (in engine_candidate) + 40,76,...  [0x100805124,0x100805148,...]  map.rs:1938
+      +     !     : | + ! : 8 alloc::collections::btree::map::IntoIter$LT$K$C$V$C$A$GT$::dying_next::h1f4f4a7eae26a15f  (in engine_candidate) + 128,120,...  [0x10080517c,0x100805174,...]  map.rs:1934
+      +     !     : | + ! : 3 _xzm_free  (in libsystem_malloc.dylib) + 1352,1172  [0x19bda7c8c,0x19bda7bd8]
+      +     !     : | + ! : 3 alloc::collections::btree::map::IntoIter$LT$K$C$V$C$A$GT$::dying_next::h1f4f4a7eae26a15f  (in engine_candidate) + 0  [0x1008050fc]  map.rs:1930
+      +     !     : | + ! : 1 alloc::collections::btree::map::IntoIter$LT$K$C$V$C$A$GT$::dying_next::h1f4f4a7eae26a15f  (in engine_candidate) + 332  [0x100805248]  map.rs:1935
+      +     !     : | + ! : 1 alloc::collections::btree::map::IntoIter$LT$K$C$V$C$A$GT$::dying_next::h1f4f4a7eae26a15f  (in engine_candidate) + 32  [0x10080511c]  map.rs:1937
+      +     !     : | + ! 88 core::ptr::drop_in_place$LT$serde_json..value..Value$GT$::hde50045e8a0cbd96  (in engine_candidate) + 136,24,...  [0x100804358,0x1008042e8,...]  mod.rs:805
+      +     !     : | + ! 40 _xzm_free  (in libsystem_malloc.dylib) + 1352,0,...  [0x19bda7c8c,0x19bda7744,...]
+      +     !     : | + ! 28 core::ptr::drop_in_place$LT$serde_json..value..Value$GT$::hde50045e8a0cbd96  (in engine_candidate) + 236  [0x1008043bc]  mod.rs:805
+      +     !     : | + ! : 28 core::ptr::drop_in_place$LT$serde_json..value..Value$GT$::hde50045e8a0cbd96  (in engine_candidate) + 24  [0x1008042e8]  mod.rs:805
+      +     !     : | + ! 27 alloc::collections::btree::map::IntoIter$LT$K$C$V$C$A$GT$::dying_next::h1f4f4a7eae26a15f  (in engine_candidate) + 348,344  [0x100805258,0x100805254]  map.rs:1940
+      +     !     : | + ! 15 core::ptr::drop_in_place$LT$serde_json..value..Value$GT$::hde50045e8a0cbd96  (in engine_candidate) + 60,200  [0x10080430c,0x100804398]  mod.rs:0
+      +     !     : | + ! 11 _free  (in libsystem_malloc.dylib) + 76,24,...  [0x19bdb4a78,0x19bdb4a44,...]
+      +     !     : | + ! 4 DYLD-STUB$$free  (in engine_candidate) + 4  [0x1008560dc]
+      +     !     : | + 238 core::ptr::drop_in_place$LT$serde_json..value..Value$GT$::hde50045e8a0cbd96  (in engine_candidate) + 284  [0x1008043ec]  mod.rs:805
+      +     !     : | + ! 180 _xzm_free  (in libsystem_malloc.dylib) + 28,952,...  [0x19bda7760,0x19bda7afc,...]
+      +     !     : | + ! 54 _free  (in libsystem_malloc.dylib) + 0,108,...  [0x19bdb4a2c,0x19bdb4a98,...]
+      +     !     : | + ! 4 DYLD-STUB$$free  (in engine_candidate) + 4  [0x1008560dc]
+      +     !     : | + 158 core::ptr::drop_in_place$LT$serde_json..value..Value$GT$::hde50045e8a0cbd96  (in engine_candidate) + 248  [0x1008043c8]  mod.rs:805
+      +     !     : | + ! 97 alloc::collections::btree::map::IntoIter$LT$K$C$V$C$A$GT$::dying_next::h1f4f4a7eae26a15f  (in engine_candidate) + 332  [0x100805248]  map.rs:1934
+      +     !     : | + ! : 42 _xzm_free  (in libsystem_malloc.dylib) + 304,540,...  [0x19bda7874,0x19bda7960,...]
+      +     !     : | + ! : 19 _xzm_free  (in libsystem_malloc.dylib) + 348  [0x19bda78a0]
+      +     !     : | + ! : | 11 _platform_memset  (in libsystem_platform.dylib) + 140,160  [0x19bf9113c,0x19bf91150]
+      +     !     : | + ! : | 7 __bzero  (in libsystem_platform.dylib) + 0  [0x19bf91050]
+      +     !     : | + ! : | 1 DYLD-STUB$$_platform_bzero  (in libsystem_malloc.dylib) + 12  [0x19bdbc460]
+      +     !     : | + ! : 13 _free  (in libsystem_malloc.dylib) + 0,76,...  [0x19bdb4a2c,0x19bdb4a78,...]
+      +     !     : | + ! : 11 _xzm_xzone_madvise_batch  (in libsystem_malloc.dylib) + 436  [0x19bdae1e8]
+      +     !     : | + ! : | 10 xzm_reclaim_mark_free_locked  (in libsystem_malloc.dylib) + 116  [0x19bd90724]
+      +     !     : | + ! : | + 9 mach_vm_reclaim_try_enter  (in libsystem_kernel.dylib) + 296  [0x19bf57c54]
+      +     !     : | + ! : | + ! 9 mach_absolute_time  (in libsystem_kernel.dylib) + 108,112  [0x19bf450fc,0x19bf45100]
+      +     !     : | + ! : | + 1 mach_vm_reclaim_try_enter  (in libsystem_kernel.dylib) + 292  [0x19bf57c50]
+      +     !     : | + ! : | 1 xzm_reclaim_mark_free_locked  (in libsystem_malloc.dylib) + 80  [0x19bd90700]
+      +     !     : | + ! : 7 _xzm_xzone_madvise_batch  (in libsystem_malloc.dylib) + 516  [0x19bdae238]
+      +     !     : | + ! : | 6 mach_vm_reclaim_update_kernel_accounting  (in libsystem_kernel.dylib) + 92  [0x19bf57f74]
+      +     !     : | + ! : | + 6 mach_vm_reclaim_update_kernel_accounting_trap  (in libsystem_kernel.dylib) + 8  [0x19bf44cb8]
+      +     !     : | + ! : | 1 mach_vm_reclaim_update_kernel_accounting  (in libsystem_kernel.dylib) + 36  [0x19bf57f3c]
+      +     !     : | + ! : |   1 mach_absolute_time  (in libsystem_kernel.dylib) + 112  [0x19bf45100]
+      +     !     : | + ! : 4 DYLD-STUB$$free  (in engine_candidate) + 4  [0x1008560dc]
+      +     !     : | + ! : 1 _xzm_chunk_batch_list_push  (in libsystem_malloc.dylib) + 68  [0x19bdadd3c]
+      +     !     : | + ! 32 alloc::collections::btree::map::IntoIter$LT$K$C$V$C$A$GT$::dying_next::h1f4f4a7eae26a15f  (in engine_candidate) + 64,40,...  [0x10080513c,0x100805124,...]  map.rs:1938
+      +     !     : | + ! 20 alloc::collections::btree::map::IntoIter$LT$K$C$V$C$A$GT$::dying_next::h1f4f4a7eae26a15f  (in engine_candidate) + 24,28  [0x100805114,0x100805118]  map.rs:1933
+      +     !     : | + ! 6 alloc::collections::btree::map::IntoIter$LT$K$C$V$C$A$GT$::dying_next::h1f4f4a7eae26a15f  (in engine_candidate) + 128,120  [0x10080517c,0x100805174]  map.rs:1934
+      +     !     : | + ! 2 alloc::collections::btree::map::IntoIter$LT$K$C$V$C$A$GT$::dying_next::h1f4f4a7eae26a15f  (in engine_candidate) + 336  [0x10080524c]  map.rs:1940
+      +     !     : | + ! 1 alloc::collections::btree::map::IntoIter$LT$K$C$V$C$A$GT$::dying_next::h1f4f4a7eae26a15f  (in engine_candidate) + 0  [0x1008050fc]  map.rs:1930
+      +     !     : | + 28 alloc::collections::btree::map::IntoIter$LT$K$C$V$C$A$GT$::dying_next::h1f4f4a7eae26a15f  (in engine_candidate) + 348,344  [0x100805258,0x100805254]  map.rs:1940
+      +     !     : | + 25 core::ptr::drop_in_place$LT$serde_json..value..Value$GT$::hde50045e8a0cbd96  (in engine_candidate) + 48,268,...  [0x100804300,0x1008043dc,...]  mod.rs:805
+      +     !     : | + 16 _xzm_free  (in libsystem_malloc.dylib) + 1352  [0x19bda7c8c]
+      +     !     : | + 1 core::ptr::drop_in_place$LT$serde_json..value..Value$GT$::hde50045e8a0cbd96  (in engine_candidate) + 60  [0x10080430c]  mod.rs:0
+      +     !     : | 4 core::ptr::drop_in_place$LT$serde_json..value..Value$GT$::hde50045e8a0cbd96  (in engine_candidate) + 88,48,...  [0x100804328,0x100804300,...]  mod.rs:805
+      +     !     : | 2 _xzm_xzone_madvise_batch  (in libsystem_malloc.dylib) + 436  [0x19bdae1e8]
+      +     !     : | + 2 xzm_reclaim_mark_free_locked  (in libsystem_malloc.dylib) + 116  [0x19bd90724]
+      +     !     : | +   2 mach_vm_reclaim_try_enter  (in libsystem_kernel.dylib) + 296  [0x19bf57c54]
+      +     !     : | +     2 mach_absolute_time  (in libsystem_kernel.dylib) + 108  [0x19bf450fc]
+      +     !     : | 1 _xzm_free  (in libsystem_malloc.dylib) + 28  [0x19bda7760]
+      +     !     : 8 core::ptr::drop_in_place$LT$serde_json..value..Value$GT$::hde50045e8a0cbd96  (in engine_candidate) + 248  [0x1008043c8]  mod.rs:805
+      +     !     : | 7 alloc::collections::btree::map::IntoIter$LT$K$C$V$C$A$GT$::dying_next::h1f4f4a7eae26a15f  (in engine_candidate) + 332  [0x100805248]  map.rs:1934
+      +     !     : | + 3 _xzm_free  (in libsystem_malloc.dylib) + 0,516,...  [0x19bda7744,0x19bda7948,...]
+      +     !     : | + 2 _xzm_xzone_madvise_batch  (in libsystem_malloc.dylib) + 516  [0x19bdae238]
+      +     !     : | + ! 2 mach_vm_reclaim_update_kernel_accounting  (in libsystem_kernel.dylib) + 92  [0x19bf57f74]
+      +     !     : | + !   2 mach_vm_reclaim_update_kernel_accounting_trap  (in libsystem_kernel.dylib) + 8  [0x19bf44cb8]
+      +     !     : | + 1 _xzm_xzone_madvise_batch  (in libsystem_malloc.dylib) + 436  [0x19bdae1e8]
+      +     !     : | + ! 1 xzm_reclaim_mark_free_locked  (in libsystem_malloc.dylib) + 116  [0x19bd90724]
+      +     !     : | + !   1 mach_vm_reclaim_try_enter  (in libsystem_kernel.dylib) + 296  [0x19bf57c54]
+      +     !     : | + !     1 mach_absolute_time  (in libsystem_kernel.dylib) + 108  [0x19bf450fc]
+      +     !     : | + 1 _xzm_xzone_madvise_batch  (in libsystem_malloc.dylib) + 324  [0x19bdae178]
+      +     !     : | 1 alloc::collections::btree::map::IntoIter$LT$K$C$V$C$A$GT$::dying_next::h1f4f4a7eae26a15f  (in engine_candidate) + 292  [0x100805220]  map.rs:1938
+      +     !     : 7 core::ptr::drop_in_place$LT$serde_json..value..Value$GT$::hde50045e8a0cbd96  (in engine_candidate) + 284  [0x1008043ec]  mod.rs:805
+      +     !     : | 3 _xzm_free  (in libsystem_malloc.dylib) + 540,204  [0x19bda7960,0x19bda7810]
+      +     !     : | 2 _free  (in libsystem_malloc.dylib) + 44,76  [0x19bdb4a58,0x19bdb4a78]
+      +     !     : | 2 _xzm_xzone_madvise_batch  (in libsystem_malloc.dylib) + 436  [0x19bdae1e8]
+      +     !     : |   2 xzm_reclaim_mark_free_locked  (in libsystem_malloc.dylib) + 116  [0x19bd90724]
+      +     !     : |     2 mach_vm_reclaim_try_enter  (in libsystem_kernel.dylib) + 296  [0x19bf57c54]
+      +     !     : |       2 mach_absolute_time  (in libsystem_kernel.dylib) + 108,112  [0x19bf450fc,0x19bf45100]
+      +     !     : 1 _xzm_free  (in libsystem_malloc.dylib) + 1352  [0x19bda7c8c]
+      +     !     1 core::ptr::drop_in_place$LT$serde_json..value..Value$GT$::hde50045e8a0cbd96  (in engine_candidate) + 88  [0x100804328]  mod.rs:805
+      +     260 engine_candidate::main::h8db767a27172677d  (in engine_candidate) + 1176  [0x100802ffc]  engine_candidate.rs:80
+      +     ! 260 read  (in libsystem_kernel.dylib) + 8,4  [0x19bf45908,0x19bf45904]
+      +     232 engine_candidate::main::h8db767a27172677d  (in engine_candidate) + 1684  [0x1008031f8]  engine_candidate.rs:80
+      +     ! 232 _platform_memmove  (in libsystem_platform.dylib) + 180,196,...  [0x19bf91434,0x19bf91444,...]
+      +     161 engine_candidate::main::h8db767a27172677d  (in engine_candidate) + 1920  [0x1008032e4]  engine_candidate.rs:80
+      +     ! 161 _RNvNtNtCsl8K0bEFm1U0_4core3str8converts9from_utf8  (in engine_candidate) + 96,80,...  [0x100807f08,0x100807ef8,...]  converts.rs:91
+      +     68 engine_candidate::main::h8db767a27172677d  (in engine_candidate) + 1588,1524,...  [0x100803198,0x100803158,...]  engine_candidate.rs:80
+      +     21 engine_candidate::main::h8db767a27172677d  (in engine_candidate) + 1740  [0x100803230]  engine_candidate.rs:80
+      +       21 _RINvNvMs2_NtCs1OjIl8oxbrv_5alloc7raw_vecINtB8_11RawVecInnerpE7reserve21do_reserve_and_handleNtNtBa_5alloc6GlobalECsg55jX0GwzBC_3std  (in engine_candidate) + 88  [0x100852498]  mod.rs:666
+      +         21 _RNvMs4_NtCs1OjIl8oxbrv_5alloc7raw_vecNtB5_11RawVecInner11finish_growCsg55jX0GwzBC_3std  (in engine_candidate) + 228  [0x1008525b0]  mod.rs:555
+      +           21 _realloc  (in libsystem_malloc.dylib) + 452  [0x19bdb4c70]
+      +             21 _malloc_zone_realloc  (in libsystem_malloc.dylib) + 148  [0x19bdb4440]
+      +               14 xzm_realloc  (in libsystem_malloc.dylib) + 884  [0x19bda7630]
+      +               : 14 _platform_memmove  (in libsystem_platform.dylib) + 88,76  [0x19bf913d8,0x19bf913cc]
+      +               6 xzm_realloc  (in libsystem_malloc.dylib) + 692  [0x19bda7570]
+      +               : 6 xzm_segment_group_try_realloc_huge_chunk  (in libsystem_malloc.dylib) + 620  [0x19bd92ecc]
+      +               :   6 mvm_allocate_plat  (in libsystem_malloc.dylib) + 276  [0x19bd9a718]
+      +               :     6 mach_vm_map  (in libsystem_kernel.dylib) + 128  [0x19bf449d0]
+      +               :       6 _kernelrpc_mach_vm_map_trap  (in libsystem_kernel.dylib) + 8  [0x19bf44acc]
+      +               1 xzm_realloc  (in libsystem_malloc.dylib) + 216  [0x19bda7394]
+      204 ???  (in <unknown binary>)  [0xffffff62b6ae7d56]
+      + 72 flight_engine::candidate_engine::handle_request_with_replay_tape::h2f13c9eb946d62d0  (in engine_candidate) + 15540  [0x10080f290]  candidate_engine.rs:3077
+      + ! 22 flight_engine::candidate_engine::handle_request_with_replay_tape::h2f13c9eb946d62d0  (in engine_candidate) + 4308,4452,...  [0x10080c6b0,0x10080c740,...]  candidate_engine.rs:2787
+      + ! 7 flight_engine::candidate_engine::handle_request_with_replay_tape::h2f13c9eb946d62d0  (in engine_candidate) + 19652,4224,...  [0x1008102a0,0x10080c65c,...]  candidate_engine.rs:0
+      + ! 6 flight_engine::candidate_engine::handle_request_with_replay_tape::h2f13c9eb946d62d0  (in engine_candidate) + 19736,19720,...  [0x1008102f4,0x1008102e4,...]  candidate_engine.rs:3209
+      + ! 5 flight_engine::candidate_engine::handle_request_with_replay_tape::h2f13c9eb946d62d0  (in engine_candidate) + 19696  [0x1008102cc]  candidate_engine.rs:3204
+      + ! 4 flight_engine::candidate_engine::handle_request_with_replay_tape::h2f13c9eb946d62d0  (in engine_candidate) + 5164,5168  [0x10080ca08,0x10080ca0c]  candidate_engine.rs:2818
+      + ! 4 flight_engine::candidate_engine::handle_request_with_replay_tape::h2f13c9eb946d62d0  (in engine_candidate) + 15564  [0x10080f2a8]  candidate_engine.rs:3085
+      + ! 3 flight_engine::candidate_engine::handle_request_with_replay_tape::h2f13c9eb946d62d0  (in engine_candidate) + 19840  [0x10081035c]  candidate_engine.rs:2779
+      + ! 3 flight_engine::candidate_engine::handle_request_with_replay_tape::h2f13c9eb946d62d0  (in engine_candidate) + 4060  [0x10080c5b8]  candidate_engine.rs:2781
+      + ! 3 flight_engine::candidate_engine::handle_request_with_replay_tape::h2f13c9eb946d62d0  (in engine_candidate) + 5020,5024  [0x10080c978,0x10080c97c]  candidate_engine.rs:2796
+      + ! 3 flight_engine::candidate_engine::handle_request_with_replay_tape::h2f13c9eb946d62d0  (in engine_candidate) + 15688  [0x10080f324]  candidate_engine.rs:3158
+      + ! 3 flight_engine::candidate_engine::handle_request_with_replay_tape::h2f13c9eb946d62d0  (in engine_candidate) + 19620  [0x100810280]  candidate_engine.rs:3197
+      + ! 2 flight_engine::candidate_engine::handle_request_with_replay_tape::h2f13c9eb946d62d0  (in engine_candidate) + 4128,4132  [0x10080c5fc,0x10080c600]  candidate_engine.rs:2786
+      + ! 2 flight_engine::candidate_engine::handle_request_with_replay_tape::h2f13c9eb946d62d0  (in engine_candidate) + 15704  [0x10080f334]  candidate_engine.rs:3165
+      + ! 2 flight_engine::candidate_engine::handle_request_with_replay_tape::h2f13c9eb946d62d0  (in engine_candidate) + 19776  [0x10081031c]  candidate_engine.rs:3213
+      + ! 1 flight_engine::candidate_engine::handle_request_with_replay_tape::h2f13c9eb946d62d0  (in engine_candidate) + 16396  [0x10080f5e8]  candidate_engine.rs:3172
+      + ! 1 flight_engine::candidate_engine::handle_request_with_replay_tape::h2f13c9eb946d62d0  (in engine_candidate) + 19704  [0x1008102d4]  candidate_engine.rs:3207
+      + ! 1 flight_engine::candidate_engine::handle_request_with_replay_tape::h2f13c9eb946d62d0  (in engine_candidate) + 4012  [0x10080c588]  range.rs:0
+      + 50 flight_engine::candidate_engine::handle_request_with_replay_tape::h2f13c9eb946d62d0  (in engine_candidate) + 12676  [0x10080e760]  candidate_engine.rs:2963
+      + ! 17 flight_engine::candidate_engine::handle_request_with_replay_tape::h2f13c9eb946d62d0  (in engine_candidate) + 10144,10040,...  [0x10080dd7c,0x10080dd14,...]  candidate_engine.rs:2955
+      + ! 7 flight_engine::candidate_engine::handle_request_with_replay_tape::h2f13c9eb946d62d0  (in engine_candidate) + 13356,13348  [0x10080ea08,0x10080ea00]  candidate_engine.rs:0
+      + ! 5 flight_engine::candidate_engine::handle_request_with_replay_tape::h2f13c9eb946d62d0  (in engine_candidate) + 12988,12972  [0x10080e898,0x10080e888]  candidate_engine.rs:3012
+      + ! 4 flight_engine::candidate_engine::handle_request_with_replay_tape::h2f13c9eb946d62d0  (in engine_candidate) + 12992  [0x10080e89c]  candidate_engine.rs:3021
+      + ! 3 flight_engine::candidate_engine::handle_request_with_replay_tape::h2f13c9eb946d62d0  (in engine_candidate) + 12704,12720,...  [0x10080e77c,0x10080e78c,...]  candidate_engine.rs:2971
+      + ! 3 flight_engine::candidate_engine::handle_request_with_replay_tape::h2f13c9eb946d62d0  (in engine_candidate) + 15436,15444  [0x10080f228,0x10080f230]  candidate_engine.rs:3072
+      + ! 2 flight_engine::candidate_engine::handle_request_with_replay_tape::h2f13c9eb946d62d0  (in engine_candidate) + 12832  [0x10080e7fc]  candidate_engine.rs:2977
+      + ! 2 flight_engine::candidate_engine::handle_request_with_replay_tape::h2f13c9eb946d62d0  (in engine_candidate) + 13372  [0x10080ea18]  candidate_engine.rs:3033
+      + ! 2 flight_engine::candidate_engine::handle_request_with_replay_tape::h2f13c9eb946d62d0  (in engine_candidate) + 13284,13308  [0x10080e9c0,0x10080e9d8]  candidate_engine.rs:3035
+      + ! 2 flight_engine::candidate_engine::handle_request_with_replay_tape::h2f13c9eb946d62d0  (in engine_candidate) + 13216,13256  [0x10080e97c,0x10080e9a4]  candidate_engine.rs:3037
+      + ! 1 flight_engine::candidate_engine::handle_request_with_replay_tape::h2f13c9eb946d62d0  (in engine_candidate) + 15476  [0x10080f250]  candidate_engine.rs:2909
+      + ! 1 flight_engine::candidate_engine::handle_request_with_replay_tape::h2f13c9eb946d62d0  (in engine_candidate) + 12884  [0x10080e830]  candidate_engine.rs:2990
+      + ! 1 flight_engine::candidate_engine::handle_request_with_replay_tape::h2f13c9eb946d62d0  (in engine_candidate) + 12900  [0x10080e840]  candidate_engine.rs:2994
+      + 41 flight_engine::candidate_engine::handle_request_with_replay_tape::h2f13c9eb946d62d0  (in engine_candidate) + 10340  [0x10080de40]  candidate_engine.rs:2955
+      + ! 13 flight_engine::candidate_engine::handle_request_with_replay_tape::h2f13c9eb946d62d0  (in engine_candidate) + 10820,10832,...  [0x10080e020,0x10080e02c,...]  candidate_engine.rs:2955
+      + ! 7 flight_engine::candidate_engine::federal_tax_exact::h8338aa5c574c0016  (in engine_candidate) + 600,604,...  [0x10081f090,0x10081f094,...]  candidate_engine.rs:2068
+      + ! 4 flight_engine::candidate_engine::federal_tax_exact::h8338aa5c574c0016  (in engine_candidate) + 128,96  [0x10081eeb8,0x10081ee98]  candidate_engine.rs:2039
+      + ! 3 flight_engine::candidate_engine::federal_tax_exact::h8338aa5c574c0016  (in engine_candidate) + 88  [0x10081ee90]  candidate_engine.rs:2034
+      + ! 3 flight_engine::candidate_engine::federal_tax_exact::h8338aa5c574c0016  (in engine_candidate) + 360  [0x10081efa0]  candidate_engine.rs:2054
+      + ! 3 flight_engine::candidate_engine::federal_tax_exact::h8338aa5c574c0016  (in engine_candidate) + 504,520,...  [0x10081f030,0x10081f040,...]  candidate_engine.rs:2055
+      + ! 2 flight_engine::candidate_engine::federal_tax_exact::h8338aa5c574c0016  (in engine_candidate) + 64  [0x10081ee78]  candidate_engine.rs:2030
+      + ! 2 flight_engine::candidate_engine::federal_tax_exact::h8338aa5c574c0016  (in engine_candidate) + 316  [0x10081ef74]  candidate_engine.rs:2051
+      + ! 1 flight_engine::candidate_engine::federal_tax_exact::h8338aa5c574c0016  (in engine_candidate) + 136  [0x10081eec0]  candidate_engine.rs:0
+      + ! 1 flight_engine::candidate_engine::federal_tax_exact::h8338aa5c574c0016  (in engine_candidate) + 40  [0x10081ee60]  candidate_engine.rs:2028
+      + ! 1 flight_engine::candidate_engine::federal_tax_exact::h8338aa5c574c0016  (in engine_candidate) + 148  [0x10081eecc]  candidate_engine.rs:2041
+      + ! 1 flight_engine::candidate_engine::federal_tax_exact::h8338aa5c574c0016  (in engine_candidate) + 264  [0x10081ef40]  candidate_engine.rs:2050
+      + 28 flight_engine::candidate_engine::handle_request_with_replay_tape::h2f13c9eb946d62d0  (in engine_candidate) + 12488  [0x10080e6a4]  candidate_engine.rs:2955
+      + ! 6 flight_engine::candidate_engine::federal_tax_exact::h8338aa5c574c0016  (in engine_candidate) + 600  [0x10081f090]  candidate_engine.rs:2068
+      + ! 4 flight_engine::candidate_engine::federal_tax_exact::h8338aa5c574c0016  (in engine_candidate) + 360,376  [0x10081efa0,0x10081efb0]  candidate_engine.rs:2054
+      + ! 3 flight_engine::candidate_engine::federal_tax_exact::h8338aa5c574c0016  (in engine_candidate) + 136,152,...  [0x10081eec0,0x10081eed0,...]  candidate_engine.rs:0
+      + ! 3 flight_engine::candidate_engine::federal_tax_exact::h8338aa5c574c0016  (in engine_candidate) + 204,264  [0x10081ef04,0x10081ef40]  candidate_engine.rs:2050
+      + ! 3 flight_engine::candidate_engine::handle_request_with_replay_tape::h2f13c9eb946d62d0  (in engine_candidate) + 12604  [0x10080e718]  candidate_engine.rs:2962
+      + ! 2 flight_engine::candidate_engine::federal_tax_exact::h8338aa5c574c0016  (in engine_candidate) + 0  [0x10081ee38]  candidate_engine.rs:2024
+      + ! 2 flight_engine::candidate_engine::federal_tax_exact::h8338aa5c574c0016  (in engine_candidate) + 40  [0x10081ee60]  candidate_engine.rs:2028
+      + ! 2 flight_engine::candidate_engine::handle_request_with_replay_tape::h2f13c9eb946d62d0  (in engine_candidate) + 12668  [0x10080e758]  candidate_engine.rs:2963
+      + ! 1 flight_engine::candidate_engine::federal_tax_exact::h8338aa5c574c0016  (in engine_candidate) + 88  [0x10081ee90]  candidate_engine.rs:2034
+      + ! 1 flight_engine::candidate_engine::federal_tax_exact::h8338aa5c574c0016  (in engine_candidate) + 316  [0x10081ef74]  candidate_engine.rs:2051
+      + ! 1 flight_engine::candidate_engine::federal_tax_exact::h8338aa5c574c0016  (in engine_candidate) + 556  [0x10081f064]  candidate_engine.rs:2055
+      + 12 flight_engine::candidate_engine::handle_request_with_replay_tape::h2f13c9eb946d62d0  (in engine_candidate) + 11196  [0x10080e198]  candidate_engine.rs:2955
+      + ! 8 flight_engine::candidate_engine::handle_request_with_replay_tape::h2f13c9eb946d62d0  (in engine_candidate) + 11412,12472,...  [0x10080e270,0x10080e694,...]  candidate_engine.rs:2955
+      + ! 4 flight_engine::candidate_engine::take_from_bucket::he9814b3cc1f595ed  (in engine_candidate) + 28,36,...  [0x10081f0bc,0x10081f0c4,...]  candidate_engine.rs:2160
+      + 1 ???  (in <unknown binary>)  [0xffffc7ae147ae148]
+      +   1 flight_engine::candidate_engine::handle_request_with_replay_tape::h2f13c9eb946d62d0  (in engine_candidate) + 5188  [0x10080ca20]  candidate_engine.rs:2818
+      +     1 flight_engine::candidate_engine::bucket_return_from_parts::h9f92daabcbdea3c6  (in engine_candidate) + 24  [0x10081eb14]  candidate_engine.rs:2539
+      7 ???  (in <unknown binary>)  [0xcc26816c0]
+      + 4 flight_engine::candidate_engine::handle_request_with_replay_tape::h2f13c9eb946d62d0  (in engine_candidate) + 15540  [0x10080f290]  candidate_engine.rs:3077
+      + ! 3 flight_engine::candidate_engine::compute_healthcare_premium_cost::h0717241e88fc8052  (in engine_candidate) + 256,280,...  [0x10081f2d4,0x10081f2ec,...]  candidate_engine.rs:2009
+      + ! 1 flight_engine::candidate_engine::compute_healthcare_premium_cost::h0717241e88fc8052  (in engine_candidate) + 784  [0x10081f4e4]  candidate_engine.rs:2020
+      + 3 flight_engine::candidate_engine::handle_request_with_replay_tape::h2f13c9eb946d62d0  (in engine_candidate) + 12676  [0x10080e760]  candidate_engine.rs:2963
+      +   3 flight_engine::candidate_engine::compute_healthcare_premium_cost::h0717241e88fc8052  (in engine_candidate) + 176,344,...  [0x10081f284,0x10081f32c,...]  candidate_engine.rs:2009
+      6 ???  (in <unknown binary>)  [0xcc250d6c0]
+      + 5 flight_engine::candidate_engine::handle_request_with_replay_tape::h2f13c9eb946d62d0  (in engine_candidate) + 12676  [0x10080e760]  candidate_engine.rs:2963
+      + ! 3 flight_engine::candidate_engine::compute_healthcare_premium_cost::h0717241e88fc8052  (in engine_candidate) + 232,280,...  [0x10081f2bc,0x10081f2ec,...]  candidate_engine.rs:2009
+      + ! 1 flight_engine::candidate_engine::compute_healthcare_premium_cost::h0717241e88fc8052  (in engine_candidate) + 40  [0x10081f1fc]  candidate_engine.rs:1993
+      + ! 1 flight_engine::candidate_engine::compute_healthcare_premium_cost::h0717241e88fc8052  (in engine_candidate) + 704  [0x10081f494]  candidate_engine.rs:2018
+      + 1 flight_engine::candidate_engine::handle_request_with_replay_tape::h2f13c9eb946d62d0  (in engine_candidate) + 15540  [0x10080f290]  candidate_engine.rs:3077
+      +   1 flight_engine::candidate_engine::compute_healthcare_premium_cost::h0717241e88fc8052  (in engine_candidate) + 280  [0x10081f2ec]  candidate_engine.rs:2009
+      5 ???  (in <unknown binary>)  [0xcc24bd6c0]
+      + 4 flight_engine::candidate_engine::handle_request_with_replay_tape::h2f13c9eb946d62d0  (in engine_candidate) + 12676  [0x10080e760]  candidate_engine.rs:2963
+      + ! 2 flight_engine::candidate_engine::compute_healthcare_premium_cost::h0717241e88fc8052  (in engine_candidate) + 312,344  [0x10081f30c,0x10081f32c]  candidate_engine.rs:2009
+      + ! 1 flight_engine::candidate_engine::compute_healthcare_premium_cost::h0717241e88fc8052  (in engine_candidate) + 16  [0x10081f1e4]  candidate_engine.rs:1991
+      + ! 1 flight_engine::candidate_engine::compute_healthcare_premium_cost::h0717241e88fc8052  (in engine_candidate) + 704  [0x10081f494]  candidate_engine.rs:2018
+      + 1 flight_engine::candidate_engine::handle_request_with_replay_tape::h2f13c9eb946d62d0  (in engine_candidate) + 15540  [0x10080f290]  candidate_engine.rs:3077
+      +   1 flight_engine::candidate_engine::compute_healthcare_premium_cost::h0717241e88fc8052  (in engine_candidate) + 544  [0x10081f3f4]  candidate_engine.rs:2009
+      5 ???  (in <unknown binary>)  [0xcc25a56c0]
+      + 3 flight_engine::candidate_engine::handle_request_with_replay_tape::h2f13c9eb946d62d0  (in engine_candidate) + 15540  [0x10080f290]  candidate_engine.rs:3077
+      + ! 3 flight_engine::candidate_engine::compute_healthcare_premium_cost::h0717241e88fc8052  (in engine_candidate) + 176,280,...  [0x10081f284,0x10081f2ec,...]  candidate_engine.rs:2009
+      + 2 flight_engine::candidate_engine::handle_request_with_replay_tape::h2f13c9eb946d62d0  (in engine_candidate) + 12676  [0x10080e760]  candidate_engine.rs:2963
+      +   1 flight_engine::candidate_engine::compute_healthcare_premium_cost::h0717241e88fc8052  (in engine_candidate) + 280  [0x10081f2ec]  candidate_engine.rs:2009
+      +   1 flight_engine::candidate_engine::compute_healthcare_premium_cost::h0717241e88fc8052  (in engine_candidate) + 800  [0x10081f4f4]  candidate_engine.rs:2020
+      5 ???  (in <unknown binary>)  [0xcc25d96c0]
+      + 3 flight_engine::candidate_engine::handle_request_with_replay_tape::h2f13c9eb946d62d0  (in engine_candidate) + 15540  [0x10080f290]  candidate_engine.rs:3077
+      + ! 2 flight_engine::candidate_engine::compute_healthcare_premium_cost::h0717241e88fc8052  (in engine_candidate) + 328,360  [0x10081f31c,0x10081f33c]  candidate_engine.rs:2009
+      + ! 1 flight_engine::candidate_engine::compute_healthcare_premium_cost::h0717241e88fc8052  (in engine_candidate) + 792  [0x10081f4ec]  candidate_engine.rs:2020
+      + 2 flight_engine::candidate_engine::handle_request_with_replay_tape::h2f13c9eb946d62d0  (in engine_candidate) + 12676  [0x10080e760]  candidate_engine.rs:2963
+      +   2 flight_engine::candidate_engine::compute_healthcare_premium_cost::h0717241e88fc8052  (in engine_candidate) + 236,544  [0x10081f2c0,0x10081f3f4]  candidate_engine.rs:2009
+      5 ???  (in <unknown binary>)  [0xcc262d6c0]
+      + 3 flight_engine::candidate_engine::handle_request_with_replay_tape::h2f13c9eb946d62d0  (in engine_candidate) + 12676  [0x10080e760]  candidate_engine.rs:2963
+      + ! 2 flight_engine::candidate_engine::compute_healthcare_premium_cost::h0717241e88fc8052  (in engine_candidate) + 800  [0x10081f4f4]  candidate_engine.rs:2020
+      + ! 1 flight_engine::candidate_engine::compute_healthcare_premium_cost::h0717241e88fc8052  (in engine_candidate) + 376  [0x10081f34c]  candidate_engine.rs:2009
+      + 2 flight_engine::candidate_engine::handle_request_with_replay_tape::h2f13c9eb946d62d0  (in engine_candidate) + 15540  [0x10080f290]  candidate_engine.rs:3077
+      +   1 flight_engine::candidate_engine::compute_healthcare_premium_cost::h0717241e88fc8052  (in engine_candidate) + 772  [0x10081f4d8]  candidate_engine.rs:1995
+      +   1 flight_engine::candidate_engine::compute_healthcare_premium_cost::h0717241e88fc8052  (in engine_candidate) + 328  [0x10081f31c]  candidate_engine.rs:2009
+      5 ???  (in <unknown binary>)  [0xcc26916c0]
+      + 4 flight_engine::candidate_engine::handle_request_with_replay_tape::h2f13c9eb946d62d0  (in engine_candidate) + 12676  [0x10080e760]  candidate_engine.rs:2963
+      + ! 4 flight_engine::candidate_engine::compute_healthcare_premium_cost::h0717241e88fc8052  (in engine_candidate) + 124,312,...  [0x10081f250,0x10081f30c,...]  candidate_engine.rs:2009
+      + 1 flight_engine::candidate_engine::handle_request_with_replay_tape::h2f13c9eb946d62d0  (in engine_candidate) + 15540  [0x10080f290]  candidate_engine.rs:3077
+      +   1 flight_engine::candidate_engine::compute_healthcare_premium_cost::h0717241e88fc8052  (in engine_candidate) + 124  [0x10081f250]  candidate_engine.rs:2009
+      4 ???  (in <unknown binary>)  [0xcc24ed6c0]
+      + 4 flight_engine::candidate_engine::handle_request_with_replay_tape::h2f13c9eb946d62d0  (in engine_candidate) + 12676  [0x10080e760]  candidate_engine.rs:2963
+      +   4 flight_engine::candidate_engine::compute_healthcare_premium_cost::h0717241e88fc8052  (in engine_candidate) + 236,280,...  [0x10081f2c0,0x10081f2ec,...]  candidate_engine.rs:2009
+      4 ???  (in <unknown binary>)  [0xcc25856c0]
+      + 3 flight_engine::candidate_engine::handle_request_with_replay_tape::h2f13c9eb946d62d0  (in engine_candidate) + 12676  [0x10080e760]  candidate_engine.rs:2963
+      + ! 3 flight_engine::candidate_engine::compute_healthcare_premium_cost::h0717241e88fc8052  (in engine_candidate) + 256,280,...  [0x10081f2d4,0x10081f2ec,...]  candidate_engine.rs:2009
+      + 1 flight_engine::candidate_engine::handle_request_with_replay_tape::h2f13c9eb946d62d0  (in engine_candidate) + 15540  [0x10080f290]  candidate_engine.rs:3077
+      +   1 flight_engine::candidate_engine::compute_healthcare_premium_cost::h0717241e88fc8052  (in engine_candidate) + 120  [0x10081f24c]  candidate_engine.rs:2009
+      4 ???  (in <unknown binary>)  [0xcc26516c0]
+      + 2 flight_engine::candidate_engine::handle_request_with_replay_tape::h2f13c9eb946d62d0  (in engine_candidate) + 12676  [0x10080e760]  candidate_engine.rs:2963
+      + ! 1 flight_engine::candidate_engine::compute_healthcare_premium_cost::h0717241e88fc8052  (in engine_candidate) + 40  [0x10081f1fc]  candidate_engine.rs:1993
+      + ! 1 flight_engine::candidate_engine::compute_healthcare_premium_cost::h0717241e88fc8052  (in engine_candidate) + 768  [0x10081f4d4]  candidate_engine.rs:1995
+      + 2 flight_engine::candidate_engine::handle_request_with_replay_tape::h2f13c9eb946d62d0  (in engine_candidate) + 15540  [0x10080f290]  candidate_engine.rs:3077
+      +   1 flight_engine::candidate_engine::compute_healthcare_premium_cost::h0717241e88fc8052  (in engine_candidate) + 40  [0x10081f1fc]  candidate_engine.rs:1993
+      +   1 flight_engine::candidate_engine::compute_healthcare_premium_cost::h0717241e88fc8052  (in engine_candidate) + 680  [0x10081f47c]  candidate_engine.rs:2016
+      4 ???  (in <unknown binary>)  [0xcc26716c0]
+      + 3 flight_engine::candidate_engine::handle_request_with_replay_tape::h2f13c9eb946d62d0  (in engine_candidate) + 15540  [0x10080f290]  candidate_engine.rs:3077
+      + ! 2 flight_engine::candidate_engine::compute_healthcare_premium_cost::h0717241e88fc8052  (in engine_candidate) + 480,544  [0x10081f3b4,0x10081f3f4]  candidate_engine.rs:2009
+      + ! 1 flight_engine::candidate_engine::compute_healthcare_premium_cost::h0717241e88fc8052  (in engine_candidate) + 800  [0x10081f4f4]  candidate_engine.rs:2020
+      + 1 flight_engine::candidate_engine::handle_request_with_replay_tape::h2f13c9eb946d62d0  (in engine_candidate) + 12676  [0x10080e760]  candidate_engine.rs:2963
+      +   1 flight_engine::candidate_engine::compute_healthcare_premium_cost::h0717241e88fc8052  (in engine_candidate) + 468  [0x10081f3a8]  candidate_engine.rs:2009
+      4 ???  (in <unknown binary>)  [0xcc26b56c0]
+      + 2 flight_engine::candidate_engine::handle_request_with_replay_tape::h2f13c9eb946d62d0  (in engine_candidate) + 12676  [0x10080e760]  candidate_engine.rs:2963
+      + ! 1 flight_engine::candidate_engine::compute_healthcare_premium_cost::h0717241e88fc8052  (in engine_candidate) + 40  [0x10081f1fc]  candidate_engine.rs:1993
+      + ! 1 flight_engine::candidate_engine::compute_healthcare_premium_cost::h0717241e88fc8052  (in engine_candidate) + 184  [0x10081f28c]  candidate_engine.rs:2009
+      + 2 flight_engine::candidate_engine::handle_request_with_replay_tape::h2f13c9eb946d62d0  (in engine_candidate) + 15540  [0x10080f290]  candidate_engine.rs:3077
+      +   2 flight_engine::candidate_engine::compute_healthcare_premium_cost::h0717241e88fc8052  (in engine_candidate) + 344,544  [0x10081f32c,0x10081f3f4]  candidate_engine.rs:2009
+      3 ???  (in <unknown binary>)  [0xcc24996c0]
+      + 3 flight_engine::candidate_engine::handle_request_with_replay_tape::h2f13c9eb946d62d0  (in engine_candidate) + 15540  [0x10080f290]  candidate_engine.rs:3077
+      +   3 flight_engine::candidate_engine::compute_healthcare_premium_cost::h0717241e88fc8052  (in engine_candidate) + 280,480,...  [0x10081f2ec,0x10081f3b4,...]  candidate_engine.rs:2009
+      3 ???  (in <unknown binary>)  [0xcc24ad6c0]
+      + 3 flight_engine::candidate_engine::handle_request_with_replay_tape::h2f13c9eb946d62d0  (in engine_candidate) + 12676  [0x10080e760]  candidate_engine.rs:2963
+      +   2 flight_engine::candidate_engine::compute_healthcare_premium_cost::h0717241e88fc8052  (in engine_candidate) + 792,800  [0x10081f4ec,0x10081f4f4]  candidate_engine.rs:2020
+      +   1 flight_engine::candidate_engine::compute_healthcare_premium_cost::h0717241e88fc8052  (in engine_candidate) + 280  [0x10081f2ec]  candidate_engine.rs:2009
+      3 ???  (in <unknown binary>)  [0xcc24dd6c0]
+      + 2 flight_engine::candidate_engine::handle_request_with_replay_tape::h2f13c9eb946d62d0  (in engine_candidate) + 12676  [0x10080e760]  candidate_engine.rs:2963
+      + ! 2 flight_engine::candidate_engine::compute_healthcare_premium_cost::h0717241e88fc8052  (in engine_candidate) + 124,468  [0x10081f250,0x10081f3a8]  candidate_engine.rs:2009
+      + 1 flight_engine::candidate_engine::handle_request_with_replay_tape::h2f13c9eb946d62d0  (in engine_candidate) + 15540  [0x10080f290]  candidate_engine.rs:3077
+      +   1 flight_engine::candidate_engine::compute_healthcare_premium_cost::h0717241e88fc8052  (in engine_candidate) + 480  [0x10081f3b4]  candidate_engine.rs:2009
+      3 ???  (in <unknown binary>)  [0xcc251d6c0]
+      + 2 flight_engine::candidate_engine::handle_request_with_replay_tape::h2f13c9eb946d62d0  (in engine_candidate) + 15540  [0x10080f290]  candidate_engine.rs:3077
+      + ! 1 flight_engine::candidate_engine::compute_healthcare_premium_cost::h0717241e88fc8052  (in engine_candidate) + 480  [0x10081f3b4]  candidate_engine.rs:2009
+      + ! 1 flight_engine::candidate_engine::compute_healthcare_premium_cost::h0717241e88fc8052  (in engine_candidate) + 800  [0x10081f4f4]  candidate_engine.rs:2020
+      + 1 flight_engine::candidate_engine::handle_request_with_replay_tape::h2f13c9eb946d62d0  (in engine_candidate) + 12676  [0x10080e760]  candidate_engine.rs:2963
+      +   1 flight_engine::candidate_engine::compute_healthcare_premium_cost::h0717241e88fc8052  (in engine_candidate) + 468  [0x10081f3a8]  candidate_engine.rs:2009
+      3 ???  (in <unknown binary>)  [0xcc25316c0]
+      + 2 flight_engine::candidate_engine::handle_request_with_replay_tape::h2f13c9eb946d62d0  (in engine_candidate) + 12676  [0x10080e760]  candidate_engine.rs:2963
+      + ! 1 flight_engine::candidate_engine::compute_healthcare_premium_cost::h0717241e88fc8052  (in engine_candidate) + 40  [0x10081f1fc]  candidate_engine.rs:1993
+      + ! 1 flight_engine::candidate_engine::compute_healthcare_premium_cost::h0717241e88fc8052  (in engine_candidate) + 232  [0x10081f2bc]  candidate_engine.rs:2009
+      + 1 flight_engine::candidate_engine::handle_request_with_replay_tape::h2f13c9eb946d62d0  (in engine_candidate) + 15540  [0x10080f290]  candidate_engine.rs:3077
+      +   1 flight_engine::candidate_engine::compute_healthcare_premium_cost::h0717241e88fc8052  (in engine_candidate) + 280  [0x10081f2ec]  candidate_engine.rs:2009
+      3 ???  (in <unknown binary>)  [0xcc25e96c0]
+      + 2 flight_engine::candidate_engine::handle_request_with_replay_tape::h2f13c9eb946d62d0  (in engine_candidate) + 15540  [0x10080f290]  candidate_engine.rs:3077
+      + ! 1 flight_engine::candidate_engine::compute_healthcare_premium_cost::h0717241e88fc8052  (in engine_candidate) + 232  [0x10081f2bc]  candidate_engine.rs:2009
+      + ! 1 flight_engine::candidate_engine::compute_healthcare_premium_cost::h0717241e88fc8052  (in engine_candidate) + 796  [0x10081f4f0]  candidate_engine.rs:2020
+      + 1 flight_engine::candidate_engine::handle_request_with_replay_tape::h2f13c9eb946d62d0  (in engine_candidate) + 12676  [0x10080e760]  candidate_engine.rs:2963
+      +   1 flight_engine::candidate_engine::compute_healthcare_premium_cost::h0717241e88fc8052  (in engine_candidate) + 468  [0x10081f3a8]  candidate_engine.rs:2009
+      3 ???  (in <unknown binary>)  [0xcc260d6c0]
+      + 2 flight_engine::candidate_engine::handle_request_with_replay_tape::h2f13c9eb946d62d0  (in engine_candidate) + 12676  [0x10080e760]  candidate_engine.rs:2963
+      + ! 2 flight_engine::candidate_engine::compute_healthcare_premium_cost::h0717241e88fc8052  (in engine_candidate) + 376,564  [0x10081f34c,0x10081f408]  candidate_engine.rs:2009
+      + 1 flight_engine::candidate_engine::handle_request_with_replay_tape::h2f13c9eb946d62d0  (in engine_candidate) + 15540  [0x10080f290]  candidate_engine.rs:3077
+      +   1 flight_engine::candidate_engine::compute_healthcare_premium_cost::h0717241e88fc8052  (in engine_candidate) + 796  [0x10081f4f0]  candidate_engine.rs:2020
+      3 ???  (in <unknown binary>)  [0xcc263d6c0]
+      + 3 flight_engine::candidate_engine::handle_request_with_replay_tape::h2f13c9eb946d62d0  (in engine_candidate) + 12676  [0x10080e760]  candidate_engine.rs:2963
+      +   3 flight_engine::candidate_engine::compute_healthcare_premium_cost::h0717241e88fc8052  (in engine_candidate) + 184,280,...  [0x10081f28c,0x10081f2ec,...]  candidate_engine.rs:2009
+      3 ???  (in <unknown binary>)  [0xcc26a56c0]
+      + 2 flight_engine::candidate_engine::handle_request_with_replay_tape::h2f13c9eb946d62d0  (in engine_candidate) + 12676  [0x10080e760]  candidate_engine.rs:2963
+      + ! 2 flight_engine::candidate_engine::compute_healthcare_premium_cost::h0717241e88fc8052  (in engine_candidate) + 280,456  [0x10081f2ec,0x10081f39c]  candidate_engine.rs:2009
+      + 1 flight_engine::candidate_engine::handle_request_with_replay_tape::h2f13c9eb946d62d0  (in engine_candidate) + 15540  [0x10080f290]  candidate_engine.rs:3077
+      +   1 flight_engine::candidate_engine::compute_healthcare_premium_cost::h0717241e88fc8052  (in engine_candidate) + 280  [0x10081f2ec]  candidate_engine.rs:2009
+      3 ???  (in <unknown binary>)  [0xcc26d96c0]
+      + 2 flight_engine::candidate_engine::handle_request_with_replay_tape::h2f13c9eb946d62d0  (in engine_candidate) + 12676  [0x10080e760]  candidate_engine.rs:2963
+      + ! 1 flight_engine::candidate_engine::compute_healthcare_premium_cost::h0717241e88fc8052  (in engine_candidate) + 184  [0x10081f28c]  candidate_engine.rs:2009
+      + ! 1 flight_engine::candidate_engine::compute_healthcare_premium_cost::h0717241e88fc8052  (in engine_candidate) + 792  [0x10081f4ec]  candidate_engine.rs:2020
+      + 1 flight_engine::candidate_engine::handle_request_with_replay_tape::h2f13c9eb946d62d0  (in engine_candidate) + 15540  [0x10080f290]  candidate_engine.rs:3077
+      +   1 flight_engine::candidate_engine::compute_healthcare_premium_cost::h0717241e88fc8052  (in engine_candidate) + 256  [0x10081f2d4]  candidate_engine.rs:2009
+      2 ???  (in <unknown binary>)  [0xcc25416c0]
+      + 2 flight_engine::candidate_engine::handle_request_with_replay_tape::h2f13c9eb946d62d0  (in engine_candidate) + 12676  [0x10080e760]  candidate_engine.rs:2963
+      +   1 flight_engine::candidate_engine::compute_healthcare_premium_cost::h0717241e88fc8052  (in engine_candidate) + 280  [0x10081f2ec]  candidate_engine.rs:2009
+      +   1 flight_engine::candidate_engine::compute_healthcare_premium_cost::h0717241e88fc8052  (in engine_candidate) + 744  [0x10081f4bc]  candidate_engine.rs:2020
+      2 ???  (in <unknown binary>)  [0xcc25656c0]
+      + 1 flight_engine::candidate_engine::handle_request_with_replay_tape::h2f13c9eb946d62d0  (in engine_candidate) + 12676  [0x10080e760]  candidate_engine.rs:2963
+      + ! 1 flight_engine::candidate_engine::compute_healthcare_premium_cost::h0717241e88fc8052  (in engine_candidate) + 236  [0x10081f2c0]  candidate_engine.rs:2009
+      + 1 flight_engine::candidate_engine::handle_request_with_replay_tape::h2f13c9eb946d62d0  (in engine_candidate) + 15540  [0x10080f290]  candidate_engine.rs:3077
+      +   1 flight_engine::candidate_engine::compute_healthcare_premium_cost::h0717241e88fc8052  (in engine_candidate) + 40  [0x10081f1fc]  candidate_engine.rs:1993
+      2 ???  (in <unknown binary>)  [0xcc25756c0]
+      + 1 flight_engine::candidate_engine::handle_request_with_replay_tape::h2f13c9eb946d62d0  (in engine_candidate) + 12676  [0x10080e760]  candidate_engine.rs:2963
+      + ! 1 flight_engine::candidate_engine::compute_healthcare_premium_cost::h0717241e88fc8052  (in engine_candidate) + 236  [0x10081f2c0]  candidate_engine.rs:2009
+      + 1 flight_engine::candidate_engine::handle_request_with_replay_tape::h2f13c9eb946d62d0  (in engine_candidate) + 15540  [0x10080f290]  candidate_engine.rs:3077
+      +   1 flight_engine::candidate_engine::compute_healthcare_premium_cost::h0717241e88fc8052  (in engine_candidate) + 480  [0x10081f3b4]  candidate_engine.rs:2009
+      2 ???  (in <unknown binary>)  [0xcc26c56c0]
+      + 1 flight_engine::candidate_engine::handle_request_with_replay_tape::h2f13c9eb946d62d0  (in engine_candidate) + 12676  [0x10080e760]  candidate_engine.rs:2963
+      + ! 1 flight_engine::candidate_engine::compute_healthcare_premium_cost::h0717241e88fc8052  (in engine_candidate) + 744  [0x10081f4bc]  candidate_engine.rs:2020
+      + 1 flight_engine::candidate_engine::handle_request_with_replay_tape::h2f13c9eb946d62d0  (in engine_candidate) + 15540  [0x10080f290]  candidate_engine.rs:3077
+      +   1 flight_engine::candidate_engine::compute_healthcare_premium_cost::h0717241e88fc8052  (in engine_candidate) + 784  [0x10081f4e4]  candidate_engine.rs:2020
+      1 ???  (in <unknown binary>)  [0x133d]
+      + 1 flight_engine::candidate_engine::handle_request_with_replay_tape::h2f13c9eb946d62d0  (in engine_candidate) + 3820  [0x10080c4c8]  candidate_engine.rs:2770
+      +   1 flight_engine::candidate_engine::handle_request_with_replay_tape::h2f13c9eb946d62d0  (in engine_candidate) + 4748  [0x10080c868]  candidate_engine.rs:2787
+      1 ???  (in <unknown binary>)  [0xcc24cd6c0]
+      + 1 flight_engine::candidate_engine::handle_request_with_replay_tape::h2f13c9eb946d62d0  (in engine_candidate) + 12676  [0x10080e760]  candidate_engine.rs:2963
+      +   1 flight_engine::candidate_engine::compute_healthcare_premium_cost::h0717241e88fc8052  (in engine_candidate) + 280  [0x10081f2ec]  candidate_engine.rs:2009
+      1 ???  (in <unknown binary>)  [0xcc24fd6c0]
+      + 1 flight_engine::candidate_engine::handle_request_with_replay_tape::h2f13c9eb946d62d0  (in engine_candidate) + 12676  [0x10080e760]  candidate_engine.rs:2963
+      +   1 flight_engine::candidate_engine::compute_healthcare_premium_cost::h0717241e88fc8052  (in engine_candidate) + 124  [0x10081f250]  candidate_engine.rs:2009
+      1 ???  (in <unknown binary>)  [0xcc25556c0]
+      + 1 flight_engine::candidate_engine::handle_request_with_replay_tape::h2f13c9eb946d62d0  (in engine_candidate) + 12676  [0x10080e760]  candidate_engine.rs:2963
+      +   1 flight_engine::candidate_engine::compute_healthcare_premium_cost::h0717241e88fc8052  (in engine_candidate) + 280  [0x10081f2ec]  candidate_engine.rs:2009
+      1 ???  (in <unknown binary>)  [0xcc25b96c0]
+      + 1 flight_engine::candidate_engine::handle_request_with_replay_tape::h2f13c9eb946d62d0  (in engine_candidate) + 12676  [0x10080e760]  candidate_engine.rs:2963
+      +   1 flight_engine::candidate_engine::compute_healthcare_premium_cost::h0717241e88fc8052  (in engine_candidate) + 468  [0x10081f3a8]  candidate_engine.rs:2009
+      1 ???  (in <unknown binary>)  [0xcc25c96c0]
+      + 1 flight_engine::candidate_engine::handle_request_with_replay_tape::h2f13c9eb946d62d0  (in engine_candidate) + 12676  [0x10080e760]  candidate_engine.rs:2963
+      +   1 flight_engine::candidate_engine::compute_healthcare_premium_cost::h0717241e88fc8052  (in engine_candidate) + 704  [0x10081f494]  candidate_engine.rs:2018
+      1 ???  (in <unknown binary>)  [0xcc25fd6c0]
+      + 1 flight_engine::candidate_engine::handle_request_with_replay_tape::h2f13c9eb946d62d0  (in engine_candidate) + 12676  [0x10080e760]  candidate_engine.rs:2963
+      +   1 flight_engine::candidate_engine::compute_healthcare_premium_cost::h0717241e88fc8052  (in engine_candidate) + 40  [0x10081f1fc]  candidate_engine.rs:1993
+      1 ???  (in <unknown binary>)  [0xcc261d6c0]
+      + 1 flight_engine::candidate_engine::handle_request_with_replay_tape::h2f13c9eb946d62d0  (in engine_candidate) + 15540  [0x10080f290]  candidate_engine.rs:3077
+      +   1 flight_engine::candidate_engine::compute_healthcare_premium_cost::h0717241e88fc8052  (in engine_candidate) + 568  [0x10081f40c]  candidate_engine.rs:2009
+      1 ???  (in <unknown binary>)  [0xcc26616c0]
+      + 1 flight_engine::candidate_engine::handle_request_with_replay_tape::h2f13c9eb946d62d0  (in engine_candidate) + 12676  [0x10080e760]  candidate_engine.rs:2963
+      +   1 flight_engine::candidate_engine::compute_healthcare_premium_cost::h0717241e88fc8052  (in engine_candidate) + 468  [0x10081f3a8]  candidate_engine.rs:2009
+      1 flight_engine::candidate_engine::handle_request_with_replay_tape::h2f13c9eb946d62d0  (in engine_candidate) + 3820  [0x10080c4c8]  candidate_engine.rs:2770
+        1 flight_engine::candidate_engine::handle_request_with_replay_tape::h2f13c9eb946d62d0  (in engine_candidate) + 4312  [0x10080c6b4]  candidate_engine.rs:2787
+
+Total number in stack (recursive counted multiple, when >=5):
+        47       flight_engine::candidate_engine::compute_healthcare_premium_cost::h0717241e88fc8052  (in engine_candidate) + 0  [0x10081f1d4]  candidate_engine.rs:2009
+        34       flight_engine::candidate_engine::handle_request_with_replay_tape::h2f13c9eb946d62d0  (in engine_candidate) + 12676  [0x10080e760]  candidate_engine.rs:2963
+        24       flight_engine::candidate_engine::handle_request_with_replay_tape::h2f13c9eb946d62d0  (in engine_candidate) + 15540  [0x10080f290]  candidate_engine.rs:3077
+        22       _platform_memcmp  (in libsystem_platform.dylib) + 0  [0x19bf8eef0]
+        22       _platform_memmove  (in libsystem_platform.dylib) + 0  [0x19bf91380]
+        20       _xzm_free  (in libsystem_malloc.dylib) + 0  [0x19bda7744]
+        19       DYLD-STUB$$memcmp  (in engine_candidate) + 0  [0x100856114]
+        17       _$LT$core..iter..adapters..GenericShunt$LT$I$C$R$GT$$u20$as$u20$core..iter..traits..iterator..Iterator$GT$::next::h4b4d27b4ce1623aa  (in engine_candidate) + 0  [0x10080a378]  mod.rs:174
+        17       mach_absolute_time  (in libsystem_kernel.dylib) + 0  [0x19bf45090]
+        16       _xzm_xzone_malloc_tiny  (in libsystem_malloc.dylib) + 0  [0x19bdab180]
+        15       <deduplicated_symbol>  (in libsystem_malloc.dylib) + 0  [0x19bda6c20]
+        14       _malloc_zone_malloc  (in libsystem_malloc.dylib) + 0  [0x19bdb3e04]
+        14       _xzm_xzone_malloc  (in libsystem_malloc.dylib) + 0  [0x19bda708c]
+        13       flight_engine::candidate_engine::compute_healthcare_premium_cost::h0717241e88fc8052  (in engine_candidate) + 0  [0x10081f1d4]  candidate_engine.rs:2020
+        11       _xzm_xzone_malloc_freelist_outlined  (in libsystem_malloc.dylib) + 324  [0x19bdac940]
+        11       core::ptr::drop_in_place$LT$serde_json..value..Value$GT$::hde50045e8a0cbd96  (in engine_candidate) + 0  [0x1008042d0]  mod.rs:805
+        10       _free  (in libsystem_malloc.dylib) + 0  [0x19bdb4a2c]
+        10       mach_vm_reclaim_update_kernel_accounting  (in libsystem_kernel.dylib) + 92  [0x19bf57f74]
+        10       mach_vm_reclaim_update_kernel_accounting_trap  (in libsystem_kernel.dylib) + 0  [0x19bf44cb0]
+        9       DYLD-STUB$$malloc  (in engine_candidate) + 0  [0x100856108]
+        9       DYLD-STUB$$memcpy  (in engine_candidate) + 0  [0x100856120]
+        9       serde_json::value::de::_$LT$impl$u20$serde_core..de..Deserialize$u20$for$u20$serde_json..value..Value$GT$::deserialize::h232c2f2c16f55f2f  (in engine_candidate) + 0  [0x10080120c]  de.rs:151
+        8       DYLD-STUB$$free  (in engine_candidate) + 0  [0x1008560d8]
+        8       _xzm_reclaim_mark_used  (in libsystem_malloc.dylib) + 176  [0x19bd90df0]
+        8       _xzm_reclaim_mark_used_locked  (in libsystem_malloc.dylib) + 60  [0x19bd932d0]
+        8       _xzm_xzone_find_and_malloc_from_freelist_chunk  (in libsystem_malloc.dylib) + 952  [0x19bdad4ac]
+        8       serde_json::value::de::_$LT$impl$u20$serde_core..de..Deserialize$u20$for$u20$serde_json..value..Value$GT$::deserialize::h232c2f2c16f55f2f  (in engine_candidate) + 2140  [0x100801a68]  de.rs:151
+        8       xzm_chunk_mark_used  (in libsystem_malloc.dylib) + 176  [0x19bd90d08]
+        7       _$LT$serde_json..read..StrRead$u20$as$u20$serde_json..read..Read$GT$::parse_str::h0dd36eb81bd069c9  (in engine_candidate) + 0  [0x10082acf0]  read.rs:710
+        7       _xzm_reclaim_mark_used  (in libsystem_malloc.dylib) + 124  [0x19bd90dbc]
+        7       core::slice::sort::stable::quicksort::quicksort::h37591f519c96d013  (in engine_candidate) + 660  [0x100820888]  quicksort.rs:78
+        7       flight_engine::candidate_engine::compute_healthcare_premium_cost::h0717241e88fc8052  (in engine_candidate) + 0  [0x10081f1d4]  candidate_engine.rs:1993
+        7       flight_engine::candidate_engine::handle_request_with_replay_tape::h2f13c9eb946d62d0  (in engine_candidate) + 0  [0x10080b5dc]  candidate_engine.rs:2955
+        7       mach_vm_reclaim_try_cancel  (in libsystem_kernel.dylib) + 260  [0x19bf57dd4]
+        7       serde_json::de::Deserializer$LT$R$GT$::parse_integer::h46d805335737c2f5  (in engine_candidate) + 0  [0x100800e78]  de.rs:463
+        7       serde_json::de::Deserializer$LT$R$GT$::parse_number::h2782eb30d519aacc  (in engine_candidate) + 0  [0x100800bd8]  de.rs:510
+        7       serde_json::value::de::_$LT$impl$u20$serde_core..de..Deserialize$u20$for$u20$serde_json..value..Value$GT$::deserialize::h232c2f2c16f55f2f  (in engine_candidate) + 884  [0x100801580]  de.rs:151
+        6       _xzm_chunk_list_pop  (in libsystem_malloc.dylib) + 0  [0x19bdada14]
+        6       core::slice::sort::stable::quicksort::quicksort::h37591f519c96d013  (in engine_candidate) + 0  [0x1008205f4]  quicksort.rs:27
+        6       serde_json::de::Deserializer$LT$R$GT$::parse_number::h2782eb30d519aacc  (in engine_candidate) + 0  [0x100800bd8]  de.rs:511
+        6       serde_json::value::de::_$LT$impl$u20$serde_core..de..Deserialize$u20$for$u20$serde_json..value..Value$GT$::deserialize::h232c2f2c16f55f2f  (in engine_candidate) + 0  [0x10080120c]  de.rs:24
+        5       _$LT$serde_json..de..MapAccess$LT$R$GT$$u20$as$u20$serde_core..de..MapAccess$GT$::next_key_seed::has_next_key::ha40356d9c6b9029f  (in engine_candidate) + 0  [0x100805294]  de.rs:2000
+        5       _$LT$serde_json..read..StrRead$u20$as$u20$serde_json..read..Read$GT$::parse_str::h0dd36eb81bd069c9  (in engine_candidate) + 0  [0x10082acf0]  read.rs:716
+        5       __bzero  (in libsystem_platform.dylib) + 0  [0x19bf91050]
+        5       _platform_memset  (in libsystem_platform.dylib) + 0  [0x19bf910b0]
+        5       _xzm_free  (in libsystem_malloc.dylib) + 348  [0x19bda78a0]
+        5       _xzm_xzone_malloc_freelist_outlined  (in libsystem_malloc.dylib) + 0  [0x19bdac7fc]
+        5       alloc::collections::btree::map::BTreeMap$LT$K$C$V$C$A$GT$::insert::hf14b873031d04593  (in engine_candidate) + 0  [0x1008046f4]  map.rs:1046
+        5       alloc::collections::btree::map::BTreeMap$LT$K$C$V$C$A$GT$::insert::hf14b873031d04593  (in engine_candidate) + 0  [0x1008046f4]  map.rs:1050
+        5       core::ptr::drop_in_place$LT$serde_json..value..Value$GT$::hde50045e8a0cbd96  (in engine_candidate) + 236  [0x1008043bc]  mod.rs:805
+        5       core::slice::sort::stable::quicksort::quicksort::h37591f519c96d013  (in engine_candidate) + 0  [0x1008205f4]  quicksort.rs:65
+
+Sort by top of stack, same collapsed (when >= 5):
+        _xzm_free  (in libsystem_malloc.dylib)        897
+        _platform_memmove  (in libsystem_platform.dylib)        653
+        serde_json::de::Deserializer$LT$R$GT$::parse_number::h2782eb30d519aacc  (in engine_candidate)        626
+        _platform_memcmp  (in libsystem_platform.dylib)        602
+        serde_json::value::de::_$LT$impl$u20$serde_core..de..Deserialize$u20$for$u20$serde_json..value..Value$GT$::deserialize::h232c2f2c16f55f2f  (in engine_candidate)        600
+        _xzm_xzone_malloc_tiny  (in libsystem_malloc.dylib)        497
+        flight_engine::candidate_engine::handle_request_with_replay_tape::h2f13c9eb946d62d0  (in engine_candidate)        304
+        _$LT$serde_json..read..StrRead$u20$as$u20$serde_json..read..Read$GT$::parse_str::h0dd36eb81bd069c9  (in engine_candidate)        295
+        alloc::collections::btree::map::BTreeMap$LT$K$C$V$C$A$GT$::insert::hf14b873031d04593  (in engine_candidate)        261
+        read  (in libsystem_kernel.dylib)        260
+        _free  (in libsystem_malloc.dylib)        223
+        _malloc_zone_malloc  (in libsystem_malloc.dylib)        211
+        _$LT$core..iter..adapters..GenericShunt$LT$I$C$R$GT$$u20$as$u20$core..iter..traits..iterator..Iterator$GT$::next::h4b4d27b4ce1623aa  (in engine_candidate)        194
+        _xzm_xzone_malloc  (in libsystem_malloc.dylib)        193
+        _$LT$serde_json..de..MapAccess$LT$R$GT$$u20$as$u20$serde_core..de..MapAccess$GT$::next_key_seed::has_next_key::ha40356d9c6b9029f  (in engine_candidate)        187
+        <deduplicated_symbol>  (in libsystem_malloc.dylib)        183
+        core::ptr::drop_in_place$LT$serde_json..value..Value$GT$::hde50045e8a0cbd96  (in engine_candidate)        180
+        alloc::collections::btree::map::IntoIter$LT$K$C$V$C$A$GT$::dying_next::h1f4f4a7eae26a15f  (in engine_candidate)        178
+        _RNvNtNtCsl8K0bEFm1U0_4core3str8converts9from_utf8  (in engine_candidate)        161
+        flight_engine::candidate_engine::federal_tax_exact::h8338aa5c574c0016  (in engine_candidate)        149
+        _RNvMsu_NtNtCsl8K0bEFm1U0_4core3str7patternNtB5_11StrSearcher3new  (in engine_candidate)        141
+        _$LT$core..str..iter..Split$LT$P$GT$$u20$as$u20$core..iter..traits..iterator..Iterator$GT$::next::hb69044652035ff7a  (in engine_candidate)        119
+        mach_absolute_time  (in libsystem_kernel.dylib)        119
+        alloc::str::_$LT$impl$u20$str$GT$::replace::hf8b11fa864e6fd24  (in engine_candidate)        105
+        flight_engine::candidate_engine::compute_healthcare_premium_cost::h0717241e88fc8052  (in engine_candidate)        105
+        DYLD-STUB$$memcmp  (in engine_candidate)        103
+        mach_vm_reclaim_update_kernel_accounting_trap  (in libsystem_kernel.dylib)        98
+        serde_json::de::Deserializer$LT$R$GT$::parse_integer::h46d805335737c2f5  (in engine_candidate)        86
+        engine_candidate::main::h8db767a27172677d  (in engine_candidate)        68
+        alloc::raw_vec::RawVecInner$LT$A$GT$::finish_grow::h8a450bd788843f3a  (in engine_candidate)        56
+        serde_json::value::Value::pointer::h74ddbef6c3c93ac6  (in engine_candidate)        50
+        __bzero  (in libsystem_platform.dylib)        44
+        DYLD-STUB$$memmove  (in engine_candidate)        40
+        _$LT$str$u20$as$u20$serde_json..value..index..Index$GT$::index_into::h2f70ee684a7af9ca  (in engine_candidate)        40
+        flight_engine::candidate_engine::bucket_return_from_parts::h9f92daabcbdea3c6  (in engine_candidate)        38
+        DYLD-STUB$$malloc  (in engine_candidate)        37
+        DYLD-STUB$$memcpy  (in engine_candidate)        37
+        _platform_memset  (in libsystem_platform.dylib)        36
+        DYLD-STUB$$free  (in engine_candidate)        32
+        alloc::raw_vec::RawVecInner$LT$A$GT$::reserve::do_reserve_and_handle::hbb5b9d8f91bfae93  (in engine_candidate)        32
+        _RNvMsa_NtCsl8K0bEFm1U0_4core3fmtNtB5_9Formatter3pad  (in engine_candidate)        30
+        core::slice::sort::stable::quicksort::quicksort::h37591f519c96d013  (in engine_candidate)        24
+        _$LT$serde_json..de..MapAccess$LT$R$GT$$u20$as$u20$serde_core..de..MapAccess$GT$::next_value_seed::h8dba4c1bc5511711  (in engine_candidate)        19
+        flight_engine::candidate_engine::symbol_exposure::h92d779f1067e6fa6  (in engine_candidate)        19
+        _RNvCsfLfy6EI15iL_7___rustc12___rust_alloc  (in engine_candidate)        18
+        _RNvNtCsl8K0bEFm1U0_4core3fmt5write  (in engine_candidate)        16
+        alloc::raw_vec::RawVec$LT$T$C$A$GT$::grow_one::h4faf09827e30e45c  (in engine_candidate)        14
+        _RNvXsZ_NtCs1OjIl8oxbrv_5alloc6stringNtB5_6StringNtNtCsl8K0bEFm1U0_4core3fmt5Write9write_str  (in engine_candidate)        12
+        _RNvNvNtCs1OjIl8oxbrv_5alloc3fmt6format12format_inner  (in engine_candidate)        11
+        _xzm_xzone_malloc_freelist_outlined  (in libsystem_malloc.dylib)        11
+        xzm_realloc  (in libsystem_malloc.dylib)        10
+        DYLD-STUB$$_platform_bzero  (in libsystem_malloc.dylib)        8
+        _xzm_xzone_malloc_from_freelist_chunk  (in libsystem_malloc.dylib)        7
+        _kernelrpc_mach_vm_map_trap  (in libsystem_kernel.dylib)        6
+        _xzm_chunk_list_pop  (in libsystem_malloc.dylib)        6
+        flight_engine::candidate_engine::take_from_bucket::he9814b3cc1f595ed  (in engine_candidate)        5
+
+Binary Images:
+       0x100800000 -        0x10086c807 +engine_candidate (0) <F078FD4B-228A-3257-9CF1-66F82C642817> /Users/*/engine_candidate
+       0x19bb30000 -        0x19bb834bb  libobjc.A.dylib (951.1) <9E66CFF2-3EBD-3242-8166-D5D0C204755B> /usr/lib/libobjc.A.dylib
+       0x19bb84000 -        0x19bbb4bcb  libdyld.dylib (1340) <D0CBB392-9301-3174-8904-D869F1D973CF> /usr/lib/system/libdyld.dylib
+       0x19bbb5000 -        0x19bc54713  dyld (1.0.0 - 1340) <BC4DB5F4-1C64-3706-8006-73B78C3E1F1A> /usr/lib/dyld
+       0x19bc55000 -        0x19bc581d0  libsystem_blocks.dylib (96) <F1D9FC62-B5CE-3FB6-B264-B1933396C05F> /usr/lib/system/libsystem_blocks.dylib
+       0x19bc59000 -        0x19bcae07f  libxpc.dylib (3089.80.10) <3B264F68-2825-3790-8796-4B49581D6425> /usr/lib/system/libxpc.dylib
+       0x19bcaf000 -        0x19bccf95f  libsystem_trace.dylib (1815.80.2) <2CE5667A-97C5-35F3-8124-BB48185D0D3D> /usr/lib/system/libsystem_trace.dylib
+       0x19bcd0000 -        0x19bd7cccf  libcorecrypto.dylib (1922.80.7) <A6FB5220-05F1-36A3-93CA-E45F15C98D3A> /usr/lib/system/libcorecrypto.dylib
+       0x19bd7d000 -        0x19bdc8c67  libsystem_malloc.dylib (792.80.2) <221D1476-49F1-3370-A1DE-82991ACDB932> /usr/lib/system/libsystem_malloc.dylib
+       0x19bdc9000 -        0x19be0fe5f  libdispatch.dylib (1542.0.4) <4C58AB31-F363-3E75-A8F8-302105812DBF> /usr/lib/system/libdispatch.dylib
+       0x19be10000 -        0x19be12feb  libsystem_featureflags.dylib (101) <36BE75BA-0B53-3ACA-ABAF-C639D711C90B> /usr/lib/system/libsystem_featureflags.dylib
+       0x19be13000 -        0x19be95047  libsystem_c.dylib (1725.40.4) <EB569350-0696-3397-838E-0344948107C0> /usr/lib/system/libsystem_c.dylib
+       0x19be96000 -        0x19bf28ea3  libc++.1.dylib (2000.67) <2DCB82A8-F83C-3656-B99E-B22415EA2AAA> /usr/lib/libc++.1.dylib
+       0x19bf29000 -        0x19bf4392f  libc++abi.dylib (2000.67) <581F1CC9-CE04-30EF-AB06-1638E36161A7> /usr/lib/libc++abi.dylib
+       0x19bf44000 -        0x19bf8049f  libsystem_kernel.dylib (12377.81.4) <B809799C-0EC9-3EE1-B730-342BDBF14E03> /usr/lib/system/libsystem_kernel.dylib
+       0x19bf81000 -        0x19bf8dacb  libsystem_pthread.dylib (539.80.3) <0596A7B6-BCE2-3F06-A2E8-3EAAB5371ED8> /usr/lib/system/libsystem_pthread.dylib
+       0x19bf8e000 -        0x19bf964af  libsystem_platform.dylib (359.80.2) <62C9CD37-272D-3D2D-9A1C-6F4EF24F7EC7> /usr/lib/system/libsystem_platform.dylib
+       0x19bf97000 -        0x19bfc6e23  libsystem_info.dylib (600) <05CCB208-0B54-38D8-B736-6C7043F446AA> /usr/lib/system/libsystem_info.dylib
+       0x19ff40000 -        0x19ff4a397  libsystem_darwin.dylib (1725.40.4) <EAC9A3D8-2048-3E6A-BA11-77D1C25C0EF3> /usr/lib/system/libsystem_darwin.dylib
+       0x1a03b1000 -        0x1a03c2ff3  libsystem_notify.dylib (344.0.1) <73D7BFA7-9433-3ECD-929F-06220C37F214> /usr/lib/system/libsystem_notify.dylib
+       0x1a268c000 -        0x1a26a6fdb  libsystem_networkextension.dylib (2205.81.1) <645A9697-79B5-3E35-A642-5FFDD53CB6A7> /usr/lib/system/libsystem_networkextension.dylib
+       0x1a272a000 -        0x1a2741ff3  libsystem_asl.dylib (406) <2A30FE38-5014-334B-941B-579054EA8C1E> /usr/lib/system/libsystem_asl.dylib
+       0x1a42e6000 -        0x1a42ee3b7  libsystem_symptoms.dylib (2158.80.11) <ED7EEE1F-0CA6-30CF-9A27-7440EE0661BC> /usr/lib/system/libsystem_symptoms.dylib
+       0x1a82a3000 -        0x1a82db2bb  libsystem_containermanager.dylib (725.80.5) <9FC7766C-6828-3EA2-9C9A-B209892A0186> /usr/lib/system/libsystem_containermanager.dylib
+       0x1a96f9000 -        0x1a96fd66f  libsystem_configuration.dylib (1385.80.4) <E5837A49-4BF9-3D25-8671-A6174223010A> /usr/lib/system/libsystem_configuration.dylib
+       0x1a96fe000 -        0x1a97046a7  libsystem_sandbox.dylib (2680.80.20) <8875D51A-D22D-3A6B-9A17-8D565C96262C> /usr/lib/system/libsystem_sandbox.dylib
+       0x1aac97000 -        0x1aac9a1fb  libquarantine.dylib (196.40.3) <84049E82-ACDC-39F3-A2D7-6ECB912B825A> /usr/lib/system/libquarantine.dylib
+       0x1ab427000 -        0x1ab42e00b  libsystem_coreservices.dylib (191.3.3) <94151A03-8600-3318-8719-103E2D5E83A5> /usr/lib/system/libsystem_coreservices.dylib
+       0x1ab981000 -        0x1ab9be8b7  libsystem_m.dylib (3309) <60DE08CC-AE4B-33E5-85E6-8E96D95ED4D8> /usr/lib/system/libsystem_m.dylib
+       0x1ab9c0000 -        0x1ab9c3537  libmacho.dylib (1030.6.3) <D84C5B4C-6EE5-3B2D-8B96-DCA5B83EC11D> /usr/lib/system/libmacho.dylib
+       0x1ab9dd000 -        0x1ab9ea61f  libcommonCrypto.dylib (600035) <04C03765-D34A-311F-AE1E-CFBB1E627E54> /usr/lib/system/libcommonCrypto.dylib
+       0x1ab9eb000 -        0x1ab9f4b0b  libunwind.dylib (1900.125) <8DC5F6C2-CDA9-3B93-AC35-ED584D2C9550> /usr/lib/system/libunwind.dylib
+       0x1ab9fd000 -        0x1aba076ff  libcopyfile.dylib (230.0.1.0.1) <BCF5BEF5-BC4A-3CCE-9D0D-89C57F45CBFB> /usr/lib/system/libcopyfile.dylib
+       0x1aba08000 -        0x1aba0b95f  libcompiler_rt.dylib (103.3) <85CAE852-081B-3124-89C1-4C4A21830160> /usr/lib/system/libcompiler_rt.dylib
+       0x1aba0c000 -        0x1aba10a1b  libsystem_collections.dylib (1725.40.4) <17BD45DA-1D82-3A90-9F18-5D569A5693B5> /usr/lib/system/libsystem_collections.dylib
+       0x1aba11000 -        0x1aba144bf  libsystem_secinit.dylib (168.40.2) <0928D7E4-5DB0-3B75-9DF5-08EC8E9C033B> /usr/lib/system/libsystem_secinit.dylib
+       0x1aba15000 -        0x1aba17b57  libremovefile.dylib (84) <D854E7F8-C351-331B-9A26-BE66F9B8996D> /usr/lib/system/libremovefile.dylib
+       0x1aba18000 -        0x1aba18f27  libkeymgr.dylib (31) <18ED97A3-6DD7-3EC2-AB38-E16A862BE1A7> /usr/lib/system/libkeymgr.dylib
+       0x1aba19000 -        0x1aba21f8f  libsystem_dnssd.dylib (2881.80.4.0.1) <EB84C040-D153-37D3-A933-8AD3CFD893BA> /usr/lib/system/libsystem_dnssd.dylib
+       0x1aba22000 -        0x1aba270b3  libcache.dylib (95) <EA56E91F-7683-3AA5-AF72-185994622502> /usr/lib/system/libcache.dylib
+       0x1aba28000 -        0x1aba29cf3  libSystem.B.dylib (1356) <6AE3A2BD-839C-3DEA-854C-1C4A10567C26> /usr/lib/libSystem.B.dylib
+       0x299eb1000 -        0x299eb8319  libRosetta.dylib (367.3) <5315C55D-09E5-394B-A9E5-672B23847BF7> /usr/lib/libRosetta.dylib
+       0x29b5be000 -        0x29b5c1deb  libsystem_darwindirectory.dylib (122) <9AD833C7-D009-39FF-8D04-D57C937D9EAC> /usr/lib/system/libsystem_darwindirectory.dylib
+       0x29b5c2000 -        0x29b5cb34b  libsystem_eligibility.dylib (289.80.56) <0E973CB5-A124-3716-9841-1EA67809AF06> /usr/lib/system/libsystem_eligibility.dylib
+       0x29b5cc000 -        0x29b5d3873  libsystem_sanitizers.dylib (25) <90C45178-3954-3108-9F2F-44E528DF5E44> /usr/lib/system/libsystem_sanitizers.dylib
+       0x29b5d4000 -        0x29b5d4bb7  libsystem_trial.dylib (474.2.0.5.2) <E776BAEB-B36B-3EA2-BEFE-3E2F7999E235> /usr/lib/system/libsystem_trial.dylib

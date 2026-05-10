@@ -21,18 +21,15 @@ import {
  * stateful ghost tracking lives in `useClusterSession` and consumes
  * the helpers below.
  *
- * Design choice: the operator cares about "is this host doing work
- * right now" more than "did this host ever connect". So we treat any
- * peer that hasn't heartbeated in ~2 intervals as `stale` even though
- * the dispatcher's own stale threshold is 6× (the dispatcher needs
- * the longer window to avoid premature requeue thrash; the UI wants
- * earlier feedback).
+ * Design choice: host heartbeats can pause briefly while machines are
+ * saturated. The UI waits long enough to avoid flapping during a run,
+ * then marks a host stale before the dispatcher disconnects it.
  */
 
 /**
  * Live-ness classification.
- *   - live    : heartbeat within 2 × interval, host is working normally.
- *   - stale   : heartbeat 2-6 × interval ago — degraded, dispatcher
+ *   - live    : heartbeat within 6 × interval, host is working normally.
+ *   - stale   : heartbeat 6-15 × interval ago — degraded, dispatcher
  *               hasn't given up on it yet but the operator should look.
  *   - offline : peer has dropped out of the snapshot entirely. Carried
  *               in the UI for a short window via ghost tracking.
@@ -40,11 +37,11 @@ import {
 export type PeerStatus = 'live' | 'stale' | 'offline';
 
 /**
- * Thresholds. The "stale" threshold is intentionally tighter than the
- * dispatcher's 6× requeue threshold so the UI flags a degraded host
- * before the dispatcher pulls the trigger.
+ * Thresholds. These are intentionally lenient so a busy host does not
+ * flicker between live/stale/offline during long CPU-bound batches.
  */
-export const PEER_STALE_THRESHOLD_MS = HEARTBEAT_INTERVAL_MS * 2;
+export const PEER_STALE_THRESHOLD_MS = HEARTBEAT_INTERVAL_MS * 6;
+export const PEER_OFFLINE_THRESHOLD_MS = HEARTBEAT_INTERVAL_MS * 15;
 
 /**
  * How long to keep a disappeared peer visible (greyed out) after it
@@ -101,7 +98,7 @@ export interface PeerGhost {
 /**
  * Classify a snapshot peer's liveness based on its last heartbeat
  * timestamp. Returns `live` when the heartbeat is fresh, `stale` when
- * it's between 2 × interval and 6 × interval, and `offline` past that
+ * it's between the stale and offline thresholds, and `offline` past that
  * (used when a peer is still in the snapshot but its heartbeat has
  * fallen far enough behind that the dispatcher would also classify
  * it stale on the next sweep).
@@ -113,7 +110,7 @@ export function classifyPeerStatus(
   if (lastHeartbeatTs == null) return 'stale';
   const age = nowMs - lastHeartbeatTs;
   if (age < PEER_STALE_THRESHOLD_MS) return 'live';
-  if (age < HEARTBEAT_INTERVAL_MS * 6) return 'stale';
+  if (age < PEER_OFFLINE_THRESHOLD_MS) return 'stale';
   return 'offline';
 }
 

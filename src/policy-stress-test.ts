@@ -3,7 +3,7 @@ import {
   type SeedDataCloner,
 } from './policy-miner-eval';
 import { approximateBequestAttainmentRate } from './plan-evaluation';
-import { buildPathResults } from './utils';
+import { buildPathResults, type SimulationStressorKnobs } from './utils';
 import type { Policy } from './policy-miner-types';
 import type { MarketAssumptions, SeedData } from './types';
 
@@ -60,6 +60,16 @@ export interface StressScenario {
   description: string;
   /** Stressor IDs to feed into `buildPathResults`. Empty = baseline. */
   stressorIds: string[];
+  /** Optional scenario-specific knobs, such as layoff date and severance. */
+  stressorKnobs?:
+    | SimulationStressorKnobs
+    | ((seed: SeedData, policy: Policy) => SimulationStressorKnobs);
+}
+
+const OCTOBER_2026_LAYOFF_DATE = '2026-10-01';
+
+function threeMonthsSeverance(seed: SeedData): number {
+  return Math.max(0, Math.round((seed.income?.salaryAnnual ?? 0) / 4));
 }
 
 /**
@@ -91,6 +101,17 @@ export const DEFAULT_STRESS_SCENARIOS: StressScenario[] = [
     stressorIds: ['inflation'],
   },
   {
+    id: 'laid_off_october',
+    name: 'Laid off in October',
+    description:
+      'Salary ends October 1, 2026 with three months of severance.',
+    stressorIds: ['layoff'],
+    stressorKnobs: (seed) => ({
+      layoffRetireDate: OCTOBER_2026_LAYOFF_DATE,
+      layoffSeverance: threeMonthsSeverance(seed),
+    }),
+  },
+  {
     id: 'delayed_inheritance',
     name: 'Inheritance arrives late',
     description: 'Any modeled inheritance windfall slips beyond plan horizon.',
@@ -107,6 +128,8 @@ export const DEFAULT_STRESS_SCENARIOS: StressScenario[] = [
 /** Outcome metrics from a single stressed run. Subset of the engine's PathResult. */
 export interface StressOutcome {
   bequestAttainmentRate: number;
+  /** Number of simulated years represented by the ending-wealth percentiles. */
+  horizonYears: number;
   p10EndingWealthTodayDollars: number;
   p25EndingWealthTodayDollars: number;
   p50EndingWealthTodayDollars: number;
@@ -155,6 +178,17 @@ function toTodayDollars(
   return nominal / factor;
 }
 
+function resolveStressorKnobs(
+  stressorKnobs: StressScenario['stressorKnobs'] | undefined,
+  seed: SeedData,
+  policy: Policy,
+): SimulationStressorKnobs | undefined {
+  if (!stressorKnobs) return undefined;
+  return typeof stressorKnobs === 'function'
+    ? stressorKnobs(seed, policy)
+    : stressorKnobs;
+}
+
 /**
  * Run the engine on `policy` once with `stressorIds` applied. Pure
  * helper — no React, no IndexedDB, no cluster.
@@ -171,14 +205,21 @@ export function evaluatePolicyUnderStress(
   stressorIds: string[],
   legacyTargetTodayDollars: number,
   cloner: SeedDataCloner,
+  stressorKnobs?: StressScenario['stressorKnobs'],
 ): { outcome: StressOutcome; appliedStressors: string[]; durationMs: number } {
   const startMs = Date.now();
   const seed = applyPolicyToSeed(cloner(baseline), policy);
   const knownIds = new Set(seed.stressors?.map((s) => s.id) ?? []);
   const appliedStressors = stressorIds.filter((id) => knownIds.has(id));
+  const resolvedStressorKnobs = resolveStressorKnobs(
+    stressorKnobs,
+    seed,
+    policy,
+  );
   const paths = buildPathResults(seed, assumptions, appliedStressors, [], {
     annualSpendTarget: policy.annualSpendTodayDollars,
     pathMode: 'selected_only',
+    stressorKnobs: resolvedStressorKnobs,
   });
   const path = paths[0];
   if (!path) {
@@ -205,6 +246,7 @@ export function evaluatePolicyUnderStress(
   return {
     outcome: {
       bequestAttainmentRate,
+      horizonYears,
       p10EndingWealthTodayDollars: todayDollarsP10,
       p25EndingWealthTodayDollars: todayDollarsP25,
       p50EndingWealthTodayDollars: todayDollarsP50,
@@ -289,6 +331,7 @@ export async function runPolicyStressTest(
       scenario.stressorIds,
       legacyTargetTodayDollars,
       cloner,
+      scenario.stressorKnobs,
     );
     results.push({
       scenario,

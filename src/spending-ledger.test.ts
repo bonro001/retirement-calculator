@@ -131,6 +131,45 @@ describe('spending ledger month summary', () => {
     );
   });
 
+  it('uses transactionDate for month membership when CSV posted later', () => {
+    const budgetPlan: SpendingBudgetPlan = {
+      month: '2026-05',
+      monthlyBudget: 1_000,
+      basis: 'manual',
+      categories: [
+        {
+          id: 'optional',
+          name: 'Optional',
+          kind: 'flexible',
+          monthlyBudget: 1_000,
+          basis: 'manual',
+        },
+      ],
+    };
+
+    const summary = buildSpendingMonthSummary({
+      budgetPlan,
+      asOfIso: '2026-05-10T12:00:00-05:00',
+      transactions: [
+        transaction({
+          id: 'may-transaction',
+          postedDate: '2026-06-01',
+          transactionDate: '2026-05-31',
+          amount: 42,
+        }),
+        transaction({
+          id: 'april-transaction',
+          postedDate: '2026-05-01',
+          transactionDate: '2026-04-30',
+          amount: 900,
+        }),
+      ],
+    });
+
+    expect(summary.transactionCount).toBe(1);
+    expect(summary.grossSpend).toBe(42);
+  });
+
   it('emits the compact Home Assistant monthly payload', () => {
     const budgetPlan = buildRetirementSpendingBudgetPlan(
       {

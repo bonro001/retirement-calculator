@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { initialSeedData, normalizeSeedData } from './data';
 import type { PlanEvaluation } from './plan-evaluation';
 import { buildEvaluationFingerprint } from './evaluation-fingerprint';
+import { defaultAssumptions } from './default-assumptions';
 import { loadPlanEvalFromCache, savePlanEvalToCache } from './plan-eval-cache';
 import {
   DEFAULT_LEGACY_TARGET_TODAY_DOLLARS,
@@ -370,11 +371,11 @@ interface AppState {
    */
   lastPolicyAdoption: PolicyAdoptionUndo | null;
   /**
-   * Adopt a mined policy into the draft and applied plan. Scales spending categories
-   * proportionally to hit the policy's annual-spend target, writes SS
-   * claim ages, and writes the Roth conversion max. Does NOT touch
-   * accounts. Stores the previous draft/applied snapshots in
-   * `lastPolicyAdoption` so the change is undoable.
+   * Adopt a mined policy into the draft and applied plan. Keeps required
+   * spending fixed and adjusts optional spending to hit the policy's
+   * annual-spend target, writes SS claim ages, and writes the Roth conversion
+   * max. Does NOT touch accounts. Stores the previous draft/applied snapshots
+   * in `lastPolicyAdoption` so the change is undoable.
    */
   adoptMinedPolicy: (policy: Policy, evaluation?: PolicyEvaluation | null) => void;
   /** Restore the draft plan to what it was before the last adoption. */
@@ -438,37 +439,35 @@ function writePersistedAdoptedPlan(payload: PersistedAdoptedPlan | null): void {
   }
 }
 
-const defaultAssumptions: MarketAssumptions = {
-  equityMean: 0.074,
-  equityVolatility: 0.16,
-  internationalEquityMean: 0.074,
-  internationalEquityVolatility: 0.18,
-  bondMean: 0.038,
-  bondVolatility: 0.07,
-  cashMean: 0.02,
-  cashVolatility: 0.01,
-  inflation: 0.028,
-  inflationVolatility: 0.01,
-  simulationRuns: 5000,
-  irmaaThreshold: 200000,
-  guardrailFloorYears: 12,
-  guardrailCeilingYears: 18,
-  guardrailCutPercent: 0.2,
-  // Pre-committed pivots are off by default — enabling them makes the model
-  // assume the household will actually pull these levers under stress, which
-  // can raise the supported monthly headline by reducing late-life ruin risk.
-  pivotSellHouseFloorYears: undefined,
-  pivotClaimSSEarlyFloorYears: undefined,
-  // Staircase guardrail OFF by default — falls back to single-tier rule.
-  // Users can toggle it on in the sandbox tuner; we then seed a sensible
-  // 4-tier ladder they can edit row-by-row.
-  guardrailLadder: undefined,
-  robPlanningEndAge: 90,
-  debbiePlanningEndAge: 95,
-  travelPhaseYears: 10,
-  simulationSeed: 20260416,
-  assumptionsVersion: 'v1',
-};
+function migratePersistedAdoptedPlan(
+  payload: PersistedAdoptedPlan,
+): PersistedAdoptedPlan {
+  const adoptionBase: SeedData = {
+    ...payload.lastPolicyAdoption.previousAppliedData,
+    spending: {
+      ...payload.lastPolicyAdoption.previousAppliedData.spending,
+      essentialMonthly: initialSeedData.spending.essentialMonthly,
+      annualTaxesInsurance: initialSeedData.spending.annualTaxesInsurance,
+      travelEarlyRetirementAnnual:
+        initialSeedData.spending.travelEarlyRetirementAnnual,
+    },
+  };
+  const canonicalAdoptedData = buildAdoptedSeedData(
+    adoptionBase,
+    payload.lastPolicyAdoption.policy,
+  );
+  if (
+    JSON.stringify(payload.data) === JSON.stringify(canonicalAdoptedData) &&
+    JSON.stringify(payload.appliedData) === JSON.stringify(canonicalAdoptedData)
+  ) {
+    return payload;
+  }
+  return {
+    ...payload,
+    data: canonicalAdoptedData,
+    appliedData: cloneSeedData(canonicalAdoptedData),
+  };
+}
 
 const initialFingerprint = buildEvaluationFingerprint({
   data: initialSeedData,
@@ -495,7 +494,13 @@ const withRestoredLegacyTarget = (data: SeedData): SeedData => ({
 });
 const seedDataWithRestoredLegacy: SeedData =
   withRestoredLegacyTarget(initialSeedData);
-const persistedAdoptedPlan = readPersistedAdoptedPlan();
+const rawPersistedAdoptedPlan = readPersistedAdoptedPlan();
+const persistedAdoptedPlan = rawPersistedAdoptedPlan
+  ? migratePersistedAdoptedPlan(rawPersistedAdoptedPlan)
+  : null;
+if (rawPersistedAdoptedPlan && persistedAdoptedPlan !== rawPersistedAdoptedPlan) {
+  writePersistedAdoptedPlan(persistedAdoptedPlan);
+}
 const initialStoreData: SeedData = persistedAdoptedPlan
   ? withRestoredLegacyTarget(persistedAdoptedPlan.data)
   : seedDataWithRestoredLegacy;

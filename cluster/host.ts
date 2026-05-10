@@ -941,7 +941,11 @@ function maybeRequestAutoUpdate(
     return;
   }
   const status = compareBuildInfo(expectedBuildInfo, HOST_BUILD_INFO);
-  if (status === 'match') {
+  const sameCommitAsDirtyDispatcher =
+    status === 'dirty' &&
+    expectedBuildInfo?.packageVersion === HOST_BUILD_INFO.packageVersion &&
+    expectedBuildInfo?.gitCommit === HOST_BUILD_INFO.gitCommit;
+  if (status === 'match' || sameCommitAsDirtyDispatcher) {
     lastWaitingWarnExpected = null;
     return;
   }
