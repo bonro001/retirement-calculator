@@ -99,10 +99,9 @@ function weatherMetricLabel(instrument: SixPackInstrument): string | null {
 function taxMetricLabel(instrument: SixPackInstrument): string | null {
   if (instrument.id !== 'tax_cliffs') return null;
   if (instrument.frontMetric) return instrument.frontMetric;
-  if (instrument.status === 'green') return 'No cliff pressure now';
-  if (instrument.status === 'amber') return 'IRMAA pressure showing';
-  if (instrument.status === 'unknown') return 'Run plan for cliff read';
-  return null;
+  const expectedTax = numberDiagnostic(instrument, 'expectedFederalTax');
+  if (expectedTax !== null) return `Tax ${compactCurrency(expectedTax)}`;
+  return 'Tax needs update';
 }
 
 function yearlyBucketMetricLabel(instrument: SixPackInstrument): string | null {
@@ -118,11 +117,6 @@ function displayFrontMetric(instrument: SixPackInstrument): string | null {
     instrument.frontMetric ??
     null
   );
-}
-
-function snapshotHasAcaTiming(snapshot: SixPackSnapshot): boolean {
-  const taxInstrument = snapshot.instruments.find((instrument) => instrument.id === 'tax_cliffs');
-  return typeof taxInstrument?.diagnostics.acaTiming === 'string';
 }
 
 function portfolioProjectionLabel(instrument: SixPackInstrument): string | null {
@@ -142,14 +136,22 @@ function taxMarginLabel(instrument: SixPackInstrument): string | null {
   const acaMargin = numberDiagnostic(instrument, 'acaMargin');
   const acaAppliesThisYear = instrument.diagnostics.acaAppliesThisYear === true;
   const acaGuardrailYear = numberDiagnostic(instrument, 'acaGuardrailYear');
+  const acaThreshold = numberDiagnostic(instrument, 'acaIncomeThreshold');
   const irmaaMargin = numberDiagnostic(instrument, 'irmaaMargin');
+  const irmaaThreshold = numberDiagnostic(instrument, 'irmaaIncomeThreshold');
   const parts = [
     acaAppliesThisYear && acaMargin !== null
       ? `ACA ${compactCurrency(acaMargin)}`
-      : acaGuardrailYear === null
-        ? 'ACA timing n/a'
-        : 'ACA not active yet',
-    irmaaMargin === null ? null : `IRMAA ${compactCurrency(irmaaMargin)}`,
+      : acaGuardrailYear !== null
+        ? `ACA ${Math.round(acaGuardrailYear)}`
+        : acaThreshold !== null
+          ? `ACA ${compactCurrency(acaThreshold)} threshold`
+          : 'ACA timing n/a',
+    irmaaMargin !== null
+      ? `IRMAA ${compactCurrency(irmaaMargin)}`
+      : irmaaThreshold !== null
+        ? `IRMAA ${compactCurrency(irmaaThreshold)} threshold`
+        : null,
   ].filter((part): part is string => part !== null);
   return parts.length ? parts.join(' · ') : null;
 }
@@ -493,6 +495,8 @@ function SixPackPuck({
   const showYearlyBar = instrument.id === 'watch_items';
   const planIntegrityPercent = planIntegrityPercentLabel(instrument);
   const headline = planIntegrityPercent ?? displayHeadline(instrument);
+  const displayHeadlineText =
+    instrument.id === 'tax_cliffs' && headline === 'NO RUN' ? 'UPDATE' : headline;
   const frontMetric = displayFrontMetric(instrument);
   const projectionLabel = portfolioProjectionLabel(instrument);
   const taxMargins = taxMarginLabel(instrument);
@@ -522,7 +526,7 @@ function SixPackPuck({
             planIntegrityPercent ? 'text-2xl leading-7 tabular-nums' : 'text-lg leading-6'
           }`}
         >
-          {headline}
+          {displayHeadlineText}
         </h3>
         {planIntegrityPercent ? (
           <p className="mt-0.5 truncate text-xs font-semibold uppercase tracking-[0.12em] opacity-75">
@@ -786,7 +790,6 @@ export function SixPackScreen() {
     !hasPendingSimulationChanges &&
     !latestEvaluationContext &&
     apiSnapshot &&
-    snapshotHasAcaTiming(apiSnapshot) &&
     apiSnapshot.counts.unknown < localSnapshot.counts.unknown
       ? apiSnapshot
       : localSnapshot;

@@ -466,7 +466,7 @@ function buildTaxCliffs(input: {
     question: 'Are cliffs still clear?',
     status,
     trend: 'flat',
-    headline: status === 'green' ? 'CLEAR' : status === 'amber' ? 'WATCH' : 'NO RUN',
+    headline: status === 'green' ? 'CLEAR' : status === 'amber' ? 'WATCH' : 'UPDATE',
     frontMetric,
     reason:
       status === 'green'
