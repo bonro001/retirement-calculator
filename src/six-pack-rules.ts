@@ -46,6 +46,14 @@ function dataFreshness(asOfIso: string | null, snapshotAsOfIso: string, label: s
   };
 }
 
+function yearElapsedPercent(asOfIso: string): number {
+  const asOf = new Date(asOfIso);
+  if (!Number.isFinite(asOf.getTime())) return 0;
+  const start = new Date(asOf.getFullYear(), 0, 1).getTime();
+  const end = new Date(asOf.getFullYear() + 1, 0, 1).getTime();
+  return ((asOf.getTime() - start) / (end - start)) * 100;
+}
+
 function buildLifestylePace(input: {
   spending: SixPackSpendingContext | null;
   asOfIso: string;
@@ -374,34 +382,58 @@ function buildWatchItems(input: {
   spending: SixPackSpendingContext | null;
   asOfIso: string;
 }): SixPackInstrument {
-  const escrowSqueeze = input.spending
-    ? Math.max(0, input.spending.annualEscrowActualSpend - input.spending.annualEscrowPlannedBudget)
-    : 0;
-  const status: SixPackStatus = input.spending ? 'green' : 'unknown';
+  if (!input.spending) {
+    return {
+      id: 'watch_items',
+      label: 'Yearly Buckets',
+      question: 'Are yearly bills absorbed?',
+      status: 'unknown',
+      trend: 'none',
+      headline: 'NO LEDGER',
+      reason: 'Yearly bucket progress needs the spending ledger before it can be trusted.',
+      rule: 'Shows annual required-yearly and travel spending against the adaptive yearly lane; early annual bills do not create a failure state by date pacing.',
+      detail: 'Load the local spending ledger to evaluate required yearly and travel buckets.',
+      actionLabel: 'Open Spending',
+      sourceFreshness: dataFreshness(null, input.asOfIso, 'spending ledger unavailable'),
+      diagnostics: {},
+    };
+  }
+
+  const plannedBudget = input.spending.annualEscrowPlannedBudget;
+  const actualSpend = input.spending.annualEscrowActualSpend;
+  const adaptiveBudget = input.spending.annualEscrowAdaptiveBudget;
+  const escrowSqueeze = Math.max(0, actualSpend - plannedBudget);
+  const denominator = Math.max(adaptiveBudget, plannedBudget, actualSpend, 1);
+  const percentUsed = (actualSpend / denominator) * 100;
+  const yearProgress = yearElapsedPercent(input.asOfIso);
+  const status: SixPackStatus = 'green';
+
   return {
     id: 'watch_items',
-    label: 'Watch Items',
-    question: 'Anything waking up?',
+    label: 'Yearly Buckets',
+    question: 'Are yearly bills absorbed?',
     status,
     trend: 'flat',
-    headline: status === 'green' ? 'QUIET' : 'NO LEDGER',
+    headline: escrowSqueeze > 0 ? 'ABSORBED' : 'TRACKING',
+    frontMetric: `${compactCurrency(actualSpend)} / ${compactCurrency(denominator)} yr`,
     reason:
-      status === 'green'
-        ? escrowSqueeze > 0
-          ? 'Annual escrow is above estimate, but it has been absorbed into the adaptive monthly lane.'
-          : 'No modeled watch item is currently asking for attention.'
-        : 'Watch rules need the spending ledger before they can be trusted.',
-    rule: 'Green when known watch items are quiet or already absorbed into the current monthly lane; amber when drift exists outside the lane; red reserved for action-required items.',
+      escrowSqueeze > 0
+        ? 'Required yearly and travel spending are above the original estimate, and the monthly lane has already absorbed the swing.'
+        : 'Required yearly and travel spending are inside the annual allocation.',
+    rule: 'Shows annual required-yearly and travel spending against the adaptive yearly lane; early annual bills do not create a failure state by date pacing.',
     detail:
-      status === 'green'
-        ? escrowSqueeze > 0
-          ? `Annual escrow actuals are ${formatCurrency(escrowSqueeze)} above estimate, and the monthly operating lane is already reduced around that swing.`
-          : 'Current watch list includes annual escrow squeeze, model trust, and data freshness.'
-        : 'Load the local spending ledger to evaluate watch items.',
-    actionLabel: undefined,
-    sourceFreshness: dataFreshness(input.spending?.summary.asOfIso ?? input.asOfIso, input.asOfIso, 'watch rules'),
+      escrowSqueeze > 0
+        ? `Yearly bucket spend is ${formatCurrency(actualSpend)} against the original ${formatCurrency(plannedBudget)} estimate. The adaptive yearly lane is ${formatCurrency(denominator)}, so the monthly operating lane is already reduced around the swing.`
+        : `Yearly bucket spend is ${formatCurrency(actualSpend)} against a ${formatCurrency(plannedBudget)} annual allocation. The year-progress marker is informational only, not a failure trigger for early annual bills.`,
+    actionLabel: 'Open Spending',
+    sourceFreshness: dataFreshness(input.spending.summary.asOfIso, input.asOfIso, 'spending ledger'),
     diagnostics: {
+      annualEscrowPlannedBudget: plannedBudget,
+      annualEscrowActualSpend: actualSpend,
+      annualEscrowAdaptiveBudget: adaptiveBudget,
       annualEscrowSqueeze: escrowSqueeze,
+      yearlyBucketPercentUsed: Number(percentUsed.toFixed(2)),
+      yearElapsedPercent: Number(yearProgress.toFixed(2)),
     },
   };
 }

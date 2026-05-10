@@ -173,7 +173,7 @@ describe('buildSixPackSnapshot', () => {
     expect(tax?.frontMetric).toBe('No cliff pressure now');
   });
 
-  it('keeps absorbed annual escrow swings green in watch items', () => {
+  it('shows yearly bucket progress without treating early annual bills as behind', () => {
     const snapshot = buildSixPackSnapshot({
       data: cloneSeedData(),
       spending: {
@@ -188,10 +188,14 @@ describe('buildSixPackSnapshot', () => {
       asOfIso,
     });
 
-    const watch = snapshot.instruments.find((item) => item.id === 'watch_items');
-    expect(watch?.status).toBe('green');
-    expect(watch?.headline).toBe('QUIET');
-    expect(watch?.detail).toContain('monthly operating lane is already reduced');
+    const yearly = snapshot.instruments.find((item) => item.id === 'watch_items');
+    expect(yearly?.label).toBe('Yearly Buckets');
+    expect(yearly?.status).toBe('green');
+    expect(yearly?.headline).toBe('ABSORBED');
+    expect(yearly?.frontMetric).toBe('$38.0k / $38.0k yr');
+    expect(yearly?.detail).toContain('monthly operating lane is already reduced');
+    expect(yearly?.diagnostics.yearElapsedPercent).toBeGreaterThan(35);
+    expect(yearly?.diagnostics.yearlyBucketPercentUsed).toBe(100);
   });
 
   it('serializes the Home Assistant aggregate without raw diagnostics', () => {

@@ -104,10 +104,16 @@ function taxMetricLabel(instrument: SixPackInstrument): string | null {
   return null;
 }
 
+function yearlyBucketMetricLabel(instrument: SixPackInstrument): string | null {
+  if (instrument.id !== 'watch_items') return null;
+  return instrument.frontMetric ?? null;
+}
+
 function displayFrontMetric(instrument: SixPackInstrument): string | null {
   return (
     weatherMetricLabel(instrument) ??
     taxMetricLabel(instrument) ??
+    yearlyBucketMetricLabel(instrument) ??
     instrument.frontMetric ??
     null
   );
@@ -118,6 +124,9 @@ function frontMetricClass(instrument: SixPackInstrument): string {
     return 'text-sm font-semibold leading-5 tracking-normal';
   }
   if (instrument.id === 'portfolio_weather') {
+    return 'text-sm font-semibold leading-5 tracking-normal tabular-nums';
+  }
+  if (instrument.id === 'watch_items') {
     return 'text-sm font-semibold leading-5 tracking-normal tabular-nums';
   }
   return 'text-base font-semibold leading-5 tracking-normal';
@@ -181,6 +190,43 @@ function LifestylePaceMiniBar({
   );
 }
 
+function YearlyBucketsMiniBar({ instrument }: { instrument: SixPackInstrument }) {
+  const actualSpend = numberDiagnostic(instrument, 'annualEscrowActualSpend');
+  const adaptiveBudget = numberDiagnostic(instrument, 'annualEscrowAdaptiveBudget');
+  const plannedBudget = numberDiagnostic(instrument, 'annualEscrowPlannedBudget');
+  const yearElapsed = numberDiagnostic(instrument, 'yearElapsedPercent');
+
+  if (actualSpend === null) return null;
+
+  const denominator = Math.max(
+    adaptiveBudget ?? 0,
+    plannedBudget ?? 0,
+    actualSpend,
+    1,
+  );
+  const usedPercent = (actualSpend / denominator) * 100;
+  const markerPercent = yearElapsed ?? 0;
+
+  return (
+    <div className="mt-2">
+      <div
+        className="relative h-2.5 overflow-visible rounded-full bg-white/80 shadow-inner ring-1 ring-black/5"
+        title={`${formatCurrency(actualSpend)} used against ${formatCurrency(denominator)} adaptive yearly lane`}
+      >
+        <div
+          className="absolute left-0 top-0 h-2.5 rounded-full bg-[#0071E3]"
+          style={{ width: progressWidth(usedPercent) }}
+        />
+        <div
+          className="absolute top-[-5px] z-10 h-5 w-1 -translate-x-1/2 rounded-full bg-stone-950 shadow-[0_0_0_2px_rgba(255,255,255,0.9)]"
+          style={{ left: progressWidth(markerPercent) }}
+          title={`${Math.round(markerPercent)}% of year elapsed`}
+        />
+      </div>
+    </div>
+  );
+}
+
 function SixPackPuck({
   instrument,
   asOfIso,
@@ -193,6 +239,7 @@ function SixPackPuck({
   onSelect: () => void;
 }) {
   const showLifestyleBar = instrument.id === 'lifestyle_pace';
+  const showYearlyBar = instrument.id === 'watch_items';
   const planIntegrityPercent = planIntegrityPercentLabel(instrument);
   const headline = planIntegrityPercent ?? displayHeadline(instrument);
   const frontMetric = displayFrontMetric(instrument);
@@ -236,6 +283,7 @@ function SixPackPuck({
         {showLifestyleBar ? (
           <LifestylePaceMiniBar instrument={instrument} asOfIso={asOfIso} />
         ) : null}
+        {showYearlyBar ? <YearlyBucketsMiniBar instrument={instrument} /> : null}
       </div>
     </button>
   );
@@ -461,7 +509,7 @@ export function SixPackScreen() {
   return (
     <Panel
       title="6 Pack"
-      subtitle="Monthly sweep status across lifestyle pace, runway, market weather, plan integrity, tax cliffs, and watch items."
+      subtitle="Monthly sweep status across lifestyle pace, runway, market weather, plan integrity, tax cliffs, and yearly buckets."
     >
       <div className={`rounded-xl border px-4 py-3 ${statusStyles[snapshot.overallStatus]}`}>
         <div className="flex flex-wrap items-end justify-between gap-3">
