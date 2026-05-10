@@ -80,30 +80,32 @@ function SixPackPuck({
     <button
       type="button"
       onClick={onSelect}
-      className={`min-h-32 rounded-2xl border p-4 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md ${statusStyles[instrument.status]} ${
+      className={`min-h-20 rounded-xl border px-3 py-2.5 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md ${statusStyles[instrument.status]} ${
         selected ? 'ring-2 ring-blue-500 ring-offset-2' : ''
       }`}
     >
-      <div className="flex items-start justify-between gap-2">
-        <div className="min-w-0">
-          <p className="text-xs font-semibold uppercase tracking-[0.14em] opacity-70">
-            {instrument.label}
-          </p>
-          <h3 className="mt-2 text-xl font-semibold tracking-normal">
-            {instrument.headline}{' '}
-            <span className="text-lg opacity-70">{trendLabel[instrument.trend]}</span>
-          </h3>
-        </div>
-        <span className={`mt-1 h-2.5 w-2.5 shrink-0 rounded-full ${statusDots[instrument.status]}`} />
-      </div>
-      {instrument.frontMetric ? (
-        <p className="mt-3 text-2xl font-semibold tracking-normal">
-          {instrument.frontMetric}
+      <div className="flex items-center justify-between gap-2">
+        <p className="truncate text-[10px] font-semibold uppercase tracking-[0.12em] opacity-70">
+          {instrument.label}
         </p>
-      ) : null}
-      <p className="mt-3 text-xs font-semibold uppercase tracking-[0.12em] opacity-75">
-        {statusCopy(instrument.status)}
-      </p>
+        <div className="flex shrink-0 items-center gap-1.5">
+          <span className="text-[10px] font-semibold uppercase tracking-[0.1em] opacity-70">
+            {statusCopy(instrument.status)}
+          </span>
+          <span className={`h-2 w-2 rounded-full ${statusDots[instrument.status]}`} />
+        </div>
+      </div>
+      <div className="mt-2 min-w-0">
+        <h3 className="truncate text-lg font-semibold leading-6 tracking-normal">
+          {instrument.headline}{' '}
+          <span className="text-base opacity-70">{trendLabel[instrument.trend]}</span>
+        </h3>
+        {instrument.frontMetric ? (
+          <p className="mt-1 truncate text-base font-semibold leading-5 tracking-normal">
+            {instrument.frontMetric}
+          </p>
+        ) : null}
+      </div>
     </button>
   );
 }
@@ -330,13 +332,13 @@ export function SixPackScreen() {
       title="6 Pack"
       subtitle="Monthly sweep status across lifestyle pace, runway, market weather, plan integrity, tax cliffs, and watch items."
     >
-      <div className={`rounded-2xl border p-4 ${statusStyles[snapshot.overallStatus]}`}>
-        <div className="flex flex-wrap items-end justify-between gap-4">
+      <div className={`rounded-xl border px-4 py-3 ${statusStyles[snapshot.overallStatus]}`}>
+        <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.14em] opacity-70">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.14em] opacity-70">
               Sweep
             </p>
-            <h2 className="mt-1 text-3xl font-semibold tracking-normal">
+            <h2 className="mt-1 text-2xl font-semibold tracking-normal">
               {snapshot.summary}
             </h2>
           </div>
@@ -357,7 +359,7 @@ export function SixPackScreen() {
       ) : null}
 
       <div className="mt-4 grid gap-4 xl:grid-cols-[1fr_340px]">
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+        <div className="grid gap-2.5 md:grid-cols-2 xl:grid-cols-3">
           {snapshot.instruments.map((instrument) => (
             <SixPackPuck
               key={instrument.id}
