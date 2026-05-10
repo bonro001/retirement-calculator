@@ -68,6 +68,14 @@ function displayHeadline(instrument: SixPackInstrument): string {
   return instrument.headline;
 }
 
+function planIntegrityPercentLabel(instrument: SixPackInstrument): string | null {
+  if (instrument.id !== 'plan_integrity') return null;
+  const successRate = numberDiagnostic(instrument, 'successRate');
+  if (successRate === null) return instrument.frontMetric ?? null;
+  const normalized = successRate <= 1 ? successRate * 100 : successRate;
+  return `${Math.round(normalized)}%`;
+}
+
 function progressWidth(value: number): string {
   return `${Math.min(100, Math.max(0, value)).toFixed(2)}%`;
 }
@@ -138,6 +146,8 @@ function SixPackPuck({
   onSelect: () => void;
 }) {
   const showLifestyleBar = instrument.id === 'lifestyle_pace';
+  const planIntegrityPercent = planIntegrityPercentLabel(instrument);
+  const headline = planIntegrityPercent ?? displayHeadline(instrument);
 
   return (
     <button
@@ -159,10 +169,18 @@ function SixPackPuck({
         </div>
       </div>
       <div className="mt-2 min-w-0">
-        <h3 className="truncate text-lg font-semibold leading-6 tracking-normal">
-          {displayHeadline(instrument)}
+        <h3
+          className={`truncate font-semibold tracking-normal ${
+            planIntegrityPercent ? 'text-2xl leading-7 tabular-nums' : 'text-lg leading-6'
+          }`}
+        >
+          {headline}
         </h3>
-        {instrument.frontMetric ? (
+        {planIntegrityPercent ? (
+          <p className="mt-0.5 truncate text-xs font-semibold uppercase tracking-[0.12em] opacity-75">
+            {displayHeadline(instrument)}
+          </p>
+        ) : instrument.frontMetric ? (
           <p className="mt-1 truncate text-base font-semibold leading-5 tracking-normal">
             {instrument.frontMetric}
           </p>

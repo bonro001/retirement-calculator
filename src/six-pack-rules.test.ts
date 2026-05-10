@@ -8,6 +8,7 @@ import {
   buildHomeAssistantSixPackPayload,
 } from './home-assistant-six-pack-contract';
 import type { PortfolioWeatherSnapshot } from './portfolio-weather';
+import type { PlanEvaluation } from './plan-evaluation';
 
 const asOfIso = '2026-05-10T12:00:00.000Z';
 
@@ -110,6 +111,36 @@ describe('buildSixPackSnapshot', () => {
 
     expect(amber?.status).toBe('amber');
     expect(red?.status).toBe('red');
+  });
+
+  it('puts the current plan success percent on plan integrity', () => {
+    const evaluation = {
+      summary: {
+        successRate: 0.852,
+        planVerdict: 'Strong',
+      },
+      trustPanel: {
+        safeToRely: true,
+        confidence: 'high',
+        summary: 'Trust checks passed.',
+      },
+    } as unknown as PlanEvaluation;
+
+    const snapshot = buildSixPackSnapshot({
+      data: cloneSeedData(),
+      spending: spendingContext(7_000),
+      portfolioWeather: null,
+      evaluation,
+      evaluationCapturedAtIso: asOfIso,
+      asOfIso,
+    });
+
+    const planIntegrity = snapshot.instruments.find(
+      (item) => item.id === 'plan_integrity',
+    );
+    expect(planIntegrity?.headline).toBe('FUNDED');
+    expect(planIntegrity?.frontMetric).toBe('85%');
+    expect(planIntegrity?.diagnostics.successRate).toBe(0.852);
   });
 
   it('keeps absorbed annual escrow swings green in watch items', () => {

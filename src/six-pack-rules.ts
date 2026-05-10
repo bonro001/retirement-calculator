@@ -300,6 +300,7 @@ function buildPlanIntegrity(input: {
         : status === 'amber'
           ? 'WATCH'
           : 'AT RISK',
+    frontMetric: `${Math.round(successRate * 100)}%`,
     reason:
       status === 'green'
         ? 'Latest retirement reading remains inside the planned confidence lane.'
