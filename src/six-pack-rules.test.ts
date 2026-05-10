@@ -205,6 +205,9 @@ describe('buildSixPackSnapshot', () => {
     expect(tax?.diagnostics.acaTiming).toBe('future_guardrail');
     expect(tax?.diagnostics.irmaaIncomeThreshold).toBe(218_000);
     expect(tax?.diagnostics.irmaaMargin).toBe(35_839);
+    expect(tax?.diagnostics.irmaaFirstMedicareYear).toBe(2028);
+    expect(tax?.diagnostics.irmaaLookbackTaxYear).toBe(2026);
+    expect(tax?.diagnostics.irmaaGuardrailTiming).toBe('current_tax_year');
   });
 
   it('shows yearly bucket progress without treating early annual bills as behind', () => {

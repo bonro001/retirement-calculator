@@ -6,6 +6,7 @@ import {
   readSpendingTransactionOverrides,
 } from '../spending-overrides';
 import type { SpendingTransaction } from '../spending-ledger';
+import type { SeedData } from '../types';
 import {
   applySpendingCategoryInferences,
   splitAmazonCreditCardTransactionsForBudget,
@@ -139,18 +140,19 @@ function taxMarginLabel(instrument: SixPackInstrument): string | null {
   const acaThreshold = numberDiagnostic(instrument, 'acaIncomeThreshold');
   const irmaaMargin = numberDiagnostic(instrument, 'irmaaMargin');
   const irmaaThreshold = numberDiagnostic(instrument, 'irmaaIncomeThreshold');
+  const irmaaLookbackTaxYear = numberDiagnostic(instrument, 'irmaaLookbackTaxYear');
   const parts = [
     acaAppliesThisYear && acaMargin !== null
       ? `ACA ${compactCurrency(acaMargin)}`
       : acaGuardrailYear !== null
-        ? `ACA ${Math.round(acaGuardrailYear)}`
+        ? `ACA ${Math.round(acaGuardrailYear)} not now`
         : acaThreshold !== null
           ? `ACA ${compactCurrency(acaThreshold)} threshold`
           : 'ACA timing n/a',
     irmaaMargin !== null
-      ? `IRMAA ${compactCurrency(irmaaMargin)}`
+      ? `IRMAA ${irmaaLookbackTaxYear === null ? '' : `${Math.round(irmaaLookbackTaxYear)} `}${compactCurrency(irmaaMargin)}`
       : irmaaThreshold !== null
-        ? `IRMAA ${compactCurrency(irmaaThreshold)} threshold`
+        ? `IRMAA ${irmaaLookbackTaxYear === null ? '' : `${Math.round(irmaaLookbackTaxYear)} `}${compactCurrency(irmaaThreshold)} threshold`
         : null,
   ].filter((part): part is string => part !== null);
   return parts.length ? parts.join(' · ') : null;
@@ -200,6 +202,114 @@ function toDateInputValue(value: string): string {
   const parsed = new Date(value);
   if (!Number.isFinite(parsed.getTime())) return '';
   return parsed.toISOString().slice(0, 10);
+}
+
+function yearFromDate(value: string): number | null {
+  const parsed = new Date(value);
+  if (!Number.isFinite(parsed.getTime())) return null;
+  return parsed.getFullYear();
+}
+
+function firstMedicareYear(data: SeedData): number | null {
+  const years = [data.household.robBirthDate, data.household.debbieBirthDate]
+    .map((value) => {
+      const year = yearFromDate(value);
+      return year === null ? null : year + 65;
+    })
+    .filter((value): value is number => value !== null);
+  return years.length ? Math.min(...years) : null;
+}
+
+function enrichTaxGuardrailTiming(
+  snapshot: SixPackSnapshot | null,
+  data: SeedData,
+  asOfIso: string,
+): SixPackSnapshot | null {
+  if (!snapshot) return null;
+  const asOfYear = new Date(asOfIso).getFullYear();
+  const acaGuardrailYear = yearFromDate(data.income.salaryEndDate);
+  const acaAppliesThisYear =
+    acaGuardrailYear !== null && acaGuardrailYear <= asOfYear;
+  const medicareYear = firstMedicareYear(data);
+  const irmaaLookbackTaxYear = medicareYear === null ? null : medicareYear - 2;
+  const irmaaGuardrailTiming =
+    irmaaLookbackTaxYear === null
+      ? 'unknown'
+      : asOfYear === irmaaLookbackTaxYear
+        ? 'current_tax_year'
+        : asOfYear < irmaaLookbackTaxYear
+          ? 'future_tax_year'
+          : 'active_or_ongoing';
+
+  return {
+    ...snapshot,
+    instruments: snapshot.instruments.map((instrument) =>
+      instrument.id !== 'tax_cliffs'
+        ? instrument
+        : (() => {
+            const expectedTax = numberDiagnostic(instrument, 'expectedFederalTax');
+            const projectedMagi = numberDiagnostic(instrument, 'projectedMagi');
+            const acaThreshold = numberDiagnostic(instrument, 'acaIncomeThreshold');
+            const irmaaThreshold = numberDiagnostic(instrument, 'irmaaIncomeThreshold');
+            const irmaaMargin = numberDiagnostic(instrument, 'irmaaMargin');
+            const timingDetail =
+              `ACA is ${acaAppliesThisYear ? 'a current-year guardrail' : `not a ${asOfYear} guardrail`}${
+                acaGuardrailYear === null ? '' : `; modeled ACA bridge starts around ${acaGuardrailYear}`
+              }. IRMAA ${
+                irmaaGuardrailTiming === 'current_tax_year'
+                  ? `is active in tax year ${asOfYear}`
+                  : irmaaGuardrailTiming === 'future_tax_year'
+                    ? `starts in tax year ${irmaaLookbackTaxYear}`
+                    : 'is active or ongoing'
+              }${medicareYear === null ? '' : ` for ${medicareYear} Medicare premiums`}.`;
+            const rebuiltDetail =
+              expectedTax === null && projectedMagi === null
+                ? timingDetail
+                : [
+                    expectedTax === null
+                      ? null
+                      : `Expected ${asOfYear} federal tax is ${formatCurrency(expectedTax)}.`,
+                    projectedMagi === null
+                      ? null
+                      : `Projected ${asOfYear} MAGI is ${formatCurrency(projectedMagi)}.`,
+                    acaThreshold === null
+                      ? null
+                      : acaAppliesThisYear
+                        ? `ACA threshold is ${formatCurrency(acaThreshold)}.`
+                        : `ACA threshold ${formatCurrency(acaThreshold)} is planning context, not a ${asOfYear} guardrail.`,
+                    irmaaThreshold === null
+                      ? null
+                      : `IRMAA threshold is ${formatCurrency(irmaaThreshold)}${
+                          irmaaMargin === null ? '' : ` with ${formatCurrency(irmaaMargin)} margin`
+                        }.`,
+                    timingDetail,
+                  ]
+                    .filter((part): part is string => part !== null)
+                    .join(' ');
+
+            return {
+              ...instrument,
+              detail: rebuiltDetail,
+              diagnostics: {
+                ...instrument.diagnostics,
+                acaAppliesThisYear:
+                  instrument.diagnostics.acaAppliesThisYear ?? acaAppliesThisYear,
+                acaGuardrailYear:
+                  instrument.diagnostics.acaGuardrailYear ?? acaGuardrailYear,
+                acaTiming:
+                  instrument.diagnostics.acaTiming ??
+                  (acaAppliesThisYear ? 'current_year_guardrail' : 'future_guardrail'),
+                irmaaFirstMedicareYear:
+                  instrument.diagnostics.irmaaFirstMedicareYear ?? medicareYear,
+                irmaaLookbackTaxYear:
+                  instrument.diagnostics.irmaaLookbackTaxYear ?? irmaaLookbackTaxYear,
+                irmaaGuardrailTiming:
+                  instrument.diagnostics.irmaaGuardrailTiming ?? irmaaGuardrailTiming,
+              },
+            };
+          })(),
+    ),
+  };
 }
 
 function isDateInputValue(value: string): boolean {
@@ -317,6 +427,9 @@ function TaxCliffReadout({ instrument }: { instrument: SixPackInstrument }) {
   const acaTiming = stringDiagnostic(instrument, 'acaTiming');
   const irmaaThreshold = numberDiagnostic(instrument, 'irmaaIncomeThreshold');
   const irmaaMargin = numberDiagnostic(instrument, 'irmaaMargin');
+  const irmaaLookbackTaxYear = numberDiagnostic(instrument, 'irmaaLookbackTaxYear');
+  const irmaaFirstMedicareYear = numberDiagnostic(instrument, 'irmaaFirstMedicareYear');
+  const irmaaGuardrailTiming = stringDiagnostic(instrument, 'irmaaGuardrailTiming');
 
   if (
     expectedTax === null &&
@@ -355,7 +468,10 @@ function TaxCliffReadout({ instrument }: { instrument: SixPackInstrument }) {
       : null,
     irmaaThreshold !== null
       ? {
-          label: 'IRMAA threshold',
+          label:
+            irmaaLookbackTaxYear === null
+              ? 'IRMAA threshold'
+              : `IRMAA tax year ${Math.round(irmaaLookbackTaxYear)}`,
           value: `${formatCurrency(irmaaThreshold)} · margin ${
             irmaaMargin === null ? 'n/a' : formatCurrency(irmaaMargin)
           }`,
@@ -379,6 +495,23 @@ function TaxCliffReadout({ instrument }: { instrument: SixPackInstrument }) {
       {acaTiming === 'future_guardrail' ? (
         <p className="mt-2 text-[11px] leading-4 text-stone-500">
           ACA threshold is planning context here, not a current-year guardrail.
+        </p>
+      ) : null}
+      {irmaaGuardrailTiming ? (
+        <p className="mt-1 text-[11px] leading-4 text-stone-500">
+          {irmaaGuardrailTiming === 'current_tax_year'
+            ? `IRMAA guardrail is active this tax year${
+                irmaaFirstMedicareYear === null
+                  ? ''
+                  : ` for ${Math.round(irmaaFirstMedicareYear)} Medicare premiums`
+              }.`
+            : irmaaGuardrailTiming === 'future_tax_year'
+              ? `IRMAA guardrail starts in tax year ${
+                  irmaaLookbackTaxYear === null ? 'unknown' : Math.round(irmaaLookbackTaxYear)
+                }.`
+              : irmaaGuardrailTiming === 'unknown'
+                ? 'IRMAA guardrail timing is unavailable.'
+                : 'IRMAA guardrail is active or ongoing.'}
         </p>
       ) : null}
     </div>
@@ -786,12 +919,17 @@ export function SixPackScreen() {
     [asOfIso, data, hasPendingSimulationChanges, latestEvaluationContext, quoteSnapshot, spending],
   );
 
+  const enrichedApiSnapshot = useMemo(
+    () => enrichTaxGuardrailTiming(apiSnapshot, data, asOfIso),
+    [apiSnapshot, asOfIso, data],
+  );
+
   const snapshot =
     !hasPendingSimulationChanges &&
     !latestEvaluationContext &&
-    apiSnapshot &&
-    apiSnapshot.counts.unknown < localSnapshot.counts.unknown
-      ? apiSnapshot
+    enrichedApiSnapshot &&
+    enrichedApiSnapshot.counts.unknown < localSnapshot.counts.unknown
+      ? enrichedApiSnapshot
       : localSnapshot;
 
   const selectedInstrument =

@@ -108,6 +108,16 @@ function salaryEndYear(value: string): number | null {
   return parsed.getFullYear();
 }
 
+function firstMedicareYear(data: SeedData): number | null {
+  const years = [data.household.robBirthDate, data.household.debbieBirthDate]
+    .map((value) => {
+      const parsed = new Date(value);
+      return Number.isFinite(parsed.getTime()) ? parsed.getFullYear() + 65 : null;
+    })
+    .filter((value): value is number => value !== null);
+  return years.length ? Math.min(...years) : null;
+}
+
 function buildLifestylePace(input: {
   spending: SixPackSpendingContext | null;
   asOfIso: string;
@@ -436,6 +446,24 @@ function buildTaxCliffs(input: {
   const irmaaThreshold = firstIrmaaThresholdForFilingStatus(filingStatus);
   const irmaaMargin =
     projectedMagi === null || irmaaThreshold === null ? null : irmaaThreshold - projectedMagi;
+  const medicareYear = firstMedicareYear(input.data);
+  const irmaaLookbackTaxYear = medicareYear === null ? null : medicareYear - 2;
+  const irmaaGuardrailTiming =
+    irmaaLookbackTaxYear === null
+      ? 'unknown'
+      : asOfYear === irmaaLookbackTaxYear
+        ? 'current_tax_year'
+        : asOfYear < irmaaLookbackTaxYear
+          ? 'future_tax_year'
+          : 'active_or_ongoing';
+  const irmaaTimingText =
+    irmaaLookbackTaxYear === null
+      ? 'IRMAA lookback timing is not modeled because Medicare start year is unavailable.'
+      : irmaaGuardrailTiming === 'current_tax_year'
+        ? `IRMAA is a current ${asOfYear} tax-year guardrail for ${medicareYear} Medicare premiums.`
+        : irmaaGuardrailTiming === 'future_tax_year'
+          ? `IRMAA guardrail starts in tax year ${irmaaLookbackTaxYear} for ${medicareYear} Medicare premiums.`
+          : `IRMAA guardrail is active; ${asOfYear} income affects a later Medicare premium year.`;
   const outlook = input.evaluation?.summary.irmaaOutlook ?? null;
   const normalized = outlook?.toLowerCase() ?? '';
   const status: SixPackStatus = !outlook
@@ -458,7 +486,7 @@ function buildTaxCliffs(input: {
           acaAppliesThisYear
             ? `ACA threshold ${formatCurrency(acaThreshold)}; margin ${formatCurrency(acaMargin ?? 0)}.`
             : `ACA threshold ${formatCurrency(acaThreshold)} is shown for planning context, not as a ${asOfYear} guardrail.`
-        } IRMAA threshold ${irmaaThreshold === null ? 'unavailable' : formatCurrency(irmaaThreshold)}; margin ${irmaaMargin === null ? 'unavailable' : formatCurrency(irmaaMargin)}.`;
+        } ${irmaaTimingText} IRMAA threshold ${irmaaThreshold === null ? 'unavailable' : formatCurrency(irmaaThreshold)}; margin ${irmaaMargin === null ? 'unavailable' : formatCurrency(irmaaMargin)}.`;
 
   return {
     id: 'tax_cliffs',
@@ -489,6 +517,9 @@ function buildTaxCliffs(input: {
       acaTiming: acaAppliesThisYear ? 'current_year_guardrail' : 'future_guardrail',
       irmaaIncomeThreshold: irmaaThreshold,
       irmaaMargin,
+      irmaaFirstMedicareYear: medicareYear,
+      irmaaLookbackTaxYear,
+      irmaaGuardrailTiming,
       irmaaSurcharge: currentYearTax?.medianIrmaaSurcharge ?? null,
       irmaaOutlook: outlook,
     },
