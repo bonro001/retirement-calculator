@@ -70,8 +70,9 @@ function displayHeadline(instrument: SixPackInstrument): string {
 
 function compactCurrency(value: number): string {
   const abs = Math.abs(value);
-  if (abs >= 1_000_000) return `$${(value / 1_000_000).toFixed(1)}M`;
-  if (abs >= 1_000) return `$${(value / 1_000).toFixed(1)}k`;
+  const sign = value < 0 ? '-' : '';
+  if (abs >= 1_000_000) return `${sign}$${(abs / 1_000_000).toFixed(1)}M`;
+  if (abs >= 1_000) return `${sign}$${(abs / 1_000).toFixed(1)}k`;
   return formatCurrency(Math.round(value));
 }
 
@@ -129,6 +130,17 @@ function portfolioProjectionLabel(instrument: SixPackInstrument): string | null 
   if (projectedAnnualChangePercent === null || projectionWindowDays === null) return null;
   const sign = projectedAnnualChangePercent >= 0 ? '+' : '-';
   return `Proj ${sign}${Math.abs(projectedAnnualChangePercent).toFixed(1)}%/yr from ${Math.round(projectionWindowDays)}d`;
+}
+
+function taxMarginLabel(instrument: SixPackInstrument): string | null {
+  if (instrument.id !== 'tax_cliffs') return null;
+  const acaMargin = numberDiagnostic(instrument, 'acaMargin');
+  const irmaaMargin = numberDiagnostic(instrument, 'irmaaMargin');
+  const parts = [
+    acaMargin === null ? null : `ACA ${compactCurrency(acaMargin)}`,
+    irmaaMargin === null ? null : `IRMAA ${compactCurrency(irmaaMargin)}`,
+  ].filter((part): part is string => part !== null);
+  return parts.length ? parts.join(' · ') : null;
 }
 
 function frontMetricClass(instrument: SixPackInstrument): string {
@@ -314,6 +326,7 @@ function SixPackPuck({
   const headline = planIntegrityPercent ?? displayHeadline(instrument);
   const frontMetric = displayFrontMetric(instrument);
   const projectionLabel = portfolioProjectionLabel(instrument);
+  const taxMargins = taxMarginLabel(instrument);
 
   return (
     <button
@@ -358,6 +371,11 @@ function SixPackPuck({
         {projectionLabel ? (
           <p className="mt-1 truncate text-xs font-semibold leading-4 opacity-75">
             {projectionLabel}
+          </p>
+        ) : null}
+        {taxMargins ? (
+          <p className="mt-1 truncate text-xs font-semibold leading-4 opacity-75">
+            {taxMargins}
           </p>
         ) : null}
       </div>
