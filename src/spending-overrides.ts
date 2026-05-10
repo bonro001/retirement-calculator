@@ -264,3 +264,32 @@ export function writeSpendingTransactionOverrides(
     JSON.stringify(overrides),
   );
 }
+
+function newestByUpdatedAt<T extends { updatedAtIso: string }>(left: T | undefined, right: T): T {
+  if (!left) return right;
+  return right.updatedAtIso.localeCompare(left.updatedAtIso) >= 0 ? right : left;
+}
+
+export function mergeSpendingTransactionOverrides(
+  ...maps: SpendingTransactionOverrideMap[]
+): SpendingTransactionOverrideMap {
+  const merged: SpendingTransactionOverrideMap = {};
+  maps.forEach((map) => {
+    Object.entries(map).forEach(([transactionId, override]) => {
+      merged[transactionId] = newestByUpdatedAt(merged[transactionId], override);
+    });
+  });
+  return merged;
+}
+
+export function mergeSpendingMerchantCategoryRules(
+  ...maps: SpendingMerchantCategoryRuleMap[]
+): SpendingMerchantCategoryRuleMap {
+  const merged: SpendingMerchantCategoryRuleMap = {};
+  maps.forEach((map) => {
+    Object.entries(map).forEach(([merchantKey, rule]) => {
+      merged[merchantKey] = newestByUpdatedAt(merged[merchantKey], rule);
+    });
+  });
+  return merged;
+}
