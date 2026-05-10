@@ -72,6 +72,13 @@ function progressWidth(value: number): string {
   return `${Math.min(100, Math.max(0, value)).toFixed(2)}%`;
 }
 
+function monthProgressPercent(asOfIso: string): number {
+  const asOf = new Date(asOfIso);
+  if (!Number.isFinite(asOf.getTime())) return 0;
+  const daysInMonth = new Date(asOf.getFullYear(), asOf.getMonth() + 1, 0).getDate();
+  return ((asOf.getDate() - 1 + asOf.getHours() / 24) / daysInMonth) * 100;
+}
+
 function numberDiagnostic(
   instrument: SixPackInstrument,
   key: string,
@@ -80,15 +87,21 @@ function numberDiagnostic(
   return typeof value === 'number' && Number.isFinite(value) ? value : null;
 }
 
-function LifestylePaceMiniBar({ instrument }: { instrument: SixPackInstrument }) {
+function LifestylePaceMiniBar({
+  instrument,
+  asOfIso,
+}: {
+  instrument: SixPackInstrument;
+  asOfIso: string;
+}) {
   const spent = numberDiagnostic(instrument, 'monthlyOperatingSpent');
   const budget = numberDiagnostic(instrument, 'monthlyOperatingBudget');
-  const elapsedPercent = numberDiagnostic(instrument, 'monthElapsedPercent');
+  const elapsedPercent =
+    numberDiagnostic(instrument, 'monthElapsedPercent') ?? monthProgressPercent(asOfIso);
 
   if (spent === null || budget === null || budget <= 0) return null;
 
   const spentPercent = (spent / budget) * 100;
-  const markerPercent = elapsedPercent ?? 0;
   const overBudget = spentPercent > 100;
 
   return (
@@ -103,13 +116,11 @@ function LifestylePaceMiniBar({ instrument }: { instrument: SixPackInstrument })
           }`}
           style={{ width: progressWidth(spentPercent) }}
         />
-        {elapsedPercent !== null ? (
-          <div
-            className="absolute top-[-4px] h-[18px] w-0.5 rounded-full bg-stone-950/80"
-            style={{ left: progressWidth(markerPercent) }}
-            title={`${Math.round(markerPercent)}% of month elapsed`}
-          />
-        ) : null}
+        <div
+          className="absolute top-[-5px] z-10 h-5 w-1 -translate-x-1/2 rounded-full bg-stone-950 shadow-[0_0_0_2px_rgba(255,255,255,0.9)]"
+          style={{ left: progressWidth(elapsedPercent) }}
+          title={`${Math.round(elapsedPercent)}% of month elapsed`}
+        />
       </div>
     </div>
   );
@@ -117,10 +128,12 @@ function LifestylePaceMiniBar({ instrument }: { instrument: SixPackInstrument })
 
 function SixPackPuck({
   instrument,
+  asOfIso,
   selected,
   onSelect,
 }: {
   instrument: SixPackInstrument;
+  asOfIso: string;
   selected: boolean;
   onSelect: () => void;
 }) {
@@ -155,7 +168,9 @@ function SixPackPuck({
             {instrument.frontMetric}
           </p>
         ) : null}
-        {showLifestyleBar ? <LifestylePaceMiniBar instrument={instrument} /> : null}
+        {showLifestyleBar ? (
+          <LifestylePaceMiniBar instrument={instrument} asOfIso={asOfIso} />
+        ) : null}
       </div>
     </button>
   );
@@ -415,6 +430,7 @@ export function SixPackScreen() {
             <SixPackPuck
               key={instrument.id}
               instrument={instrument}
+              asOfIso={snapshot.asOfIso}
               selected={selectedInstrument.id === instrument.id}
               onSelect={() => setSelectedId(instrument.id)}
             />
