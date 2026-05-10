@@ -192,6 +192,12 @@ function buildPortfolioWeather(input: {
       input.weather.changeDollars >= 0
         ? `up ${formatCurrency(input.weather.changeDollars)}`
         : `down ${formatCurrency(Math.abs(input.weather.changeDollars))}`;
+    const trendWord =
+      input.weather.changePercent > 1
+        ? 'up'
+        : input.weather.changePercent < -1
+          ? 'down'
+          : 'flat';
     const heldAtImportNote =
       input.weather.heldAtImportValue > 0
         ? ` ${formatCurrency(input.weather.heldAtImportValue)} is held at last-import value (${formatCurrency(input.weather.cashValueHeldAtImport)} cash or money market, ${formatCurrency(input.weather.missingQuoteValueHeldAtImport + input.weather.missingShareValueHeldAtImport)} unpriced), so cash sweeps, contributions, and unquoted holdings can move the next Fidelity export.`
@@ -208,6 +214,7 @@ function buildPortfolioWeather(input: {
             ? 'down'
             : 'flat',
       headline,
+      frontMetric: `${compactCurrency(input.weather.estimatedValue)} · ${trendWord} ${Math.abs(input.weather.changePercent).toFixed(1)}%`,
       reason:
         status === 'green'
           ? 'Quoted market holdings are steady or higher since the last Fidelity import.'
@@ -332,6 +339,12 @@ function buildTaxCliffs(input: {
     : normalized.includes('frequent') || normalized.includes('surcharge')
       ? 'amber'
       : 'green';
+  const frontMetric =
+    status === 'green'
+      ? 'No cliff pressure now'
+      : status === 'amber'
+        ? 'IRMAA pressure showing'
+        : 'Run plan for cliff read';
 
   return {
     id: 'tax_cliffs',
@@ -340,6 +353,7 @@ function buildTaxCliffs(input: {
     status,
     trend: 'flat',
     headline: status === 'green' ? 'CLEAR' : status === 'amber' ? 'WATCH' : 'NO RUN',
+    frontMetric,
     reason:
       status === 'green'
         ? 'Latest model does not show meaningful cliff pressure.'

@@ -68,12 +68,59 @@ function displayHeadline(instrument: SixPackInstrument): string {
   return instrument.headline;
 }
 
+function compactCurrency(value: number): string {
+  const abs = Math.abs(value);
+  if (abs >= 1_000_000) return `$${(value / 1_000_000).toFixed(1)}M`;
+  if (abs >= 1_000) return `$${(value / 1_000).toFixed(1)}k`;
+  return formatCurrency(Math.round(value));
+}
+
 function planIntegrityPercentLabel(instrument: SixPackInstrument): string | null {
   if (instrument.id !== 'plan_integrity') return null;
   const successRate = numberDiagnostic(instrument, 'successRate');
   if (successRate === null) return instrument.frontMetric ?? null;
   const normalized = successRate <= 1 ? successRate * 100 : successRate;
   return `${Math.round(normalized)}%`;
+}
+
+function weatherMetricLabel(instrument: SixPackInstrument): string | null {
+  if (instrument.id !== 'portfolio_weather') return null;
+  if (instrument.frontMetric) return instrument.frontMetric;
+
+  const estimatedValue = numberDiagnostic(instrument, 'estimatedValue');
+  const changePercent = numberDiagnostic(instrument, 'changePercent');
+  if (estimatedValue === null || changePercent === null) return null;
+
+  const direction = changePercent > 1 ? 'up' : changePercent < -1 ? 'down' : 'flat';
+  return `${compactCurrency(estimatedValue)} · ${direction} ${Math.abs(changePercent).toFixed(1)}%`;
+}
+
+function taxMetricLabel(instrument: SixPackInstrument): string | null {
+  if (instrument.id !== 'tax_cliffs') return null;
+  if (instrument.frontMetric) return instrument.frontMetric;
+  if (instrument.status === 'green') return 'No cliff pressure now';
+  if (instrument.status === 'amber') return 'IRMAA pressure showing';
+  if (instrument.status === 'unknown') return 'Run plan for cliff read';
+  return null;
+}
+
+function displayFrontMetric(instrument: SixPackInstrument): string | null {
+  return (
+    weatherMetricLabel(instrument) ??
+    taxMetricLabel(instrument) ??
+    instrument.frontMetric ??
+    null
+  );
+}
+
+function frontMetricClass(instrument: SixPackInstrument): string {
+  if (instrument.id === 'tax_cliffs') {
+    return 'text-sm font-semibold leading-5 tracking-normal';
+  }
+  if (instrument.id === 'portfolio_weather') {
+    return 'text-sm font-semibold leading-5 tracking-normal tabular-nums';
+  }
+  return 'text-base font-semibold leading-5 tracking-normal';
 }
 
 function progressWidth(value: number): string {
@@ -148,6 +195,7 @@ function SixPackPuck({
   const showLifestyleBar = instrument.id === 'lifestyle_pace';
   const planIntegrityPercent = planIntegrityPercentLabel(instrument);
   const headline = planIntegrityPercent ?? displayHeadline(instrument);
+  const frontMetric = displayFrontMetric(instrument);
 
   return (
     <button
@@ -180,9 +228,9 @@ function SixPackPuck({
           <p className="mt-0.5 truncate text-xs font-semibold uppercase tracking-[0.12em] opacity-75">
             {displayHeadline(instrument)}
           </p>
-        ) : instrument.frontMetric ? (
-          <p className="mt-1 truncate text-base font-semibold leading-5 tracking-normal">
-            {instrument.frontMetric}
+        ) : frontMetric ? (
+          <p className={`mt-1 truncate ${frontMetricClass(instrument)}`}>
+            {frontMetric}
           </p>
         ) : null}
         {showLifestyleBar ? (

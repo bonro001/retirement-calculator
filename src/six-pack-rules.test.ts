@@ -118,6 +118,7 @@ describe('buildSixPackSnapshot', () => {
       summary: {
         successRate: 0.852,
         planVerdict: 'Strong',
+        irmaaOutlook: 'No meaningful cliff pressure.',
       },
       trustPanel: {
         safeToRely: true,
@@ -141,6 +142,35 @@ describe('buildSixPackSnapshot', () => {
     expect(planIntegrity?.headline).toBe('FUNDED');
     expect(planIntegrity?.frontMetric).toBe('85%');
     expect(planIntegrity?.diagnostics.successRate).toBe(0.852);
+  });
+
+  it('puts a short plain-English tax readout on the tax puck', () => {
+    const evaluation = {
+      summary: {
+        successRate: 0.9,
+        planVerdict: 'Strong',
+        irmaaOutlook: 'No meaningful cliff pressure.',
+      },
+      trustPanel: {
+        safeToRely: true,
+        confidence: 'high',
+        summary: 'Trust checks passed.',
+      },
+    } as unknown as PlanEvaluation;
+
+    const snapshot = buildSixPackSnapshot({
+      data: cloneSeedData(),
+      spending: spendingContext(7_000),
+      portfolioWeather: null,
+      evaluation,
+      evaluationCapturedAtIso: asOfIso,
+      asOfIso,
+    });
+
+    const tax = snapshot.instruments.find((item) => item.id === 'tax_cliffs');
+    expect(tax?.status).toBe('green');
+    expect(tax?.headline).toBe('CLEAR');
+    expect(tax?.frontMetric).toBe('No cliff pressure now');
   });
 
   it('keeps absorbed annual escrow swings green in watch items', () => {
@@ -238,5 +268,6 @@ describe('buildSixPackSnapshot', () => {
     const weather = snapshot.instruments.find((item) => item.id === 'portfolio_weather');
     expect(weather?.status).toBe('green');
     expect(weather?.headline).toBe('TAILWIND');
+    expect(weather?.frontMetric).toBe('$101.5k · up 1.5%');
   });
 });
