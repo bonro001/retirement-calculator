@@ -119,6 +119,18 @@ function displayFrontMetric(instrument: SixPackInstrument): string | null {
   );
 }
 
+function portfolioProjectionLabel(instrument: SixPackInstrument): string | null {
+  if (instrument.id !== 'portfolio_weather') return null;
+  const projectedAnnualChangePercent = numberDiagnostic(
+    instrument,
+    'projectedAnnualChangePercent',
+  );
+  const projectionWindowDays = numberDiagnostic(instrument, 'projectionWindowDays');
+  if (projectedAnnualChangePercent === null || projectionWindowDays === null) return null;
+  const sign = projectedAnnualChangePercent >= 0 ? '+' : '-';
+  return `Proj ${sign}${Math.abs(projectedAnnualChangePercent).toFixed(1)}%/yr from ${Math.round(projectionWindowDays)}d`;
+}
+
 function frontMetricClass(instrument: SixPackInstrument): string {
   if (instrument.id === 'tax_cliffs') {
     return 'text-sm font-semibold leading-5 tracking-normal';
@@ -227,6 +239,71 @@ function YearlyBucketsMiniBar({ instrument }: { instrument: SixPackInstrument })
   );
 }
 
+function TaxCliffReadout({ instrument }: { instrument: SixPackInstrument }) {
+  if (instrument.id !== 'tax_cliffs') return null;
+
+  const expectedTax = numberDiagnostic(instrument, 'expectedFederalTax');
+  const expectedTaxYear = numberDiagnostic(instrument, 'expectedFederalTaxYear');
+  const projectedMagi = numberDiagnostic(instrument, 'projectedMagi');
+  const acaThreshold = numberDiagnostic(instrument, 'acaIncomeThreshold');
+  const acaMargin = numberDiagnostic(instrument, 'acaMargin');
+  const irmaaThreshold = numberDiagnostic(instrument, 'irmaaIncomeThreshold');
+  const irmaaMargin = numberDiagnostic(instrument, 'irmaaMargin');
+
+  if (
+    expectedTax === null &&
+    projectedMagi === null &&
+    acaThreshold === null &&
+    irmaaThreshold === null
+  ) {
+    return null;
+  }
+
+  const rows = [
+    expectedTax !== null
+      ? {
+          label: `Expected tax ${expectedTaxYear ? Math.round(expectedTaxYear) : ''}`.trim(),
+          value: formatCurrency(expectedTax),
+        }
+      : null,
+    projectedMagi !== null
+      ? { label: 'Projected MAGI', value: formatCurrency(projectedMagi) }
+      : null,
+    acaThreshold !== null
+      ? {
+          label: 'ACA threshold',
+          value: `${formatCurrency(acaThreshold)} · margin ${
+            acaMargin === null ? 'n/a' : formatCurrency(acaMargin)
+          }`,
+        }
+      : null,
+    irmaaThreshold !== null
+      ? {
+          label: 'IRMAA threshold',
+          value: `${formatCurrency(irmaaThreshold)} · margin ${
+            irmaaMargin === null ? 'n/a' : formatCurrency(irmaaMargin)
+          }`,
+        }
+      : null,
+  ].filter((row): row is { label: string; value: string } => row !== null);
+
+  return (
+    <div className="mt-4 rounded-xl bg-stone-50 p-3">
+      <p className="text-xs font-semibold uppercase tracking-[0.14em] text-stone-400">
+        Current Tax Read
+      </p>
+      <dl className="mt-2 space-y-1 text-xs">
+        {rows.map((row) => (
+          <div key={row.label} className="flex justify-between gap-3">
+            <dt className="text-stone-500">{row.label}</dt>
+            <dd className="font-semibold text-stone-900">{row.value}</dd>
+          </div>
+        ))}
+      </dl>
+    </div>
+  );
+}
+
 function SixPackPuck({
   instrument,
   asOfIso,
@@ -243,6 +320,7 @@ function SixPackPuck({
   const planIntegrityPercent = planIntegrityPercentLabel(instrument);
   const headline = planIntegrityPercent ?? displayHeadline(instrument);
   const frontMetric = displayFrontMetric(instrument);
+  const projectionLabel = portfolioProjectionLabel(instrument);
 
   return (
     <button
@@ -284,6 +362,11 @@ function SixPackPuck({
           <LifestylePaceMiniBar instrument={instrument} asOfIso={asOfIso} />
         ) : null}
         {showYearlyBar ? <YearlyBucketsMiniBar instrument={instrument} /> : null}
+        {projectionLabel ? (
+          <p className="mt-1 truncate text-xs font-semibold leading-4 opacity-75">
+            {projectionLabel}
+          </p>
+        ) : null}
       </div>
     </button>
   );
@@ -339,14 +422,17 @@ function SixPackDetail({ instrument }: { instrument: SixPackInstrument }) {
       </div>
 
       {Object.keys(instrument.diagnostics).length ? (
-        <dl className="mt-4 grid gap-2 border-t border-stone-200 pt-4 text-xs">
-          {Object.entries(instrument.diagnostics).map(([key, value]) => (
-            <div key={key} className="flex justify-between gap-3">
-              <dt className="text-stone-500">{key}</dt>
-              <dd className="font-semibold text-stone-900">{String(value)}</dd>
-            </div>
-          ))}
-        </dl>
+        <>
+          <TaxCliffReadout instrument={instrument} />
+          <dl className="mt-4 grid gap-2 border-t border-stone-200 pt-4 text-xs">
+            {Object.entries(instrument.diagnostics).map(([key, value]) => (
+              <div key={key} className="flex justify-between gap-3">
+                <dt className="text-stone-500">{key}</dt>
+                <dd className="font-semibold text-stone-900">{String(value)}</dd>
+              </div>
+            ))}
+          </dl>
+        </>
       ) : null}
     </aside>
   );

@@ -9,6 +9,7 @@ import type { SixPackSpendingContext } from './six-pack-spending';
 import { formatCurrency } from './utils';
 import { rollupHoldingsToAssetClasses } from './asset-class-mapper';
 import type { PortfolioWeatherSnapshot } from './portfolio-weather';
+import { CURRENT_LAW_2026_RULE_PACK } from './rule-packs';
 
 const STALE_LEDGER_DAYS = 7;
 
@@ -25,6 +26,32 @@ function daysBetween(leftIso: string | null, rightIso: string): number | null {
   const right = new Date(rightIso).getTime();
   if (!Number.isFinite(left) || !Number.isFinite(right)) return null;
   return Math.max(0, (right - left) / 86_400_000);
+}
+
+function dateOnlyIso(value: string | null): string | null {
+  if (!value) return null;
+  return value.includes('T') ? value : `${value}T12:00:00.000Z`;
+}
+
+function signedPercent(value: number): string {
+  const sign = value >= 0 ? '+' : '-';
+  return `${sign}${Math.abs(value).toFixed(1)}%`;
+}
+
+function annualizedChangePercent(input: {
+  startValue: number;
+  endValue: number;
+  days: number | null;
+}): number | null {
+  if (
+    input.days === null ||
+    input.days < 1 ||
+    input.startValue <= 0 ||
+    input.endValue <= 0
+  ) {
+    return null;
+  }
+  return (Math.pow(input.endValue / input.startValue, 365 / input.days) - 1) * 100;
 }
 
 function worseStatus(left: SixPackStatus, right: SixPackStatus): SixPackStatus {
@@ -52,6 +79,27 @@ function yearElapsedPercent(asOfIso: string): number {
   const start = new Date(asOf.getFullYear(), 0, 1).getTime();
   const end = new Date(asOf.getFullYear() + 1, 0, 1).getTime();
   return ((asOf.getTime() - start) / (end - start)) * 100;
+}
+
+function householdSizeForFilingStatus(status: string): number {
+  return status === 'married_filing_jointly' ? 2 : 1;
+}
+
+function acaThresholdForFilingStatus(status: string): number {
+  const householdSize = householdSizeForFilingStatus(status);
+  const fplBySize = CURRENT_LAW_2026_RULE_PACK.aca.federalPovertyLevelByHouseholdSize;
+  const fplBySizeLookup = fplBySize as Record<number, number>;
+  const fpl =
+    fplBySizeLookup[householdSize] ??
+    fplBySizeLookup[4] +
+      Math.max(0, householdSize - 4) * CURRENT_LAW_2026_RULE_PACK.aca.fplAdditionalPerson;
+  return fpl * CURRENT_LAW_2026_RULE_PACK.aca.subsidyEligibilityMaxFplRatio;
+}
+
+function firstIrmaaThresholdForFilingStatus(status: string): number | null {
+  const filingStatus = status as keyof typeof CURRENT_LAW_2026_RULE_PACK.irmaa.brackets;
+  const brackets = CURRENT_LAW_2026_RULE_PACK.irmaa.brackets[filingStatus];
+  return brackets?.[0]?.maxMagi ?? null;
 }
 
 function buildLifestylePace(input: {
@@ -206,6 +254,19 @@ function buildPortfolioWeather(input: {
         : input.weather.changePercent < -1
           ? 'down'
           : 'flat';
+    const projectionWindowDays = daysBetween(
+      dateOnlyIso(input.weather.importAsOfDate),
+      input.weather.quoteAsOfIso ?? input.weather.asOfIso,
+    );
+    const projectedAnnualChangePercent = annualizedChangePercent({
+      startValue: input.weather.importValue,
+      endValue: input.weather.estimatedValue,
+      days: projectionWindowDays,
+    });
+    const projectionText =
+      projectedAnnualChangePercent === null
+        ? 'Projection needs more quote history.'
+        : `If the ${Math.round(projectionWindowDays ?? 0)}-day import-to-now pace persisted, the implied annual pace would be ${signedPercent(projectedAnnualChangePercent)}.`;
     const heldAtImportNote =
       input.weather.heldAtImportValue > 0
         ? ` ${formatCurrency(input.weather.heldAtImportValue)} is held at last-import value (${formatCurrency(input.weather.cashValueHeldAtImport)} cash or money market, ${formatCurrency(input.weather.missingQuoteValueHeldAtImport + input.weather.missingShareValueHeldAtImport)} unpriced), so cash sweeps, contributions, and unquoted holdings can move the next Fidelity export.`
@@ -232,7 +293,7 @@ function buildPortfolioWeather(input: {
               : 'Markets are a headwind versus the last Fidelity import.'
             : 'Estimated market movement is a storm-level drawdown versus the last Fidelity import.',
       rule: 'Green when estimated value is no worse than 1% below the last import with at least 80% quote coverage; amber from -1% to -5% or limited coverage; red below -5%.',
-      detail: `Estimated value is ${formatCurrency(input.weather.estimatedValue)}, ${signedChange} (${input.weather.changePercent.toFixed(2)}%) versus the last Fidelity import value of ${formatCurrency(input.weather.importValue)}.${heldAtImportNote}`,
+      detail: `Estimated value is ${formatCurrency(input.weather.estimatedValue)}, ${signedChange} (${input.weather.changePercent.toFixed(2)}%) versus the last Fidelity import value of ${formatCurrency(input.weather.importValue)}. ${projectionText}${heldAtImportNote}`,
       actionLabel: 'Open Accounts',
       sourceFreshness: dataFreshness(input.weather.quoteAsOfIso, input.asOfIso, 'market quotes'),
       diagnostics: {
@@ -241,6 +302,12 @@ function buildPortfolioWeather(input: {
         changeDollars: input.weather.changeDollars,
         changePercent: input.weather.changePercent,
         quoteCoveragePercent: input.weather.quoteCoveragePercent,
+        projectedAnnualChangePercent:
+          projectedAnnualChangePercent === null
+            ? null
+            : Number(projectedAnnualChangePercent.toFixed(2)),
+        projectionWindowDays:
+          projectionWindowDays === null ? null : Number(projectionWindowDays.toFixed(1)),
         quotedImportValue: input.weather.quotedImportValue,
         quotedEstimatedValue: input.weather.quotedEstimatedValue,
         cashValueHeldAtImport: input.weather.cashValueHeldAtImport,
@@ -336,10 +403,23 @@ function buildPlanIntegrity(input: {
 }
 
 function buildTaxCliffs(input: {
+  data: SeedData;
   evaluation: PlanEvaluation | null;
   evaluationCapturedAtIso: string | null;
   asOfIso: string;
 }): SixPackInstrument {
+  const asOfYear = new Date(input.asOfIso).getFullYear();
+  const currentYearTax = input.evaluation?.raw?.baselinePath?.yearlySeries?.find(
+    (year) => year.year === asOfYear,
+  );
+  const projectedMagi = currentYearTax?.medianMagi ?? null;
+  const expectedFederalTax = currentYearTax?.medianFederalTax ?? null;
+  const filingStatus = input.data.household.filingStatus;
+  const acaThreshold = acaThresholdForFilingStatus(filingStatus);
+  const acaMargin = projectedMagi === null ? null : acaThreshold - projectedMagi;
+  const irmaaThreshold = firstIrmaaThresholdForFilingStatus(filingStatus);
+  const irmaaMargin =
+    projectedMagi === null || irmaaThreshold === null ? null : irmaaThreshold - projectedMagi;
   const outlook = input.evaluation?.summary.irmaaOutlook ?? null;
   const normalized = outlook?.toLowerCase() ?? '';
   const status: SixPackStatus = !outlook
@@ -348,11 +428,17 @@ function buildTaxCliffs(input: {
       ? 'amber'
       : 'green';
   const frontMetric =
-    status === 'green'
-      ? 'No cliff pressure now'
-      : status === 'amber'
-        ? 'IRMAA pressure showing'
-        : 'Run plan for cliff read';
+    expectedFederalTax === null
+      ? status === 'green'
+        ? 'No cliff pressure now'
+        : status === 'amber'
+          ? 'IRMAA pressure showing'
+          : 'Run plan for cliff read'
+      : `Tax ${asOfYear} ${compactCurrency(expectedFederalTax)}`;
+  const thresholdDetail =
+    projectedMagi === null
+      ? 'MAGI threshold margins need a plan run.'
+      : `Projected ${asOfYear} MAGI is ${formatCurrency(projectedMagi)}. ACA threshold ${formatCurrency(acaThreshold)}; margin ${formatCurrency(acaMargin ?? 0)}. IRMAA threshold ${irmaaThreshold === null ? 'unavailable' : formatCurrency(irmaaThreshold)}; margin ${irmaaMargin === null ? 'unavailable' : formatCurrency(irmaaMargin)}.`;
 
   return {
     id: 'tax_cliffs',
@@ -369,10 +455,19 @@ function buildTaxCliffs(input: {
           ? 'Latest IRMAA or tax outlook has pressure worth watching.'
           : 'Tax cliff projection is not available yet.',
     rule: 'Green when the current plan reports no meaningful ACA/IRMAA pressure; amber when modeled surcharge or cliff pressure appears; red reserved for explicit current-year breach once MAGI projection is wired.',
-    detail: outlook ?? 'Run plan analysis to populate tax and healthcare cliff status.',
+    detail: `${expectedFederalTax === null ? '' : `Expected ${asOfYear} federal tax is ${formatCurrency(expectedFederalTax)}. `}${thresholdDetail} ${outlook ?? 'Run plan analysis to populate tax and healthcare cliff status.'}`.trim(),
     actionLabel: 'Open Taxes',
     sourceFreshness: dataFreshness(input.evaluationCapturedAtIso, input.asOfIso, 'plan evaluation'),
     diagnostics: {
+      expectedFederalTaxYear: expectedFederalTax === null ? null : asOfYear,
+      expectedFederalTax,
+      projectedMagi,
+      acaIncomeThreshold: acaThreshold,
+      acaMargin,
+      acaAppliesThisYear: (currentYearTax?.medianAcaPremiumEstimate ?? 0) > 0,
+      irmaaIncomeThreshold: irmaaThreshold,
+      irmaaMargin,
+      irmaaSurcharge: currentYearTax?.medianIrmaaSurcharge ?? null,
       irmaaOutlook: outlook,
     },
   };
@@ -456,6 +551,7 @@ export function buildSixPackSnapshot(input: {
       asOfIso: input.asOfIso,
     }),
     buildTaxCliffs({
+      data: input.data,
       evaluation: input.evaluation,
       evaluationCapturedAtIso: input.evaluationCapturedAtIso,
       asOfIso: input.asOfIso,

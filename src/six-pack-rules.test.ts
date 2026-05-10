@@ -125,6 +125,19 @@ describe('buildSixPackSnapshot', () => {
         confidence: 'high',
         summary: 'Trust checks passed.',
       },
+      raw: {
+        baselinePath: {
+          yearlySeries: [
+            {
+              year: 2026,
+              medianFederalTax: 22_415,
+              medianMagi: 182_161,
+              medianAcaPremiumEstimate: 0,
+              medianIrmaaSurcharge: 0,
+            },
+          ],
+        },
+      },
     } as unknown as PlanEvaluation;
 
     const snapshot = buildSixPackSnapshot({
@@ -156,6 +169,19 @@ describe('buildSixPackSnapshot', () => {
         confidence: 'high',
         summary: 'Trust checks passed.',
       },
+      raw: {
+        baselinePath: {
+          yearlySeries: [
+            {
+              year: 2026,
+              medianFederalTax: 22_415,
+              medianMagi: 182_161,
+              medianAcaPremiumEstimate: 0,
+              medianIrmaaSurcharge: 0,
+            },
+          ],
+        },
+      },
     } as unknown as PlanEvaluation;
 
     const snapshot = buildSixPackSnapshot({
@@ -170,7 +196,12 @@ describe('buildSixPackSnapshot', () => {
     const tax = snapshot.instruments.find((item) => item.id === 'tax_cliffs');
     expect(tax?.status).toBe('green');
     expect(tax?.headline).toBe('CLEAR');
-    expect(tax?.frontMetric).toBe('No cliff pressure now');
+    expect(tax?.frontMetric).toBe('Tax 2026 $22.4k');
+    expect(tax?.diagnostics.expectedFederalTax).toBe(22_415);
+    expect(tax?.diagnostics.acaIncomeThreshold).toBe(84_600);
+    expect(tax?.diagnostics.acaMargin).toBe(-97_561);
+    expect(tax?.diagnostics.irmaaIncomeThreshold).toBe(218_000);
+    expect(tax?.diagnostics.irmaaMargin).toBe(35_839);
   });
 
   it('shows yearly bucket progress without treating early annual bills as behind', () => {
@@ -273,5 +304,7 @@ describe('buildSixPackSnapshot', () => {
     expect(weather?.status).toBe('green');
     expect(weather?.headline).toBe('TAILWIND');
     expect(weather?.frontMetric).toBe('$101.5k · up 1.5%');
+    expect(weather?.diagnostics.projectedAnnualChangePercent).toBeGreaterThan(70);
+    expect(weather?.diagnostics.projectionWindowDays).toBe(10);
   });
 });
