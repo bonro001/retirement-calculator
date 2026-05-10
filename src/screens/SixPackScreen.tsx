@@ -120,6 +120,11 @@ function displayFrontMetric(instrument: SixPackInstrument): string | null {
   );
 }
 
+function snapshotHasAcaTiming(snapshot: SixPackSnapshot): boolean {
+  const taxInstrument = snapshot.instruments.find((instrument) => instrument.id === 'tax_cliffs');
+  return typeof taxInstrument?.diagnostics.acaTiming === 'string';
+}
+
 function portfolioProjectionLabel(instrument: SixPackInstrument): string | null {
   if (instrument.id !== 'portfolio_weather') return null;
   const projectedAnnualChangePercent = numberDiagnostic(
@@ -135,9 +140,15 @@ function portfolioProjectionLabel(instrument: SixPackInstrument): string | null 
 function taxMarginLabel(instrument: SixPackInstrument): string | null {
   if (instrument.id !== 'tax_cliffs') return null;
   const acaMargin = numberDiagnostic(instrument, 'acaMargin');
+  const acaAppliesThisYear = instrument.diagnostics.acaAppliesThisYear === true;
+  const acaGuardrailYear = numberDiagnostic(instrument, 'acaGuardrailYear');
   const irmaaMargin = numberDiagnostic(instrument, 'irmaaMargin');
   const parts = [
-    acaMargin === null ? null : `ACA ${compactCurrency(acaMargin)}`,
+    acaAppliesThisYear && acaMargin !== null
+      ? `ACA ${compactCurrency(acaMargin)}`
+      : acaGuardrailYear === null
+        ? 'ACA timing n/a'
+        : 'ACA not active yet',
     irmaaMargin === null ? null : `IRMAA ${compactCurrency(irmaaMargin)}`,
   ].filter((part): part is string => part !== null);
   return parts.length ? parts.join(' · ') : null;
@@ -173,6 +184,53 @@ function numberDiagnostic(
 ): number | null {
   const value = instrument.diagnostics[key];
   return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
+function stringDiagnostic(
+  instrument: SixPackInstrument,
+  key: string,
+): string | null {
+  const value = instrument.diagnostics[key];
+  return typeof value === 'string' ? value : null;
+}
+
+function toDateInputValue(value: string): string {
+  const parsed = new Date(value);
+  if (!Number.isFinite(parsed.getTime())) return '';
+  return parsed.toISOString().slice(0, 10);
+}
+
+function isDateInputValue(value: string): boolean {
+  return /^\d{4}-\d{2}-\d{2}$/.test(value) && Number.isFinite(new Date(value).getTime());
+}
+
+function formatDateInputLabel(value: string): string {
+  const [year, month, day] = value.split('-').map((part) => Number(part));
+  if (!year || !month || !day) return 'Invalid date';
+  return new Date(year, month - 1, day).toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  });
+}
+
+function retirementDateDeltaLabel(appliedValue: string, draftValue: string): string | null {
+  const applied = new Date(appliedValue);
+  const draft = new Date(draftValue);
+  if (!Number.isFinite(applied.getTime()) || !Number.isFinite(draft.getTime())) return null;
+  const appliedMonth = applied.getFullYear() * 12 + applied.getMonth();
+  const draftMonth = draft.getFullYear() * 12 + draft.getMonth();
+  const delta = draftMonth - appliedMonth;
+  if (delta === 0) return 'same month as current plan';
+  const direction = delta > 0 ? 'later' : 'earlier';
+  const abs = Math.abs(delta);
+  const years = Math.floor(abs / 12);
+  const months = abs % 12;
+  const parts = [
+    years ? `${years} yr${years === 1 ? '' : 's'}` : null,
+    months ? `${months} mo` : null,
+  ].filter((part): part is string => part !== null);
+  return `${parts.join(' ')} ${direction}`;
 }
 
 function LifestylePaceMiniBar({
@@ -252,6 +310,9 @@ function TaxCliffReadout({ instrument }: { instrument: SixPackInstrument }) {
   const projectedMagi = numberDiagnostic(instrument, 'projectedMagi');
   const acaThreshold = numberDiagnostic(instrument, 'acaIncomeThreshold');
   const acaMargin = numberDiagnostic(instrument, 'acaMargin');
+  const acaGuardrailYear = numberDiagnostic(instrument, 'acaGuardrailYear');
+  const acaAppliesThisYear = instrument.diagnostics.acaAppliesThisYear === true;
+  const acaTiming = stringDiagnostic(instrument, 'acaTiming');
   const irmaaThreshold = numberDiagnostic(instrument, 'irmaaIncomeThreshold');
   const irmaaMargin = numberDiagnostic(instrument, 'irmaaMargin');
 
@@ -274,11 +335,19 @@ function TaxCliffReadout({ instrument }: { instrument: SixPackInstrument }) {
     projectedMagi !== null
       ? { label: 'Projected MAGI', value: formatCurrency(projectedMagi) }
       : null,
-    acaThreshold !== null
+    acaThreshold !== null && acaAppliesThisYear
       ? {
           label: 'ACA threshold',
           value: `${formatCurrency(acaThreshold)} · margin ${
             acaMargin === null ? 'n/a' : formatCurrency(acaMargin)
+          }`,
+        }
+      : null,
+    acaThreshold !== null && !acaAppliesThisYear
+      ? {
+          label: 'ACA guardrail',
+          value: `Not active now${
+            acaGuardrailYear === null ? '' : ` · bridge ${Math.round(acaGuardrailYear)}`
           }`,
         }
       : null,
@@ -305,6 +374,106 @@ function TaxCliffReadout({ instrument }: { instrument: SixPackInstrument }) {
           </div>
         ))}
       </dl>
+      {acaTiming === 'future_guardrail' ? (
+        <p className="mt-2 text-[11px] leading-4 text-stone-500">
+          ACA threshold is planning context here, not a current-year guardrail.
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+function RetirementDateControl({
+  value,
+  appliedValue,
+  pending,
+  onChange,
+  onApplyAndRerun,
+  onReset,
+}: {
+  value: string;
+  appliedValue: string;
+  pending: boolean;
+  onChange: (value: string) => void;
+  onApplyAndRerun: () => void;
+  onReset: () => void;
+}) {
+  const valueForInput = toDateInputValue(value);
+  const appliedForInput = toDateInputValue(appliedValue);
+  const deltaLabel = retirementDateDeltaLabel(appliedValue, value);
+  const currentLabel = valueForInput ? formatDateInputLabel(valueForInput) : 'Invalid date';
+  const [textValue, setTextValue] = useState(valueForInput);
+
+  useEffect(() => {
+    setTextValue(valueForInput);
+  }, [valueForInput]);
+
+  const applyTextValue = () => {
+    if (isDateInputValue(textValue)) {
+      onChange(textValue);
+      return;
+    }
+    setTextValue(valueForInput);
+  };
+
+  return (
+    <div className="mt-3 rounded-xl border border-stone-200 bg-white px-4 py-3 shadow-sm">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-stone-500">
+            Simulation Retirement Date
+          </p>
+          <p className="mt-1 text-sm text-stone-700">
+            Salary ends {currentLabel}
+            {deltaLabel ? ` · ${deltaLabel}` : ''}
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <input
+            type="date"
+            value={valueForInput}
+            onChange={(event) => {
+              const next = event.target.value;
+              if (isDateInputValue(next)) onChange(next);
+            }}
+            className="h-9 rounded-lg border border-stone-300 bg-white px-3 text-sm font-medium text-stone-800"
+          />
+          <input
+            type="text"
+            inputMode="numeric"
+            value={textValue}
+            placeholder="YYYY-MM-DD"
+            onChange={(event) => setTextValue(event.target.value)}
+            onBlur={applyTextValue}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') applyTextValue();
+            }}
+            className="h-9 w-28 rounded-lg border border-stone-300 bg-white px-3 font-mono text-xs font-semibold tracking-[0.06em] text-stone-800"
+          />
+          {pending ? (
+            <button
+              type="button"
+              onClick={onReset}
+              className="h-9 rounded-lg bg-stone-100 px-3 text-xs font-semibold text-stone-700 transition hover:bg-stone-200"
+            >
+              Reset
+            </button>
+          ) : null}
+          <button
+            type="button"
+            onClick={onApplyAndRerun}
+            disabled={!pending || !valueForInput || valueForInput === appliedForInput}
+            className="h-9 rounded-lg bg-[#0071E3] px-3 text-xs font-semibold text-white transition hover:bg-[#0066CC] disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            Apply &amp; rerun
+          </button>
+        </div>
+      </div>
+      {pending ? (
+        <p className="mt-2 text-xs font-medium text-blue-800">
+          Retirement date is staged. Apply to rerun plan integrity, tax, ACA, and IRMAA.
+        </p>
+      ) : null}
     </div>
   );
 }
@@ -449,7 +618,18 @@ function SixPackDetail({ instrument }: { instrument: SixPackInstrument }) {
 }
 
 export function SixPackScreen() {
-  const data = useAppStore((state) => state.appliedData);
+  const data = useAppStore((state) => state.data);
+  const appliedData = useAppStore((state) => state.appliedData);
+  const hasPendingSimulationChanges = useAppStore(
+    (state) => state.hasPendingSimulationChanges,
+  );
+  const updateIncome = useAppStore((state) => state.updateIncome);
+  const commitDraftToApplied = useAppStore((state) => state.commitDraftToApplied);
+  const resetDraftToApplied = useAppStore((state) => state.resetDraftToApplied);
+  const requestUnifiedPlanRerun = useAppStore((state) => state.requestUnifiedPlanRerun);
+  const clearLatestUnifiedPlanEvaluationContext = useAppStore(
+    (state) => state.clearLatestUnifiedPlanEvaluationContext,
+  );
   const latestEvaluationContext = useAppStore(
     (state) => state.latestUnifiedPlanEvaluationContext,
   );
@@ -461,6 +641,13 @@ export function SixPackScreen() {
   );
   const [selectedId, setSelectedId] = useState<SixPackInstrument['id']>('lifestyle_pace');
   const [asOfIso] = useState(() => new Date().toISOString());
+
+  const applyRetirementDateAndRerun = () => {
+    commitDraftToApplied();
+    clearLatestUnifiedPlanEvaluationContext();
+    setApiSnapshot(null);
+    requestUnifiedPlanRerun();
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -514,7 +701,7 @@ export function SixPackScreen() {
   }, []);
 
   useEffect(() => {
-    if (latestEvaluationContext) {
+    if (latestEvaluationContext || hasPendingSimulationChanges) {
       setApiSnapshot(null);
       return;
     }
@@ -535,7 +722,7 @@ export function SixPackScreen() {
     return () => {
       cancelled = true;
     };
-  }, [latestEvaluationContext]);
+  }, [hasPendingSimulationChanges, latestEvaluationContext]);
 
   const transactions = useMemo(() => {
     const loadedTransactions = localLedgers.flatMap((ledger) => ledger.transactions ?? []);
@@ -583,17 +770,23 @@ export function SixPackScreen() {
         data,
         spending,
         portfolioWeather,
-        evaluation: latestEvaluationContext?.evaluation ?? null,
-        evaluationCapturedAtIso: latestEvaluationContext?.capturedAtIso ?? null,
+        evaluation: hasPendingSimulationChanges
+          ? null
+          : latestEvaluationContext?.evaluation ?? null,
+        evaluationCapturedAtIso: hasPendingSimulationChanges
+          ? null
+          : latestEvaluationContext?.capturedAtIso ?? null,
         asOfIso,
       });
     },
-    [asOfIso, data, latestEvaluationContext, quoteSnapshot, spending],
+    [asOfIso, data, hasPendingSimulationChanges, latestEvaluationContext, quoteSnapshot, spending],
   );
 
   const snapshot =
+    !hasPendingSimulationChanges &&
     !latestEvaluationContext &&
     apiSnapshot &&
+    snapshotHasAcaTiming(apiSnapshot) &&
     apiSnapshot.counts.unknown < localSnapshot.counts.unknown
       ? apiSnapshot
       : localSnapshot;
@@ -632,6 +825,15 @@ export function SixPackScreen() {
           Using the local 6 Pack API plan read for plan and tax pucks.
         </p>
       ) : null}
+
+      <RetirementDateControl
+        value={data.income.salaryEndDate}
+        appliedValue={appliedData.income.salaryEndDate}
+        pending={hasPendingSimulationChanges}
+        onChange={(nextDate) => updateIncome('salaryEndDate', nextDate)}
+        onApplyAndRerun={applyRetirementDateAndRerun}
+        onReset={resetDraftToApplied}
+      />
 
       <div className="mt-4 grid gap-4 xl:grid-cols-[1fr_340px]">
         <div className="grid gap-2.5 md:grid-cols-2 xl:grid-cols-3">

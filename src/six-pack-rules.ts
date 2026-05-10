@@ -102,6 +102,12 @@ function firstIrmaaThresholdForFilingStatus(status: string): number | null {
   return brackets?.[0]?.maxMagi ?? null;
 }
 
+function salaryEndYear(value: string): number | null {
+  const parsed = new Date(value);
+  if (!Number.isFinite(parsed.getTime())) return null;
+  return parsed.getFullYear();
+}
+
 function buildLifestylePace(input: {
   spending: SixPackSpendingContext | null;
   asOfIso: string;
@@ -417,6 +423,16 @@ function buildTaxCliffs(input: {
   const filingStatus = input.data.household.filingStatus;
   const acaThreshold = acaThresholdForFilingStatus(filingStatus);
   const acaMargin = projectedMagi === null ? null : acaThreshold - projectedMagi;
+  const acaGuardrailYear = salaryEndYear(input.data.income.salaryEndDate);
+  const acaAppliesThisYear =
+    (currentYearTax?.medianAcaPremiumEstimate ?? 0) > 0 ||
+    (acaGuardrailYear !== null && acaGuardrailYear <= asOfYear);
+  const acaTimingText =
+    acaGuardrailYear === null
+      ? 'ACA guardrail timing is not modeled because salary end date is invalid.'
+      : acaAppliesThisYear
+        ? `ACA is a current-year guardrail for ${asOfYear}.`
+        : `ACA is not a current-year guardrail; the modeled bridge starts around ${acaGuardrailYear}.`;
   const irmaaThreshold = firstIrmaaThresholdForFilingStatus(filingStatus);
   const irmaaMargin =
     projectedMagi === null || irmaaThreshold === null ? null : irmaaThreshold - projectedMagi;
@@ -438,7 +454,11 @@ function buildTaxCliffs(input: {
   const thresholdDetail =
     projectedMagi === null
       ? 'MAGI threshold margins need a plan run.'
-      : `Projected ${asOfYear} MAGI is ${formatCurrency(projectedMagi)}. ACA threshold ${formatCurrency(acaThreshold)}; margin ${formatCurrency(acaMargin ?? 0)}. IRMAA threshold ${irmaaThreshold === null ? 'unavailable' : formatCurrency(irmaaThreshold)}; margin ${irmaaMargin === null ? 'unavailable' : formatCurrency(irmaaMargin)}.`;
+      : `Projected ${asOfYear} MAGI is ${formatCurrency(projectedMagi)}. ${acaTimingText} ${
+          acaAppliesThisYear
+            ? `ACA threshold ${formatCurrency(acaThreshold)}; margin ${formatCurrency(acaMargin ?? 0)}.`
+            : `ACA threshold ${formatCurrency(acaThreshold)} is shown for planning context, not as a ${asOfYear} guardrail.`
+        } IRMAA threshold ${irmaaThreshold === null ? 'unavailable' : formatCurrency(irmaaThreshold)}; margin ${irmaaMargin === null ? 'unavailable' : formatCurrency(irmaaMargin)}.`;
 
   return {
     id: 'tax_cliffs',
@@ -464,7 +484,9 @@ function buildTaxCliffs(input: {
       projectedMagi,
       acaIncomeThreshold: acaThreshold,
       acaMargin,
-      acaAppliesThisYear: (currentYearTax?.medianAcaPremiumEstimate ?? 0) > 0,
+      acaAppliesThisYear,
+      acaGuardrailYear,
+      acaTiming: acaAppliesThisYear ? 'current_year_guardrail' : 'future_guardrail',
       irmaaIncomeThreshold: irmaaThreshold,
       irmaaMargin,
       irmaaSurcharge: currentYearTax?.medianIrmaaSurcharge ?? null,

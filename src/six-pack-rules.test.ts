@@ -200,6 +200,9 @@ describe('buildSixPackSnapshot', () => {
     expect(tax?.diagnostics.expectedFederalTax).toBe(22_415);
     expect(tax?.diagnostics.acaIncomeThreshold).toBe(84_600);
     expect(tax?.diagnostics.acaMargin).toBe(-97_561);
+    expect(tax?.diagnostics.acaAppliesThisYear).toBe(false);
+    expect(tax?.diagnostics.acaGuardrailYear).toBe(2027);
+    expect(tax?.diagnostics.acaTiming).toBe('future_guardrail');
     expect(tax?.diagnostics.irmaaIncomeThreshold).toBe(218_000);
     expect(tax?.diagnostics.irmaaMargin).toBe(35_839);
   });
