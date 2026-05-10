@@ -280,9 +280,11 @@ function buildPortfolioWeather(input: {
       days: projectionWindowDays,
     });
     const projectionText =
-      projectedAnnualChangePercent === null
-        ? 'Projection needs more quote history.'
-        : `If the ${Math.round(projectionWindowDays ?? 0)}-day import-to-now pace persisted, the implied annual pace would be ${signedPercent(projectedAnnualChangePercent)}.`;
+      input.weather.oneYearChangePercent !== null
+        ? `Using current shares and roughly one year of fund history, this basket is ${signedPercent(input.weather.oneYearChangePercent)} versus about ${input.weather.oneYearLookbackDays ?? 365} days ago.`
+        : projectedAnnualChangePercent === null
+          ? 'Projection needs more quote history.'
+          : `If the ${Math.round(projectionWindowDays ?? 0)}-day import-to-now pace persisted, the implied annual pace would be ${signedPercent(projectedAnnualChangePercent)}.`;
     const heldAtImportNote =
       input.weather.heldAtImportValue > 0
         ? ` ${formatCurrency(input.weather.heldAtImportValue)} is held at last-import value (${formatCurrency(input.weather.cashValueHeldAtImport)} cash or money market, ${formatCurrency(input.weather.missingQuoteValueHeldAtImport + input.weather.missingShareValueHeldAtImport)} unpriced), so cash sweeps, contributions, and unquoted holdings can move the next Fidelity export.`
@@ -324,6 +326,12 @@ function buildPortfolioWeather(input: {
             : Number(projectedAnnualChangePercent.toFixed(2)),
         projectionWindowDays:
           projectionWindowDays === null ? null : Number(projectionWindowDays.toFixed(1)),
+        oneYearChangePercent: input.weather.oneYearChangePercent,
+        oneYearLookbackDays: input.weather.oneYearLookbackDays,
+        oneYearHistoryCoveragePercent: input.weather.oneYearHistoryCoveragePercent,
+        oneYearLookbackValue: input.weather.oneYearLookbackValue,
+        oneYearCurrentValue: input.weather.oneYearCurrentValue,
+        oneYearLookbackDate: input.weather.oneYearLookbackDate,
         quotedImportValue: input.weather.quotedImportValue,
         quotedEstimatedValue: input.weather.quotedEstimatedValue,
         cashValueHeldAtImport: input.weather.cashValueHeldAtImport,

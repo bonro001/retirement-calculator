@@ -292,6 +292,12 @@ describe('buildSixPackSnapshot', () => {
       missingQuoteValueHeldAtImport: 0,
       missingShareValueHeldAtImport: 0,
       heldAtImportValue: 0,
+      oneYearLookbackDate: '2025-05-09',
+      oneYearLookbackValue: 92_000,
+      oneYearCurrentValue: 101_500,
+      oneYearChangePercent: 10.33,
+      oneYearLookbackDays: 365,
+      oneYearHistoryCoveragePercent: 95,
       missingQuoteSymbols: [],
       missingShareSymbols: [],
       holdings: [],
@@ -310,6 +316,8 @@ describe('buildSixPackSnapshot', () => {
     expect(weather?.status).toBe('green');
     expect(weather?.headline).toBe('TAILWIND');
     expect(weather?.frontMetric).toBe('$101.5k · up 1.5%');
+    expect(weather?.diagnostics.oneYearChangePercent).toBe(10.33);
+    expect(weather?.diagnostics.oneYearLookbackDays).toBe(365);
     expect(weather?.diagnostics.projectedAnnualChangePercent).toBeGreaterThan(70);
     expect(weather?.diagnostics.projectionWindowDays).toBe(10);
   });

@@ -123,8 +123,44 @@ function displayFrontMetric(instrument: SixPackInstrument): string | null {
   );
 }
 
+function snapshotHasOneYearPortfolioHistory(snapshot: SixPackSnapshot): boolean {
+  const weather = snapshot.instruments.find(
+    (instrument) => instrument.id === 'portfolio_weather',
+  );
+  return typeof weather?.diagnostics.oneYearChangePercent === 'number';
+}
+
+function withFreshPortfolioWeather(
+  snapshot: SixPackSnapshot | null,
+  localSnapshot: SixPackSnapshot,
+): SixPackSnapshot | null {
+  if (!snapshot) return null;
+  if (
+    snapshotHasOneYearPortfolioHistory(snapshot) ||
+    !snapshotHasOneYearPortfolioHistory(localSnapshot)
+  ) {
+    return snapshot;
+  }
+  const localWeather = localSnapshot.instruments.find(
+    (instrument) => instrument.id === 'portfolio_weather',
+  );
+  if (!localWeather) return snapshot;
+  return {
+    ...snapshot,
+    instruments: snapshot.instruments.map((instrument) =>
+      instrument.id === 'portfolio_weather' ? localWeather : instrument,
+    ),
+  };
+}
+
 function portfolioProjectionLabel(instrument: SixPackInstrument): string | null {
   if (instrument.id !== 'portfolio_weather') return null;
+  const oneYearChangePercent = numberDiagnostic(instrument, 'oneYearChangePercent');
+  const oneYearLookbackDays = numberDiagnostic(instrument, 'oneYearLookbackDays');
+  if (oneYearChangePercent !== null && oneYearLookbackDays !== null) {
+    const sign = oneYearChangePercent >= 0 ? '+' : '-';
+    return `1y basket ${sign}${Math.abs(oneYearChangePercent).toFixed(1)}% over ${Math.round(oneYearLookbackDays)}d`;
+  }
   const projectedAnnualChangePercent = numberDiagnostic(
     instrument,
     'projectedAnnualChangePercent',
@@ -928,8 +964,12 @@ export function SixPackScreen() {
   );
 
   const enrichedApiSnapshot = useMemo(
-    () => enrichTaxGuardrailTiming(apiSnapshot, data, asOfIso),
-    [apiSnapshot, asOfIso, data],
+    () =>
+      withFreshPortfolioWeather(
+        enrichTaxGuardrailTiming(apiSnapshot, data, asOfIso),
+        localSnapshot,
+      ),
+    [apiSnapshot, asOfIso, data, localSnapshot],
   );
 
   const snapshot =
