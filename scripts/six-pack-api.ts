@@ -310,6 +310,53 @@ function transactionSummary(transaction: SpendingTransaction) {
   };
 }
 
+function compareNewestTransactions(
+  left: SpendingTransaction,
+  right: SpendingTransaction,
+): number {
+  const leftDate = left.transactionDate ?? left.postedDate;
+  const rightDate = right.transactionDate ?? right.postedDate;
+  if (rightDate !== leftDate) return rightDate.localeCompare(leftDate);
+  return Math.abs(right.amount) - Math.abs(left.amount);
+}
+
+function sortNewestTransactions(transactions: SpendingTransaction[]): SpendingTransaction[] {
+  return [...transactions].sort(compareNewestTransactions);
+}
+
+function recentTransactionSummary(
+  transaction: SpendingTransaction,
+  index: number,
+) {
+  const idNumber = index + 1;
+  return {
+    idNumber,
+    transactionId: transaction.id,
+    ...transactionSummary(transaction),
+    actions: {
+      classify: `/api/spending/transactions/recent/${idNumber}/override`,
+      ignore: `/api/spending/transactions/recent/${idNumber}/ignore`,
+      clearOverride: `/api/spending/transactions/recent/${idNumber}/override`,
+    },
+  };
+}
+
+async function loadRecentTransactions(limit = 33): Promise<SpendingTransaction[]> {
+  const boundedLimit = Math.min(33, Math.max(1, limit));
+  return sortNewestTransactions(await loadAppliedRawTransactions()).slice(0, boundedLimit);
+}
+
+async function resolveRecentTransactionIdNumber(
+  idNumberText: string,
+): Promise<SpendingTransaction | null> {
+  const idNumber = Number(idNumberText);
+  if (!Number.isInteger(idNumber) || idNumber < 1 || idNumber > 33) {
+    return null;
+  }
+  const recent = await loadRecentTransactions(33);
+  return recent[idNumber - 1] ?? null;
+}
+
 function readRequestBody(request: http.IncomingMessage): Promise<unknown> {
   return new Promise((resolve, reject) => {
     let body = '';
@@ -459,18 +506,97 @@ const server = http.createServer(async (request, response) => {
           }
           return true;
         })
-        .sort((left, right) => {
-          const leftDate = left.transactionDate ?? left.postedDate;
-          const rightDate = right.transactionDate ?? right.postedDate;
-          if (rightDate !== leftDate) return rightDate.localeCompare(leftDate);
-          return Math.abs(right.amount) - Math.abs(left.amount);
-        })
+        .sort(compareNewestTransactions)
         .slice(0, limit)
         .map(transactionSummary);
       writeJson(response, 200, {
         state: 'ok',
         count: filtered.length,
         transactions: filtered,
+      });
+      return;
+    }
+
+    if (request.method === 'GET' && url.pathname === '/api/spending/transactions/recent') {
+      const limit = Math.min(
+        33,
+        Math.max(1, Number(url.searchParams.get('limit') ?? 33) || 33),
+      );
+      const recent = await loadRecentTransactions(limit);
+      writeJson(response, 200, {
+        state: 'ok',
+        count: recent.length,
+        idNumberScope: 'current_newest_33_transactions',
+        transactions: recent.map(recentTransactionSummary),
+      });
+      return;
+    }
+
+    const recentOverrideMatch =
+      /^\/api\/spending\/transactions\/recent\/(\d+)\/override$/.exec(url.pathname);
+    if (recentOverrideMatch && request.method === 'POST') {
+      const transaction = await resolveRecentTransactionIdNumber(recentOverrideMatch[1]);
+      if (!transaction) {
+        writeJson(response, 404, { error: 'recent_transaction_not_found' });
+        return;
+      }
+      const body = parseOverrideBody(await readRequestBody(request));
+      const result = await applyTransactionOverride({
+        transactionId: transaction.id,
+        ...body,
+      });
+      if (!result) {
+        writeJson(response, 404, { error: 'transaction_not_found' });
+        return;
+      }
+      writeJson(response, 200, {
+        state: 'ok',
+        idNumber: Number(recentOverrideMatch[1]),
+        ...result,
+      });
+      return;
+    }
+    if (recentOverrideMatch && request.method === 'DELETE') {
+      const transaction = await resolveRecentTransactionIdNumber(recentOverrideMatch[1]);
+      if (!transaction) {
+        writeJson(response, 404, { error: 'recent_transaction_not_found' });
+        return;
+      }
+      const saved = await deleteTransactionOverride(transaction.id);
+      if (!saved) {
+        writeJson(response, 404, { error: 'override_not_found' });
+        return;
+      }
+      writeJson(response, 200, {
+        state: 'ok',
+        idNumber: Number(recentOverrideMatch[1]),
+        transactionId: transaction.id,
+        updatedAtIso: saved.updatedAtIso,
+      });
+      return;
+    }
+
+    const recentIgnoreMatch =
+      /^\/api\/spending\/transactions\/recent\/(\d+)\/ignore$/.exec(url.pathname);
+    if (recentIgnoreMatch && request.method === 'POST') {
+      const transaction = await resolveRecentTransactionIdNumber(recentIgnoreMatch[1]);
+      if (!transaction) {
+        writeJson(response, 404, { error: 'recent_transaction_not_found' });
+        return;
+      }
+      const body = parseOverrideBody(await readRequestBody(request), 'ignored');
+      const result = await applyTransactionOverride({
+        transactionId: transaction.id,
+        ...body,
+      });
+      if (!result) {
+        writeJson(response, 404, { error: 'transaction_not_found' });
+        return;
+      }
+      writeJson(response, 200, {
+        state: 'ok',
+        idNumber: Number(recentIgnoreMatch[1]),
+        ...result,
       });
       return;
     }
