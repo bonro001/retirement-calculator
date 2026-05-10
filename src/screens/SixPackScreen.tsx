@@ -63,9 +63,6 @@ function statusCopy(status: SixPackStatus): string {
 }
 
 function displayHeadline(instrument: SixPackInstrument): string {
-  if (instrument.id === 'plan_integrity' && instrument.headline === 'CLOSES') {
-    return 'FUNDED';
-  }
   return instrument.headline;
 }
 
@@ -83,6 +80,13 @@ function planIntegrityPercentLabel(instrument: SixPackInstrument): string | null
   if (successRate === null) return instrument.frontMetric ?? null;
   const normalized = successRate <= 1 ? successRate * 100 : successRate;
   return `${Math.round(normalized)}%`;
+}
+
+function planIntegritySummaryLabel(instrument: SixPackInstrument): string {
+  if (instrument.status === 'green') return 'Plan works in latest run.';
+  if (instrument.status === 'amber') return 'Plan needs a closer look.';
+  if (instrument.status === 'red') return 'Plan is below guardrail.';
+  return 'Run the plan to update.';
 }
 
 function weatherMetricLabel(instrument: SixPackInstrument): string | null {
@@ -723,8 +727,8 @@ function SixPackPuck({
           {displayHeadlineText}
         </h3>
         {planIntegrityPercent ? (
-          <p className="mt-0.5 truncate text-xs font-semibold uppercase tracking-[0.12em] opacity-75">
-            {displayHeadline(instrument)}
+          <p className="mt-0.5 truncate text-xs font-medium leading-4 opacity-75">
+            {planIntegritySummaryLabel(instrument)}
           </p>
         ) : frontMetric ? (
           <p

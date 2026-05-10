@@ -403,7 +403,7 @@ function buildPlanIntegrity(input: {
     trend: 'flat',
     headline:
       status === 'green'
-        ? 'FUNDED'
+        ? 'ON PLAN'
         : status === 'amber'
           ? 'WATCH'
           : 'AT RISK',

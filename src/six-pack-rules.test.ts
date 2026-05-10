@@ -152,7 +152,7 @@ describe('buildSixPackSnapshot', () => {
     const planIntegrity = snapshot.instruments.find(
       (item) => item.id === 'plan_integrity',
     );
-    expect(planIntegrity?.headline).toBe('FUNDED');
+    expect(planIntegrity?.headline).toBe('ON PLAN');
     expect(planIntegrity?.frontMetric).toBe('85%');
     expect(planIntegrity?.diagnostics.successRate).toBe(0.852);
   });
