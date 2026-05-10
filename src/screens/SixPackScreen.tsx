@@ -206,7 +206,6 @@ function YearlyBucketsMiniBar({ instrument }: { instrument: SixPackInstrument })
   const actualSpend = numberDiagnostic(instrument, 'annualEscrowActualSpend');
   const adaptiveBudget = numberDiagnostic(instrument, 'annualEscrowAdaptiveBudget');
   const plannedBudget = numberDiagnostic(instrument, 'annualEscrowPlannedBudget');
-  const yearElapsed = numberDiagnostic(instrument, 'yearElapsedPercent');
 
   if (actualSpend === null) return null;
 
@@ -217,7 +216,6 @@ function YearlyBucketsMiniBar({ instrument }: { instrument: SixPackInstrument })
     1,
   );
   const usedPercent = (actualSpend / denominator) * 100;
-  const markerPercent = yearElapsed ?? 0;
 
   return (
     <div className="mt-2">
@@ -228,11 +226,6 @@ function YearlyBucketsMiniBar({ instrument }: { instrument: SixPackInstrument })
         <div
           className="absolute left-0 top-0 h-2.5 rounded-full bg-[#0071E3]"
           style={{ width: progressWidth(usedPercent) }}
-        />
-        <div
-          className="absolute top-[-5px] z-10 h-5 w-1 -translate-x-1/2 rounded-full bg-stone-950 shadow-[0_0_0_2px_rgba(255,255,255,0.9)]"
-          style={{ left: progressWidth(markerPercent) }}
-          title={`${Math.round(markerPercent)}% of year elapsed`}
         />
       </div>
     </div>
@@ -391,6 +384,8 @@ function SixPackDetail({ instrument }: { instrument: SixPackInstrument }) {
         </span>
       </div>
 
+      <TaxCliffReadout instrument={instrument} />
+
       <div className="mt-4 space-y-3 text-sm leading-6 text-stone-700">
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.14em] text-stone-400">
@@ -422,17 +417,14 @@ function SixPackDetail({ instrument }: { instrument: SixPackInstrument }) {
       </div>
 
       {Object.keys(instrument.diagnostics).length ? (
-        <>
-          <TaxCliffReadout instrument={instrument} />
-          <dl className="mt-4 grid gap-2 border-t border-stone-200 pt-4 text-xs">
-            {Object.entries(instrument.diagnostics).map(([key, value]) => (
-              <div key={key} className="flex justify-between gap-3">
-                <dt className="text-stone-500">{key}</dt>
-                <dd className="font-semibold text-stone-900">{String(value)}</dd>
-              </div>
-            ))}
-          </dl>
-        </>
+        <dl className="mt-4 grid gap-2 border-t border-stone-200 pt-4 text-xs">
+          {Object.entries(instrument.diagnostics).map(([key, value]) => (
+            <div key={key} className="flex justify-between gap-3">
+              <dt className="text-stone-500">{key}</dt>
+              <dd className="font-semibold text-stone-900">{String(value)}</dd>
+            </div>
+          ))}
+        </dl>
       ) : null}
     </aside>
   );
