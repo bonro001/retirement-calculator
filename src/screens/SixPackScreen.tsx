@@ -153,6 +153,29 @@ function withFreshPortfolioWeather(
   };
 }
 
+function withClientPuckDetails(
+  snapshot: SixPackSnapshot | null,
+  localSnapshot: SixPackSnapshot,
+): SixPackSnapshot | null {
+  if (!snapshot) return null;
+  return {
+    ...snapshot,
+    instruments: snapshot.instruments.map((instrument) => {
+      const localInstrument = localSnapshot.instruments.find(
+        (candidate) => candidate.id === instrument.id,
+      );
+      if (
+        instrument.id === 'cash_runway' &&
+        !instrument.frontMetric &&
+        localInstrument?.frontMetric
+      ) {
+        return { ...instrument, frontMetric: localInstrument.frontMetric };
+      }
+      return instrument;
+    }),
+  };
+}
+
 function portfolioProjectionLabel(instrument: SixPackInstrument): string | null {
   if (instrument.id !== 'portfolio_weather') return null;
   const oneYearChangePercent = numberDiagnostic(instrument, 'oneYearChangePercent');
@@ -203,7 +226,7 @@ function taxContextLines(instrument: SixPackInstrument): string[] {
 
 function frontMetricClass(instrument: SixPackInstrument): string {
   if (instrument.id === 'tax_cliffs') {
-    return 'text-[13px] font-semibold leading-4 tracking-normal';
+    return 'text-[12px] font-medium leading-4 tracking-normal';
   }
   if (instrument.id === 'portfolio_weather') {
     return 'text-sm font-semibold leading-5 tracking-normal tabular-nums';
@@ -722,7 +745,7 @@ function SixPackPuck({
           </p>
         ) : null}
         {taxLines.length ? (
-          <div className="mt-1 space-y-0.5 text-[11px] font-semibold leading-4 opacity-75">
+          <div className="mt-1 space-y-0.5 text-[11px] font-medium leading-4 opacity-75">
             {taxLines.map((line) => (
               <p key={line}>{line}</p>
             ))}
@@ -965,8 +988,11 @@ export function SixPackScreen() {
 
   const enrichedApiSnapshot = useMemo(
     () =>
-      withFreshPortfolioWeather(
-        enrichTaxGuardrailTiming(apiSnapshot, data, asOfIso),
+      withClientPuckDetails(
+        withFreshPortfolioWeather(
+          enrichTaxGuardrailTiming(apiSnapshot, data, asOfIso),
+          localSnapshot,
+        ),
         localSnapshot,
       ),
     [apiSnapshot, asOfIso, data, localSnapshot],

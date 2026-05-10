@@ -220,6 +220,7 @@ function buildCashRunway(input: { data: SeedData; asOfIso: string }): SixPackIns
     status,
     trend: 'flat',
     headline: status === 'green' ? 'COVERED' : status === 'amber' ? 'WATCH' : 'SHORT',
+    frontMetric: `Runway: ${months.toFixed(1)} months; target is ${targetMonths}.`,
     reason:
       status === 'green'
         ? 'Cash, money-market, and bond sleeves meet the 18-month runway target.'
