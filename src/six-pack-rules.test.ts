@@ -87,6 +87,7 @@ describe('buildSixPackSnapshot', () => {
     const lifestyle = snapshot.instruments.find((item) => item.id === 'lifestyle_pace');
     expect(lifestyle?.status).toBe('green');
     expect(lifestyle?.frontMetric).toContain('/ $7.5k mo');
+    expect(lifestyle?.diagnostics.monthElapsedPercent).toBe(32.26);
   });
 
   it('turns lifestyle amber and red at explicit thresholds', () => {

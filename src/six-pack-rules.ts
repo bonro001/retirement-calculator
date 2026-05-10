@@ -107,6 +107,9 @@ function buildLifestylePace(input: {
       monthlyOperatingBudget: budget,
       monthlyOperatingSpent: input.spending.monthlyOperatingSpent,
       monthlyOperatingProjected: projected,
+      monthElapsedPercent: Number(
+        (input.spending.summary.intermediateCalculations.elapsedShare * 100).toFixed(2),
+      ),
       projectedToBudgetRatio: Number(ratio.toFixed(4)),
       transactionCount: input.spending.transactionCount,
     },

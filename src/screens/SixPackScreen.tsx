@@ -20,6 +20,7 @@ import {
 import type { SixPackInstrument, SixPackSnapshot, SixPackStatus } from '../six-pack-types';
 import { useAppStore } from '../store';
 import { Panel } from '../ui-primitives';
+import { formatCurrency } from '../utils';
 
 const LOCAL_SPENDING_LEDGER_URLS = [
   '/local/spending-ledger.chase4582.json',
@@ -67,6 +68,53 @@ function statusCopy(status: SixPackStatus): string {
   return 'unknown';
 }
 
+function progressWidth(value: number): string {
+  return `${Math.min(100, Math.max(0, value)).toFixed(2)}%`;
+}
+
+function numberDiagnostic(
+  instrument: SixPackInstrument,
+  key: string,
+): number | null {
+  const value = instrument.diagnostics[key];
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
+function LifestylePaceMiniBar({ instrument }: { instrument: SixPackInstrument }) {
+  const spent = numberDiagnostic(instrument, 'monthlyOperatingSpent');
+  const budget = numberDiagnostic(instrument, 'monthlyOperatingBudget');
+  const elapsedPercent = numberDiagnostic(instrument, 'monthElapsedPercent');
+
+  if (spent === null || budget === null || budget <= 0) return null;
+
+  const spentPercent = (spent / budget) * 100;
+  const markerPercent = elapsedPercent ?? 0;
+  const overBudget = spentPercent > 100;
+
+  return (
+    <div className="mt-2">
+      <div
+        className="relative h-2.5 overflow-visible rounded-full bg-white/80 shadow-inner ring-1 ring-black/5"
+        title={`${formatCurrency(spent)} spent against ${formatCurrency(budget)} monthly lane`}
+      >
+        <div
+          className={`absolute left-0 top-0 h-2.5 rounded-full ${
+            overBudget ? 'bg-rose-500' : 'bg-[#0071E3]'
+          }`}
+          style={{ width: progressWidth(spentPercent) }}
+        />
+        {elapsedPercent !== null ? (
+          <div
+            className="absolute top-[-4px] h-[18px] w-0.5 rounded-full bg-stone-950/80"
+            style={{ left: progressWidth(markerPercent) }}
+            title={`${Math.round(markerPercent)}% of month elapsed`}
+          />
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
 function SixPackPuck({
   instrument,
   selected,
@@ -76,6 +124,8 @@ function SixPackPuck({
   selected: boolean;
   onSelect: () => void;
 }) {
+  const showLifestyleBar = instrument.id === 'lifestyle_pace';
+
   return (
     <button
       type="button"
@@ -105,6 +155,7 @@ function SixPackPuck({
             {instrument.frontMetric}
           </p>
         ) : null}
+        {showLifestyleBar ? <LifestylePaceMiniBar instrument={instrument} /> : null}
       </div>
     </button>
   );
