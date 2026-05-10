@@ -9,6 +9,7 @@ import type { SixPackSpendingContext } from './six-pack-spending';
 import { formatCurrency } from './utils';
 import { rollupHoldingsToAssetClasses } from './asset-class-mapper';
 import type { PortfolioWeatherSnapshot } from './portfolio-weather';
+import { CURRENT_LAW_2026_RULE_PACK } from './rule-packs';
 
 const STALE_LEDGER_DAYS = 7;
 
@@ -25,6 +26,32 @@ function daysBetween(leftIso: string | null, rightIso: string): number | null {
   const right = new Date(rightIso).getTime();
   if (!Number.isFinite(left) || !Number.isFinite(right)) return null;
   return Math.max(0, (right - left) / 86_400_000);
+}
+
+function dateOnlyIso(value: string | null): string | null {
+  if (!value) return null;
+  return value.includes('T') ? value : `${value}T12:00:00.000Z`;
+}
+
+function signedPercent(value: number): string {
+  const sign = value >= 0 ? '+' : '-';
+  return `${sign}${Math.abs(value).toFixed(1)}%`;
+}
+
+function annualizedChangePercent(input: {
+  startValue: number;
+  endValue: number;
+  days: number | null;
+}): number | null {
+  if (
+    input.days === null ||
+    input.days < 1 ||
+    input.startValue <= 0 ||
+    input.endValue <= 0
+  ) {
+    return null;
+  }
+  return (Math.pow(input.endValue / input.startValue, 365 / input.days) - 1) * 100;
 }
 
 function worseStatus(left: SixPackStatus, right: SixPackStatus): SixPackStatus {
@@ -44,6 +71,51 @@ function dataFreshness(asOfIso: string | null, snapshotAsOfIso: string, label: s
     label: ageDays === null ? label : `${label} · ${Math.round(ageDays)}d old`,
     stale: ageDays === null ? true : ageDays > STALE_LEDGER_DAYS,
   };
+}
+
+function yearElapsedPercent(asOfIso: string): number {
+  const asOf = new Date(asOfIso);
+  if (!Number.isFinite(asOf.getTime())) return 0;
+  const start = new Date(asOf.getFullYear(), 0, 1).getTime();
+  const end = new Date(asOf.getFullYear() + 1, 0, 1).getTime();
+  return ((asOf.getTime() - start) / (end - start)) * 100;
+}
+
+function householdSizeForFilingStatus(status: string): number {
+  return status === 'married_filing_jointly' ? 2 : 1;
+}
+
+function acaThresholdForFilingStatus(status: string): number {
+  const householdSize = householdSizeForFilingStatus(status);
+  const fplBySize = CURRENT_LAW_2026_RULE_PACK.aca.federalPovertyLevelByHouseholdSize;
+  const fplBySizeLookup = fplBySize as Record<number, number>;
+  const fpl =
+    fplBySizeLookup[householdSize] ??
+    fplBySizeLookup[4] +
+      Math.max(0, householdSize - 4) * CURRENT_LAW_2026_RULE_PACK.aca.fplAdditionalPerson;
+  return fpl * CURRENT_LAW_2026_RULE_PACK.aca.subsidyEligibilityMaxFplRatio;
+}
+
+function firstIrmaaThresholdForFilingStatus(status: string): number | null {
+  const filingStatus = status as keyof typeof CURRENT_LAW_2026_RULE_PACK.irmaa.brackets;
+  const brackets = CURRENT_LAW_2026_RULE_PACK.irmaa.brackets[filingStatus];
+  return brackets?.[0]?.maxMagi ?? null;
+}
+
+function salaryEndYear(value: string): number | null {
+  const parsed = new Date(value);
+  if (!Number.isFinite(parsed.getTime())) return null;
+  return parsed.getFullYear();
+}
+
+function firstMedicareYear(data: SeedData): number | null {
+  const years = [data.household.robBirthDate, data.household.debbieBirthDate]
+    .map((value) => {
+      const parsed = new Date(value);
+      return Number.isFinite(parsed.getTime()) ? parsed.getFullYear() + 65 : null;
+    })
+    .filter((value): value is number => value !== null);
+  return years.length ? Math.min(...years) : null;
 }
 
 function buildLifestylePace(input: {
@@ -107,6 +179,9 @@ function buildLifestylePace(input: {
       monthlyOperatingBudget: budget,
       monthlyOperatingSpent: input.spending.monthlyOperatingSpent,
       monthlyOperatingProjected: projected,
+      monthElapsedPercent: Number(
+        (input.spending.summary.intermediateCalculations.elapsedShare * 100).toFixed(2),
+      ),
       projectedToBudgetRatio: Number(ratio.toFixed(4)),
       transactionCount: input.spending.transactionCount,
     },
@@ -145,6 +220,7 @@ function buildCashRunway(input: { data: SeedData; asOfIso: string }): SixPackIns
     status,
     trend: 'flat',
     headline: status === 'green' ? 'COVERED' : status === 'amber' ? 'WATCH' : 'SHORT',
+    frontMetric: `Runway: ${months.toFixed(1)} months; target is ${targetMonths}.`,
     reason:
       status === 'green'
         ? 'Cash, money-market, and bond sleeves meet the 18-month runway target.'
@@ -189,6 +265,27 @@ function buildPortfolioWeather(input: {
       input.weather.changeDollars >= 0
         ? `up ${formatCurrency(input.weather.changeDollars)}`
         : `down ${formatCurrency(Math.abs(input.weather.changeDollars))}`;
+    const trendWord =
+      input.weather.changePercent > 1
+        ? 'up'
+        : input.weather.changePercent < -1
+          ? 'down'
+          : 'flat';
+    const projectionWindowDays = daysBetween(
+      dateOnlyIso(input.weather.importAsOfDate),
+      input.weather.quoteAsOfIso ?? input.weather.asOfIso,
+    );
+    const projectedAnnualChangePercent = annualizedChangePercent({
+      startValue: input.weather.importValue,
+      endValue: input.weather.estimatedValue,
+      days: projectionWindowDays,
+    });
+    const projectionText =
+      input.weather.oneYearChangePercent !== null
+        ? `Using current shares and roughly one year of fund history, this basket is ${signedPercent(input.weather.oneYearChangePercent)} versus about ${input.weather.oneYearLookbackDays ?? 365} days ago.`
+        : projectedAnnualChangePercent === null
+          ? 'Projection needs more quote history.'
+          : `If the ${Math.round(projectionWindowDays ?? 0)}-day import-to-now pace persisted, the implied annual pace would be ${signedPercent(projectedAnnualChangePercent)}.`;
     const heldAtImportNote =
       input.weather.heldAtImportValue > 0
         ? ` ${formatCurrency(input.weather.heldAtImportValue)} is held at last-import value (${formatCurrency(input.weather.cashValueHeldAtImport)} cash or money market, ${formatCurrency(input.weather.missingQuoteValueHeldAtImport + input.weather.missingShareValueHeldAtImport)} unpriced), so cash sweeps, contributions, and unquoted holdings can move the next Fidelity export.`
@@ -205,6 +302,7 @@ function buildPortfolioWeather(input: {
             ? 'down'
             : 'flat',
       headline,
+      frontMetric: `${compactCurrency(input.weather.estimatedValue)} · ${trendWord} ${Math.abs(input.weather.changePercent).toFixed(1)}%`,
       reason:
         status === 'green'
           ? 'Quoted market holdings are steady or higher since the last Fidelity import.'
@@ -214,7 +312,7 @@ function buildPortfolioWeather(input: {
               : 'Markets are a headwind versus the last Fidelity import.'
             : 'Estimated market movement is a storm-level drawdown versus the last Fidelity import.',
       rule: 'Green when estimated value is no worse than 1% below the last import with at least 80% quote coverage; amber from -1% to -5% or limited coverage; red below -5%.',
-      detail: `Estimated value is ${formatCurrency(input.weather.estimatedValue)}, ${signedChange} (${input.weather.changePercent.toFixed(2)}%) versus the last Fidelity import value of ${formatCurrency(input.weather.importValue)}.${heldAtImportNote}`,
+      detail: `Estimated value is ${formatCurrency(input.weather.estimatedValue)}, ${signedChange} (${input.weather.changePercent.toFixed(2)}%) versus the last Fidelity import value of ${formatCurrency(input.weather.importValue)}. ${projectionText}${heldAtImportNote}`,
       actionLabel: 'Open Accounts',
       sourceFreshness: dataFreshness(input.weather.quoteAsOfIso, input.asOfIso, 'market quotes'),
       diagnostics: {
@@ -223,6 +321,18 @@ function buildPortfolioWeather(input: {
         changeDollars: input.weather.changeDollars,
         changePercent: input.weather.changePercent,
         quoteCoveragePercent: input.weather.quoteCoveragePercent,
+        projectedAnnualChangePercent:
+          projectedAnnualChangePercent === null
+            ? null
+            : Number(projectedAnnualChangePercent.toFixed(2)),
+        projectionWindowDays:
+          projectionWindowDays === null ? null : Number(projectionWindowDays.toFixed(1)),
+        oneYearChangePercent: input.weather.oneYearChangePercent,
+        oneYearLookbackDays: input.weather.oneYearLookbackDays,
+        oneYearHistoryCoveragePercent: input.weather.oneYearHistoryCoveragePercent,
+        oneYearLookbackValue: input.weather.oneYearLookbackValue,
+        oneYearCurrentValue: input.weather.oneYearCurrentValue,
+        oneYearLookbackDate: input.weather.oneYearLookbackDate,
         quotedImportValue: input.weather.quotedImportValue,
         quotedEstimatedValue: input.weather.quotedEstimatedValue,
         cashValueHeldAtImport: input.weather.cashValueHeldAtImport,
@@ -288,15 +398,16 @@ function buildPlanIntegrity(input: {
   return {
     id: 'plan_integrity',
     label: 'Plan Integrity',
-    question: 'Does retirement still close?',
+    question: 'Is long-range retirement funded?',
     status,
     trend: 'flat',
     headline:
       status === 'green'
-        ? 'CLOSES'
+        ? 'ON PLAN'
         : status === 'amber'
           ? 'WATCH'
           : 'AT RISK',
+    frontMetric: `${Math.round(successRate * 100)}%`,
     reason:
       status === 'green'
         ? 'Latest retirement reading remains inside the planned confidence lane.'
@@ -317,10 +428,51 @@ function buildPlanIntegrity(input: {
 }
 
 function buildTaxCliffs(input: {
+  data: SeedData;
   evaluation: PlanEvaluation | null;
   evaluationCapturedAtIso: string | null;
   asOfIso: string;
 }): SixPackInstrument {
+  const asOfYear = new Date(input.asOfIso).getFullYear();
+  const currentYearTax = input.evaluation?.raw?.baselinePath?.yearlySeries?.find(
+    (year) => year.year === asOfYear,
+  );
+  const projectedMagi = currentYearTax?.medianMagi ?? null;
+  const expectedFederalTax = currentYearTax?.medianFederalTax ?? null;
+  const filingStatus = input.data.household.filingStatus;
+  const acaThreshold = acaThresholdForFilingStatus(filingStatus);
+  const acaMargin = projectedMagi === null ? null : acaThreshold - projectedMagi;
+  const acaGuardrailYear = salaryEndYear(input.data.income.salaryEndDate);
+  const acaAppliesThisYear =
+    (currentYearTax?.medianAcaPremiumEstimate ?? 0) > 0 ||
+    (acaGuardrailYear !== null && acaGuardrailYear <= asOfYear);
+  const acaTimingText =
+    acaGuardrailYear === null
+      ? 'ACA guardrail timing is not modeled because salary end date is invalid.'
+      : acaAppliesThisYear
+        ? `ACA is a current-year guardrail for ${asOfYear}.`
+        : `ACA is not a current-year guardrail; the modeled bridge starts around ${acaGuardrailYear}.`;
+  const irmaaThreshold = firstIrmaaThresholdForFilingStatus(filingStatus);
+  const irmaaMargin =
+    projectedMagi === null || irmaaThreshold === null ? null : irmaaThreshold - projectedMagi;
+  const medicareYear = firstMedicareYear(input.data);
+  const irmaaLookbackTaxYear = medicareYear === null ? null : medicareYear - 2;
+  const irmaaGuardrailTiming =
+    irmaaLookbackTaxYear === null
+      ? 'unknown'
+      : asOfYear === irmaaLookbackTaxYear
+        ? 'current_tax_year'
+        : asOfYear < irmaaLookbackTaxYear
+          ? 'future_tax_year'
+          : 'active_or_ongoing';
+  const irmaaTimingText =
+    irmaaLookbackTaxYear === null
+      ? 'IRMAA lookback timing is not modeled because Medicare start year is unavailable.'
+      : irmaaGuardrailTiming === 'current_tax_year'
+        ? `IRMAA is a current ${asOfYear} tax-year guardrail for ${medicareYear} Medicare premiums.`
+        : irmaaGuardrailTiming === 'future_tax_year'
+          ? `IRMAA guardrail starts in tax year ${irmaaLookbackTaxYear} for ${medicareYear} Medicare premiums.`
+          : `IRMAA guardrail is active; ${asOfYear} income affects a later Medicare premium year.`;
   const outlook = input.evaluation?.summary.irmaaOutlook ?? null;
   const normalized = outlook?.toLowerCase() ?? '';
   const status: SixPackStatus = !outlook
@@ -328,6 +480,22 @@ function buildTaxCliffs(input: {
     : normalized.includes('frequent') || normalized.includes('surcharge')
       ? 'amber'
       : 'green';
+  const frontMetric =
+    expectedFederalTax === null
+      ? status === 'green'
+        ? 'No cliff pressure now'
+        : status === 'amber'
+          ? 'IRMAA pressure showing'
+          : 'Run plan for cliff read'
+      : `Tax ${asOfYear} ${compactCurrency(expectedFederalTax)}`;
+  const thresholdDetail =
+    projectedMagi === null
+      ? 'MAGI threshold margins need a plan run.'
+      : `Projected ${asOfYear} MAGI is ${formatCurrency(projectedMagi)}. ${acaTimingText} ${
+          acaAppliesThisYear
+            ? `ACA threshold ${formatCurrency(acaThreshold)}; margin ${formatCurrency(acaMargin ?? 0)}.`
+            : `ACA threshold ${formatCurrency(acaThreshold)} is shown for planning context, not as a ${asOfYear} guardrail.`
+        } ${irmaaTimingText} IRMAA threshold ${irmaaThreshold === null ? 'unavailable' : formatCurrency(irmaaThreshold)}; margin ${irmaaMargin === null ? 'unavailable' : formatCurrency(irmaaMargin)}.`;
 
   return {
     id: 'tax_cliffs',
@@ -335,7 +503,8 @@ function buildTaxCliffs(input: {
     question: 'Are cliffs still clear?',
     status,
     trend: 'flat',
-    headline: status === 'green' ? 'CLEAR' : status === 'amber' ? 'WATCH' : 'NO RUN',
+    headline: status === 'green' ? 'CLEAR' : status === 'amber' ? 'WATCH' : 'UPDATE',
+    frontMetric,
     reason:
       status === 'green'
         ? 'Latest model does not show meaningful cliff pressure.'
@@ -343,10 +512,24 @@ function buildTaxCliffs(input: {
           ? 'Latest IRMAA or tax outlook has pressure worth watching.'
           : 'Tax cliff projection is not available yet.',
     rule: 'Green when the current plan reports no meaningful ACA/IRMAA pressure; amber when modeled surcharge or cliff pressure appears; red reserved for explicit current-year breach once MAGI projection is wired.',
-    detail: outlook ?? 'Run plan analysis to populate tax and healthcare cliff status.',
+    detail: `${expectedFederalTax === null ? '' : `Expected ${asOfYear} federal tax is ${formatCurrency(expectedFederalTax)}. `}${thresholdDetail} ${outlook ?? 'Run plan analysis to populate tax and healthcare cliff status.'}`.trim(),
     actionLabel: 'Open Taxes',
     sourceFreshness: dataFreshness(input.evaluationCapturedAtIso, input.asOfIso, 'plan evaluation'),
     diagnostics: {
+      expectedFederalTaxYear: expectedFederalTax === null ? null : asOfYear,
+      expectedFederalTax,
+      projectedMagi,
+      acaIncomeThreshold: acaThreshold,
+      acaMargin,
+      acaAppliesThisYear,
+      acaGuardrailYear,
+      acaTiming: acaAppliesThisYear ? 'current_year_guardrail' : 'future_guardrail',
+      irmaaIncomeThreshold: irmaaThreshold,
+      irmaaMargin,
+      irmaaFirstMedicareYear: medicareYear,
+      irmaaLookbackTaxYear,
+      irmaaGuardrailTiming,
+      irmaaSurcharge: currentYearTax?.medianIrmaaSurcharge ?? null,
       irmaaOutlook: outlook,
     },
   };
@@ -356,34 +539,58 @@ function buildWatchItems(input: {
   spending: SixPackSpendingContext | null;
   asOfIso: string;
 }): SixPackInstrument {
-  const escrowSqueeze = input.spending
-    ? Math.max(0, input.spending.annualEscrowActualSpend - input.spending.annualEscrowPlannedBudget)
-    : 0;
-  const status: SixPackStatus = input.spending ? 'green' : 'unknown';
+  if (!input.spending) {
+    return {
+      id: 'watch_items',
+      label: 'Yearly Buckets',
+      question: 'Are yearly bills absorbed?',
+      status: 'unknown',
+      trend: 'none',
+      headline: 'NO LEDGER',
+      reason: 'Yearly bucket progress needs the spending ledger before it can be trusted.',
+      rule: 'Shows annual required-yearly and travel spending against the adaptive yearly lane; early annual bills do not create a failure state by date pacing.',
+      detail: 'Load the local spending ledger to evaluate required yearly and travel buckets.',
+      actionLabel: 'Open Spending',
+      sourceFreshness: dataFreshness(null, input.asOfIso, 'spending ledger unavailable'),
+      diagnostics: {},
+    };
+  }
+
+  const plannedBudget = input.spending.annualEscrowPlannedBudget;
+  const actualSpend = input.spending.annualEscrowActualSpend;
+  const adaptiveBudget = input.spending.annualEscrowAdaptiveBudget;
+  const escrowSqueeze = Math.max(0, actualSpend - plannedBudget);
+  const denominator = Math.max(adaptiveBudget, plannedBudget, actualSpend, 1);
+  const percentUsed = (actualSpend / denominator) * 100;
+  const yearProgress = yearElapsedPercent(input.asOfIso);
+  const status: SixPackStatus = 'green';
+
   return {
     id: 'watch_items',
-    label: 'Watch Items',
-    question: 'Anything waking up?',
+    label: 'Yearly Buckets',
+    question: 'Are yearly bills absorbed?',
     status,
     trend: 'flat',
-    headline: status === 'green' ? 'QUIET' : 'NO LEDGER',
+    headline: escrowSqueeze > 0 ? 'ABSORBED' : 'TRACKING',
+    frontMetric: `${compactCurrency(actualSpend)} / ${compactCurrency(denominator)} yr`,
     reason:
-      status === 'green'
-        ? escrowSqueeze > 0
-          ? 'Annual escrow is above estimate, but it has been absorbed into the adaptive monthly lane.'
-          : 'No modeled watch item is currently asking for attention.'
-        : 'Watch rules need the spending ledger before they can be trusted.',
-    rule: 'Green when known watch items are quiet or already absorbed into the current monthly lane; amber when drift exists outside the lane; red reserved for action-required items.',
+      escrowSqueeze > 0
+        ? 'Required yearly and travel spending are above the original estimate, and the monthly lane has already absorbed the swing.'
+        : 'Required yearly and travel spending are inside the annual allocation.',
+    rule: 'Shows annual required-yearly and travel spending against the adaptive yearly lane; early annual bills do not create a failure state by date pacing.',
     detail:
-      status === 'green'
-        ? escrowSqueeze > 0
-          ? `Annual escrow actuals are ${formatCurrency(escrowSqueeze)} above estimate, and the monthly operating lane is already reduced around that swing.`
-          : 'Current watch list includes annual escrow squeeze, model trust, and data freshness.'
-        : 'Load the local spending ledger to evaluate watch items.',
-    actionLabel: undefined,
-    sourceFreshness: dataFreshness(input.spending?.summary.asOfIso ?? input.asOfIso, input.asOfIso, 'watch rules'),
+      escrowSqueeze > 0
+        ? `Yearly bucket spend is ${formatCurrency(actualSpend)} against the original ${formatCurrency(plannedBudget)} estimate. The adaptive yearly lane is ${formatCurrency(denominator)}, so the monthly operating lane is already reduced around the swing.`
+        : `Yearly bucket spend is ${formatCurrency(actualSpend)} against a ${formatCurrency(plannedBudget)} annual allocation. The year-progress marker is informational only, not a failure trigger for early annual bills.`,
+    actionLabel: 'Open Spending',
+    sourceFreshness: dataFreshness(input.spending.summary.asOfIso, input.asOfIso, 'spending ledger'),
     diagnostics: {
+      annualEscrowPlannedBudget: plannedBudget,
+      annualEscrowActualSpend: actualSpend,
+      annualEscrowAdaptiveBudget: adaptiveBudget,
       annualEscrowSqueeze: escrowSqueeze,
+      yearlyBucketPercentUsed: Number(percentUsed.toFixed(2)),
+      yearElapsedPercent: Number(yearProgress.toFixed(2)),
     },
   };
 }
@@ -406,6 +613,7 @@ export function buildSixPackSnapshot(input: {
       asOfIso: input.asOfIso,
     }),
     buildTaxCliffs({
+      data: input.data,
       evaluation: input.evaluation,
       evaluationCapturedAtIso: input.evaluationCapturedAtIso,
       asOfIso: input.asOfIso,

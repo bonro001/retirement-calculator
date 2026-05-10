@@ -8,6 +8,7 @@ import {
   buildHomeAssistantSixPackPayload,
 } from './home-assistant-six-pack-contract';
 import type { PortfolioWeatherSnapshot } from './portfolio-weather';
+import type { PlanEvaluation } from './plan-evaluation';
 
 const asOfIso = '2026-05-10T12:00:00.000Z';
 
@@ -87,6 +88,7 @@ describe('buildSixPackSnapshot', () => {
     const lifestyle = snapshot.instruments.find((item) => item.id === 'lifestyle_pace');
     expect(lifestyle?.status).toBe('green');
     expect(lifestyle?.frontMetric).toContain('/ $7.5k mo');
+    expect(lifestyle?.diagnostics.monthElapsedPercent).toBe(32.26);
   });
 
   it('turns lifestyle amber and red at explicit thresholds', () => {
@@ -111,7 +113,104 @@ describe('buildSixPackSnapshot', () => {
     expect(red?.status).toBe('red');
   });
 
-  it('keeps absorbed annual escrow swings green in watch items', () => {
+  it('puts the current plan success percent on plan integrity', () => {
+    const evaluation = {
+      summary: {
+        successRate: 0.852,
+        planVerdict: 'Strong',
+        irmaaOutlook: 'No meaningful cliff pressure.',
+      },
+      trustPanel: {
+        safeToRely: true,
+        confidence: 'high',
+        summary: 'Trust checks passed.',
+      },
+      raw: {
+        baselinePath: {
+          yearlySeries: [
+            {
+              year: 2026,
+              medianFederalTax: 22_415,
+              medianMagi: 182_161,
+              medianAcaPremiumEstimate: 0,
+              medianIrmaaSurcharge: 0,
+            },
+          ],
+        },
+      },
+    } as unknown as PlanEvaluation;
+
+    const snapshot = buildSixPackSnapshot({
+      data: cloneSeedData(),
+      spending: spendingContext(7_000),
+      portfolioWeather: null,
+      evaluation,
+      evaluationCapturedAtIso: asOfIso,
+      asOfIso,
+    });
+
+    const planIntegrity = snapshot.instruments.find(
+      (item) => item.id === 'plan_integrity',
+    );
+    expect(planIntegrity?.headline).toBe('ON PLAN');
+    expect(planIntegrity?.frontMetric).toBe('85%');
+    expect(planIntegrity?.diagnostics.successRate).toBe(0.852);
+  });
+
+  it('puts a short plain-English tax readout on the tax puck', () => {
+    const evaluation = {
+      summary: {
+        successRate: 0.9,
+        planVerdict: 'Strong',
+        irmaaOutlook: 'No meaningful cliff pressure.',
+      },
+      trustPanel: {
+        safeToRely: true,
+        confidence: 'high',
+        summary: 'Trust checks passed.',
+      },
+      raw: {
+        baselinePath: {
+          yearlySeries: [
+            {
+              year: 2026,
+              medianFederalTax: 22_415,
+              medianMagi: 182_161,
+              medianAcaPremiumEstimate: 0,
+              medianIrmaaSurcharge: 0,
+            },
+          ],
+        },
+      },
+    } as unknown as PlanEvaluation;
+
+    const snapshot = buildSixPackSnapshot({
+      data: cloneSeedData(),
+      spending: spendingContext(7_000),
+      portfolioWeather: null,
+      evaluation,
+      evaluationCapturedAtIso: asOfIso,
+      asOfIso,
+    });
+
+    const tax = snapshot.instruments.find((item) => item.id === 'tax_cliffs');
+    expect(tax?.status).toBe('green');
+    expect(tax?.headline).toBe('CLEAR');
+    expect(tax?.frontMetric).toBe('Tax 2026 $22.4k');
+    expect(tax?.diagnostics.expectedFederalTax).toBe(22_415);
+    expect(tax?.diagnostics.acaIncomeThreshold).toBe(84_600);
+    expect(tax?.diagnostics.acaMargin).toBe(-97_561);
+    expect(tax?.diagnostics.acaAppliesThisYear).toBe(false);
+    expect(tax?.diagnostics.acaGuardrailYear).toBe(2027);
+    expect(tax?.diagnostics.acaTiming).toBe('future_guardrail');
+    expect(tax?.diagnostics.irmaaIncomeThreshold).toBe(218_000);
+    expect(tax?.diagnostics.irmaaMargin).toBe(35_839);
+    expect(tax?.diagnostics.irmaaFirstMedicareYear).toBe(2028);
+    expect(tax?.diagnostics.irmaaLookbackTaxYear).toBe(2026);
+    expect(tax?.diagnostics.irmaaGuardrailTiming).toBe('current_tax_year');
+  });
+
+  it('shows yearly bucket progress without treating early annual bills as behind', () => {
     const snapshot = buildSixPackSnapshot({
       data: cloneSeedData(),
       spending: {
@@ -126,10 +225,14 @@ describe('buildSixPackSnapshot', () => {
       asOfIso,
     });
 
-    const watch = snapshot.instruments.find((item) => item.id === 'watch_items');
-    expect(watch?.status).toBe('green');
-    expect(watch?.headline).toBe('QUIET');
-    expect(watch?.detail).toContain('monthly operating lane is already reduced');
+    const yearly = snapshot.instruments.find((item) => item.id === 'watch_items');
+    expect(yearly?.label).toBe('Yearly Buckets');
+    expect(yearly?.status).toBe('green');
+    expect(yearly?.headline).toBe('ABSORBED');
+    expect(yearly?.frontMetric).toBe('$38.0k / $38.0k yr');
+    expect(yearly?.detail).toContain('monthly operating lane is already reduced');
+    expect(yearly?.diagnostics.yearElapsedPercent).toBeGreaterThan(35);
+    expect(yearly?.diagnostics.yearlyBucketPercentUsed).toBe(100);
   });
 
   it('serializes the Home Assistant aggregate without raw diagnostics', () => {
@@ -189,6 +292,12 @@ describe('buildSixPackSnapshot', () => {
       missingQuoteValueHeldAtImport: 0,
       missingShareValueHeldAtImport: 0,
       heldAtImportValue: 0,
+      oneYearLookbackDate: '2025-05-09',
+      oneYearLookbackValue: 92_000,
+      oneYearCurrentValue: 101_500,
+      oneYearChangePercent: 10.33,
+      oneYearLookbackDays: 365,
+      oneYearHistoryCoveragePercent: 95,
       missingQuoteSymbols: [],
       missingShareSymbols: [],
       holdings: [],
@@ -206,5 +315,10 @@ describe('buildSixPackSnapshot', () => {
     const weather = snapshot.instruments.find((item) => item.id === 'portfolio_weather');
     expect(weather?.status).toBe('green');
     expect(weather?.headline).toBe('TAILWIND');
+    expect(weather?.frontMetric).toBe('$101.5k · up 1.5%');
+    expect(weather?.diagnostics.oneYearChangePercent).toBe(10.33);
+    expect(weather?.diagnostics.oneYearLookbackDays).toBe(365);
+    expect(weather?.diagnostics.projectedAnnualChangePercent).toBeGreaterThan(70);
+    expect(weather?.diagnostics.projectionWindowDays).toBe(10);
   });
 });

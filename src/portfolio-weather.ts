@@ -7,10 +7,23 @@ export interface PortfolioQuote {
   source: string;
 }
 
+export interface PortfolioPricePoint {
+  date: string;
+  close: number;
+}
+
+export interface PortfolioPriceHistory {
+  symbol: string;
+  source: string;
+  asOfIso: string;
+  points: PortfolioPricePoint[];
+}
+
 export interface PortfolioQuoteSnapshot {
   asOfIso: string;
   source: string;
   quotes: PortfolioQuote[];
+  histories?: PortfolioPriceHistory[];
   unavailableSymbols: string[];
 }
 
@@ -44,6 +57,12 @@ export interface PortfolioWeatherSnapshot {
   missingQuoteValueHeldAtImport: number;
   missingShareValueHeldAtImport: number;
   heldAtImportValue: number;
+  oneYearLookbackDate: string | null;
+  oneYearLookbackValue: number | null;
+  oneYearCurrentValue: number | null;
+  oneYearChangePercent: number | null;
+  oneYearLookbackDays: number | null;
+  oneYearHistoryCoveragePercent: number;
   missingQuoteSymbols: string[];
   missingShareSymbols: string[];
   holdings: PortfolioWeatherHoldingEstimate[];
@@ -71,6 +90,55 @@ function quoteBySymbol(snapshot: PortfolioQuoteSnapshot | null): Map<string, Por
   return bySymbol;
 }
 
+function historyBySymbol(
+  snapshot: PortfolioQuoteSnapshot | null,
+): Map<string, PortfolioPriceHistory> {
+  const bySymbol = new Map<string, PortfolioPriceHistory>();
+  (snapshot?.histories ?? []).forEach((history) => {
+    const points = history.points.filter(
+      (point) =>
+        Number.isFinite(point.close) &&
+        point.close > 0 &&
+        Number.isFinite(new Date(point.date).getTime()),
+    );
+    if (points.length) {
+      bySymbol.set(history.symbol.toUpperCase(), { ...history, points });
+    }
+  });
+  return bySymbol;
+}
+
+function oneYearAgoIso(asOfIso: string): string | null {
+  const asOf = new Date(asOfIso);
+  if (!Number.isFinite(asOf.getTime())) return null;
+  const target = new Date(asOf);
+  target.setUTCFullYear(target.getUTCFullYear() - 1);
+  return target.toISOString().slice(0, 10);
+}
+
+function pointAtOrBefore(
+  points: PortfolioPricePoint[],
+  targetDate: string,
+): PortfolioPricePoint | null {
+  const sorted = [...points].sort((left, right) => left.date.localeCompare(right.date));
+  let selected: PortfolioPricePoint | null = null;
+  for (const point of sorted) {
+    if (point.date <= targetDate) {
+      selected = point;
+    } else {
+      break;
+    }
+  }
+  return selected ?? sorted[0] ?? null;
+}
+
+function daysBetweenDates(leftDate: string, rightIso: string): number | null {
+  const left = new Date(`${leftDate}T12:00:00.000Z`).getTime();
+  const right = new Date(rightIso).getTime();
+  if (!Number.isFinite(left) || !Number.isFinite(right)) return null;
+  return Math.max(0, Math.round((right - left) / 86_400_000));
+}
+
 export function portfolioQuoteSymbols(data: SeedData): string[] {
   const symbols = new Set<string>();
   (['pretax', 'roth', 'taxable', 'hsa'] as const).forEach((bucket) => {
@@ -92,6 +160,7 @@ export function buildPortfolioWeatherSnapshot(input: {
   asOfIso: string;
 }): PortfolioWeatherSnapshot {
   const quotes = quoteBySymbol(input.quoteSnapshot);
+  const histories = historyBySymbol(input.quoteSnapshot);
   const holdings: PortfolioWeatherHoldingEstimate[] = [];
   const missingQuoteSymbols = new Set<string>();
   const missingShareSymbols = new Set<string>();
@@ -102,7 +171,14 @@ export function buildPortfolioWeatherSnapshot(input: {
   let missingQuoteValueHeldAtImport = 0;
   let missingShareValueHeldAtImport = 0;
   let quoteAsOfIso: string | null = input.quoteSnapshot?.asOfIso ?? null;
+  let oneYearLookbackValue = 0;
+  let oneYearCurrentValue = 0;
+  let oneYearEligibleValue = 0;
+  let oneYearCoveredValue = 0;
+  let oneYearLookbackDate: string | null = null;
+  let oneYearLookbackDays: number | null = null;
   const importDates: string[] = [];
+  const oneYearTargetDate = oneYearAgoIso(input.asOfIso);
 
   (['pretax', 'roth', 'taxable', 'hsa'] as const).forEach((bucket) => {
     input.data.accounts[bucket]?.sourceAccounts?.forEach((account) => {
@@ -178,6 +254,26 @@ export function buildPortfolioWeatherSnapshot(input: {
         const estimatedValue = roundMoney(shares * quote.price);
         quotedImportValue += importValue;
         quotedEstimatedValue += estimatedValue;
+        oneYearEligibleValue += importValue;
+        if (oneYearTargetDate) {
+          const point = pointAtOrBefore(histories.get(symbol)?.points ?? [], oneYearTargetDate);
+          if (point) {
+            oneYearCoveredValue += importValue;
+            oneYearLookbackValue = roundMoney(oneYearLookbackValue + shares * point.close);
+            oneYearCurrentValue = roundMoney(oneYearCurrentValue + estimatedValue);
+            const days = daysBetweenDates(point.date, quote.asOfIso);
+            oneYearLookbackDays =
+              days === null
+                ? oneYearLookbackDays
+                : oneYearLookbackDays === null
+                  ? days
+                  : Math.max(oneYearLookbackDays, days);
+            oneYearLookbackDate =
+              oneYearLookbackDate === null || point.date < oneYearLookbackDate
+                ? point.date
+                : oneYearLookbackDate;
+          }
+        }
         holdings.push({
           accountBucket: bucket,
           accountName: account.name,
@@ -208,6 +304,12 @@ export function buildPortfolioWeatherSnapshot(input: {
   const heldAtImportValue = roundMoney(
     cashValueHeldAtImport + missingQuoteValueHeldAtImport + missingShareValueHeldAtImport,
   );
+  const oneYearHistoryCoveragePercent =
+    oneYearEligibleValue > 0 ? roundPercent(oneYearCoveredValue / oneYearEligibleValue) : 0;
+  const oneYearChangePercent =
+    oneYearLookbackValue > 0
+      ? roundPercent((oneYearCurrentValue - oneYearLookbackValue) / oneYearLookbackValue)
+      : null;
 
   return {
     available: holdings.some((holding) => holding.status === 'quoted'),
@@ -225,6 +327,12 @@ export function buildPortfolioWeatherSnapshot(input: {
     missingQuoteValueHeldAtImport,
     missingShareValueHeldAtImport,
     heldAtImportValue,
+    oneYearLookbackDate,
+    oneYearLookbackValue: oneYearLookbackValue > 0 ? roundMoney(oneYearLookbackValue) : null,
+    oneYearCurrentValue: oneYearCurrentValue > 0 ? roundMoney(oneYearCurrentValue) : null,
+    oneYearChangePercent,
+    oneYearLookbackDays,
+    oneYearHistoryCoveragePercent,
     missingQuoteSymbols: [...missingQuoteSymbols].sort(),
     missingShareSymbols: [...missingShareSymbols].sort(),
     holdings,

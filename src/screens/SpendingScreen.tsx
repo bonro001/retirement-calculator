@@ -4,6 +4,8 @@ import {
   applySpendingTransactionOverrides,
   buildSpendingMerchantCategoryRule,
   buildSpendingTransactionOverride,
+  mergeSpendingMerchantCategoryRules,
+  mergeSpendingTransactionOverrides,
   readSpendingMerchantCategoryRules,
   readSpendingTransactionOverrides,
   writeSpendingMerchantCategoryRules,
@@ -11,6 +13,7 @@ import {
   type SpendingMerchantCategoryRuleMap,
   type SpendingTransactionOverrideMap,
 } from '../spending-overrides';
+import { normalizeSpendingOverrideStorePayload } from '../spending-override-store';
 import {
   buildRetirementSpendingBudgetPlan,
   buildSpendingMonthSummary,
@@ -52,6 +55,8 @@ const LOCAL_SPENDING_LEDGER_URLS = [
   '/local/spending-ledger.gmail.json',
 ] as const;
 const AMAZON_ALIGNMENT_URL = '/local/spending-amazon-card-email-alignment.json';
+const SPENDING_OVERRIDE_STORE_URL = '/local/spending-overrides.json';
+const LOCAL_SIX_PACK_API_URL = 'http://127.0.0.1:8787';
 
 const STATUS_LABELS: Record<SpendingPaceStatus, string> = {
   under: 'Under pace',
@@ -2675,6 +2680,10 @@ export function SpendingScreen({
     useState<SpendingTransactionOverrideMap>({});
   const [merchantCategoryRules, setMerchantCategoryRules] =
     useState<SpendingMerchantCategoryRuleMap>({});
+  const [fileCategoryOverrides, setFileCategoryOverrides] =
+    useState<SpendingTransactionOverrideMap>({});
+  const [fileMerchantCategoryRules, setFileMerchantCategoryRules] =
+    useState<SpendingMerchantCategoryRuleMap>({});
   const [amazonAlignment, setAmazonAlignment] = useState<AmazonEmailAlignmentPayload | null>(
     null,
   );
@@ -2746,6 +2755,28 @@ export function SpendingScreen({
     setMerchantCategoryRules(readSpendingMerchantCategoryRules(window.localStorage));
   }, []);
 
+  useEffect(() => {
+    let cancelled = false;
+    fetch(SPENDING_OVERRIDE_STORE_URL, { cache: 'no-store' })
+      .then(async (response) => {
+        if (!response.ok) return null;
+        return normalizeSpendingOverrideStorePayload(await response.json());
+      })
+      .then((payload) => {
+        if (cancelled || !payload) return;
+        setFileCategoryOverrides(payload.transactionOverrides);
+        setFileMerchantCategoryRules(payload.merchantCategoryRules);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setFileCategoryOverrides({});
+        setFileMerchantCategoryRules({});
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const modeledSpending = useMemo(() => {
     const fixedSpendingBase = {
       ...appliedData.spending,
@@ -2784,11 +2815,20 @@ export function SpendingScreen({
       applySpendingTransactionOverrides(
         applySpendingMerchantCategoryRules(
           applySpendingCategoryInferences(rawTransactions),
-          merchantCategoryRules,
+          mergeSpendingMerchantCategoryRules(
+            merchantCategoryRules,
+            fileMerchantCategoryRules,
+          ),
         ),
-        categoryOverrides,
+        mergeSpendingTransactionOverrides(categoryOverrides, fileCategoryOverrides),
       ),
-    [categoryOverrides, merchantCategoryRules, rawTransactions],
+    [
+      categoryOverrides,
+      fileCategoryOverrides,
+      fileMerchantCategoryRules,
+      merchantCategoryRules,
+      rawTransactions,
+    ],
   );
   const budgetTransactions = useMemo(
     () => splitAmazonCreditCardTransactionsForBudget(transactions),
@@ -2952,6 +2992,25 @@ export function SpendingScreen({
       }
       return next;
     });
+
+    void Promise.all(
+      updates.map((update) =>
+        fetch(
+          `${LOCAL_SIX_PACK_API_URL}/api/spending/transactions/${encodeURIComponent(
+            update.transactionId,
+          )}/override`,
+          {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({
+              categoryId: update.categoryId,
+              title: update.title,
+              applyToMerchant: update.applyToMerchant === true,
+            }),
+          },
+        ).catch(() => null),
+      ),
+    );
   };
   const moveTransaction = (
     transactionId: string,
