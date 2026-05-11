@@ -4878,7 +4878,41 @@ function simulatePath(
 
         balances.cash += windfallCashInflow;
         const baseIncome = adjustedWages + socialSecurityIncome + windfallCashInflow;
-        const shortfallBeforeHealthcare = Math.max(spendingBeforeHealthcare - baseIncome, 0);
+
+        // Aggregate scheduled outflows (DwZ gifts) for this year. Sibling
+        // to the windfall pattern above: outflows decrement the named
+        // account, contribute tax effects to baseTaxInputs BEFORE the
+        // closed loop, and add any shortfall to the year's cash need so
+        // the closed-loop withdrawal solver covers it. See
+        // DIE_WITH_ZERO_WORKPLAN.md Phase 0b for design context.
+        const scheduledOutflowsForYear = (data.scheduledOutflows ?? []).filter(
+          (entry) => entry.year === year,
+        );
+        let outflowOrdinaryIncome = 0;
+        let outflowLtcgIncome = 0;
+        let outflowShortfallTotal = 0;
+        let outflowAppliedTotal = 0;
+        for (const outflow of scheduledOutflowsForYear) {
+          if (!(outflow.amount > 0)) continue;
+          const nominalAmount = outflow.amount * inflationIndex;
+          const sourceBalance = Math.max(0, balances[outflow.sourceAccount]);
+          const available = Math.min(nominalAmount, sourceBalance);
+          const shortfall = nominalAmount - available;
+          balances[outflow.sourceAccount] -= available;
+          outflowAppliedTotal += available;
+          if (outflow.sourceAccount === 'pretax') {
+            outflowOrdinaryIncome += available;
+          } else if (outflow.sourceAccount === 'taxable') {
+            outflowLtcgIncome += available * DEFAULT_TAXABLE_WITHDRAWAL_LTCG_RATIO;
+          }
+          // cash / roth outflows are pure balance decrements (no tax event).
+          // Any shortfall cascades to the closed loop's normal withdrawal
+          // logic via the cash need bump below.
+          if (shortfall > 0) outflowShortfallTotal += shortfall;
+        }
+
+        const shortfallBeforeHealthcare =
+          Math.max(spendingBeforeHealthcare - baseIncome, 0) + outflowShortfallTotal;
         const baseTaxInputs = createBaseYearTaxInputs(
           data.household.filingStatus,
           adjustedWages,
@@ -4886,8 +4920,8 @@ function simulatePath(
           robAge,
           debbieAge,
         );
-        baseTaxInputs.otherOrdinaryIncome += windfallOrdinaryIncome;
-        baseTaxInputs.realizedLTCG += windfallLtcgIncome;
+        baseTaxInputs.otherOrdinaryIncome += windfallOrdinaryIncome + outflowOrdinaryIncome;
+        baseTaxInputs.realizedLTCG += windfallLtcgIncome + outflowLtcgIncome;
         const balancesBeforeWithdrawal = { ...balances };
         const medicareEligibilityByPerson = [robAge >= 65, debbieAge >= 65];
         const medicareEligibleCount = medicareEligibilityByPerson.filter(Boolean).length;

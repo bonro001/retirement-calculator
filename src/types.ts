@@ -163,6 +163,70 @@ export interface WindfallEntry {
   presentValueGrowthRate?: number;
 }
 
+// Tax treatment for scheduled outflows (typically gifts to the next
+// generation). Today the only treatments modeled are gifts that fall
+// under the donor's annual exclusion (no tax consequence) and gifts
+// that require Form 709 (annual-exclusion overflow — gift is still
+// tax-free under lifetime exemption but must be reported). The engine
+// treats both identically for cashflow purposes; the tag is metadata
+// for the household's records.
+export type ScheduledOutflowTaxTreatment =
+  | 'gift_no_tax_consequence'
+  | 'requires_form_709';
+
+// Vehicles for scheduled outflows. Used by the DwZ analyzer to enforce
+// IRS rules (annual exclusion caps, 529 superfund 5-year cooldowns,
+// direct-pay tuition/medical exemption) when building gift schedules.
+// The engine itself doesn't differentiate behavior by vehicle — the
+// distinction is metadata for the schedule builder and the household's
+// records.
+export type ScheduledOutflowVehicle =
+  | 'annual_exclusion_cash'
+  | '529_superfund'
+  | 'direct_pay_tuition_medical'
+  | 'utma'
+  | 'other';
+
+// A planned outflow from the household's portfolio in a specific year.
+// Today this models generosity (gifts to children/grandchildren) but
+// the type is intentionally generic — future use cases could include
+// scheduled charitable donations, family loans, etc.
+//
+// Outflows are sibling to `WindfallEntry` (which models scheduled
+// positive cashflows). Outflow handling in the engine follows the same
+// `baseTaxInputs` injection pattern as windfalls so AGI/MAGI/IRMAA/ACA
+// flow-through is correct — see `src/utils.ts` near the
+// `windfallOrdinaryIncome` / `windfallLtcgIncome` aggregations.
+//
+// HSA is intentionally excluded as a source account: non-qualified-
+// medical HSA distributions are ordinary income plus a 20% penalty
+// pre-65 (IRS Pub 969), making the HSA a poor gift source. The HSA's
+// tax-advantaged status is best preserved for late-life medical/LTC.
+export interface ScheduledOutflow {
+  // Stable identifier for the event (used in payloads and reporting).
+  name: string;
+  // Plan year the outflow occurs.
+  year: number;
+  // Today-dollar amount. The engine deflates to nominal at simulation time.
+  amount: number;
+  // Account to draw from. Affects tax treatment of the forced withdrawal:
+  // - 'pretax': forced distribution; full amount becomes ordinary income.
+  // - 'taxable': realizes LTCG at DEFAULT_TAXABLE_WITHDRAWAL_LTCG_RATIO.
+  // - 'roth' / 'cash': no tax event; pure balance decrement.
+  sourceAccount: 'cash' | 'taxable' | 'pretax' | 'roth';
+  // Free text for reporting and DwZ analysis grouping (e.g., 'ethan',
+  // 'mavue'). The engine does not interpret this field.
+  recipient: string;
+  // Vehicle classification — see `ScheduledOutflowVehicle`. Metadata for
+  // schedule-builder rule enforcement; engine ignores it.
+  vehicle: ScheduledOutflowVehicle;
+  // Human-readable description for projection reports and audits.
+  label: string;
+  // Tax treatment of the gift itself (donor side). Engine ignores it;
+  // metadata for household records and DwZ analyzer validation.
+  taxTreatment: ScheduledOutflowTaxTreatment;
+}
+
 export interface IncomeData {
   salaryAnnual: number;
   salaryEndDate: string;
@@ -334,6 +398,12 @@ export interface SeedData {
     legacyTargetTodayDollars?: number | null;
     [key: string]: unknown;
   };
+  // Planned outflows from the portfolio (typically generosity gifts to
+  // the next generation). Optional and defaults to empty — pre-DwZ
+  // seed-data continues to validate without modification. See
+  // `ScheduledOutflow` for field semantics and `DIE_WITH_ZERO_WORKPLAN.md`
+  // for the broader DwZ analyzer this enables.
+  scheduledOutflows?: ScheduledOutflow[];
 }
 
 export interface GuardrailTier {

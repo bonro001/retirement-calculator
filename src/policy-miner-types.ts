@@ -29,7 +29,7 @@
  * Format: `policy-miner-vN-engineYYYY-MM` so a glance tells you when a
  * given record's lineage was minted.
  */
-export const POLICY_MINER_ENGINE_VERSION = 'policy-miner-v2-2026-05-01';
+export const POLICY_MINER_ENGINE_VERSION = 'policy-miner-v3-2026-05-dwz';
 
 /**
  * Mining records are keyed by engineVersion as well as baseline. For

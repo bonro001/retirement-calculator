@@ -214,7 +214,7 @@ When the bequest solver's scalar would push a gift above its vehicle cap, the sc
 
 This phase exists because v1's "gifts as negative windfalls" approach is incompatible with the engine — windfalls are clamped to nonnegative at [src/utils.ts:1445](src/utils.ts:1445) and added to `balances.cash` as positive inflows around [src/utils.ts:4879](src/utils.ts:4879). The cleanest fix is a new event type that the projection loop subtracts from named accounts. This is the only step that touches the engine.
 
-0a. [ ] **Define `ScheduledOutflow` schema and seed-data integration point**
+0a. [x] **Define `ScheduledOutflow` schema and seed-data integration point**
    - Edit `src/types.ts` — add a new exported interface:
      ```ts
      export interface ScheduledOutflow {
@@ -233,8 +233,10 @@ This phase exists because v1's "gifts as negative windfalls" approach is incompa
      ```
    - Extend `SeedData` to include an optional `scheduledOutflows?: ScheduledOutflow[]` top-level field. Optional so existing seed-data files validate without modification.
    - Verification: `npx tsc --noEmit` passes; existing seed-data files still parse.
+     - Done. Added `ScheduledOutflow`, `ScheduledOutflowTaxTreatment`, `ScheduledOutflowVehicle` exported types alongside `WindfallEntry` (its structural sibling). `SeedData` extended with `scheduledOutflows?: ScheduledOutflow[]`. HSA excluded from `sourceAccount` enum with explanatory comment citing IRS Pub 969. Existing seed-data.json validates without modification (the field is optional). Verification: `npx tsc --noEmit` → exit 0.
+     - Files: `src/types.ts`.
 
-0b. [ ] **Implement scheduled-outflow handling INSIDE the closed-loop pass**
+0b. [x] **Implement scheduled-outflow handling INSIDE the closed-loop pass**
    - Edit `src/utils.ts` — outflows must inject at the same point where existing windfalls inject (immediately before the closed-loop pass at [src/utils.ts:4882](src/utils.ts:4882)), not after withdrawals are computed. Otherwise the tax/IRMAA/ACA closed-loop iteration at [src/utils.ts:4979](src/utils.ts:4979) and the spending recomputation at [src/utils.ts:5198](src/utils.ts:5198) won't see the gift-driven income, and AGI/MAGI/healthcare subsidies will be wrong.
    - Specifically, for each current-year entry in `data.scheduledOutflows`:
      - Compute `outflowNominal = amount * inflationFactor(year)` (today-dollars → nominal).
@@ -258,11 +260,20 @@ This phase exists because v1's "gifts as negative windfalls" approach is incompa
      - Multi-year outflows accumulate balance changes correctly.
      - Outflow exceeding source balance cascades to fallback account with warning.
      - Outflow scheduled before currentYear is ignored; after currentYear has no current effect.
+     - Done. Inserted the outflow aggregation block at [src/utils.ts:4879](src/utils.ts:4879), right after windfall cash inflow application and before `shortfallBeforeHealthcare` computation. For each current-year outflow: applies available balance (clamped to ≥0), adds tax effects to `baseTaxInputs.otherOrdinaryIncome` (pretax) or `baseTaxInputs.realizedLTCG` (taxable, at `DEFAULT_TAXABLE_WITHDRAWAL_LTCG_RATIO`), bumps `shortfallBeforeHealthcare` by any source-balance shortfall so the closed-loop withdrawal solver covers it. Per-source balance decrements happen in-place, fully before `balancesBeforeWithdrawal` snapshot. The change is additive — when `data.scheduledOutflows` is absent or empty, the entire new block is a no-op and behavior is byte-equivalent to pre-Phase-0.
+     - Test file: `src/scheduled-outflows.test.ts` (9 tests). Coverage: absent vs empty equivalence; cash / roth no-tax-event behavior; per-source distinct terminal-wealth results (proves the engine differentiates); multi-year accumulation; shortfall cascade via closed loop (no negative balances, no NaN); far-future outflow bounded impact; past-year outflow ignored; zero-amount no-op. The single-year pretax-vs-taxable ordering was intentionally NOT pinned because the lifecycle ordering depends on RMD-reduction effects that vary by household — what matters for Phase 0b correctness is that the four sources produce distinct results.
+     - One important nuance discovered during testing: on this household's seed (well-funded, large pretax balance), a $100K pretax gift actually leaves *more* terminal wealth than a $100K taxable gift, because the reduced future RMD stream saves enough in lifetime ordinary-income tax to outweigh the immediate gift-year tax. This is economically correct behavior — and it's what makes ordering assumptions fragile in tests.
+     - Files: `src/utils.ts`, `src/scheduled-outflows.test.ts`.
+     - Verification: `npx vitest run src/scheduled-outflows.test.ts` → 9/9 pass; `npx tsc --noEmit` → exit 0.
 
-0c. [ ] **Bump engine version and document the invalidation**
+0c. [x] **Bump engine version and document the invalidation**
    - Update `POLICY_MINER_ENGINE_VERSION` in the same module that currently defines it (search for `policy-miner-v2-2026-05-01`). Bump to `policy-miner-v3-2026-05-dwz` or similar.
    - Document in this step's `Done:` block that all existing corpora are now invalidated. The household must re-mine once (~3 min) to pick up the new engine.
    - Verification: existing test suite still passes (the new outflow path is opt-in; default behavior unchanged because `scheduledOutflows` is optional/empty in current seed-data); `npm run test:calibration` still passes (Trinity ±3pp, FICalc ±10pp).
+     - Done. Bumped from `'policy-miner-v2-2026-05-01'` to `'policy-miner-v3-2026-05-dwz'`. All existing corpora are now invalidated; the household will see the cockpit's "no mined corpus" banner until a re-mine runs. Re-mine takes ~3 min at full grid (49,368 candidates).
+     - Calibration verification: `npm run test:calibration` → 12/12 tests pass. Trinity 4% / 60-40 / 30y / historical iid still hits ~95% solvent ±3pp; Trinity 5% scenarios still within documented parametric conservatism band; determinism check passes. The additive Phase 0b branch does not perturb default-path behavior because `scheduledOutflows` is absent in the calibration scenarios — the new code is a no-op when the array is empty/undefined.
+     - Engine-coupled regression suite: `withdrawal-rules` (5/5), `policy-ranker` (11/11), `social-security-fractional.audit` (6/6), `scheduled-outflows` (9/9) — 31/31 across these four suites.
+     - Files: `src/policy-miner-types.ts`.
 
 ### Phase 1: Foundation (types, utility model, schedule template)
 
