@@ -44,6 +44,10 @@ const MiningScreen = lazy(() =>
   import('./MiningScreen').then((m) => ({ default: m.MiningScreen })),
 );
 
+const DwZScreen = lazy(() =>
+  import('./DwZScreen').then((m) => ({ default: m.DwZScreen })),
+);
+
 const HistoryScreen = lazy(() =>
   import('./HistoryScreen').then((m) => ({ default: m.HistoryScreen })),
 );
@@ -285,6 +289,15 @@ const navigation: {
     // Arrow up out of tray
     iconPath:
       'M3.75 19.5h16.5M12 4.5v11.25m0 0-4.5-4.5m4.5 4.5 4.5-4.5',
+  },
+  {
+    id: 'dwz',
+    label: 'Generosity',
+    shortLabel: 'DwZ',
+    section: 'analyze',
+    // Gift / present box — giving, generosity
+    iconPath:
+      'M20 12v10H4V12M2 7h20v5H2V7zM12 22V7m0 0a2 2 0 0 0-2-2H8a2 2 0 0 0 0 4h4m0-4a2 2 0 0 1 2-2h2a2 2 0 0 1 0 4h-4',
   },
 ];
 
@@ -745,6 +758,7 @@ export function App() {
     'income',
     'taxes',
     'export',
+    'dwz',
   ];
   useEffect(() => {
     if (!REACHABLE_SCREENS.includes(currentScreen)) {
@@ -1737,6 +1751,11 @@ export function App() {
               {currentScreen === 'mining' && (
                 <Suspense fallback={<LazyScreenFallback label="Loading Mining…" />}>
                   <MiningScreen />
+                </Suspense>
+              )}
+              {currentScreen === 'dwz' && (
+                <Suspense fallback={<LazyScreenFallback label="Loading Generosity…" />}>
+                  <DwZScreen />
                 </Suspense>
               )}
               {currentScreen === 'history' && (

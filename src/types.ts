@@ -11,6 +11,7 @@ export type ScreenId =
   // They're not in the sidebar navigation, so the household can't
   // reach them — but the components still exist in App.tsx and would
   // throw type errors if removed before a proper cleanup pass.
+  | 'dwz'
   | 'overview'
   | 'plan2'
   | 'explore'
