@@ -5,6 +5,7 @@ Goal: Add a Die-With-Zero analyzer that lets the household decide how much of th
 **Revision history**:
 - 2026-05-10 v1: initial draft, assumed gifts could ride on `income.windfalls[]` as negative amounts.
 - 2026-05-10 v2: code review found windfalls are clamped nonnegative ([src/utils.ts:1445](src/utils.ts:1445)); adoption can't lower the $1M legacy gate without an explicit patch ([src/legacy-target-cache.ts:17](src/legacy-target-cache.ts:17)); `evaluatePolicy` is async with 8 inputs ([src/policy-miner-eval.ts:277](src/policy-miner-eval.ts:277)); ScreenId edit was forbidden but required. Added Phase 0 engine spike, loosened "no edits" locks to "additive only", made adoption payload two-part, fixed solver signatures and convergence math.
+- 2026-05-10 v3: second code review found Phase 0 placed outflows after the closed-loop tax/healthcare pass (breaking AGI/ACA/IRMAA flow-through); the Mavue schedule still scheduled annual gifts inside the 529 5-year cooldown window; `formatPayloadForClipboard` emitted comment-prefixed JSON which would break `import seedData from '../seed-data.json'` at [src/data.ts:1](src/data.ts:1); HSA was incorrectly modeled as a tax-free gift source (IRS Pub 969: non-qualified-medical distributions are ordinary income plus 20% penalty pre-65); `runTournament` referenced a corpus payload that `useRecommendedPolicy` doesn't expose (correct loader is `loadCorpusEvaluations` at [src/policy-mining-corpus-source.ts:31](src/policy-mining-corpus-source.ts:31)); leftover `GiftEvent` reference after v2 deleted the type; Phase 6 still claimed the engine wasn't edited. Fixed all seven.
 
 Status legend:
 - `[ ]` pending
@@ -151,7 +152,10 @@ This phase exists because v1's "gifts as negative windfalls" approach is incompa
        name: string;
        year: number;
        amount: number;                              // today dollars, deflated inside the engine
-       sourceAccount: 'cash' | 'taxable' | 'pretax' | 'roth' | 'hsa';
+       sourceAccount: 'cash' | 'taxable' | 'pretax' | 'roth';
+       // NOTE: 'hsa' is intentionally excluded as a gift source. Non-qualified-medical
+       // HSA distributions are ordinary income + 20% additional tax pre-65 (IRS Pub 969).
+       // The HSA's tax-advantaged status is best preserved for late-life medical / LTC.
        recipient: string;                           // free text for reporting (e.g., 'ethan', 'mavue')
        vehicle: 'annual_exclusion_cash' | '529_superfund' | 'direct_pay_tuition_medical' | 'utma' | 'other';
        label: string;
@@ -161,17 +165,30 @@ This phase exists because v1's "gifts as negative windfalls" approach is incompa
    - Extend `SeedData` to include an optional `scheduledOutflows?: ScheduledOutflow[]` top-level field. Optional so existing seed-data files validate without modification.
    - Verification: `npx tsc --noEmit` passes; existing seed-data files still parse.
 
-0b. [ ] **Implement scheduled-outflow handling in the projection loop**
-   - Edit `src/utils.ts` — add a new branch in the per-year projection loop (after withdrawals are computed, before EOY balance roll-forward) that:
-     - Filters `data.scheduledOutflows` for entries where `year === currentYear`.
-     - For each entry, subtracts `amount` (inflation-adjusted from today-dollars to nominal-current-year-dollars) from `balances[sourceAccount]`.
-     - For `sourceAccount === 'pretax'`: the subtraction is a forced distribution. Add the amount to `baseTaxInputs.otherOrdinaryIncome` so the engine taxes it like an IRA withdrawal. The household nets less than the gift face amount unless paid from elsewhere, which is correct.
-     - For `sourceAccount === 'taxable'`: realize cost-basis-aware LTCG via the same path used by existing taxable withdrawals. Use the account's running average basis ratio.
-     - For `sourceAccount === 'roth'`, `'cash'`, `'hsa'`: pure account decrement, no tax event.
-     - Track the per-year outflow totals in a new `outflowsForYear` field on the projection row for reporting.
-     - If a `sourceAccount` balance goes negative, cascade the shortfall to `cash` then `taxable` then `pretax` (the standard cascade) and emit a warning in the projection row.
-   - **Do not** modify windfall handling — outflows are a sibling concept, not a transformation of windfalls.
-   - Verification: new test file `src/scheduled-outflows.test.ts` (8 tests): cash outflow decrements cash and emits no tax event; taxable outflow realizes LTCG; pretax outflow adds ordinary income; Roth outflow is tax-free; HSA outflow is tax-free; multi-year outflows accumulate correctly; outflow exceeding source cascades correctly with a warning; outflow before the year does nothing and after has no effect.
+0b. [ ] **Implement scheduled-outflow handling INSIDE the closed-loop pass**
+   - Edit `src/utils.ts` — outflows must inject at the same point where existing windfalls inject (immediately before the closed-loop pass at [src/utils.ts:4882](src/utils.ts:4882)), not after withdrawals are computed. Otherwise the tax/IRMAA/ACA closed-loop iteration at [src/utils.ts:4979](src/utils.ts:4979) and the spending recomputation at [src/utils.ts:5198](src/utils.ts:5198) won't see the gift-driven income, and AGI/MAGI/healthcare subsidies will be wrong.
+   - Specifically, for each current-year entry in `data.scheduledOutflows`:
+     - Compute `outflowNominal = amount * inflationFactor(year)` (today-dollars → nominal).
+     - **Add to `baseTaxInputs` BEFORE the closed loop runs**, paralleling the existing windfall pattern:
+       - `sourceAccount === 'pretax'`: forced distribution. Add `outflowNominal` to `baseTaxInputs.otherOrdinaryIncome` (same handling as `windfallOrdinaryIncome` already does today).
+       - `sourceAccount === 'taxable'`: realize cost-basis-aware LTCG. Add the gain portion (`outflowNominal * (1 - costBasisRatio)`) to `baseTaxInputs.realizedLTCG` (same handling as `windfallLtcgIncome` already does today).
+       - `sourceAccount === 'roth'` or `'cash'`: no tax-input addition. Pure balance decrement.
+     - **Add `sum(outflowNominal)` to the year's required cash need** so the closed-loop withdrawal solver pulls enough to cover spending + gift outflows in the same iteration. Tax/MAGI/IRMAA/ACA effects of these withdrawals then flow through the existing closed-loop logic correctly.
+     - **After the closed loop converges**, decrement `balances[sourceAccount]` by the per-entry `outflowNominal` (the loop has already covered tax effects; this is the bookkeeping decrement). The decrement uses the same cost-basis tracking that existing withdrawals use for taxable.
+     - Track per-year outflow totals in a new `outflowsForYear` field on the projection row for reporting.
+     - If a `sourceAccount` balance goes negative after decrement, cascade the shortfall to `cash` then `taxable` then `pretax` and emit a warning in the projection row.
+   - **Do not** modify the windfall handling block — outflows are a sibling concept that uses the same `baseTaxInputs` injection point but is otherwise independent.
+   - Verification: new test file `src/scheduled-outflows.test.ts` (10 tests):
+     - Cash outflow decrements cash and emits no tax event.
+     - Roth outflow is tax-free, decrements Roth.
+     - Pretax outflow adds ordinary income to that year's AGI (verify via tax-result `MAGI` increase relative to no-outflow baseline).
+     - **Pretax outflow correctly affects ACA subsidy** in pre-Medicare years (subsidy in outflow year is materially lower than baseline year).
+     - **Pretax outflow correctly affects IRMAA tier** in 65+ years (IRMAA tier may bump up).
+     - Taxable outflow realizes LTCG proportional to `(1 - costBasisRatio)` and adds to `realizedLTCG`.
+     - Multi-outflow year correctly aggregates tax effects (one pretax + one taxable both flow through).
+     - Multi-year outflows accumulate balance changes correctly.
+     - Outflow exceeding source balance cascades to fallback account with warning.
+     - Outflow scheduled before currentYear is ignored; after currentYear has no current effect.
 
 0c. [ ] **Bump engine version and document the invalidation**
    - Update `POLICY_MINER_ENGINE_VERSION` in the same module that currently defines it (search for `policy-miner-v2-2026-05-01`). Bump to `policy-miner-v3-2026-05-dwz` or similar.
@@ -192,7 +209,7 @@ This phase exists because v1's "gifts as negative windfalls" approach is incompa
 
 2. [ ] **Build utility-model module**
    - New file `src/dwz/utility-model.ts`.
-   - Export `computeRecipientUtility(recipient: RecipientProfile, year: number, vehicle: GiftEvent['vehicle']): number`.
+   - Export `computeRecipientUtility(recipient: RecipientProfile, year: number, vehicle: ScheduledOutflow['vehicle']): number`.
    - Implement built-in curves for the two locked recipient profiles:
      - **Ethan cash curve**: peaks at ages 30-42 (the "young-family squeeze" — toddler, building career, sleep-deprived). Default values: age 30 = 1.4, age 35 = 1.35, age 42 = 1.2, age 50 = 1.0, age 60 = 0.85.
      - **Mavue 529 curve**: peaks at ages 0-5 (maximum compounding runway to college), declines steeply after age 14. Default values: age 1 = 1.5, age 5 = 1.4, age 10 = 1.2, age 15 = 0.9, age 18 = 0.6.
@@ -202,15 +219,28 @@ This phase exists because v1's "gifts as negative windfalls" approach is incompa
 3. [ ] **Build gift-schedule-builder module**
    - New file `src/dwz/gift-schedule-builder.ts`.
    - Export `buildGiftScheduleTemplate(plan: SeedData, profiles: RecipientProfile[], phasePlan: PhasePlan): ScheduledOutflow[]`.
-   - Implements the five-phase plan locked in design (amounts use $38K joint annual exclusion for cash, $190K joint for 529 superfunds):
+   - **529 superfund cooldown** (critical): a `529_superfund` event in year Y elects to use 5 years of annual exclusion ratably across years Y through Y+4 (IRS Form 709 instructions, 2026). During this 5-year window, the donee cannot receive any additional `annual_exclusion_cash` gifts from the same donor without filing Form 709 and consuming lifetime exemption. The builder enforces this: after scheduling a $190K superfund (Rob + Debbie joint), no further `annual_exclusion_cash` entries to that recipient are emitted for the next 5 years. (`direct_pay_tuition_medical` does not count against the exclusion and can still be used during cooldown.)
+   - Phase plan (amounts use $38K joint annual exclusion for cash, $190K joint for 529 superfunds):
      - Phase A (pre-retire, now → 2027-07-01): symbolic only ($1K Mavue 529 seed)
-     - Phase B (sequence danger, 2027 → mid-2028): $5K Ethan, $5K Mavue
-     - Phase C (ramp post-inheritance, mid-2028 → Debbie SS ~2030): $20K Ethan ($10K from each spouse), $20K Mavue 529 annual, plus $190K Mavue 529 superfund #1 in 2028 (5-yr election, both spouses)
-     - Phase D (full gifting, ~2031 → 2034): up to $38K Ethan annual exclusion (Rob+Debbie joint), up to $38K Mavue annual exclusion, plus $190K Mavue 529 superfund #2 in 2033
-     - Phase E (event-driven surplus, 2037+): home-sale liquidity available, scale up if 25th-pct holds
-   - **Limit enforcement**: builder caps face amounts at `annual_exclusion_cash`=$38K/yr/recipient and `529_superfund`=$190K/event/recipient (2026 IRS rules). When the bequest-solver's scalar would push a year above its cap, the builder either (a) shifts the surplus to a future year up to cap, or (b) tags the excess with `taxTreatment: 'requires_form_709'`. Default is (a).
-   - Output is the **template** — a per-year list of `ScheduledOutflow`s with face amounts. The bequest-solver (step 4) scales this template by a single scalar, re-applying caps after scaling.
-   - Verification: new test file `src/dwz/gift-schedule-builder.test.ts` (10 tests): each phase boundary produces expected events, vehicle assignments correct (Ethan=cash, Mavue=529/UTMA), superfund drops appear in 2028 and 2033, sourceAccount distribution follows tax-efficient ordering, total face amount sums match documented phase budgets, scaling up past $38K annual exclusion either shifts to next year (default) or tags excess as `requires_form_709` (opt-in flag), scaling up past $190K superfund shifts to next available year, scaling down zeroes out events cleanly.
+     - Phase B (sequence danger, 2027 → mid-2028): $5K Ethan cash; $5K Mavue 529
+     - Phase C (ramp post-inheritance, mid-2028 → Debbie SS ~2030): $20K Ethan cash annual; **$190K Mavue 529 superfund #1 in 2028** — no Mavue annual gifts 2028-2032 (cooldown)
+     - Phase D (full gifting, ~2031 → ~2037): up to $38K Ethan annual exclusion; **$190K Mavue 529 superfund #2 in 2033** (timed exactly when cooldown #1 expires) — no Mavue annual gifts 2033-2037 (cooldown); `direct_pay_tuition_medical` available for Mavue once she's in school (~2030+) and is unaffected by cooldown
+     - Phase E (event-driven surplus, 2037+): home-sale liquidity available; Mavue cooldown #2 expires 2038 → annual exclusion resumes
+   - **Limit enforcement**: builder caps face amounts at `annual_exclusion_cash`=$38K/yr/recipient and `529_superfund`=$190K/event/recipient (2026 IRS rules). When the bequest-solver's scalar would push a year above its cap, the builder either (a) shifts the surplus to a future year up to cap, or (b) tags the excess with `taxTreatment: 'requires_form_709'`. Default is (a). Shifts must respect superfund cooldown windows.
+   - Output is the **template** — a per-year list of `ScheduledOutflow`s with face amounts. The bequest-solver (step 4) scales this template by a single scalar, re-applying caps and cooldowns after scaling.
+   - Verification: new test file `src/dwz/gift-schedule-builder.test.ts` (12 tests):
+     - Each phase boundary produces expected events.
+     - Vehicle assignments correct (Ethan=cash, Mavue=529/UTMA).
+     - Superfund drops appear in 2028 and 2033.
+     - sourceAccount distribution follows tax-efficient ordering.
+     - Total face amount sums match documented phase budgets.
+     - **No `annual_exclusion_cash` events for Mavue in 2028-2032** (5-yr cooldown after superfund #1).
+     - **No `annual_exclusion_cash` events for Mavue in 2033-2037** (5-yr cooldown after superfund #2).
+     - `direct_pay_tuition_medical` events for Mavue are allowed during cooldown.
+     - Scaling up past $38K annual exclusion either shifts to next year (default) or tags excess as `requires_form_709` (opt-in flag).
+     - Scaling up past $190K superfund shifts to next available year (post-cooldown).
+     - Scaling down zeroes out events cleanly.
+     - Two adjacent superfunds with overlapping cooldown windows are rejected (or properly serialized to non-overlapping years).
 
 ### Phase 2: Bequest solver and tournament runner
 
@@ -250,13 +280,13 @@ This phase exists because v1's "gifts as negative windfalls" approach is incompa
      ```ts
      async function runTournament(
        baseline: SeedData,
-       corpus: PolicyEvaluation[],
+       basePolicy: PolicyEvaluation,          // caller picks via bestPolicy(corpus, LEGACY_FIRST_LEXICOGRAPHIC)
        profiles: RecipientProfile[],
        ctx: EvalContext,
        targets?: TerminalValueTarget[]        // default [500_000, 200_000, 0]
      ): Promise<TournamentResult>
      ```
-   - Reads the corpus passed in (caller fetches it via the existing `useRecommendedPolicy` hook or dispatcher), selects the top policy under `LEGACY_FIRST_LEXICOGRAPHIC` via `bestPolicy` from `policy-ranker.ts`.
+   - Takes the top policy directly — the caller (DwZScreen) is responsible for fetching the corpus via `loadCorpusEvaluations` from [src/policy-mining-corpus-source.ts:31](src/policy-mining-corpus-source.ts:31) and resolving the top entry via `bestPolicy` from `policy-ranker.ts`. The `useRecommendedPolicy` hook ([src/use-recommended-policy.ts:42](src/use-recommended-policy.ts:42)) returns the resolved top policy only, not the corpus array, so it is NOT suitable as a source if the caller needs the full corpus for any other purpose (it is fine if the caller only needs the top policy, which is the case here).
    - For each target, awaits `solveScheduleScale` in **parallel** via `Promise.all` (engine calls are I/O-bound when distributed; if local, parallelism still helps via async scheduling).
    - Computes cost-of-waiting deltas: for each gift in each strategy, how much would the gift "cost" the terminal value if delayed by 1, 5, or 10 years (uses real-return assumption from `ctx.assumptions` for the compounding rate).
    - Output: `TournamentResult` with one `DwZStrategy` per target, each containing the schedule, outcome (with both horizon-90 and horizon-95 terminal values), total deployed in today dollars, per-recipient totals, cost-of-waiting matrix.
@@ -286,7 +316,7 @@ This phase exists because v1's "gifts as negative windfalls" approach is incompa
      }
      ```
    - Export `validateAdoptionPayload(payload: unknown): { valid: boolean, errors: string[] }` — runtime schema check the household runs before pasting. Errors include: missing `goals.legacyTargetTodayDollars` (most common mistake), `scheduledOutflows` non-array, individual outflow validation (negative amount, unknown sourceAccount, future-only years, etc.), gift-exclusion overflow (cash gift > $38K/yr without `requires_form_709` tag), superfund overflow ($190K with no 5-yr cooldown).
-   - Export `formatPayloadForClipboard(payload: AdoptionPayload): string` — pretty-printed JSON ready for the household to paste into `seed-data.json`. Returns a JSON string with a leading comment block describing the two paste targets.
+   - Export `formatPayloadForClipboard(payload: AdoptionPayload): string` — pretty-printed **valid JSON** ready for the household to paste into `seed-data.json`. **No comments** — `seed-data.json` is imported as JSON at [src/data.ts:1](src/data.ts:1) (`import seedData from '../seed-data.json'`) and any non-JSON syntax breaks the build. Paste instructions (which fields to merge into existing `goals` object vs. add as a new top-level array) live in the DwZScreen UI text adjacent to the "Copy" button, not in the payload.
    - Verification: new test file `src/dwz/adoption-payload.test.ts` (8 tests): round-trip via JSON.stringify/parse preserves shape, validator requires both `goals` and `scheduledOutflows` (one alone is invalid), validator catches negative amounts, validator catches unknown source accounts, validator catches $38K cash overflow without form-709 tag, validator catches superfund stacking, meta fields populated correctly, clipboard formatter includes paste-target comment.
 
 ### Phase 4: UI
@@ -333,8 +363,9 @@ This phase exists because v1's "gifts as negative windfalls" approach is incompa
 
 11. [ ] **Calibration regression check**
     - Run `npm run test:calibration` and confirm Trinity ±3pp / FICalc ±10pp bands still pass.
-    - This should be a no-op since the engine was not edited, but verifying closes the loop.
-    - Verification: test report attached to the step's `Done:` block.
+    - The engine WAS edited in Phase 0 (additive `scheduledOutflows` handling and version bump), so this check is genuinely meaningful: it verifies that the default code path — exercised when `data.scheduledOutflows` is absent or empty, which is the case for the calibration scenarios — is byte-equivalent to pre-Phase-0 behavior. A drift here would indicate the additive branch accidentally changed shared state (e.g., mutating `baseTaxInputs` even when no outflows exist).
+    - Also run the existing engine regression tests (`spend-solver`, `decision-engine`, `planning-export`, etc.) and confirm no value drift beyond noise. If the 6 known-drifting tests from `MINER_REFACTOR_WORKPLAN.md` step 3 are still drifting, that's pre-existing carryover; if any new tests start drifting, that points to a Phase 0 regression.
+    - Verification: test report attached to the step's `Done:` block with before/after numbers for Trinity, FICalc, and the engine regression set.
 
 12. [ ] **Update README, AGENTS.md, BACKLOG.md**
     - README: add `DIE_WITH_ZERO_WORKPLAN.md` to the Workplans section. One-paragraph description of the DwZ side-car and its isolation principle.
