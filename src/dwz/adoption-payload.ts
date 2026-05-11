@@ -1,17 +1,17 @@
 /**
- * Die-With-Zero adoption-payload builder (Phase 2 MVP — annual flow only).
+ * Die-With-Zero adoption-payload builder (Phase 3 MVP — annual + first_time flows).
  *
- * Three exports:
+ * Exports:
  *   - `buildAnnualAdoptionPayload` — produces a paste-ready payload for
  *     the annual recurring adoption flow (no goals patch; assumes first-time
  *     adoption has already set the legacy target in seed-data.json).
- *   - `validateAdoptionPayload` — runtime schema check before pasting.
+ *   - `buildFirstTimeAdoptionPayload` — produces a payload that sets the
+ *     legacy target in seed-data.json (goals patch) and optionally includes
+ *     outflows for the current year.
+ *   - `validateAdoptionPayload` — flow-aware runtime schema check before pasting.
  *   - `formatPayloadForClipboard` — pretty-printed valid JSON (no comments;
  *     seed-data.json is imported as JSON at src/data.ts:1 and comments
  *     would break the build).
- *
- * First-time and commitment flows are deferred; see DIE_WITH_ZERO_WORKPLAN.md
- * Phase 3 for their specs.
  */
 
 import type { ScheduledOutflow } from '../types';
@@ -27,7 +27,11 @@ const JOINT_ANNUAL_EXCLUSION = ANNUAL_EXCLUSION_PER_DONOR * 2; // $38,000
 
 // ── Payload type ─────────────────────────────────────────────────────────────
 
-export interface AdoptionPayload {
+/**
+ * Annual flow payload — only current-year events, no goals patch.
+ * Use after first-time adoption has already set the legacy target.
+ */
+export interface AnnualAdoptionPayload {
   meta: {
     /** ISO timestamp when the payload was generated. */
     generatedAt: string;
@@ -45,6 +49,40 @@ export interface AdoptionPayload {
   /** Events to APPEND to the existing top-level `scheduledOutflows` array. */
   scheduledOutflows: ScheduledOutflow[];
 }
+
+/**
+ * First-time flow payload — sets the legacy target (goals patch) and
+ * optionally includes outflows for the current year.
+ * Paste once to commit to a DwZ target; merge the `goals` object into
+ * seed-data.json (don't replace — preserve other goals fields).
+ */
+export interface FirstTimeAdoptionPayload {
+  meta: {
+    /** ISO timestamp when the payload was generated. */
+    generatedAt: string;
+    /** DwZ schema version tag. */
+    dwzVersion: 'dwz-mvp-v1';
+    /** First-time flow — includes goals patch. */
+    flow: 'first_time';
+    /** Calendar year this payload was generated for. */
+    currentYear: number;
+    /** Human-readable description shown in the DwZScreen UI. */
+    payloadDescription: string;
+  };
+  /**
+   * Goals patch — merge into `goals` in seed-data.json.
+   * Do NOT replace the entire `goals` object; preserve other fields.
+   */
+  goals: {
+    /** Legacy bequest target in today's dollars. */
+    legacyTargetTodayDollars: number;
+  };
+  /** Optional events to APPEND to `scheduledOutflows`. May be empty. */
+  scheduledOutflows: ScheduledOutflow[];
+}
+
+/** Discriminated union of both payload shapes. */
+export type AdoptionPayload = AnnualAdoptionPayload | FirstTimeAdoptionPayload;
 
 // ── Builder ───────────────────────────────────────────────────────────────────
 
@@ -64,7 +102,7 @@ export interface AdoptionPayload {
 export function buildAnnualAdoptionPayload(
   outflows: ScheduledOutflow[],
   currentYear: number,
-): AdoptionPayload {
+): AnnualAdoptionPayload {
   const totalAmount = outflows.reduce((sum, o) => sum + o.amount, 0);
   const recipientList = [...new Set(outflows.map((o) => o.recipient))].join(
     ', ',
@@ -84,6 +122,65 @@ export function buildAnnualAdoptionPayload(
       flow: 'annual',
       currentYear,
       payloadDescription,
+    },
+    scheduledOutflows: outflows,
+  };
+}
+
+/**
+ * Build a first-time adoption payload that sets the legacy target and
+ * optionally includes outflows for the current year.
+ *
+ * This payload must be pasted **once** to commit to a DwZ target.
+ * Merge only the `goals` object into seed-data.json — do not replace
+ * any other top-level keys. After saving, re-mine for the new ranking
+ * gate to take effect.
+ *
+ * @param outflows  ScheduledOutflow entries to include (may be empty
+ *                  for a target-only adoption — gifts can be added later
+ *                  via the annual flow).
+ * @param currentYear  Calendar year (e.g. 2026).
+ * @param legacyTargetTodayDollars  The new legacy bequest target in
+ *                                  today's dollars (must be non-negative).
+ */
+export function buildFirstTimeAdoptionPayload(
+  outflows: ScheduledOutflow[],
+  currentYear: number,
+  legacyTargetTodayDollars: number,
+): FirstTimeAdoptionPayload {
+  const targetFmt = new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    maximumFractionDigits: 0,
+  }).format(legacyTargetTodayDollars);
+
+  const giftPart =
+    outflows.length === 0
+      ? 'no gifts this year'
+      : (() => {
+          const total = outflows.reduce((sum, o) => sum + o.amount, 0);
+          const recipients = [...new Set(outflows.map((o) => o.recipient))].join(', ');
+          const totalFmt = new Intl.NumberFormat('en-US', {
+            style: 'currency',
+            currency: 'USD',
+            maximumFractionDigits: 0,
+          }).format(total);
+          return `$${total.toLocaleString()} to ${recipients} (total ${totalFmt})`;
+        })();
+
+  const payloadDescription =
+    `DwZ first-time adoption for ${currentYear}: target ${targetFmt} — ${giftPart}`;
+
+  return {
+    meta: {
+      generatedAt: new Date().toISOString(),
+      dwzVersion: 'dwz-mvp-v1',
+      flow: 'first_time',
+      currentYear,
+      payloadDescription,
+    },
+    goals: {
+      legacyTargetTodayDollars,
     },
     scheduledOutflows: outflows,
   };
@@ -116,14 +213,19 @@ const VALID_TAX_TREATMENTS = new Set<string>([
  * seed-data.json. Returns `{ valid: true, errors: [] }` on success, or
  * `{ valid: false, errors: [...] }` with human-readable error descriptions.
  *
- * Catches:
- * - Empty `scheduledOutflows`
- * - Events with `year !== currentYear` (annual flow allows only current-year events)
- * - Negative amounts
- * - Unknown `sourceAccount` (HSA intentionally excluded)
+ * Flow-aware rules:
+ * - `annual` payload MUST NOT include a `goals` block; MUST contain at least
+ *   one outflow (use a skip-year note entry if intentionally skipping).
+ * - `first_time` payload MUST include a `goals.legacyTargetTodayDollars`
+ *   (non-negative number); outflows may be empty (target-only adoption is valid).
+ *
+ * Common outflow rules (both flows):
+ * - Events with `year !== currentYear` are rejected (annual + first_time both
+ *   target current-year events; future-year commitments are a separate flow).
+ * - Negative amounts are rejected.
+ * - Unknown `sourceAccount` (HSA intentionally excluded).
  * - $38K joint annual exclusion overflow on `annual_exclusion_cash` events
- *   that aren't tagged `taxTreatment: 'requires_form_709'`
- * - Required fields missing or wrong type
+ *   that aren't tagged `taxTreatment: 'requires_form_709'`.
  */
 export function validateAdoptionPayload(payload: unknown): {
   valid: boolean;
@@ -138,6 +240,9 @@ export function validateAdoptionPayload(payload: unknown): {
   const p = payload as Record<string, unknown>;
 
   // ── meta ──────────────────────────────────────────────────────────────────
+  let flow: string | null = null;
+  let currentYear: number | null = null;
+
   if (typeof p['meta'] !== 'object' || p['meta'] === null) {
     errors.push('meta: must be an object');
   } else {
@@ -151,16 +256,49 @@ export function validateAdoptionPayload(payload: unknown): {
         `meta.dwzVersion: expected 'dwz-mvp-v1', got ${JSON.stringify(meta['dwzVersion'])}`,
       );
     }
-    if (meta['flow'] !== 'annual') {
+    if (meta['flow'] !== 'annual' && meta['flow'] !== 'first_time') {
       errors.push(
-        `meta.flow: expected 'annual', got ${JSON.stringify(meta['flow'])}`,
+        `meta.flow: expected 'annual' or 'first_time', got ${JSON.stringify(meta['flow'])}`,
       );
+    } else {
+      flow = meta['flow'] as string;
     }
     if (typeof meta['currentYear'] !== 'number' || !Number.isInteger(meta['currentYear'])) {
       errors.push('meta.currentYear: must be an integer year');
+    } else {
+      currentYear = meta['currentYear'] as number;
     }
     if (typeof meta['payloadDescription'] !== 'string') {
       errors.push('meta.payloadDescription: must be a string');
+    }
+  }
+
+  // ── Flow-specific rules ───────────────────────────────────────────────────
+
+  if (flow === 'first_time') {
+    // first_time MUST have goals.legacyTargetTodayDollars
+    if (typeof p['goals'] !== 'object' || p['goals'] === null) {
+      errors.push(
+        'goals: first_time payload must include a goals object with legacyTargetTodayDollars',
+      );
+    } else {
+      const goals = p['goals'] as Record<string, unknown>;
+      if (typeof goals['legacyTargetTodayDollars'] !== 'number') {
+        errors.push(
+          'goals.legacyTargetTodayDollars: must be a number (today dollars)',
+        );
+      } else if ((goals['legacyTargetTodayDollars'] as number) < 0) {
+        errors.push(
+          `goals.legacyTargetTodayDollars: must be non-negative, got ${goals['legacyTargetTodayDollars']}`,
+        );
+      }
+    }
+  } else if (flow === 'annual') {
+    // annual MUST NOT have goals
+    if ('goals' in p && p['goals'] !== undefined) {
+      errors.push(
+        'goals: annual payload must NOT include a goals block. Goals are set once via the first_time flow.',
+      );
     }
   }
 
@@ -172,19 +310,12 @@ export function validateAdoptionPayload(payload: unknown): {
 
   const outflows = p['scheduledOutflows'] as unknown[];
 
-  if (outflows.length === 0) {
+  // annual flow requires at least one outflow; first_time allows empty
+  if (flow === 'annual' && outflows.length === 0) {
     errors.push(
       'scheduledOutflows: annual payload must contain at least one event (use a skip-year note if intentional)',
     );
   }
-
-  // currentYear from meta (may be absent if meta validation failed above)
-  const currentYear =
-    typeof p['meta'] === 'object' &&
-    p['meta'] !== null &&
-    typeof (p['meta'] as Record<string, unknown>)['currentYear'] === 'number'
-      ? (p['meta'] as Record<string, unknown>)['currentYear'] as number
-      : null;
 
   // Per-recipient annual_exclusion_cash running totals for the $38K cap check.
   const annualExclusionTotals = new Map<string, number>();

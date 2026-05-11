@@ -29,6 +29,7 @@ import { DEFAULT_LEGACY_TARGET_TODAY_DOLLARS } from './legacy-target-cache';
 import { simulateGift } from './dwz/what-if-simulator';
 import {
   buildAnnualAdoptionPayload,
+  buildFirstTimeAdoptionPayload,
   formatPayloadForClipboard,
 } from './dwz/adoption-payload';
 import type { EvalContext } from './dwz/types';
@@ -123,6 +124,27 @@ export function DwZScreen() {
   // ── Copy-payload state ─────────────────────────────────────────────────────
   const [copyStatus, setCopyStatus] = useState<'idle' | 'copied' | 'error'>('idle');
   const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // ── First-time target panel state ──────────────────────────────────────────
+  type TargetPreset = 500_000 | 200_000 | 0 | 'custom';
+  const [targetPreset, setTargetPreset] = useState<TargetPreset>(200_000);
+  const [customTargetAmount, setCustomTargetAmount] = useState('');
+  const [includeCurrentGift, setIncludeCurrentGift] = useState(false);
+  const [copyFirstTimeStatus, setCopyFirstTimeStatus] = useState<'idle' | 'copied' | 'error'>('idle');
+  const copyFirstTimeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const targetAmount: number =
+    targetPreset === 'custom'
+      ? parseFloat(customTargetAmount.replace(/[^0-9.]/g, '')) || 0
+      : targetPreset;
+
+  // ── Baseline (current-projection) simulation state ─────────────────────────
+  type BaselineResult = Awaited<ReturnType<typeof simulateGift>>['baseline'];
+  const [baselineResult, setBaselineResult] = useState<BaselineResult | null>(null);
+  const [baselineLoading, setBaselineLoading] = useState(false);
+  const baselineAbortRef = useRef<AbortController | null>(null);
+  // Track which plan fingerprint the cached baseline was computed for
+  const baselineFingerprintRef = useRef<string | null>(null);
 
   // ── Run simulation when inputs change (debounced) ──────────────────────────
   const simAbortRef = useRef<AbortController | null>(null);
@@ -222,6 +244,63 @@ export function DwZScreen() {
     return () => clearTimeout(timer);
   }, [runSim]);
 
+  // ── Baseline (current-projection) simulation — runs once on mount and on plan-change ──
+  useEffect(() => {
+    if (
+      !data ||
+      !assumptions ||
+      !baselineFingerprint ||
+      recommendation.state !== 'fresh' ||
+      !recommendation.policy
+    ) {
+      return;
+    }
+
+    // Skip re-run if the plan fingerprint hasn't changed
+    if (baselineFingerprintRef.current === baselineFingerprint) {
+      return;
+    }
+
+    baselineAbortRef.current?.abort();
+    const abort = new AbortController();
+    baselineAbortRef.current = abort;
+
+    setBaselineLoading(true);
+
+    const cloner = (d: typeof data) => JSON.parse(JSON.stringify(d)) as typeof data;
+    const miningAssumptions = {
+      ...assumptions,
+      simulationRuns: POLICY_MINING_TRIAL_COUNT,
+      assumptionsVersion: assumptions.assumptionsVersion
+        ? `${assumptions.assumptionsVersion}-dwz-baseline`
+        : 'dwz-baseline',
+    };
+    const ctx: EvalContext = {
+      assumptions: miningAssumptions,
+      baselineFingerprint,
+      engineVersion: POLICY_MINER_ENGINE_VERSION,
+      evaluatedByNodeId: 'local-browser',
+      cloner,
+      legacyTargetTodayDollars,
+    };
+
+    simulateGift(cloner(data), recommendation.policy.policy, [], ctx)
+      .then((result) => {
+        if (!abort.signal.aborted) {
+          setBaselineResult(result.baseline);
+          baselineFingerprintRef.current = baselineFingerprint;
+          setBaselineLoading(false);
+        }
+      })
+      .catch(() => {
+        if (!abort.signal.aborted) {
+          setBaselineLoading(false);
+        }
+      });
+
+    return () => abort.abort();
+  }, [data, assumptions, baselineFingerprint, recommendation, legacyTargetTodayDollars]);
+
   // ── Copy payload ───────────────────────────────────────────────────────────
   const handleCopyPayload = useCallback(() => {
     const outflow: ScheduledOutflow = {
@@ -253,6 +332,51 @@ export function DwZScreen() {
       },
     );
   }, [recipient, vehicle, year, amount, sourceAccount, currentCalendarYear]);
+
+  // ── Copy first-time payload ────────────────────────────────────────────────
+  const handleCopyFirstTimePayload = useCallback(() => {
+    // Include the current gift if the checkbox is checked AND a valid gift is configured
+    const outflows: ScheduledOutflow[] = includeCurrentGift && amount > 0
+      ? [{
+          name: `${recipient.replace(/\s+/g, '_')}_${vehicle}_${year}`,
+          year,
+          amount,
+          sourceAccount,
+          recipient,
+          vehicle,
+          label: `${recipient} gift — ${vehicle.replace(/_/g, ' ')} ${year}`,
+          taxTreatment:
+            vehicle === 'annual_exclusion_cash' && amount > 38_000
+              ? 'requires_form_709'
+              : 'gift_no_tax_consequence',
+        }]
+      : [];
+
+    const payload = buildFirstTimeAdoptionPayload(outflows, currentCalendarYear, targetAmount);
+    const json = formatPayloadForClipboard(payload);
+
+    navigator.clipboard.writeText(json).then(
+      () => {
+        setCopyFirstTimeStatus('copied');
+        if (copyFirstTimeTimerRef.current) clearTimeout(copyFirstTimeTimerRef.current);
+        copyFirstTimeTimerRef.current = setTimeout(() => setCopyFirstTimeStatus('idle'), 2500);
+      },
+      () => {
+        setCopyFirstTimeStatus('error');
+        if (copyFirstTimeTimerRef.current) clearTimeout(copyFirstTimeTimerRef.current);
+        copyFirstTimeTimerRef.current = setTimeout(() => setCopyFirstTimeStatus('idle'), 2500);
+      },
+    );
+  }, [
+    includeCurrentGift,
+    amount,
+    recipient,
+    vehicle,
+    year,
+    sourceAccount,
+    currentCalendarYear,
+    targetAmount,
+  ]);
 
   // ── Corpus state guards ────────────────────────────────────────────────────
   if (!data || !assumptions) {
@@ -336,6 +460,182 @@ export function DwZScreen() {
           </div>
         </div>
       )}
+
+      {/* ── Current Projection ── */}
+      <div className="rounded-2xl border border-stone-200 bg-white/70 p-6 space-y-4">
+        <h2 className="text-sm font-semibold text-stone-700 uppercase tracking-wide">
+          Current Projection
+        </h2>
+        <p className="text-[11px] text-stone-400">
+          Baseline outcome with no additional gifts — includes any already-adopted outflows.
+        </p>
+
+        {baselineLoading && (
+          <div className="flex items-center gap-3 py-2">
+            <div className="h-5 w-5 animate-spin rounded-full border-2 border-stone-200 border-t-blue-600" />
+            <p className="text-sm text-stone-500">Computing baseline…</p>
+          </div>
+        )}
+
+        {!baselineLoading && baselineResult && (
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <div className="rounded-xl bg-stone-50 p-3 space-y-0.5">
+              <p className="text-xs text-stone-500">Median end (today $)</p>
+              <p className="text-sm font-semibold font-mono text-stone-800">
+                {fmtDollars(baselineResult.medianEndingWealthTodayDollars)}
+              </p>
+            </div>
+            <div className="rounded-xl bg-stone-50 p-3 space-y-0.5">
+              <p className="text-xs text-stone-500">25th-pctile end</p>
+              <p className="text-sm font-semibold font-mono text-stone-800">
+                {fmtDollars(baselineResult.p25EndingWealthTodayDollars)}
+              </p>
+            </div>
+            <div className="rounded-xl bg-stone-50 p-3 space-y-0.5">
+              <p className="text-xs text-stone-500">Plan success</p>
+              <p className="text-sm font-semibold text-stone-800">
+                {fmtPct(baselineResult.solventSuccessRate)}
+              </p>
+            </div>
+            <div className="rounded-xl bg-stone-50 p-3 space-y-0.5">
+              <p className="text-xs text-stone-500">Bequest attainment</p>
+              <p className="text-sm font-semibold text-stone-800">
+                {fmtPct(baselineResult.bequestAttainmentRate)}
+                <span className="ml-1 text-[10px] font-normal text-stone-400">
+                  vs {fmtDollars(legacyTargetTodayDollars)}
+                </span>
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* Currently-adopted outflows table */}
+        {data.scheduledOutflows && data.scheduledOutflows.length > 0 && (
+          <div className="space-y-2">
+            <p className="text-xs font-medium text-stone-500 uppercase tracking-wide">
+              Currently-adopted gifts
+            </p>
+            <div className="overflow-x-auto">
+              <table className="min-w-full text-xs text-stone-700">
+                <thead>
+                  <tr className="border-b border-stone-200 text-left text-[10px] text-stone-400 uppercase tracking-wide">
+                    <th className="pb-1 pr-4 font-medium">Year</th>
+                    <th className="pb-1 pr-4 font-medium">Recipient</th>
+                    <th className="pb-1 pr-4 font-medium">Amount</th>
+                    <th className="pb-1 pr-4 font-medium">Source</th>
+                    <th className="pb-1 font-medium">Vehicle</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.scheduledOutflows.map((o, i) => (
+                    <tr key={i} className="border-b border-stone-100 last:border-0">
+                      <td className="py-1 pr-4 font-mono">{o.year}</td>
+                      <td className="py-1 pr-4">{o.recipient}</td>
+                      <td className="py-1 pr-4 font-mono">{fmtDollars(o.amount)}</td>
+                      <td className="py-1 pr-4">{o.sourceAccount}</td>
+                      <td className="py-1">{o.vehicle.replace(/_/g, ' ')}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* ── Set DwZ Target ── */}
+      <div className="rounded-2xl border border-stone-200 bg-white/70 p-6 space-y-4">
+        <h2 className="text-sm font-semibold text-stone-700 uppercase tracking-wide">
+          Set DwZ Target
+        </h2>
+        <p className="text-sm text-stone-600">
+          Current DwZ target:{' '}
+          <span className="font-semibold font-mono">{fmtDollars(legacyTargetTodayDollars)}</span>
+          {' '}— leave this much behind.
+        </p>
+
+        {/* Preset buttons */}
+        <div className="space-y-2">
+          <span className="block text-sm font-medium text-stone-600">New target</span>
+          <div className="flex flex-wrap gap-2">
+            {(
+              [
+                { label: 'Conservative ($500K)', value: 500_000 as TargetPreset },
+                { label: 'Moderate ($200K)', value: 200_000 as TargetPreset },
+                { label: 'Aggressive ($0)', value: 0 as TargetPreset },
+                { label: 'Custom', value: 'custom' as TargetPreset },
+              ] as const
+            ).map(({ label, value }) => (
+              <button
+                key={String(value)}
+                type="button"
+                onClick={() => setTargetPreset(value)}
+                className={[
+                  'rounded-lg border px-3 py-1.5 text-sm font-medium transition-colors',
+                  targetPreset === value
+                    ? 'border-emerald-600 bg-emerald-600 text-white'
+                    : 'border-stone-200 bg-stone-50 text-stone-700 hover:border-emerald-300 hover:bg-emerald-50',
+                ].join(' ')}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          {targetPreset === 'custom' && (
+            <input
+              type="text"
+              value={customTargetAmount}
+              onChange={(e) => setCustomTargetAmount(e.target.value)}
+              placeholder="Enter target, e.g. 350000"
+              className="mt-2 w-full rounded-lg border border-stone-200 bg-stone-50 px-3 py-2 text-sm text-stone-800 placeholder-stone-400 focus:border-emerald-400 focus:outline-none focus:ring-1 focus:ring-emerald-400"
+            />
+          )}
+        </div>
+
+        {/* Include current gift toggle */}
+        <label className="flex cursor-pointer items-center gap-2 text-sm text-stone-600 select-none">
+          <input
+            type="checkbox"
+            checked={includeCurrentGift}
+            onChange={(e) => setIncludeCurrentGift(e.target.checked)}
+            className="h-4 w-4 rounded border-stone-300 text-emerald-600 focus:ring-emerald-400"
+          />
+          Include this year&apos;s what-if gift in the first-time payload
+          {includeCurrentGift && amount <= 0 && (
+            <span className="text-amber-600 text-xs">(configure a gift amount above)</span>
+          )}
+        </label>
+
+        {/* Copy button */}
+        <div className="space-y-3">
+          <button
+            type="button"
+            disabled={targetPreset === 'custom' && targetAmount <= 0}
+            onClick={handleCopyFirstTimePayload}
+            className={[
+              'w-full rounded-lg px-4 py-2.5 text-sm font-medium transition-colors',
+              targetPreset !== 'custom' || targetAmount > 0
+                ? 'bg-emerald-600 text-white hover:bg-emerald-700 active:bg-emerald-800'
+                : 'cursor-not-allowed bg-stone-200 text-stone-400',
+            ].join(' ')}
+          >
+            {copyFirstTimeStatus === 'copied'
+              ? 'Copied!'
+              : copyFirstTimeStatus === 'error'
+              ? 'Copy failed — try again'
+              : 'Copy first-time adoption payload'}
+          </button>
+
+          <p className="text-[11px] text-stone-400 leading-relaxed">
+            Paste this once to commit to a new DwZ target. Merge the{' '}
+            <code className="font-mono text-stone-500">goals</code> object into your
+            existing <code className="font-mono text-stone-500">goals</code> in{' '}
+            <code className="font-mono text-stone-500">seed-data.json</code> (don&apos;t
+            replace — preserve any other goals fields). After saving, re-mine for the
+            new ranking gate to take effect.
+          </p>
+        </div>
+      </div>
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         {/* ── Left: gift inputs ── */}

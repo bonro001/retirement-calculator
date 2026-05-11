@@ -15,9 +15,11 @@
 import { describe, it, expect } from 'vitest';
 import {
   buildAnnualAdoptionPayload,
+  buildFirstTimeAdoptionPayload,
   validateAdoptionPayload,
   formatPayloadForClipboard,
   type AdoptionPayload,
+  type FirstTimeAdoptionPayload,
 } from './adoption-payload';
 import type { ScheduledOutflow } from '../types';
 
@@ -151,6 +153,104 @@ describe('formatPayloadForClipboard', () => {
     const payload = buildAnnualAdoptionPayload([makeOutflow()], CURRENT_YEAR);
     const formatted = formatPayloadForClipboard(payload);
     // Pretty-printed JSON has newlines.
+    expect(formatted.includes('\n')).toBe(true);
+  });
+});
+
+// ── Phase 3 tests: first_time flow ────────────────────────────────────────────
+
+describe('buildFirstTimeAdoptionPayload', () => {
+  it('produces correct shape: flow tag + goals block + outflows', () => {
+    const outflows = [makeOutflow()];
+    const payload = buildFirstTimeAdoptionPayload(outflows, CURRENT_YEAR, 200_000);
+
+    expect(payload.meta.flow).toBe('first_time');
+    expect(payload.meta.currentYear).toBe(CURRENT_YEAR);
+    expect(payload.meta.dwzVersion).toBe('dwz-mvp-v1');
+    expect(typeof payload.meta.generatedAt).toBe('string');
+    expect(typeof payload.meta.payloadDescription).toBe('string');
+    expect(payload.goals.legacyTargetTodayDollars).toBe(200_000);
+    expect(payload.scheduledOutflows).toHaveLength(1);
+    expect(payload.scheduledOutflows[0]).toEqual(outflows[0]);
+  });
+
+  it('accepts empty outflows array (target-only adoption is valid)', () => {
+    expect(() => buildFirstTimeAdoptionPayload([], CURRENT_YEAR, 500_000)).not.toThrow();
+    const payload = buildFirstTimeAdoptionPayload([], CURRENT_YEAR, 500_000);
+    expect(payload.scheduledOutflows).toHaveLength(0);
+    expect(payload.meta.flow).toBe('first_time');
+    expect(payload.goals.legacyTargetTodayDollars).toBe(500_000);
+  });
+
+  it('accepts zero legacy target (Aggressive scenario)', () => {
+    const payload = buildFirstTimeAdoptionPayload([], CURRENT_YEAR, 0);
+    expect(payload.goals.legacyTargetTodayDollars).toBe(0);
+  });
+});
+
+describe('validateAdoptionPayload — first_time flow', () => {
+  it('accepts a well-formed first_time payload with outflows', () => {
+    const payload = buildFirstTimeAdoptionPayload([makeOutflow()], CURRENT_YEAR, 200_000);
+    const result = validateAdoptionPayload(payload);
+    expect(result.valid).toBe(true);
+    expect(result.errors).toHaveLength(0);
+  });
+
+  it('accepts a well-formed first_time payload with empty outflows (target-only)', () => {
+    const payload = buildFirstTimeAdoptionPayload([], CURRENT_YEAR, 500_000);
+    const result = validateAdoptionPayload(payload);
+    expect(result.valid).toBe(true);
+    expect(result.errors).toHaveLength(0);
+  });
+
+  it('rejects first_time payload missing goals', () => {
+    const payload = buildFirstTimeAdoptionPayload([], CURRENT_YEAR, 200_000);
+    // Manually strip the goals block
+    const bad = { ...payload } as Record<string, unknown>;
+    delete bad['goals'];
+    const result = validateAdoptionPayload(bad);
+    expect(result.valid).toBe(false);
+    expect(result.errors.some((e) => e.toLowerCase().includes('goals'))).toBe(true);
+  });
+
+  it('rejects first_time payload with negative legacyTargetTodayDollars', () => {
+    const payload = buildFirstTimeAdoptionPayload([], CURRENT_YEAR, 200_000);
+    const bad = {
+      ...payload,
+      goals: { legacyTargetTodayDollars: -50_000 },
+    };
+    const result = validateAdoptionPayload(bad);
+    expect(result.valid).toBe(false);
+    expect(
+      result.errors.some((e) => e.includes('non-negative') || e.includes('legacyTargetTodayDollars')),
+    ).toBe(true);
+  });
+
+  it('rejects annual payload that includes a goals block', () => {
+    const annualPayload = buildAnnualAdoptionPayload([makeOutflow()], CURRENT_YEAR);
+    // Inject a goals block into an annual payload
+    const bad = {
+      ...annualPayload,
+      goals: { legacyTargetTodayDollars: 200_000 },
+    };
+    const result = validateAdoptionPayload(bad);
+    expect(result.valid).toBe(false);
+    expect(
+      result.errors.some((e) => e.includes('annual payload must NOT include a goals block')),
+    ).toBe(true);
+  });
+});
+
+describe('formatPayloadForClipboard — first_time flow', () => {
+  it('round-trips a first_time payload through JSON.parse correctly', () => {
+    const payload = buildFirstTimeAdoptionPayload([makeOutflow()], CURRENT_YEAR, 200_000);
+    const formatted = formatPayloadForClipboard(payload);
+    expect(() => JSON.parse(formatted)).not.toThrow();
+    const parsed = JSON.parse(formatted) as FirstTimeAdoptionPayload;
+    expect(parsed.meta.flow).toBe('first_time');
+    expect(parsed.goals.legacyTargetTodayDollars).toBe(200_000);
+    expect(parsed.scheduledOutflows).toHaveLength(1);
+    // Pretty-printed
     expect(formatted.includes('\n')).toBe(true);
   });
 });
