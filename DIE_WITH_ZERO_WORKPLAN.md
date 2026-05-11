@@ -6,6 +6,7 @@ Goal: Add a Die-With-Zero analyzer that lets the household decide how much of th
 - 2026-05-10 v1: initial draft, assumed gifts could ride on `income.windfalls[]` as negative amounts.
 - 2026-05-10 v2: code review found windfalls are clamped nonnegative ([src/utils.ts:1445](src/utils.ts:1445)); adoption can't lower the $1M legacy gate without an explicit patch ([src/legacy-target-cache.ts:17](src/legacy-target-cache.ts:17)); `evaluatePolicy` is async with 8 inputs ([src/policy-miner-eval.ts:277](src/policy-miner-eval.ts:277)); ScreenId edit was forbidden but required. Added Phase 0 engine spike, loosened "no edits" locks to "additive only", made adoption payload two-part, fixed solver signatures and convergence math.
 - 2026-05-10 v3: second code review found Phase 0 placed outflows after the closed-loop tax/healthcare pass (breaking AGI/ACA/IRMAA flow-through); the Mavue schedule still scheduled annual gifts inside the 529 5-year cooldown window; `formatPayloadForClipboard` emitted comment-prefixed JSON which would break `import seedData from '../seed-data.json'` at [src/data.ts:1](src/data.ts:1); HSA was incorrectly modeled as a tax-free gift source (IRS Pub 969: non-qualified-medical distributions are ordinary income plus 20% penalty pre-65); `runTournament` referenced a corpus payload that `useRecommendedPolicy` doesn't expose (correct loader is `loadCorpusEvaluations` at [src/policy-mining-corpus-source.ts:31](src/policy-mining-corpus-source.ts:31)); leftover `GiftEvent` reference after v2 deleted the type; Phase 6 still claimed the engine wasn't edited. Fixed all seven.
+- 2026-05-10 v4: cadence reframe. v3's headline output was a multi-year gift schedule pasted at adoption time, which implicitly commits the household to a future they don't yet know. v4 makes the headline output **"this year, what can we give?"** — paralleling the existing "spend this month" pattern in the cockpit. The multi-year schedule template still exists internally as the bequest-solver's trajectory math, but the user sees and adopts one year at a time. The 529 superfund (inherently a 5-year IRS commitment) remains a discrete multi-year decision the user opts into explicitly. Goals patch (legacy target) happens once at first adoption; subsequent years just append to `scheduledOutflows`. No engine work changes; the changes are in DwZScreen output framing, adoption-payload module (now produces single-year payloads by default), and tournament-runner output (adds `thisYearRecommendation` per strategy).
 
 Status legend:
 - `[ ]` pending
@@ -65,6 +66,26 @@ The asymmetry is structural and must be preserved in the schedule builder: Ethan
 
 The gift schedule is sized so that the 25th-percentile terminal value (across Monte Carlo trials) hits the target. This is the "painless" threshold — even in a poor sequence of returns, the plan still leaves the targeted estate. This matches the household's stated comfort level.
 
+### Cadence: annual-primary, multi-year as background math
+
+The DwZ analyzer's **headline output** is a "this year, what can we give?" recommendation — analogous to the existing "spend this month" output that already drives the household's financial decisions. The multi-year schedule template still exists internally (the bequest solver needs it to verify the long-horizon target is achievable), but the user does not commit to it in bulk.
+
+Each year, the household:
+
+1. Opens the DwZ screen.
+2. Sees: *"This year (2026), your gift capacity at the Moderate target is $X total — recommended split $A to Ethan, $B to Mavue."*
+3. Sees a trajectory forecast: *"If you continue at this pace, terminal value at 90 lands at $200K. You're on track."*
+4. Decides: adopt this year's recommendation (paste a single-year payload into `scheduledOutflows`), modify it, or skip the year.
+5. Repeats next year.
+
+This eliminates the v3 problem of overcommitting to a 10-year plan that life will inevitably reshape. It also mirrors how every other recommendation in the app already works — the cockpit's "spend this month" output is dynamic, not a multi-decade contract.
+
+**Three exceptions** to the strictly-annual cadence, each handled as a discrete user-initiated decision:
+
+- **529 superfund** — the IRS Form 709 election spreads one big gift over 5 years of annual exclusion, so committing to it is inherently multi-year. DwZScreen surfaces this as a separate "long-horizon commitment" with its own opt-in button. Adopting a superfund adds the single future-year `ScheduledOutflow` (e.g., year=2028, amount=$190K) AND records the 5-year cooldown so subsequent annual recommendations to that recipient automatically suppress until cooldown expires.
+- **First-time adoption** — the very first year, the household chooses a terminal-value target. This sets `goals.legacyTargetTodayDollars` in seed-data. Subsequent years inherit this until/unless the household revisits the choice. The first-time payload includes both the goals patch AND the year's gift events; subsequent payloads include only the year's events.
+- **Pre-committed milestones** — the household can optionally pre-commit specific future events (e.g., "every 5 years, do a Mavue superfund") at first adoption. These get serialized as future-year `ScheduledOutflow` entries and the engine simulates them. The household can always remove them later by editing seed-data.
+
 ### Planning horizon: 90 (optimization), 95 (stress check) — implemented via assumption overrides
 
 The seed-data's `household.planningAge` is 95, and the engine reads horizon from `robPlanningEndAge` / `debbiePlanningEndAge` (or the seed `planningAge` as fallback — see [src/utils.ts:687](src/utils.ts:687)). The DwZ analyzer implements the dual horizon explicitly by passing two distinct engine runs:
@@ -78,44 +99,92 @@ If the 95-stress number ever drops below a configurable safety floor (default $0
 
 Per household preference: monthly spending stays as-is in the base plan. The DwZ analyzer does NOT recommend cuts to monthly spending. Gifts come exclusively from the projected terminal-value gap. This is enforced by holding `annualSpendTodayDollars` constant at the corpus-recommended value while solving for the gift schedule.
 
-### Adoption is manual and two-part
+### Adoption is manual, annual-primary, and incremental
 
-When the household picks a strategy, the side-car outputs a JSON payload with **two** sections that must be pasted together. Either alone produces inconsistent behavior:
+Three distinct adoption flows, each producing its own payload variant from `buildAdoptionPayload`:
 
-1. `scheduledOutflows[]` — the per-year gift events (Phase 0 engine support is what makes these simulate).
-2. `goals.legacyTargetTodayDollars` — patched down from the $1M default to the chosen target. Without this, the ranker's `LEGACY_FIRST_LEXICOGRAPHIC` gate still requires the corpus to clear $1M @ 85% confidence, which is incompatible with a $200K target. The corpus would fail GATE 1 and the cockpit would show the "no feasible policy" empty state.
+#### A. First-time adoption (sets the target)
+
+The first year the household commits to a DwZ strategy, the payload includes the goals patch AND that year's gift events. Without the goals patch, the ranker's `LEGACY_FIRST_LEXICOGRAPHIC` gate still requires the corpus to clear $1M @ 85% confidence, which is incompatible with a lower target. The corpus would fail GATE 1 and the cockpit would show the "no feasible policy" empty state.
 
 ```jsonc
+// First-time payload — paste once, when picking a strategy
 {
   "goals": {
-    "legacyTargetTodayDollars": 200000     // ← lowered from $1M default
+    "legacyTargetTodayDollars": 200000     // ← lowered from $1M default; persists across years
   },
   "scheduledOutflows": [
     {
-      "name": "mavue_529_superfund_1",
-      "year": 2028,
-      "amount": 95000,
-      "sourceAccount": "taxable",
+      "name": "mavue_529_seed_2026",
+      "year": 2026,
+      "amount": 1000,
+      "sourceAccount": "cash",
       "recipient": "mavue",
       "vehicle": "529_superfund",
-      "label": "Mavue 529 superfund #1 (5-yr annual exclusion election)",
-      "taxTreatment": "gift_no_tax_consequence"
-    },
-    {
-      "name": "ethan_annual_2029",
-      "year": 2029,
-      "amount": 20000,
-      "sourceAccount": "cash",
-      "recipient": "ethan",
-      "vehicle": "annual_exclusion_cash",
-      "label": "Ethan cash gift — annual exclusion",
+      "label": "Mavue 529 seed funding (Phase A symbolic)",
       "taxTreatment": "gift_no_tax_consequence"
     }
   ]
 }
 ```
 
-The household pastes both sections into `seed-data.json` (`scheduledOutflows` as a new top-level field, `goals.legacyTargetTodayDollars` merged into the existing `goals` object). The existing miner sees a fingerprint change, re-mines once (~3 min), and the cockpit reflects the new reality. This intentional manual step keeps the adoption decision out of code.
+#### B. Annual recurring adoption (the common case)
+
+Each subsequent year, the household opens DwZScreen, reviews the "this year" recommendation, and pastes only that year's events. No goals patch needed — it carries over from first-time adoption.
+
+```jsonc
+// Annual payload — paste each year
+{
+  "scheduledOutflows": [
+    {
+      "name": "ethan_annual_2027",
+      "year": 2027,
+      "amount": 5000,
+      "sourceAccount": "cash",
+      "recipient": "ethan",
+      "vehicle": "annual_exclusion_cash",
+      "label": "Ethan cash gift — symbolic (Phase B)",
+      "taxTreatment": "gift_no_tax_consequence"
+    },
+    {
+      "name": "mavue_529_annual_2027",
+      "year": 2027,
+      "amount": 5000,
+      "sourceAccount": "cash",
+      "recipient": "mavue",
+      "vehicle": "529_superfund",
+      "label": "Mavue 529 annual contribution",
+      "taxTreatment": "gift_no_tax_consequence"
+    }
+  ]
+}
+```
+
+The household **appends** these entries to the existing `scheduledOutflows` array (paste-and-merge). Past years stay as a historical record; the engine simulates them in the projection just like any other scheduled flow.
+
+#### C. Long-horizon commitment (superfund opt-in, occasional)
+
+The 529 superfund is inherently a 5-year IRS election, so DwZScreen surfaces it as its own button: *"Commit to 2028 Mavue 529 superfund ($190K joint, blocks Mavue annual exclusion 2028-2032)."* When the household clicks adopt, the payload contains the single future-year event AND a note that the schedule builder must enforce the cooldown going forward.
+
+```jsonc
+// Long-horizon commitment payload — opt-in, occasional
+{
+  "scheduledOutflows": [
+    {
+      "name": "mavue_529_superfund_1",
+      "year": 2028,
+      "amount": 190000,
+      "sourceAccount": "taxable",
+      "recipient": "mavue",
+      "vehicle": "529_superfund",
+      "label": "Mavue 529 superfund #1 (5-yr annual exclusion election, joint Rob+Debbie)",
+      "taxTreatment": "gift_no_tax_consequence"
+    }
+  ]
+}
+```
+
+In all three flows: the household pastes the payload into `seed-data.json`, the existing miner sees a fingerprint change, re-mines once (~3 min), and the cockpit reflects the new reality. Past adopted gifts accumulate in `scheduledOutflows` over time, forming a historical record.
 
 ### Gift-tax limits enforced in the schedule builder
 
@@ -289,53 +358,109 @@ This phase exists because v1's "gifts as negative windfalls" approach is incompa
    - Takes the top policy directly — the caller (DwZScreen) is responsible for fetching the corpus via `loadCorpusEvaluations` from [src/policy-mining-corpus-source.ts:31](src/policy-mining-corpus-source.ts:31) and resolving the top entry via `bestPolicy` from `policy-ranker.ts`. The `useRecommendedPolicy` hook ([src/use-recommended-policy.ts:42](src/use-recommended-policy.ts:42)) returns the resolved top policy only, not the corpus array, so it is NOT suitable as a source if the caller needs the full corpus for any other purpose (it is fine if the caller only needs the top policy, which is the case here).
    - For each target, awaits `solveScheduleScale` in **parallel** via `Promise.all` (engine calls are I/O-bound when distributed; if local, parallelism still helps via async scheduling).
    - Computes cost-of-waiting deltas: for each gift in each strategy, how much would the gift "cost" the terminal value if delayed by 1, 5, or 10 years (uses real-return assumption from `ctx.assumptions` for the compounding rate).
-   - Output: `TournamentResult` with one `DwZStrategy` per target, each containing the schedule, outcome (with both horizon-90 and horizon-95 terminal values), total deployed in today dollars, per-recipient totals, cost-of-waiting matrix.
-   - Verification: new test file `src/dwz/tournament-runner.test.ts` (5 tests): three strategies returned, Conservative has highest terminal-90 / lowest total deployed, Aggressive has lowest terminal-90 / highest total, horizon-95 stress values reported for each strategy, snapshot test on the locked household plan.
+   - Output: `TournamentResult` with one `DwZStrategy` per target, each containing:
+     - `fullScheduleTemplate: ScheduledOutflow[]` — the multi-year template used as the trajectory forecast.
+     - `thisYearRecommendation: { events: ScheduledOutflow[]; totalTodayDollars: number; recipientBreakdown: Record<recipient, number>; commentary: string }` — the annual-primary headline output. `events` is the per-year slice of the template filtered to `currentYear` (or 0-events if the schedule shows a skip year). `commentary` is human-readable text like *"Phase B: symbolic gifts only — sequence-danger window. Capacity rises in 2028 after inheritance + LTC policy purchase."*
+     - `longHorizonCommitments: { name: string; year: number; event: ScheduledOutflow; rationale: string }[]` — discrete multi-year items the household can opt into (currently: the two 529 superfunds). Each is its own opt-in adoption.
+     - `outcome` — with both horizon-90 and horizon-95 terminal values, total deployed in today dollars, per-recipient totals, cost-of-waiting matrix.
+   - Verification: new test file `src/dwz/tournament-runner.test.ts` (7 tests): three strategies returned, Conservative has highest terminal-90 / lowest total deployed, Aggressive has lowest terminal-90 / highest total, horizon-95 stress values reported for each strategy, **`thisYearRecommendation` populated with events that match the schedule template's current-year slice**, **`longHorizonCommitments` lists at least the two Mavue superfunds**, snapshot test on the locked household plan.
 
 ### Phase 3: Adoption payload
 
 6. [ ] **Build adoption-payload module**
    - New file `src/dwz/adoption-payload.ts`.
-   - Export `buildAdoptionPayload(tournament: TournamentResult, chosenTarget: TerminalValueTarget): AdoptionPayload`.
-   - Payload shape (must include BOTH sections — see "Adoption is manual and two-part" in Decisions):
+   - Three exported builders, one per adoption flow (see "Adoption is manual, annual-primary, and incremental" in Decisions):
+     ```ts
+     // First-time: sets the target AND this year's gifts
+     function buildFirstTimeAdoptionPayload(
+       tournament: TournamentResult,
+       chosenTarget: TerminalValueTarget,
+       currentYear: number,
+     ): AdoptionPayload;
+
+     // Annual: just this year's gifts (no goals patch — already set)
+     function buildAnnualAdoptionPayload(
+       tournament: TournamentResult,
+       chosenTarget: TerminalValueTarget,
+       currentYear: number,
+     ): AdoptionPayload;
+
+     // Long-horizon commitment: a single future-year event (e.g., superfund)
+     function buildCommitmentPayload(
+       commitment: { name: string; year: number; event: ScheduledOutflow; rationale: string },
+     ): AdoptionPayload;
+     ```
+   - Common payload shape:
      ```ts
      interface AdoptionPayload {
        meta: {
-         generatedAt: string;                    // ISO timestamp
-         dwzVersion: string;                     // e.g. 'dwz-v1'
+         generatedAt: string;                      // ISO timestamp
+         dwzVersion: string;                       // e.g. 'dwz-v1'
+         flow: 'first_time' | 'annual' | 'commitment';
          sourceCorpusFingerprint: string;
+         currentYear: number;
          chosenTargetTodayDollars: number;
-         totalDeployedTodayDollars: number;
-         expectedTerminal25Pctile90TodayDollars: number;
-         expectedTerminal25Pctile95TodayDollars: number;
+         payloadDescription: string;               // human-readable summary, used by DwZScreen UI text, NOT inside JSON
        };
-       goals: {
-         legacyTargetTodayDollars: number;       // the chosen target — patches the $1M default
+       goals?: {                                   // only present on first_time flow
+         legacyTargetTodayDollars: number;
        };
-       scheduledOutflows: ScheduledOutflow[];    // the gift events
+       scheduledOutflows: ScheduledOutflow[];      // events to append to existing array
      }
      ```
-   - Export `validateAdoptionPayload(payload: unknown): { valid: boolean, errors: string[] }` — runtime schema check the household runs before pasting. Errors include: missing `goals.legacyTargetTodayDollars` (most common mistake), `scheduledOutflows` non-array, individual outflow validation (negative amount, unknown sourceAccount, future-only years, etc.), gift-exclusion overflow (cash gift > $38K/yr without `requires_form_709` tag), superfund overflow ($190K with no 5-yr cooldown).
-   - Export `formatPayloadForClipboard(payload: AdoptionPayload): string` — pretty-printed **valid JSON** ready for the household to paste into `seed-data.json`. **No comments** — `seed-data.json` is imported as JSON at [src/data.ts:1](src/data.ts:1) (`import seedData from '../seed-data.json'`) and any non-JSON syntax breaks the build. Paste instructions (which fields to merge into existing `goals` object vs. add as a new top-level array) live in the DwZScreen UI text adjacent to the "Copy" button, not in the payload.
-   - Verification: new test file `src/dwz/adoption-payload.test.ts` (8 tests): round-trip via JSON.stringify/parse preserves shape, validator requires both `goals` and `scheduledOutflows` (one alone is invalid), validator catches negative amounts, validator catches unknown source accounts, validator catches $38K cash overflow without form-709 tag, validator catches superfund stacking, meta fields populated correctly, clipboard formatter includes paste-target comment.
+   - Export `validateAdoptionPayload(payload: unknown): { valid: boolean, errors: string[] }` — runtime schema check the household runs before pasting. Errors include:
+     - **first_time** flow: missing `goals.legacyTargetTodayDollars` (the most common mistake on first-time adoption), missing `scheduledOutflows`.
+     - **annual** flow: presence of `goals` (should be absent — goals were set at first-time adoption; re-setting silently overrides which is confusing). Empty `scheduledOutflows` for the current year. Events with `year !== currentYear` (annual flow shouldn't include past or far-future events; long-horizon commitments use the `commitment` flow).
+     - **commitment** flow: exactly one `ScheduledOutflow`. Event year strictly in the future.
+     - Per-event validation: negative amount, unknown sourceAccount (HSA explicitly excluded), gift-exclusion overflow (cash > $38K/yr without `requires_form_709` tag), superfund stacking inside an active cooldown window.
+   - Export `formatPayloadForClipboard(payload: AdoptionPayload): string` — pretty-printed **valid JSON** ready for the household to paste into `seed-data.json`. **No comments** — `seed-data.json` is imported as JSON at [src/data.ts:1](src/data.ts:1) (`import seedData from '../seed-data.json'`) and any non-JSON syntax breaks the build. Paste-target instructions (`goals.legacyTargetTodayDollars` merges into existing `goals` object; `scheduledOutflows` events append to the existing top-level `scheduledOutflows` array) live in the DwZScreen UI text adjacent to the "Copy" button, not in the payload.
+   - Verification: new test file `src/dwz/adoption-payload.test.ts` (12 tests):
+     - first_time builder: includes goals + this year's events; `meta.flow === 'first_time'`.
+     - annual builder: no goals; only currentYear events; `meta.flow === 'annual'`.
+     - commitment builder: exactly one event, future year; `meta.flow === 'commitment'`.
+     - Round-trip via JSON.stringify/parse preserves shape.
+     - Validator catches first-time payload missing goals.
+     - Validator catches annual payload that includes goals (should be flagged).
+     - Validator catches annual payload with non-currentYear events.
+     - Validator catches commitment payload with past-year event.
+     - Validator catches negative amounts.
+     - Validator catches unknown source accounts (incl. 'hsa').
+     - Validator catches $38K cash overflow without form-709 tag.
+     - Validator catches superfund stacked inside an active cooldown window.
 
 ### Phase 4: UI
 
 7. [ ] **Build DwZScreen**
    - New file `src/DwZScreen.tsx`.
-   - Layout: three columns (Conservative / Moderate / Aggressive), each showing:
-     - Target terminal value at age 90 (25th pctile)
-     - Total deployed across the plan
-     - Per-recipient breakdown (Ethan total / Mavue total)
-     - Per-year gift schedule table (year, recipient, amount, vehicle)
+   - The screen has **three sections**, in descending order of prominence on the page (annual-primary cadence — see Decisions):
+
+   **Section 1: "This Year" (headline tile — annual recommendation)**
+   - Big number at the top: *"This year (2026), your gift capacity is $X"* under the Moderate target (or whichever target is selected).
+   - Recipient breakdown: *"$A → Ethan (cash) / $B → Mavue (529)"* with brief commentary explaining the phase (*"Phase A: pre-retirement, symbolic only — capacity rises in 2028 after inheritance + LTC policy"*).
+   - Strategy selector: tabs or pills for Conservative / Moderate / Aggressive — switching updates the "this year" number.
+   - Action: **"Copy this year's gift payload"** button → writes the `annual` (or `first_time`, if this is the first adoption) payload to clipboard via `navigator.clipboard.writeText`. Adjacent UI text gives paste-target instructions (which top-level field in `seed-data.json` receives each section).
+   - "Skip this year" affordance: explicit, with a "your trajectory drifts by $X" estimate if skipped.
+
+   **Section 2: "Long-horizon commitments" (multi-year opt-ins)**
+   - For each `longHorizonCommitments` entry from the tournament (currently: Mavue 529 superfund #1 in 2028, Mavue 529 superfund #2 in 2033):
+     - Show name, year, amount, rationale, and the implied cooldown (*"Blocks Mavue annual exclusion 2028-2032 per IRS Form 709 election"*).
+     - **"Commit to this milestone"** button → writes the `commitment` payload to clipboard.
+   - These commitments are visible regardless of strategy and are presented as discrete opt-in decisions, not automatic.
+
+   **Section 3: "Trajectory" (multi-year forecast, secondary)**
+   - Three columns (Conservative / Moderate / Aggressive), each showing:
+     - Target terminal value at age 90 (25th pctile, today $)
+     - Total deployed across the full plan (today $)
      - 25th-pctile terminal value at age 95 (stress signal)
      - Plan success probability
-   - Below the columns:
-     - Cost-of-waiting chart: each gift plotted by "now vs. delay" cost
-     - "Copy adoption payload" button per column → writes JSON to clipboard via `navigator.clipboard.writeText`
+     - Per-recipient totals (Ethan / Mavue)
+     - Collapsible per-year schedule table
+   - Cost-of-waiting chart below: each gift plotted by "now vs. delay" cost (compounding cost per year of delay).
+   - This section is the forecast — what the trajectory looks like if the household continues at the recommended pace. It is **not** a commitment.
+
    - Empty state: if corpus doesn't exist, show "DwZ analysis requires a mined corpus. Run a mine first →" with CTA routing to Mining screen.
    - Stale state: if corpus fingerprint doesn't match current plan, show "Corpus is stale — recommendations may be outdated. Re-mine →".
-   - Verification: manual browser check on the locked household plan; capture a screenshot.
+   - Verification: manual browser check on the locked household plan; capture screenshots of all three sections.
 
 8. [ ] **Wire DwZ navigation**
    - Edit `src/types.ts`: extend `ScreenId` union to include `'dwz'`. This is the second additive types edit (first was `ScheduledOutflow` in Phase 0).
@@ -417,6 +542,10 @@ This phase exists because v1's "gifts as negative windfalls" approach is incompa
 - **Tournament runtime.** Each `solveScheduleScale` requires up to 15 bisection iterations × 2 horizon runs × 2000 trials = 60K trials per target. Three targets × 60K = 180K trials per tournament. At engine speed this is ~1-2 minutes total. Acceptable but noticeable — show a loading state in DwZScreen with the per-target progress.
 
 - **Phase 0 engine version bump invalidates the existing corpus.** The household will see a re-mine prompt on the cockpit immediately after Phase 0 ships, even before any DwZ analysis runs. Acceptable per the "hard gate" decision in `MINER_REFACTOR_WORKPLAN.md`, but worth communicating in the release note.
+
+- **Annual-cadence review can be forgotten.** Under v4's annual-primary model, gifts don't happen unless the household opens DwZScreen and adopts each year's recommendation. If they forget a year, the trajectory slips below the chosen pace and the terminal target may overshoot. Mitigations: (a) the cockpit shows a small "DwZ recommendation pending for $YEAR" tile each calendar year as a passive nudge; (b) the DwZScreen "this year" payload includes the schedule template's default amount, so confirming is one click; (c) past-year drift is reported on DwZScreen as a "you're $X behind pace" line so the household sees the gap and can make it up in subsequent years (subject to annual exclusion caps).
+
+- **First-time vs. annual payload confusion.** The household needs to know whether they're on a first-time adoption (include goals) or annual (don't). Mitigations: DwZScreen detects whether `seed-data.json` already has a non-default `goals.legacyTargetTodayDollars` and routes the "Copy" button to the correct builder automatically. The validator also catches mistakes — pasting an annual payload as first-time will fail the missing-goals check; pasting a first-time payload as annual will fail the extra-goals check.
 
 ## Ready to start
 
