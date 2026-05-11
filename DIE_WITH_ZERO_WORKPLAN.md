@@ -1,6 +1,10 @@
 # Die-With-Zero Workplan: Generosity Side-Car
 
-Goal: Add a standalone Die-With-Zero analyzer that lets the household decide how much of their projected ~$1M terminal value should be redeployed as gifts to the next generation while they're still young, without disturbing the existing engine, miner, ranker, or cockpit. The side-car runs as its own module, calls the engine as a library, and produces a tournament view of three terminal-value targets (Conservative $500K / Moderate $200K / Aggressive $0). If the household adopts a strategy, the side-car outputs a `scheduledGenerosity` payload that gets pasted into `seed-data.json`; the existing miner then re-mines naturally on the boulder change. Until adoption, nothing about the current system changes.
+Goal: Add a Die-With-Zero analyzer that lets the household decide how much of their projected ~$1M terminal value should be redeployed as gifts to the next generation while they're still young. The analyzer is a side-car module that calls the engine as a library and produces a tournament view of three terminal-value targets (Conservative $500K / Moderate $200K / Aggressive $0, all in today dollars). The engine grows one new additive capability — a `scheduledOutflows` event type — so it can simulate gift events. No other engine behavior, ranker logic, miner orchestration, or cockpit content changes during this work. If the household adopts a strategy, the analyzer outputs a two-part payload (gift events + lowered legacy target) that gets pasted into `seed-data.json`; the existing miner then re-mines naturally on the boulder change. Until adoption, the cockpit's headline is unchanged.
+
+**Revision history**:
+- 2026-05-10 v1: initial draft, assumed gifts could ride on `income.windfalls[]` as negative amounts.
+- 2026-05-10 v2: code review found windfalls are clamped nonnegative ([src/utils.ts:1445](src/utils.ts:1445)); adoption can't lower the $1M legacy gate without an explicit patch ([src/legacy-target-cache.ts:17](src/legacy-target-cache.ts:17)); `evaluatePolicy` is async with 8 inputs ([src/policy-miner-eval.ts:277](src/policy-miner-eval.ts:277)); ScreenId edit was forbidden but required. Added Phase 0 engine spike, loosened "no edits" locks to "additive only", made adoption payload two-part, fixed solver signatures and convergence math.
 
 Status legend:
 - `[ ]` pending
@@ -17,19 +21,29 @@ Execution protocol:
 
 These were settled during design discussion on 2026-05-10 and should not be re-litigated mid-implementation. Revisit only if a step uncovers a fact that contradicts them.
 
-### Architecture: side-car, zero edits to existing system
+### Architecture: side-car with one additive engine capability
 
-- All new code lives under `src/dwz/` (analyzer modules) and `src/DwZScreen.tsx` (UI).
-- No edits to: `src/utils.ts` (engine), `src/policy-miner-eval.ts`, `src/policy-ranker.ts`, `src/CockpitScreen.tsx`, `src/MiningScreen.tsx`, `src/types.ts`, or the seed-data schema (until adoption).
-- The engine is called as a library from the side-car (`evaluatePolicy`, `buildPathResults`, `buildEvaluationFingerprint`).
-- `POLICY_MINER_ENGINE_VERSION` is **not** bumped. The existing corpus stays valid.
-- A new top-level navigation route to `DwZScreen` is the only change visible outside `src/dwz/`.
+- The DwZ analyzer modules live under `src/dwz/` (analyzer logic) and `src/DwZScreen.tsx` (UI).
+- The engine gets exactly one additive capability: a new `scheduledOutflows` event type handled in the per-year projection loop ([src/utils.ts](src/utils.ts) around line 4879 where windfall cash inflow is currently summed into `balances.cash`). The new path subtracts from named accounts in matching years. No existing logic is modified; no existing assumption breaks.
+- Allowed additive edits:
+  - `src/types.ts`: add `ScheduledOutflow` interface (Phase 0); extend `ScreenId` to include `'dwz'` (Phase 4).
+  - `src/utils.ts`: add outflow-handling branch in projection loop (Phase 0).
+  - `src/App.tsx`: extend `REACHABLE_SCREENS` array to include `'dwz'` (Phase 4, single line at [src/App.tsx:744](src/App.tsx:744)).
+  - Seed-data schema: add top-level `scheduledOutflows[]` array; allow `goals.legacyTargetTodayDollars` to be lower than the current $1M default (Phase 0 + adoption).
+- **Forbidden** edits (these stay locked):
+  - `src/policy-ranker.ts` — ranking rule stays at `LEGACY_FIRST_LEXICOGRAPHIC`; only the gate's *target value* changes via the seed-data `goals` patch.
+  - `src/policy-miner-eval.ts` — the evaluator is called as a library; its signature and behavior are not modified.
+  - `src/CockpitScreen.tsx`, `src/MiningScreen.tsx` — cockpit and mining screens render the (updated) corpus exactly as they do today.
+  - `src/legacy-target-cache.ts` — `DEFAULT_LEGACY_TARGET_TODAY_DOLLARS` constant stays at $1M; the household's chosen target lives in seed-data, not in the default.
+- `POLICY_MINER_ENGINE_VERSION` is bumped **once** in Phase 0 (engine outflow support). This invalidates the existing corpus once; the household re-mines (~3 min) to pick up the new engine capability. Subsequent DwZ work doesn't bump again.
 
-Rationale: this is exploratory work. The household wants to see what DwZ would look like before committing engine resources to it. Isolation lets the analyzer evolve quickly, lets the household abandon cheaply if it doesn't pan out, and protects the V1 ship.
+Rationale: the v1 "zero engine edits" framing was incompatible with the engine's actual cashflow model (windfalls clamp to nonnegative, so gifts can't be modeled as negative windfalls). The minimum honest path is one additive engine capability — a new event type — that the side-car drives. Everything outside that capability remains untouched.
 
 ### Tournament shape: three terminal-value targets
 
-| Target name | Terminal value at age 90 (25th pctile) | Total deployed to recipients (estimate) |
+All target values are stated in **today dollars** (matching the convention used by existing policy summaries such as `annualSpendTodayDollars` and `p50EndingWealthTodayDollars`). The bequest solver compares the 25th-pctile terminal value, deflated to today dollars, against the configured target.
+
+| Target name | Terminal value @ age 90, 25th pctile (today $) | Total deployed to recipients (estimate, today $) |
 |---|---|---|
 | Conservative | $500,000 | ~$500K |
 | **Moderate** (primary) | $200,000 | ~$800K |
@@ -50,21 +64,32 @@ The asymmetry is structural and must be preserved in the schedule builder: Ethan
 
 The gift schedule is sized so that the 25th-percentile terminal value (across Monte Carlo trials) hits the target. This is the "painless" threshold — even in a poor sequence of returns, the plan still leaves the targeted estate. This matches the household's stated comfort level.
 
-### Planning horizon: 90 (optimization), 95 (stress check)
+### Planning horizon: 90 (optimization), 95 (stress check) — implemented via assumption overrides
 
-The gift schedule solves against age 90. The 25th-percentile terminal value at age 95 is computed and reported as a stress signal but not used as a gating constraint. If the 95-stress number ever drops below a configurable safety floor (default $0), the side-car flags it and recommends pulling back gift aggressiveness.
+The seed-data's `household.planningAge` is 95, and the engine reads horizon from `robPlanningEndAge` / `debbiePlanningEndAge` (or the seed `planningAge` as fallback — see [src/utils.ts:687](src/utils.ts:687)). The DwZ analyzer implements the dual horizon explicitly by passing two distinct engine runs:
+
+- **Solve run** — clone the assumptions with `robPlanningEndAge: 90` and `debbiePlanningEndAge: 90` overrides. The bequest solver bisects against the 25th-pctile terminal value from this run.
+- **Stress run** — same policy + scaled schedule, but assumptions cloned with horizon = 95 (or the seed default). The 25th-pctile terminal value at 95 is reported as a stress signal.
+
+If the 95-stress number ever drops below a configurable safety floor (default $0 today dollars), the side-car flags it and recommends pulling back gift aggressiveness. Both runs are part of every solve; cost is ~2x a single evaluation per target.
 
 ### Spending stays unchanged
 
 Per household preference: monthly spending stays as-is in the base plan. The DwZ analyzer does NOT recommend cuts to monthly spending. Gifts come exclusively from the projected terminal-value gap. This is enforced by holding `annualSpendTodayDollars` constant at the corpus-recommended value while solving for the gift schedule.
 
-### Adoption is manual
+### Adoption is manual and two-part
 
-When the household picks a strategy, the side-car outputs a JSON payload:
+When the household picks a strategy, the side-car outputs a JSON payload with **two** sections that must be pasted together. Either alone produces inconsistent behavior:
+
+1. `scheduledOutflows[]` — the per-year gift events (Phase 0 engine support is what makes these simulate).
+2. `goals.legacyTargetTodayDollars` — patched down from the $1M default to the chosen target. Without this, the ranker's `LEGACY_FIRST_LEXICOGRAPHIC` gate still requires the corpus to clear $1M @ 85% confidence, which is incompatible with a $200K target. The corpus would fail GATE 1 and the cockpit would show the "no feasible policy" empty state.
 
 ```jsonc
 {
-  "scheduledGenerosity": [
+  "goals": {
+    "legacyTargetTodayDollars": 200000     // ← lowered from $1M default
+  },
+  "scheduledOutflows": [
     {
       "name": "mavue_529_superfund_1",
       "year": 2028,
@@ -89,28 +114,80 @@ When the household picks a strategy, the side-car outputs a JSON payload:
 }
 ```
 
-The household pastes this into `seed-data.json` as a new top-level field (or under `income.scheduledGenerosity` — TBD in step 8 once we look at the schema). The existing miner sees a fingerprint change, re-mines once (~3 min), and the cockpit reflects the new reality. This intentional manual step keeps the adoption decision out of code.
+The household pastes both sections into `seed-data.json` (`scheduledOutflows` as a new top-level field, `goals.legacyTargetTodayDollars` merged into the existing `goals` object). The existing miner sees a fingerprint change, re-mines once (~3 min), and the cockpit reflects the new reality. This intentional manual step keeps the adoption decision out of code.
+
+### Gift-tax limits enforced in the schedule builder
+
+Per IRS 2026 rules (annual exclusion = $19K per donor per donee, $38K joint from two spouses), the gift-schedule-builder caps face amounts at:
+
+| Vehicle | Per-recipient-per-year cap | Notes |
+|---|---|---|
+| `annual_exclusion_cash` | $38,000 | Combined Rob + Debbie. Exceeds → split across years or use Form 709. |
+| `529_superfund` (5-yr election) | $190,000 per superfund event | $95K × 2 spouses, blocks subsequent annual exclusion to that donee for 5 years. |
+| `direct_pay_tuition_medical` | unlimited | Doesn't touch exclusion. Reserved for grandkid education years; not used pre-college. |
+
+When the bequest solver's scalar would push a gift above its vehicle cap, the schedule builder either (a) shifts the surplus to the next year (preferred) or (b) re-tags the excess portion with `taxTreatment: 'requires_form_709'` (factually accurate — annual gifts above $19K per donor require filing Form 709 even when no tax is due, because lifetime exemption usage is tracked). The default behavior is (a); (b) is opt-in via a builder config flag.
 
 ### What this work does NOT do
 
-- Does NOT modify the engine projection loop. Gifts are scheduled outflows in specific years, simulated by the engine via its existing event-handling path.
-- Does NOT bump `POLICY_MINER_ENGINE_VERSION`. The existing corpus remains valid.
+- Does NOT modify existing engine projection logic. The engine gets one new additive branch (scheduled outflows in Phase 0); existing withdrawal, tax, RMD, ACA, IRMAA, and Roth-conversion logic all remain unchanged.
 - Does NOT add a mining axis. The tournament runs as a side-car analysis, not as part of the policy enumeration grid.
-- Does NOT change the ranking rule. `LEGACY_FIRST_LEXICOGRAPHIC` and the $1M GATE 1 stay locked in until/unless the household adopts a strategy and chooses to lower the gate.
+- Does NOT change the ranking rule. `LEGACY_FIRST_LEXICOGRAPHIC` and the structure of GATE 1 stay locked. The gate's *target value* is read from `goals.legacyTargetTodayDollars`, which the household lowers via the adoption payload.
+- Does NOT modify `src/policy-miner-eval.ts`, `src/policy-ranker.ts`, `src/CockpitScreen.tsx`, `src/MiningScreen.tsx`, or `src/legacy-target-cache.ts`.
 - Does NOT replace cockpit content. The DwZ tournament lives on its own screen.
 - Does NOT model LTC strategy or term life as side-car features. Those remain plan-level boulders that the household configures externally (LTC broker quotes, Term4Sale, etc.) and adds to `seed-data.json` separately.
+- Does NOT add survivor scenarios as a mining axis. Survivor stress checks (Phase 5) are side-car-only — additional engine calls with modified plan inputs.
 
 ## Steps
 
+### Phase 0: Engine outflow capability (additive)
+
+This phase exists because v1's "gifts as negative windfalls" approach is incompatible with the engine — windfalls are clamped to nonnegative at [src/utils.ts:1445](src/utils.ts:1445) and added to `balances.cash` as positive inflows around [src/utils.ts:4879](src/utils.ts:4879). The cleanest fix is a new event type that the projection loop subtracts from named accounts. This is the only step that touches the engine.
+
+0a. [ ] **Define `ScheduledOutflow` schema and seed-data integration point**
+   - Edit `src/types.ts` — add a new exported interface:
+     ```ts
+     export interface ScheduledOutflow {
+       name: string;
+       year: number;
+       amount: number;                              // today dollars, deflated inside the engine
+       sourceAccount: 'cash' | 'taxable' | 'pretax' | 'roth' | 'hsa';
+       recipient: string;                           // free text for reporting (e.g., 'ethan', 'mavue')
+       vehicle: 'annual_exclusion_cash' | '529_superfund' | 'direct_pay_tuition_medical' | 'utma' | 'other';
+       label: string;
+       taxTreatment: 'gift_no_tax_consequence' | 'requires_form_709';
+     }
+     ```
+   - Extend `SeedData` to include an optional `scheduledOutflows?: ScheduledOutflow[]` top-level field. Optional so existing seed-data files validate without modification.
+   - Verification: `npx tsc --noEmit` passes; existing seed-data files still parse.
+
+0b. [ ] **Implement scheduled-outflow handling in the projection loop**
+   - Edit `src/utils.ts` — add a new branch in the per-year projection loop (after withdrawals are computed, before EOY balance roll-forward) that:
+     - Filters `data.scheduledOutflows` for entries where `year === currentYear`.
+     - For each entry, subtracts `amount` (inflation-adjusted from today-dollars to nominal-current-year-dollars) from `balances[sourceAccount]`.
+     - For `sourceAccount === 'pretax'`: the subtraction is a forced distribution. Add the amount to `baseTaxInputs.otherOrdinaryIncome` so the engine taxes it like an IRA withdrawal. The household nets less than the gift face amount unless paid from elsewhere, which is correct.
+     - For `sourceAccount === 'taxable'`: realize cost-basis-aware LTCG via the same path used by existing taxable withdrawals. Use the account's running average basis ratio.
+     - For `sourceAccount === 'roth'`, `'cash'`, `'hsa'`: pure account decrement, no tax event.
+     - Track the per-year outflow totals in a new `outflowsForYear` field on the projection row for reporting.
+     - If a `sourceAccount` balance goes negative, cascade the shortfall to `cash` then `taxable` then `pretax` (the standard cascade) and emit a warning in the projection row.
+   - **Do not** modify windfall handling — outflows are a sibling concept, not a transformation of windfalls.
+   - Verification: new test file `src/scheduled-outflows.test.ts` (8 tests): cash outflow decrements cash and emits no tax event; taxable outflow realizes LTCG; pretax outflow adds ordinary income; Roth outflow is tax-free; HSA outflow is tax-free; multi-year outflows accumulate correctly; outflow exceeding source cascades correctly with a warning; outflow before the year does nothing and after has no effect.
+
+0c. [ ] **Bump engine version and document the invalidation**
+   - Update `POLICY_MINER_ENGINE_VERSION` in the same module that currently defines it (search for `policy-miner-v2-2026-05-01`). Bump to `policy-miner-v3-2026-05-dwz` or similar.
+   - Document in this step's `Done:` block that all existing corpora are now invalidated. The household must re-mine once (~3 min) to pick up the new engine.
+   - Verification: existing test suite still passes (the new outflow path is opt-in; default behavior unchanged because `scheduledOutflows` is optional/empty in current seed-data); `npm run test:calibration` still passes (Trinity ±3pp, FICalc ±10pp).
+
 ### Phase 1: Foundation (types, utility model, schedule template)
 
-1. [ ] **Define DwZ types**
+1. [ ] **Define DwZ analyzer types**
    - New file `src/dwz/types.ts`.
-   - Export: `GiftEvent`, `GiftSchedule`, `RecipientProfile`, `RecipientStage`, `UtilityCurve`, `TerminalValueTarget`, `PhasePlan`, `DwZStrategy`, `DwZOutcome`, `TournamentResult`, `AdoptionPayload`.
+   - Export: `RecipientProfile`, `RecipientStage`, `UtilityCurve`, `TerminalValueTarget` (number, today dollars), `PhasePlan`, `DwZStrategy`, `DwZOutcome`, `TournamentResult`, `AdoptionPayload`, `EvalContext`.
+   - **Reuse** (do not redefine) `ScheduledOutflow` from `src/types.ts` (added in Phase 0). The DwZ analyzer's "gift events" ARE `ScheduledOutflow`s — there's no separate `GiftEvent` type.
    - Document each interface inline.
-   - `GiftEvent` mirrors the shape of `income.windfalls[]` entries plus a `recipient` and `vehicle` field, so the adoption payload is a structural cousin of existing scheduled flows.
    - `RecipientStage` enum: `'launch' | 'squeeze' | 'established' | 'late_career' | 'compounding_child'`.
    - `UtilityCurve` is a per-age table of utility multipliers (e.g., `{ 30: 1.4, 35: 1.3, 45: 1.0, 60: 0.7 }`) with linear interpolation between points.
+   - `EvalContext` bundles the inputs `evaluatePolicy` requires (see [src/policy-miner-eval.ts:277](src/policy-miner-eval.ts:277)): `{ assumptions: MarketAssumptions, baselineFingerprint: string, engineVersion: string, evaluatedByNodeId: string, cloner: SeedDataCloner, legacyTargetTodayDollars: number }`.
    - Verification: `npx tsc --noEmit` passes.
 
 2. [ ] **Build utility-model module**
@@ -124,48 +201,93 @@ The household pastes this into `seed-data.json` as a new top-level field (or und
 
 3. [ ] **Build gift-schedule-builder module**
    - New file `src/dwz/gift-schedule-builder.ts`.
-   - Export `buildGiftScheduleTemplate(plan: SeedData, profiles: RecipientProfile[], phasePlan: PhasePlan): GiftEvent[]`.
-   - Implements the five-phase plan locked in design:
-     - Phase 0 (pre-retire, now → 2027-07-01): symbolic only ($1K Mavue 529 seed)
-     - Phase 1 (sequence danger, 2027 → mid-2028): $5K Ethan, $5K Mavue
-     - Phase 2 (ramp post-inheritance, mid-2028 → SS turn-on ~2031): $15K Ethan, $15K Mavue, plus $95K Mavue 529 superfund #1 in 2028
-     - Phase 3 (full gifting, ~2031 → 2034): up to $19K Ethan, up to $19K Mavue, plus $95K Mavue 529 superfund #2 in 2033
-     - Phase 4 (event-driven surplus, 2037+): home-sale liquidity available, scale up if 25th-pct holds
-   - Output is the **template** — a per-year list of `GiftEvent`s with their **face amounts**. The bequest-solver (step 4) scales this template by a single scalar.
-   - Verification: new test file `src/dwz/gift-schedule-builder.test.ts` (8 tests): each phase boundary produces expected events, vehicle assignments correct (Ethan=cash, Mavue=529/UTMA), superfund drops appear in 2028 and 2033, sourceAccount distribution follows tax-efficient ordering, total face amount sums match documented phase budgets.
+   - Export `buildGiftScheduleTemplate(plan: SeedData, profiles: RecipientProfile[], phasePlan: PhasePlan): ScheduledOutflow[]`.
+   - Implements the five-phase plan locked in design (amounts use $38K joint annual exclusion for cash, $190K joint for 529 superfunds):
+     - Phase A (pre-retire, now → 2027-07-01): symbolic only ($1K Mavue 529 seed)
+     - Phase B (sequence danger, 2027 → mid-2028): $5K Ethan, $5K Mavue
+     - Phase C (ramp post-inheritance, mid-2028 → Debbie SS ~2030): $20K Ethan ($10K from each spouse), $20K Mavue 529 annual, plus $190K Mavue 529 superfund #1 in 2028 (5-yr election, both spouses)
+     - Phase D (full gifting, ~2031 → 2034): up to $38K Ethan annual exclusion (Rob+Debbie joint), up to $38K Mavue annual exclusion, plus $190K Mavue 529 superfund #2 in 2033
+     - Phase E (event-driven surplus, 2037+): home-sale liquidity available, scale up if 25th-pct holds
+   - **Limit enforcement**: builder caps face amounts at `annual_exclusion_cash`=$38K/yr/recipient and `529_superfund`=$190K/event/recipient (2026 IRS rules). When the bequest-solver's scalar would push a year above its cap, the builder either (a) shifts the surplus to a future year up to cap, or (b) tags the excess with `taxTreatment: 'requires_form_709'`. Default is (a).
+   - Output is the **template** — a per-year list of `ScheduledOutflow`s with face amounts. The bequest-solver (step 4) scales this template by a single scalar, re-applying caps after scaling.
+   - Verification: new test file `src/dwz/gift-schedule-builder.test.ts` (10 tests): each phase boundary produces expected events, vehicle assignments correct (Ethan=cash, Mavue=529/UTMA), superfund drops appear in 2028 and 2033, sourceAccount distribution follows tax-efficient ordering, total face amount sums match documented phase budgets, scaling up past $38K annual exclusion either shifts to next year (default) or tags excess as `requires_form_709` (opt-in flag), scaling up past $190K superfund shifts to next available year, scaling down zeroes out events cleanly.
 
 ### Phase 2: Bequest solver and tournament runner
 
 4. [ ] **Build bequest-solver module**
    - New file `src/dwz/bequest-solver.ts`.
-   - Export `solveScheduleScale(plan: SeedData, basePolicy: Policy, template: GiftEvent[], target: TerminalValueTarget, opts?: { confidencePctile?: 25, maxIterations?: 15, tolerance?: 0.02 }): { scale: number, schedule: GiftEvent[], outcome: DwZOutcome }`.
-   - Internally calls `evaluatePolicy` from `policy-miner-eval` as a library with the gift events injected as scheduled outflows.
-   - Bisects on a scalar multiplier in [0, 2.0]:
-     - At scale=0: terminal value = baseline (~$1M at 25th-pctile)
-     - At scale=1.0: full template applied
-     - At scale=2.0: double the template (test ceiling for aggressive targets)
-   - Convergence criterion: 25th-pctile terminal value within `tolerance` (default 2%) of target, or `maxIterations` (default 15) hit.
-   - Returns the converged scale, the scaled `GiftEvent[]`, and the resulting outcome (terminal value at 25/50/75 pctile, total deployed, plan success probability, 95-stress).
-   - Verification: new test file `src/dwz/bequest-solver.test.ts` (6 tests): converges to $200K target within tolerance, converges to $500K target, converges to $0 target, handles infeasible target (target > baseline → returns scale=0), respects max iterations, deterministic with seed.
+   - Export:
+     ```ts
+     async function solveScheduleScale(
+       basePolicy: Policy,
+       baseline: SeedData,
+       template: ScheduledOutflow[],
+       target: TerminalValueTarget,            // today dollars
+       ctx: EvalContext,                       // see types.ts; carries assumptions, fingerprint, engineVersion, evaluatedByNodeId, cloner, legacyTargetTodayDollars
+       opts?: {
+         confidencePctile?: number;            // default 25
+         maxIterations?: number;               // default 15
+         relativeTolerance?: number;           // default 0.02
+         absoluteDollarTolerance?: number;     // default 10_000 (today $); needed because relative*0 = 0 for aggressive target
+         optimizationHorizonAge?: number;      // default 90 — overrides robPlanningEndAge / debbiePlanningEndAge on a cloned assumptions
+         stressHorizonAge?: number;            // default 95 — runs a second eval at this horizon for stress reporting
+         scaleSearchRange?: [number, number];  // default [0, 2.0]
+       }
+     ): Promise<{ scale: number; schedule: ScheduledOutflow[]; outcome: DwZOutcome }>
+     ```
+   - Bisects on a scalar multiplier in `scaleSearchRange`:
+     - At scale=0: terminal value = baseline (~$1M at 25th-pctile, no gifts applied).
+     - At scale=1.0: full template applied at face.
+     - At scale=2.0: double the template (gift-schedule-builder re-applies vehicle caps after scaling, so practical ceiling depends on cap headroom).
+   - Each iteration runs **two** `evaluatePolicy` calls: one with `assumptions` cloned to set `robPlanningEndAge = debbiePlanningEndAge = optimizationHorizonAge` (the solve run), and one at `stressHorizonAge` (the stress run). The solve run's 25th-pctile terminal value drives bisection; the stress run's value is recorded in the outcome.
+   - Convergence: `Math.abs(terminal25th - target) < Math.max(relativeTolerance * target, absoluteDollarTolerance)`. The absolute floor is required because the aggressive target is $0 and any positive relative tolerance reduces to zero there.
+   - Returns the converged scale, the scaled `ScheduledOutflow[]`, and the `DwZOutcome` (25/50/75 pctile terminal values at horizon 90, 25th-pctile terminal at horizon 95, total deployed in today dollars, plan success probability, per-recipient totals).
+   - Verification: new test file `src/dwz/bequest-solver.test.ts` (8 tests): converges to $500K target, converges to $200K target, converges to $0 target (using absolute tolerance), handles infeasible target (target > baseline → returns scale=0), respects maxIterations, deterministic with seed, dual-horizon runs produce different terminal values (90 > 95 generally), assumptions cloner doesn't mutate input.
 
 5. [ ] **Build tournament-runner module**
    - New file `src/dwz/tournament-runner.ts`.
-   - Export `runTournament(plan: SeedData, corpus: Corpus, profiles: RecipientProfile[], targets: TerminalValueTarget[] = [500_000, 200_000, 0]): TournamentResult`.
-   - Reads the existing corpus, selects the top policy under `LEGACY_FIRST_LEXICOGRAPHIC` via `bestPolicy` from `policy-ranker.ts`.
-   - For each target, calls `solveScheduleScale` and collects results.
-   - Computes cost-of-waiting deltas: for each gift in each strategy, how much would the gift "cost" the terminal value if delayed by 1, 5, or 10 years.
-   - Output: `TournamentResult` with one `DwZStrategy` per target, each containing the schedule, outcome, total deployed, per-recipient totals, cost-of-waiting matrix.
-   - Verification: new test file `src/dwz/tournament-runner.test.ts` (4 tests): three strategies returned, Conservative has highest terminal / lowest total deployed, Aggressive has lowest terminal / highest total, snapshot test on the locked household plan.
+   - Export:
+     ```ts
+     async function runTournament(
+       baseline: SeedData,
+       corpus: PolicyEvaluation[],
+       profiles: RecipientProfile[],
+       ctx: EvalContext,
+       targets?: TerminalValueTarget[]        // default [500_000, 200_000, 0]
+     ): Promise<TournamentResult>
+     ```
+   - Reads the corpus passed in (caller fetches it via the existing `useRecommendedPolicy` hook or dispatcher), selects the top policy under `LEGACY_FIRST_LEXICOGRAPHIC` via `bestPolicy` from `policy-ranker.ts`.
+   - For each target, awaits `solveScheduleScale` in **parallel** via `Promise.all` (engine calls are I/O-bound when distributed; if local, parallelism still helps via async scheduling).
+   - Computes cost-of-waiting deltas: for each gift in each strategy, how much would the gift "cost" the terminal value if delayed by 1, 5, or 10 years (uses real-return assumption from `ctx.assumptions` for the compounding rate).
+   - Output: `TournamentResult` with one `DwZStrategy` per target, each containing the schedule, outcome (with both horizon-90 and horizon-95 terminal values), total deployed in today dollars, per-recipient totals, cost-of-waiting matrix.
+   - Verification: new test file `src/dwz/tournament-runner.test.ts` (5 tests): three strategies returned, Conservative has highest terminal-90 / lowest total deployed, Aggressive has lowest terminal-90 / highest total, horizon-95 stress values reported for each strategy, snapshot test on the locked household plan.
 
 ### Phase 3: Adoption payload
 
 6. [ ] **Build adoption-payload module**
    - New file `src/dwz/adoption-payload.ts`.
    - Export `buildAdoptionPayload(tournament: TournamentResult, chosenTarget: TerminalValueTarget): AdoptionPayload`.
-   - Converts the chosen strategy into the JSON shape documented in "Decisions locked in".
-   - Includes a `meta` field: `{ generatedAt, dwzVersion, sourceCorpusFingerprint, chosenTarget, totalDeployed, expectedTerminalValue }` so a pasted payload can be audited later.
-   - Export `validateAdoptionPayload(payload: unknown): { valid: boolean, errors: string[] }` — runtime schema check the household can run before pasting.
-   - Verification: new test file `src/dwz/adoption-payload.test.ts` (5 tests): round-trip via JSON.stringify/parse preserves shape, validator catches missing fields, validator catches negative amounts, validator catches unknown source accounts, meta fields populated.
+   - Payload shape (must include BOTH sections — see "Adoption is manual and two-part" in Decisions):
+     ```ts
+     interface AdoptionPayload {
+       meta: {
+         generatedAt: string;                    // ISO timestamp
+         dwzVersion: string;                     // e.g. 'dwz-v1'
+         sourceCorpusFingerprint: string;
+         chosenTargetTodayDollars: number;
+         totalDeployedTodayDollars: number;
+         expectedTerminal25Pctile90TodayDollars: number;
+         expectedTerminal25Pctile95TodayDollars: number;
+       };
+       goals: {
+         legacyTargetTodayDollars: number;       // the chosen target — patches the $1M default
+       };
+       scheduledOutflows: ScheduledOutflow[];    // the gift events
+     }
+     ```
+   - Export `validateAdoptionPayload(payload: unknown): { valid: boolean, errors: string[] }` — runtime schema check the household runs before pasting. Errors include: missing `goals.legacyTargetTodayDollars` (most common mistake), `scheduledOutflows` non-array, individual outflow validation (negative amount, unknown sourceAccount, future-only years, etc.), gift-exclusion overflow (cash gift > $38K/yr without `requires_form_709` tag), superfund overflow ($190K with no 5-yr cooldown).
+   - Export `formatPayloadForClipboard(payload: AdoptionPayload): string` — pretty-printed JSON ready for the household to paste into `seed-data.json`. Returns a JSON string with a leading comment block describing the two paste targets.
+   - Verification: new test file `src/dwz/adoption-payload.test.ts` (8 tests): round-trip via JSON.stringify/parse preserves shape, validator requires both `goals` and `scheduledOutflows` (one alone is invalid), validator catches negative amounts, validator catches unknown source accounts, validator catches $38K cash overflow without form-709 tag, validator catches superfund stacking, meta fields populated correctly, clipboard formatter includes paste-target comment.
 
 ### Phase 4: UI
 
@@ -186,10 +308,11 @@ The household pastes this into `seed-data.json` as a new top-level field (or und
    - Verification: manual browser check on the locked household plan; capture a screenshot.
 
 8. [ ] **Wire DwZ navigation**
-   - Edit `src/App.tsx` (or wherever screen routing lives — single screen-name addition).
-   - Add a route or screen state for `'dwz'`.
-   - Add a nav entry (header or sidebar — match existing pattern).
-   - Verification: clicking the nav entry loads `DwZScreen`; back-navigation works; no regression on existing screens (manual smoke test of Cockpit, Mining, AssumptionPanel).
+   - Edit `src/types.ts`: extend `ScreenId` union to include `'dwz'`. This is the second additive types edit (first was `ScheduledOutflow` in Phase 0).
+   - Edit `src/App.tsx` at [src/App.tsx:744](src/App.tsx:744): add `'dwz'` to the `REACHABLE_SCREENS` array. Without this, the existing redirect-to-cockpit effect at [src/App.tsx:752](src/App.tsx:752) bounces any user who lands on the DwZ screen straight back.
+   - Add a screen case to the main screen-switch logic that renders `DwZScreen`.
+   - Add a nav entry to the existing sidebar/header navigation, matching the pattern for `mining` or `cockpit`.
+   - Verification: clicking the nav entry loads `DwZScreen`; the redirect effect does NOT bounce; back-navigation works; no regression on existing screens (manual smoke test of Cockpit, Mining, AssumptionPanel).
 
 ### Phase 5: Survivor scenario stress check (optional within side-car)
 
@@ -235,24 +358,35 @@ The household pastes this into `seed-data.json` as a new top-level field (or und
 
 ## Risks and open questions
 
-- **Bequest solver convergence under thin paths.** The 25th-percentile terminal value can be noisy with 2000 trials. If solves don't converge cleanly to ±2% tolerance within 15 iterations, options are: increase to 5000 trials per solve (slower), widen tolerance to ±5% (less precise), or switch from bisection to a coarse-then-fine grid (different convergence profile). Plan for it but don't pre-solve.
+### Resolved during v2 review (2026-05-10)
+
+- ~~`scheduledGenerosity` schema placement~~ → **Resolved.** Top-level `scheduledOutflows` field on `SeedData`. Cannot nest under `income.windfalls` because the engine clamps windfall amounts to nonnegative at [src/utils.ts:1445](src/utils.ts:1445).
+- ~~Side-car bypasses the ranker~~ → **Resolved.** Adoption payload now includes a `goals.legacyTargetTodayDollars` patch that lowers the ranker's gate to the chosen target. Without this, the corpus would fail GATE 1 after adoption.
+- ~~$0 target tolerance~~ → **Resolved.** Convergence criterion uses `max(relativeTolerance × target, absoluteDollarTolerance)`. Defaults: 2% relative, $10K absolute. The absolute floor lets the bisection terminate cleanly for the aggressive target.
+- ~~Solver async signatures~~ → **Resolved.** `solveScheduleScale` and `runTournament` are `async`, take an `EvalContext` carrying the six inputs `evaluatePolicy` requires.
+- ~~Age-90 / age-95 dual horizon~~ → **Resolved.** Solve run clones `assumptions` with `robPlanningEndAge = debbiePlanningEndAge = 90` override. Stress run uses default (95). Two evaluations per bisection iteration.
+- ~~Navigation breaks the "no types.ts edits" lock~~ → **Resolved.** The lock was relaxed to "additive types edits only": `ScheduledOutflow` (Phase 0) and `ScreenId += 'dwz'` (Phase 4). `App.tsx:744` REACHABLE_SCREENS gets a one-line addition for the same reason.
+- ~~Today vs nominal dollars~~ → **Resolved.** All terminal-value targets and dollar amounts in this workplan are **today dollars**. Matches existing policy summary convention (`annualSpendTodayDollars`, `p50EndingWealthTodayDollars`).
+- ~~Gift-tax limit mis-handling~~ → **Resolved.** Schedule builder enforces $38K joint annual exclusion and $190K joint superfund caps per IRS 2026. Scaled gifts above caps either shift to subsequent years (default) or tag as `requires_form_709` (opt-in). Adoption-payload validator catches violations.
+
+### Still open
+
+- **Bequest solver convergence under thin paths.** The 25th-percentile terminal value can be noisy with 2000 trials. If solves don't converge cleanly within 15 iterations, options are: increase to 5000 trials per solve (slower), widen relative tolerance to 5% (less precise), increase absolute dollar tolerance to $25K (looser bound on $0 target), or switch from bisection to a coarse-then-fine grid (different convergence profile). Defer to Phase 2 implementation; profile during step 4 verification.
 
 - **Utility model is opinionated.** The stage multipliers represent judgment calls about when money matters most to recipients. The defaults capture the household's discussion but should be exposed as configurable so they can be adjusted as life situations change (e.g., if Ethan's child reaches school age and the squeeze stage shifts).
 
 - **Mavue's CRBA / SSN status.** Strongly believed to be a US citizen with SSN given USAF father, but blocking for 529 funding until confirmed. Side-car models assuming yes, but flags the assumption in the UI so the household can confirm with Reese before any adoption.
 
-- **`scheduledGenerosity` schema placement.** Step 6 will pick between a new top-level field in `seed-data.json` and nesting under `income.windfalls` (treating gifts as negative-amount windfalls). Decision depends on how the engine's existing event-handling code distinguishes inflows from outflows. Investigate in step 6; document the choice.
-
 - **Engine "as library" coupling.** Importing `evaluatePolicy` and `buildPathResults` couples the side-car to those signatures. If the miner refactor changes them, the side-car needs to follow. Acceptable — the alternative (duplicating the engine path) is worse.
 
-- **Adoption payload pasting is manual.** Risk the household pastes into the wrong place or forgets to re-mine. Mitigations: validator function (step 6), clear UI instructions on the "Copy payload" button, README note describing the adoption flow.
-
-- **Side-car bypasses the ranker.** The DwZ tournament shows three terminal-value targets — but the existing ranker still ranks the corpus under GATE 1 = $1M. After adoption, the ranker's GATE 1 may need to drop to match the chosen target, or the household sees a "stale" cockpit recommendation. Tracked as a follow-up in step 12's BACKLOG update.
+- **Adoption payload pasting is manual.** Risk the household pastes the `scheduledOutflows` portion but forgets the `goals.legacyTargetTodayDollars` patch — corpus then fails GATE 1 and cockpit shows the "no feasible policy" state. Mitigations: validator function explicitly requires both sections (step 6), DwZScreen instructions name both paste targets, clipboard formatter prefixes JSON with a comment listing the two targets.
 
 - **LTC and term life remain external.** These interact with gift capacity but are not modeled in the side-car. The household configures them via separate decisions (broker quotes, Term4Sale) and updates `seed-data.json` separately. The side-car re-runs naturally against the updated plan.
 
-- **Tournament runtime.** Each `solveScheduleScale` is ~15 MC runs × 2000 trials = 30K trials. Three strategies × 30K = 90K trials per tournament. At engine speed this is ~30-60 seconds. Acceptable but noticeable — show a loading state in DwZScreen.
+- **Tournament runtime.** Each `solveScheduleScale` requires up to 15 bisection iterations × 2 horizon runs × 2000 trials = 60K trials per target. Three targets × 60K = 180K trials per tournament. At engine speed this is ~1-2 minutes total. Acceptable but noticeable — show a loading state in DwZScreen with the per-target progress.
+
+- **Phase 0 engine version bump invalidates the existing corpus.** The household will see a re-mine prompt on the cockpit immediately after Phase 0 ships, even before any DwZ analysis runs. Acceptable per the "hard gate" decision in `MINER_REFACTOR_WORKPLAN.md`, but worth communicating in the release note.
 
 ## Ready to start
 
-Step 1 (define DwZ types) is the right entry point — pure types, no logic, no engine coupling, unblocks every subsequent step. Begin there.
+Phase 0 (engine outflow capability) is the right entry point. The DwZ analyzer modules in Phase 1+ depend on the new `ScheduledOutflow` type and the engine being able to simulate it. Inside Phase 0, step 0a (schema definition) is read-only against the engine and unblocks 0b. Begin at 0a.
