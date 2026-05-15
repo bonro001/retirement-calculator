@@ -827,23 +827,7 @@ async function handleRun(payload: {
         });
         return;
       }
-      if (session.spendingScheduleBasis) {
-        const evaluation = await evaluatePolicy(
-          policy,
-          session.data,
-          session.assumptions,
-          session.baselineFingerprint,
-          session.engineVersion,
-          session.evaluatedByNodeId,
-          cloneSeedData,
-          session.legacyTargetTodayDollars,
-          session.spendingScheduleBasis,
-        );
-        evaluations.push(evaluation);
-        if (shadowStats) {
-          shadowStats.skipped += 1;
-        }
-      } else if (engineRuntime === 'rust-native-compact') {
+      if (engineRuntime === 'rust-native-compact') {
         const { evaluation, timings } = await evaluatePolicyWithRustNativeCompact(
           policy,
           session,

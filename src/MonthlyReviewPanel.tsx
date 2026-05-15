@@ -52,6 +52,7 @@ type MonthlyReviewStage =
   | 'failed';
 
 type StepStatus = 'waiting' | 'active' | 'done' | 'failed';
+type FailedReviewStep = 'mine' | 'certify' | 'ai' | null;
 type AiReviewProgressStatus = 'waiting' | 'active' | 'done' | 'failed';
 type AiReviewProgressStepId =
   | 'packet_prepared'
@@ -193,24 +194,42 @@ function waitMs(ms: number): Promise<void> {
 
 // ─── Step status helpers ──────────────────────────────────────────────────────
 
-function stepStatusForMine(stage: MonthlyReviewStage): StepStatus {
+function failedStepForStage(stage: MonthlyReviewStage): FailedReviewStep {
+  if (stage === 'certifying') return 'certify';
+  if (stage === 'ai_review') return 'ai';
+  return 'mine';
+}
+
+function stepStatusForMine(
+  stage: MonthlyReviewStage,
+  failedStep: FailedReviewStep,
+): StepStatus {
   if (stage === 'idle') return 'waiting';
   if (stage === 'connecting' || stage === 'mining') return 'active';
-  if (stage === 'failed') return 'failed';
+  if (stage === 'failed') return failedStep === 'mine' ? 'failed' : 'done';
   return 'done';
 }
 
-function stepStatusForCertify(stage: MonthlyReviewStage): StepStatus {
+function stepStatusForCertify(
+  stage: MonthlyReviewStage,
+  failedStep: FailedReviewStep,
+): StepStatus {
   if (stage === 'idle' || stage === 'connecting' || stage === 'mining') return 'waiting';
   if (stage === 'certifying') return 'active';
-  if (stage === 'failed') return 'failed';
+  if (stage === 'failed') {
+    if (failedStep === 'certify') return 'failed';
+    return failedStep === 'ai' ? 'done' : 'waiting';
+  }
   return 'done';
 }
 
-function stepStatusForAi(stage: MonthlyReviewStage): StepStatus {
+function stepStatusForAi(
+  stage: MonthlyReviewStage,
+  failedStep: FailedReviewStep,
+): StepStatus {
   if (stage === 'idle' || stage === 'connecting' || stage === 'mining' || stage === 'certifying') return 'waiting';
   if (stage === 'ai_review') return 'active';
-  if (stage === 'failed') return 'failed';
+  if (stage === 'failed') return failedStep === 'ai' ? 'failed' : 'waiting';
   return 'done';
 }
 
@@ -1005,6 +1024,8 @@ export function MonthlyReviewPanel({
     | { kind: 'failed'; reason: string }
   >({ kind: 'idle' });
   const [reviewStage, setReviewStage] = useState<MonthlyReviewStage>('idle');
+  const reviewStageRef = useRef<MonthlyReviewStage>('idle');
+  const [failedStep, setFailedStep] = useState<FailedReviewStep>(null);
   const [miningSnapshot, setMiningSnapshot] = useState<MiningSnapshot | null>(null);
   // Sticky live mine progress for the Step 1 card. Mirrors cluster.session
   // while a mining session is active, BUT holds its last value when the
@@ -1146,7 +1167,11 @@ export function MonthlyReviewPanel({
   }, []);
 
   const setStage = useCallback(
-    (stage: MonthlyReviewStage) => { setReviewStage(stage); onProgressStageChange?.(stage); },
+    (stage: MonthlyReviewStage) => {
+      reviewStageRef.current = stage;
+      setReviewStage(stage);
+      onProgressStageChange?.(stage);
+    },
     [onProgressStageChange],
   );
 
@@ -1176,6 +1201,7 @@ export function MonthlyReviewPanel({
     if (!clusterRef.current.session) {
       clusterRef.current.reconnect();
     }
+    setFailedStep(null);
     setMiningSnapshot(null);
     setMinePanelCollapsed(false);
     minePanelAutoCollapsedRef.current = false;
@@ -1226,8 +1252,21 @@ export function MonthlyReviewPanel({
       setRunState({ kind: 'running', message: 'Connecting…' });
       await waitForMonthlyReviewClusterConnected({ clusterRef, timeoutMs: 30_000 });
       appendTransactionEvent(`cluster connected (${clusterRef.current.peers.length} peers)`);
-      if (clusterRef.current.session) {
-        throw new Error('A mining session is already running. Let it finish, then run Monthly Review.');
+      const activeSession = clusterRef.current.session;
+      if (activeSession) {
+        const { stats } = activeSession;
+        const progress =
+          stats.totalPolicies > 0
+            ? `${stats.policiesEvaluated.toLocaleString()} / ${stats.totalPolicies.toLocaleString()} policies`
+            : `${stats.policiesEvaluated.toLocaleString()} policies`;
+        const eta =
+          stats.estimatedRemainingMs > 0
+            ? `, about ${formatDuration(stats.estimatedRemainingMs)} remaining`
+            : '';
+        appendTransactionEvent(`blocked by active mine: ${progress}${eta}`);
+        throw new Error(
+          `A mining session is already running (${progress}${eta}). Let it finish or cancel it, then run Monthly Review.`,
+        );
       }
       const hostPeers = clusterRef.current.peers.filter((peer) =>
         peer.roles.includes('host'),
@@ -1534,6 +1573,8 @@ export function MonthlyReviewPanel({
       appendTransactionEvent(`complete: ${run.recommendation.status}`);
       setRunState({ kind: 'complete', run });
     } catch (error) {
+      const failedAt = failedStepForStage(reviewStageRef.current);
+      setFailedStep(failedAt);
       setStage('failed');
       appendTransactionEvent(`failed: ${error instanceof Error ? error.message : String(error)}`);
       setRunState({ kind: 'failed', reason: error instanceof Error ? error.message : String(error) });
@@ -1659,13 +1700,13 @@ export function MonthlyReviewPanel({
       <StepCard
         n={1}
         title="Mine"
-        status={stepStatusForMine(reviewStage)}
+        status={stepStatusForMine(reviewStage, failedStep)}
         collapsible
         collapsed={minePanelCollapsed}
         collapsedSummary={minePanelSummary}
         onCollapsedChange={setMinePanelCollapsed}
       >
-        {reviewStage === 'failed' ? (
+        {reviewStage === 'failed' && failedStep === 'mine' ? (
           <p className="text-rose-700">
             {runState.kind === 'failed' ? runState.reason : 'Mining failed.'}
           </p>
@@ -1738,7 +1779,7 @@ export function MonthlyReviewPanel({
       </StepCard>
 
       {/* ── Step 2: Model validation ────────────────────────────────────────── */}
-      <StepCard n={2} title="Model validation" status={stepStatusForCertify(reviewStage)}>
+      <StepCard n={2} title="Model validation" status={stepStatusForCertify(reviewStage, failedStep)}>
         {certificationSlots.length > 0 ? (
           <div className="space-y-3">
             <p className="text-stone-500">
@@ -1763,8 +1804,8 @@ export function MonthlyReviewPanel({
       </StepCard>
 
       {/* ── Step 3: AI co-review ────────────────────────────────────────────── */}
-      <StepCard n={3} title="AI co-review" status={stepStatusForAi(reviewStage)}>
-        {reviewStage === 'ai_review' && !aiVerdict ? (
+      <StepCard n={3} title="AI co-review" status={stepStatusForAi(reviewStage, failedStep)}>
+        {(reviewStage === 'ai_review' || (reviewStage === 'failed' && failedStep === 'ai')) && !aiVerdict ? (
           <AiReviewProgressTimeline
             steps={aiReviewProgress}
             elapsedMs={aiReviewElapsedMs}

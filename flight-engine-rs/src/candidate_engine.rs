@@ -1045,6 +1045,7 @@ struct SimulationConstants {
     taxes_insurance_annual: f64,
     housing_after_downsize_policy: Option<HousingAfterDownsizePolicy>,
     travel_annual: f64,
+    travel_floor_annual: f64,
     rob_current_age: i64,
     debbie_current_age: i64,
     rob_rmd_start_age: i64,
@@ -1056,6 +1057,7 @@ struct SimulationConstants {
     salary_end_month_for_proration: i64,
     retirement_year: i64,
     travel_phase_years: i64,
+    travel_flat_years: i64,
     guardrail_floor_years: f64,
     guardrail_ceiling_years: f64,
     guardrail_cut_percent: f64,
@@ -1087,8 +1089,17 @@ impl Balances {
     }
 }
 
+fn total_assets_with_hsa(balances: Balances, hsa_balance: f64) -> f64 {
+    balances.total() + hsa_balance.max(0.0)
+}
+
 impl SimulationConstants {
-    fn from(data: &Value, assumptions: &Value, planner_logic_active: bool) -> Self {
+    fn from(
+        data: &Value,
+        assumptions: &Value,
+        planner_logic_active: bool,
+        annual_spend_target: Option<f64>,
+    ) -> Self {
         let rob_birth_date = data
             .pointer("/household/robBirthDate")
             .and_then(Value::as_str)
@@ -1107,22 +1118,37 @@ impl SimulationConstants {
         let salary_end_year = year_from_iso(salary_end_date);
         let salary_end_month_for_proration = (month_from_iso(salary_end_date) - 1).max(0);
         let (pretax_rob_rmd_share, pretax_debbie_rmd_share) = pretax_owner_rmd_shares(data);
-        let (essential_annual, optional_annual, taxes_insurance_annual, travel_annual) =
+        let (essential_annual, raw_optional_annual, taxes_insurance_annual, travel_annual) =
             spending_parts(data);
+        let optional_annual = annual_spend_target
+            .filter(|target| target.is_finite() && *target >= 0.0)
+            .map(|target| {
+                (target - essential_annual - taxes_insurance_annual - travel_annual).max(0.0)
+            })
+            .unwrap_or(raw_optional_annual);
+        let annual_spending =
+            essential_annual + optional_annual + taxes_insurance_annual + travel_annual;
         let withdrawal_rule = assumptions
             .get("withdrawalRule")
             .and_then(Value::as_str)
             .unwrap_or("tax_bracket_waterfall");
+        let travel_phase_years = as_i64(assumptions.get("travelPhaseYears")).max(0);
+        let travel_flat_years = assumptions
+            .get("travelFlatYears")
+            .and_then(Value::as_i64)
+            .unwrap_or(travel_phase_years)
+            .max(0);
         Self {
             start_balances: starting_balances(data),
             hsa_balance: bucket_balance(data, "hsa"),
             hsa_return_weights: ReturnWeights::from_bucket(data, "hsa"),
-            annual_spending: annual_spending(data),
+            annual_spending,
             essential_annual,
             optional_annual,
             taxes_insurance_annual,
             housing_after_downsize_policy: HousingAfterDownsizePolicy::from(data),
             travel_annual,
+            travel_floor_annual: as_f64(data.pointer("/spending/travelFloorAnnual")).max(0.0),
             rob_current_age: current_age_at_2026_04_16(rob_birth_date),
             debbie_current_age: current_age_at_2026_04_16(debbie_birth_date),
             rob_rmd_start_age: rmd_policy_override
@@ -1135,7 +1161,8 @@ impl SimulationConstants {
             salary_end_year,
             salary_end_month_for_proration,
             retirement_year: year_from_iso(salary_end_date),
-            travel_phase_years: as_i64(assumptions.get("travelPhaseYears")).max(0),
+            travel_phase_years,
+            travel_flat_years,
             guardrail_floor_years: as_f64(assumptions.get("guardrailFloorYears")),
             guardrail_ceiling_years: as_f64(assumptions.get("guardrailCeilingYears")),
             guardrail_cut_percent: as_f64(assumptions.get("guardrailCutPercent")),
@@ -1201,8 +1228,8 @@ impl SimulationConstants {
         }
     }
 
-    fn taxes_insurance_for_year(&self, year: i64, spend_multiplier: f64) -> f64 {
-        let base = self.taxes_insurance_annual * spend_multiplier;
+    fn taxes_insurance_for_year(&self, year: i64) -> f64 {
+        let base = self.taxes_insurance_annual;
         let Some(policy) = self.housing_after_downsize_policy else {
             return base;
         };
@@ -1210,7 +1237,7 @@ impl SimulationConstants {
             return base;
         }
         if let Some(post_sale) = policy.post_sale_annual_taxes_insurance {
-            return post_sale * spend_multiplier;
+            return post_sale;
         }
         if policy.replacement_home_cost <= 0.0 {
             return base;
@@ -1221,6 +1248,21 @@ impl SimulationConstants {
             1.0
         };
         base * value_ratio.max(0.0)
+    }
+
+    fn travel_for_year(&self, year: i64) -> f64 {
+        let years_into_retirement = year - self.retirement_year;
+        if years_into_retirement < self.travel_flat_years {
+            return self.travel_annual;
+        }
+        if years_into_retirement >= self.travel_phase_years
+            || self.travel_flat_years >= self.travel_phase_years
+        {
+            return self.travel_floor_annual;
+        }
+        let progress = (years_into_retirement - self.travel_flat_years) as f64
+            / (self.travel_phase_years - self.travel_flat_years) as f64;
+        self.travel_annual + (self.travel_floor_annual - self.travel_annual) * progress
     }
 
     fn medicare_eligible_count(&self, year_offset: usize) -> i64 {
@@ -1886,13 +1928,6 @@ fn starting_balances(data: &Value) -> Balances {
     }
 }
 
-fn annual_spending(data: &Value) -> f64 {
-    as_f64(data.pointer("/spending/essentialMonthly")) * 12.0
-        + as_f64(data.pointer("/spending/optionalMonthly")) * 12.0
-        + as_f64(data.pointer("/spending/annualTaxesInsurance"))
-        + as_f64(data.pointer("/spending/travelEarlyRetirementAnnual"))
-}
-
 fn spending_parts(data: &Value) -> (f64, f64, f64, f64) {
     (
         as_f64(data.pointer("/spending/essentialMonthly")) * 12.0,
@@ -1900,6 +1935,23 @@ fn spending_parts(data: &Value) -> (f64, f64, f64, f64) {
         as_f64(data.pointer("/spending/annualTaxesInsurance")),
         as_f64(data.pointer("/spending/travelEarlyRetirementAnnual")),
     )
+}
+
+fn annual_spend_schedule_by_year(request: &Value) -> BTreeMap<i64, f64> {
+    request
+        .get("annualSpendScheduleByYear")
+        .and_then(Value::as_object)
+        .map(|schedule| {
+            schedule
+                .iter()
+                .filter_map(|(year, value)| {
+                    let year = year.parse::<i64>().ok()?;
+                    let amount = value.as_f64()?;
+                    amount.is_finite().then_some((year, amount.max(0.0)))
+                })
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 fn year_from_iso(value: &str) -> i64 {
@@ -3563,20 +3615,18 @@ fn handle_request_with_replay_tape<'a>(
         .unwrap_or("full_trace");
     let summary_only = output_level == "policy_mining_summary";
     let planner_logic_active = mode == "planner_enhanced";
-    let constants = SimulationConstants::from(data, assumptions, planner_logic_active);
-    let baseline_annual_spend = constants.annual_spending;
-    let base_spend = request
+    let requested_annual_spend = request
         .get("annualSpendTarget")
         .and_then(Value::as_f64)
-        .unwrap_or(baseline_annual_spend);
-    let spend_multiplier = if base_spend > 0.0 && baseline_annual_spend > 0.0 {
-        base_spend / baseline_annual_spend
-    } else {
-        1.0
-    };
-    let scaled_essential_annual = constants.essential_annual * spend_multiplier;
-    let scaled_optional_annual = constants.optional_annual * spend_multiplier;
-    let scaled_travel_annual = constants.travel_annual * spend_multiplier;
+        .filter(|target| target.is_finite() && *target >= 0.0);
+    let constants = SimulationConstants::from(
+        data,
+        assumptions,
+        planner_logic_active,
+        requested_annual_spend,
+    );
+    let base_spend = constants.annual_spending;
+    let annual_spend_schedule = annual_spend_schedule_by_year(request);
     let start_balances = constants.start_balances;
     let trial_count_hint = replay_tape.trial_count();
     let planning_horizon_years = replay_tape.planning_horizon_years().max(0) as usize;
@@ -3646,7 +3696,7 @@ fn handle_request_with_replay_tape<'a>(
         for offset in 0..trial_year_count {
             let replay_year = trial.year_at(offset);
             let year = replay_year.year();
-            let total_assets_at_start = balances.total();
+            let total_assets_at_start = total_assets_with_hsa(balances, hsa_balance);
             let pretax_balance_for_rmd = (balances.pretax - hsa_balance.max(0.0)).max(0.0);
             let rob_age = constants.rob_age(offset);
             let debbie_age = constants.debbie_age(offset);
@@ -3703,17 +3753,24 @@ fn handle_request_with_replay_tape<'a>(
             let windfall_cash = constants.windfall_schedule.cash_for_year(year);
             balances.cash += windfall_cash;
 
-            let in_travel_phase = year - constants.retirement_year < constants.travel_phase_years;
-            let taxes_insurance_for_year =
-                constants.taxes_insurance_for_year(year, spend_multiplier);
-            let baseline_discretionary = scaled_optional_annual
-                + if in_travel_phase {
-                    scaled_travel_annual
-                } else {
-                    0.0
-                };
+            let taxes_insurance_for_year = constants.taxes_insurance_for_year(year);
+            let baseline_travel_annual = constants.travel_for_year(year);
+            let fixed_spend_annual = constants.essential_annual + taxes_insurance_for_year;
+            let baseline_discretionary = constants.optional_annual + baseline_travel_annual;
+            let target_annual_spend = annual_spend_schedule
+                .get(&year)
+                .copied()
+                .unwrap_or(fixed_spend_annual + baseline_discretionary);
+            let discretionary_target_annual = (target_annual_spend - fixed_spend_annual).max(0.0);
+            let discretionary_scale = if baseline_discretionary > 0.0 {
+                discretionary_target_annual / baseline_discretionary
+            } else {
+                0.0
+            };
+            let optional_annual_for_year = constants.optional_annual * discretionary_scale;
+            let travel_annual_for_year = baseline_travel_annual * discretionary_scale;
             let base_spending_for_guardrail =
-                scaled_essential_annual + taxes_insurance_for_year + baseline_discretionary;
+                fixed_spend_annual + optional_annual_for_year + travel_annual_for_year;
             let funded_years = total_assets_at_start / base_spending_for_guardrail.max(1.0);
             if constants.guardrails_enabled
                 && !optional_cut_active
@@ -3732,14 +3789,10 @@ fn handle_request_with_replay_tape<'a>(
             } else {
                 1.0
             };
-            let spending_before_healthcare = (scaled_essential_annual
+            let spending_before_healthcare = (constants.essential_annual
                 + taxes_insurance_for_year
-                + scaled_optional_annual * cut_multiplier
-                + if in_travel_phase {
-                    scaled_travel_annual * cut_multiplier
-                } else {
-                    0.0
-                })
+                + optional_annual_for_year * cut_multiplier
+                + travel_annual_for_year * cut_multiplier)
                 * inflation_index;
             let mut healthcare_premium_cost = 0.0;
             let ltc_cost_for_year = constants.ltc_cost_for_event(ltc_event_occurs, offset);
@@ -4107,14 +4160,14 @@ fn handle_request_with_replay_tape<'a>(
                 yearly_years[offset] = year;
             }
             if !summary_only {
-                yearly_assets[offset].push(balances.total());
+                yearly_assets[offset].push(total_assets_with_hsa(balances, hsa_balance));
                 yearly_spending[offset].push(spending);
             }
             yearly_taxes[offset].push(final_tax);
             if let Some(yearly) = diagnostic_yearly.as_mut() {
                 yearly.push(json!({
                     "year": year,
-                    "totalAssets": balances.total().round(),
+                    "totalAssets": total_assets_with_hsa(balances, hsa_balance).round(),
                     "pretaxBalanceEnd": balances.pretax.round(),
                     "taxableBalanceEnd": balances.taxable.round(),
                     "rothBalanceEnd": balances.roth.round(),
@@ -4148,7 +4201,7 @@ fn handle_request_with_replay_tape<'a>(
             }
             roth_was_positive = balances.roth > 1.0;
 
-            if unresolved_need > 0.0 || balances.total() <= 1.0 {
+            if unresolved_need > 0.0 || total_assets_with_hsa(balances, hsa_balance) <= 1.0 {
                 failure_year = Some(year);
                 break;
             }
@@ -4171,7 +4224,7 @@ fn handle_request_with_replay_tape<'a>(
         if roth_depleted_early {
             roth_depleted_count += 1;
         }
-        let ending_wealth = balances.total();
+        let ending_wealth = total_assets_with_hsa(balances, hsa_balance);
         let trial_success = failure_year.is_none();
         if let Some(year) = failure_year {
             failure_years.push(year);
@@ -4325,7 +4378,7 @@ fn handle_request_with_replay_tape<'a>(
         "simulationMode": mode,
         "plannerLogicActive": planner_logic_active,
         "successRate": success_rate,
-        "yearsFunded": if base_spend > 0.0 { (start_balances.total() / base_spend).round() } else { 0.0 },
+        "yearsFunded": if base_spend > 0.0 { (total_assets_with_hsa(start_balances, constants.hsa_balance) / base_spend).round() } else { 0.0 },
         "medianEndingWealth": p50,
         "endingWealthPercentiles": ending_wealth_percentiles.clone(),
         "annualFederalTaxEstimate": annual_tax,
@@ -4386,7 +4439,7 @@ fn handle_request_with_replay_tape<'a>(
             "successRate": success_rate,
             "medianEndingWealth": p50,
             "tenthPercentileEndingWealth": p10,
-            "yearsFunded": if base_spend > 0.0 { (start_balances.total() / base_spend).round() } else { 0.0 },
+            "yearsFunded": if base_spend > 0.0 { (total_assets_with_hsa(start_balances, constants.hsa_balance) / base_spend).round() } else { 0.0 },
             "medianFailureYear": median_failure_year,
             "spendingCutRate": spending_cut_count as f64 / trial_count as f64,
             "irmaaExposureRate": irmaa_triggered_count as f64 / trial_count as f64,

@@ -38,6 +38,7 @@ import {
   freeSlotCount,
   HOST_WORKER_COUNT,
 } from './host';
+import type { PolicySpendingScheduleBasis } from '../src/policy-miner-types';
 
 const POLICY_COUNT = Number.parseInt(process.env.SMOKE_POLICIES ?? '4', 10);
 const TRIAL_COUNT = Number.parseInt(process.env.SMOKE_TRIALS ?? '200', 10);
@@ -57,6 +58,19 @@ const MIN_TAPE_CACHE_HIT_RATE = process.env.SMOKE_MIN_TAPE_CACHE_HIT_RATE
 const MIN_COMPACT_TAPE_CACHE_HIT_RATE = process.env.SMOKE_MIN_COMPACT_TAPE_CACHE_HIT_RATE
   ? Number(process.env.SMOKE_MIN_COMPACT_TAPE_CACHE_HIT_RATE)
   : null;
+const USE_SPENDING_BASIS = process.env.SMOKE_SPENDING_BASIS === '1';
+
+const SMOKE_SPENDING_BASIS: PolicySpendingScheduleBasis = {
+  id: 'smoke_front_loaded_spending_path',
+  label: 'Smoke front-loaded spending path',
+  multipliersByYear: {
+    2026: 1,
+    2027: 0.98,
+    2028: 0.96,
+    2029: 0.94,
+    2030: 0.92,
+  },
+};
 
 function log(msg: string, meta?: Record<string, unknown>) {
   const tail = meta ? ' ' + JSON.stringify(meta) : '';
@@ -98,6 +112,7 @@ async function main(): Promise<void> {
     trials: TRIAL_COUNT,
     historical: USE_HISTORICAL_BOOTSTRAP,
     policyOffset: POLICY_OFFSET,
+    spendingBasis: USE_SPENDING_BASIS ? SMOKE_SPENDING_BASIS.id : null,
   });
 
   spawnPool();
@@ -117,6 +132,7 @@ async function main(): Promise<void> {
     POLICY_MINER_ENGINE_VERSION,
     evaluatedByNodeId,
     1_000_000, // legacy bequest target ($1M today)
+    USE_SPENDING_BASIS ? SMOKE_SPENDING_BASIS : undefined,
   );
 
   // Build a representative slice of the policy space — strided sample so
