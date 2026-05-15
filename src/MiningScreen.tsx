@@ -86,7 +86,7 @@ export function MiningScreen() {
     data?.goals?.legacyTargetTodayDollars ?? DEFAULT_LEGACY_TARGET_TODAY_DOLLARS;
 
   const policyMiningFingerprint = baselineFingerprint
-    ? `${baselineFingerprint}|trials=${POLICY_MINING_TRIAL_COUNT}|basis=current_faithful|fpv2`
+    ? `${baselineFingerprint}|trials=${POLICY_MINING_TRIAL_COUNT}|basis=current_faithful|fpv3`
     : '';
 
   if (!data || !assumptions) {

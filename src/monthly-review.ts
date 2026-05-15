@@ -480,28 +480,7 @@ export function buildMonthlyReviewMiningFingerprint(input: {
 }): string {
   return `${input.baselineFingerprint}|trials=${input.trialCount}|basis=${spendingBasisFingerprint(
     input.strategy.spendingScheduleBasis,
-  )}|fpv2`;
-}
-
-const CURRENT_FAITHFUL_SPENDING_BASIS_ID = 'current_faithful_spending_path';
-
-function scheduleToBasis(
-  id: string,
-  label: string,
-  schedule: ReturnType<typeof buildSpendingModelSchedule>,
-): PolicySpendingScheduleBasis | null {
-  const firstYear = schedule.yearlySchedule[0];
-  if (!firstYear || firstYear.finalAnnualSpend <= 0) return null;
-  return {
-    id,
-    label,
-    multipliersByYear: Object.fromEntries(
-      schedule.yearlySchedule.map((year) => [
-        year.year,
-        year.finalAnnualSpend / firstYear.finalAnnualSpend,
-      ]),
-    ),
-  };
+  )}|fpv3`;
 }
 
 function scalarMeaningForBasis(
@@ -522,20 +501,16 @@ export function buildMonthlyReviewStrategies(input?: {
         presetId: 'current_faithful',
       })
     : null;
-  const currentFaithfulBasis =
-    currentFaithfulSchedule?.status === 'complete'
-      ? scheduleToBasis(
-          CURRENT_FAITHFUL_SPENDING_BASIS_ID,
-          'Current Faithful spending path',
-          currentFaithfulSchedule,
-        )
-      : null;
   return [
     {
       id: 'current_faithful',
       label: 'Current Faithful',
       presetId: 'current_faithful',
-      spendingScheduleBasis: currentFaithfulBasis,
+      // Current Faithful travel taper is already native engine behavior
+      // through travelFlatYears/travelPhaseYears/travelFloorAnnual. Passing
+      // it back as a total-spend schedule double-expresses the shape and
+      // makes the mined scalar more expensive than the policy target.
+      spendingScheduleBasis: null,
       modelCompleteness: currentFaithfulSchedule?.modelCompleteness ?? 'faithful',
       inferredAssumptions: currentFaithfulSchedule?.inferredAssumptions ?? [],
     },

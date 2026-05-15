@@ -312,7 +312,7 @@ function autoProfile() {
 const dispatcher = readArg('dispatcher');
 const workers = readArg('workers');
 const name = readArg('name');
-const runtime = readArg('runtime') ?? 'rust-native-compact';
+const runtime = readArg('runtime') ?? 'ts';
 const autoUpdate =
   hasFlag('auto-update') ||
   process.env.HOST_AUTO_UPDATE === '1' ||

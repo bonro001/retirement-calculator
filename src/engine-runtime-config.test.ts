@@ -7,12 +7,12 @@ import {
 } from '../cluster/engine-runtime';
 
 describe('cluster engine runtime config', () => {
-  it('defaults Node hosts to Rust native compact', () => {
-    expect(resolveEngineRuntime({})).toBe('rust-native-compact');
-    expect(DEFAULT_ENGINE_RUNTIME).toBe('rust-native-compact');
+  it('defaults Node hosts to TypeScript while Rust compact is under audit', () => {
+    expect(resolveEngineRuntime({})).toBe('ts');
+    expect(DEFAULT_ENGINE_RUNTIME).toBe('ts');
   });
 
-  it('keeps TypeScript available only as an explicit reference runtime', () => {
+  it('keeps TypeScript available as an explicit reference runtime', () => {
     expect(resolveEngineRuntime({ ENGINE_RUNTIME: 'ts' })).toBe('ts');
   });
 
@@ -25,10 +25,8 @@ describe('cluster engine runtime config', () => {
     ).toBe('rust-dry-run');
   });
 
-  it('falls back to Rust when configured with an unknown runtime', () => {
-    expect(resolveEngineRuntime({ ENGINE_RUNTIME_DEFAULT: 'nope' })).toBe(
-      'rust-native-compact',
-    );
+  it('falls back to TypeScript when configured with an unknown runtime', () => {
+    expect(resolveEngineRuntime({ ENGINE_RUNTIME_DEFAULT: 'nope' })).toBe('ts');
   });
 
   it('classifies comparison modes as shadow runtimes', () => {

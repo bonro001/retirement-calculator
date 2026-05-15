@@ -13,7 +13,7 @@ export type ShadowEngineRuntime = Exclude<
 
 export type TelemetryEngineRuntime = Exclude<EngineRuntime, 'ts'>;
 
-export const DEFAULT_ENGINE_RUNTIME: EngineRuntime = 'rust-native-compact';
+export const DEFAULT_ENGINE_RUNTIME: EngineRuntime = 'ts';
 
 const ENGINE_RUNTIMES = new Set<EngineRuntime>([
   'ts',
