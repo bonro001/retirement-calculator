@@ -69,7 +69,8 @@
     "essentialMonthly": 4795,
     "optionalMonthly": 4795,
     "annualTaxesInsurance": 11507,
-    "travelEarlyRetirementAnnual": 13425
+    "travelEarlyRetirementAnnual": 14000,
+    "travelFloorAnnual": 5000
   },
   "accounts": {
     "pretax": {
@@ -713,6 +714,24 @@
     "withdrawalStyle": "guardrails",
     "irmaaAware": true,
     "replaceModeImports": true,
+    "monthlyReviewIssueAnnotations": [
+      {
+        "signalId": "aca_bridge_breach",
+        "years": [
+          2027
+        ],
+        "disposition": "intentional_tradeoff",
+        "title": "2027 ACA subsidy loss is expected in the transition year",
+        "rationale": "The 2027 bridge-year MAGI breach is a known transition-year tradeoff from final payroll/taxable income and the selected spend path, not a surprise failure. The plan should include the net ACA cost and can still be green if the certified path clears the gates.",
+        "decision": "Accept the 2027 subsidy loss in the current review unless a MAGI-constrained alternative is explicitly requested to price the subsidy-preserving path.",
+        "evidence": [
+          "Roth low-income bracket fill starts in 2028, after the final-paycheck transition year.",
+          "Contribution-limit assumptions are already labeled as planning_estimate_for_2027_final_paycheck_window.",
+          "Monthly review should still verify MAGI components and net ACA cost plumbing."
+        ],
+        "source": "user_confirmed_monthly_review_context"
+      }
+    ],
     "payrollModel": {
       "salaryProrationRule": "month_fraction",
       "salaryProrationSource": "explicit_payroll_calendar"
@@ -745,6 +764,15 @@
       "netLiquidityTarget": 500000,
       "certainty": "estimated",
       "assumptionSource": "user_estimate_sell_1m_home_buy_500k_replacement_home"
+    },
+    "windfallDeploymentPolicy": {
+      "enabled": true,
+      "destinationAccount": "taxable",
+      "investmentPolicy": "current_portfolio_mix",
+      "trackingMode": "taxable_shadow_sleeve",
+      "spendBeforeDeploy": true,
+      "cashReserveMonths": 0,
+      "assumptionSource": "user_confirmed_invest_unspent_windfall_and_home_sale_cash_in_current_portfolio_mix"
     },
     "rothConversionPolicy": {
       "enabled": true,

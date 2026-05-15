@@ -38,6 +38,13 @@ export type SpendingMerchantCategoryRuleMap = Record<
   SpendingMerchantCategoryRule
 >;
 
+export interface SpendingOverridesFilePayload {
+  schemaVersion: 'spending-overrides-v1';
+  updatedAtIso: string;
+  transactionOverrides: SpendingTransactionOverrideMap;
+  merchantCategoryRules: SpendingMerchantCategoryRuleMap;
+}
+
 export function isIgnoredCategory(categoryId: string): boolean {
   return categoryId === 'ignored';
 }
@@ -209,6 +216,35 @@ export function readSpendingMerchantCategoryRules(
   }
 }
 
+export function parseSpendingMerchantCategoryRuleMap(
+  value: unknown,
+): SpendingMerchantCategoryRuleMap {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return {};
+  }
+  const entries = Object.entries(value as Record<string, unknown>).flatMap(
+    ([merchantKey, item]) => {
+      if (!item || typeof item !== 'object' || Array.isArray(item)) {
+        return [];
+      }
+      const candidate = item as Partial<SpendingMerchantCategoryRule>;
+      if (
+        candidate.merchantKey !== merchantKey ||
+        typeof candidate.merchantLabel !== 'string' ||
+        typeof candidate.categoryId !== 'string' ||
+        candidate.classificationMethod !== 'manual' ||
+        typeof candidate.ignored !== 'boolean' ||
+        typeof candidate.updatedAtIso !== 'string' ||
+        candidate.updatedFrom !== 'retirenment'
+      ) {
+        return [];
+      }
+      return [[merchantKey, candidate as SpendingMerchantCategoryRule]];
+    },
+  );
+  return Object.fromEntries(entries);
+}
+
 export function writeSpendingMerchantCategoryRules(
   storage: Pick<Storage, 'setItem'>,
   merchantRules: SpendingMerchantCategoryRuleMap,
@@ -255,6 +291,35 @@ export function readSpendingTransactionOverrides(
   }
 }
 
+export function parseSpendingTransactionOverrideMap(
+  value: unknown,
+): SpendingTransactionOverrideMap {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return {};
+  }
+  const entries = Object.entries(value as Record<string, unknown>).flatMap(
+    ([transactionId, item]) => {
+      if (!item || typeof item !== 'object' || Array.isArray(item)) {
+        return [];
+      }
+      const candidate = item as Partial<SpendingTransactionOverride>;
+      if (
+        candidate.transactionId !== transactionId ||
+        typeof candidate.categoryId !== 'string' ||
+        (candidate.title !== undefined && typeof candidate.title !== 'string') ||
+        candidate.classificationMethod !== 'manual' ||
+        typeof candidate.ignored !== 'boolean' ||
+        typeof candidate.updatedAtIso !== 'string' ||
+        candidate.updatedFrom !== 'retirenment'
+      ) {
+        return [];
+      }
+      return [[transactionId, candidate as SpendingTransactionOverride]];
+    },
+  );
+  return Object.fromEntries(entries);
+}
+
 export function writeSpendingTransactionOverrides(
   storage: Pick<Storage, 'setItem'>,
   overrides: SpendingTransactionOverrideMap,
@@ -263,4 +328,57 @@ export function writeSpendingTransactionOverrides(
     SPENDING_CATEGORY_OVERRIDE_STORAGE_KEY,
     JSON.stringify(overrides),
   );
+}
+
+export function parseSpendingOverridesFilePayload(
+  value: unknown,
+): SpendingOverridesFilePayload | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return null;
+  }
+  const candidate = value as Partial<SpendingOverridesFilePayload>;
+  if (
+    candidate.schemaVersion !== 'spending-overrides-v1' ||
+    typeof candidate.updatedAtIso !== 'string'
+  ) {
+    return null;
+  }
+  return {
+    schemaVersion: 'spending-overrides-v1',
+    updatedAtIso: candidate.updatedAtIso,
+    transactionOverrides: parseSpendingTransactionOverrideMap(
+      candidate.transactionOverrides,
+    ),
+    merchantCategoryRules: parseSpendingMerchantCategoryRuleMap(
+      candidate.merchantCategoryRules,
+    ),
+  };
+}
+
+function mergeByNewest<T extends { updatedAtIso: string }>(
+  left: Record<string, T>,
+  right: Record<string, T>,
+): Record<string, T> {
+  const merged = { ...left };
+  Object.entries(right).forEach(([key, value]) => {
+    const existing = merged[key];
+    if (!existing || value.updatedAtIso >= existing.updatedAtIso) {
+      merged[key] = value;
+    }
+  });
+  return merged;
+}
+
+export function mergeSpendingTransactionOverrides(
+  left: SpendingTransactionOverrideMap,
+  right: SpendingTransactionOverrideMap,
+): SpendingTransactionOverrideMap {
+  return mergeByNewest(left, right) as SpendingTransactionOverrideMap;
+}
+
+export function mergeSpendingMerchantCategoryRules(
+  left: SpendingMerchantCategoryRuleMap,
+  right: SpendingMerchantCategoryRuleMap,
+): SpendingMerchantCategoryRuleMap {
+  return mergeByNewest(left, right) as SpendingMerchantCategoryRuleMap;
 }

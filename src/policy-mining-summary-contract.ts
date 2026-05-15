@@ -20,6 +20,7 @@ export interface PolicyMiningSummary {
   medianEndingWealth: number;
   endingWealthPercentiles: PathResult['endingWealthPercentiles'];
   annualFederalTaxEstimate: number;
+  lifetimeFederalTaxEstimate: number;
   irmaaExposureRate: number;
   spendingCutRate: number;
   rothDepletionRate: number;
@@ -63,6 +64,10 @@ export function pathToPolicyMiningSummary(
   path: PathResult,
   modelCompleteness?: Partial<PolicyMiningSummaryModelCompleteness>,
 ): PolicyMiningSummary {
+  const planningHorizonYears = path.monteCarloMetadata.planningHorizonYears;
+  const lifetimeFederalTaxEstimate = path.yearlySeries.length
+    ? path.yearlySeries.reduce((total, year) => total + year.medianFederalTax, 0)
+    : path.annualFederalTaxEstimate * planningHorizonYears;
   return {
     contractVersion: POLICY_MINING_SUMMARY_CONTRACT_VERSION,
     outputLevel: 'policy_mining_summary',
@@ -74,6 +79,7 @@ export function pathToPolicyMiningSummary(
     medianEndingWealth: path.medianEndingWealth,
     endingWealthPercentiles: { ...path.endingWealthPercentiles },
     annualFederalTaxEstimate: path.annualFederalTaxEstimate,
+    lifetimeFederalTaxEstimate,
     irmaaExposureRate: path.irmaaExposureRate,
     spendingCutRate: path.spendingCutRate,
     rothDepletionRate: path.rothDepletionRate,

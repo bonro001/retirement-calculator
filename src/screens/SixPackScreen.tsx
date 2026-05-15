@@ -2,14 +2,15 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   applySpendingMerchantCategoryRules,
   applySpendingTransactionOverrides,
+  mergeSpendingMerchantCategoryRules,
+  mergeSpendingTransactionOverrides,
+  parseSpendingOverridesFilePayload,
   readSpendingMerchantCategoryRules,
   readSpendingTransactionOverrides,
+  type SpendingMerchantCategoryRuleMap,
+  type SpendingTransactionOverrideMap,
 } from '../spending-overrides';
 import type { SpendingTransaction } from '../spending-ledger';
-import {
-  applySpendingCategoryInferences,
-  splitAmazonCreditCardTransactionsForBudget,
-} from '../spending-classification';
 import { dedupeOverlappingLiveFeedTransactions } from '../spending-live-feed-dedupe';
 import { buildSixPackSpendingContext } from '../six-pack-spending';
 import { buildSixPackSnapshot } from '../six-pack-rules';
@@ -28,7 +29,14 @@ const LOCAL_SPENDING_LEDGER_URLS = [
   '/local/spending-ledger.gmail.json',
 ] as const;
 const PORTFOLIO_QUOTES_URL = '/local/portfolio-quotes.json';
-const LOCAL_SIX_PACK_API_URL = 'http://127.0.0.1:8787/api/six-pack';
+const LOCAL_API_BASE_URL =
+  typeof window !== 'undefined' &&
+  window.location.hostname &&
+  !['localhost', '127.0.0.1'].includes(window.location.hostname)
+    ? `http://${window.location.hostname}:8787`
+    : 'http://127.0.0.1:8787';
+const LOCAL_SIX_PACK_API_URL = `${LOCAL_API_BASE_URL}/api/six-pack`;
+const SPENDING_OVERRIDES_URL = '/local/spending-overrides.json';
 
 interface LocalSpendingLedgerPayload {
   importedAtIso?: string;
@@ -182,6 +190,10 @@ export function SixPackScreen() {
   const [ledgerStatus, setLedgerStatus] = useState<'loading' | 'loaded' | 'missing' | 'error'>(
     'loading',
   );
+  const [categoryOverrides, setCategoryOverrides] =
+    useState<SpendingTransactionOverrideMap>({});
+  const [merchantCategoryRules, setMerchantCategoryRules] =
+    useState<SpendingMerchantCategoryRuleMap>({});
   const [selectedId, setSelectedId] = useState<SixPackInstrument['id']>('lifestyle_pace');
   const [asOfIso] = useState(() => new Date().toISOString());
 
@@ -260,27 +272,46 @@ export function SixPackScreen() {
     };
   }, [latestEvaluationContext]);
 
+  useEffect(() => {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      setCategoryOverrides(readSpendingTransactionOverrides(window.localStorage));
+      setMerchantCategoryRules(readSpendingMerchantCategoryRules(window.localStorage));
+    }
+    let cancelled = false;
+    fetch(SPENDING_OVERRIDES_URL, { cache: 'no-store' })
+      .then(async (response) => {
+        if (!response.ok) return null;
+        return parseSpendingOverridesFilePayload(await response.json());
+      })
+      .then((payload) => {
+        if (cancelled || !payload) return;
+        setCategoryOverrides((current) =>
+          mergeSpendingTransactionOverrides(current, payload.transactionOverrides),
+        );
+        setMerchantCategoryRules((current) =>
+          mergeSpendingMerchantCategoryRules(current, payload.merchantCategoryRules),
+        );
+      })
+      .catch(() => {
+        // Missing backend override file is fine; localStorage remains the fallback.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const transactions = useMemo(() => {
     const loadedTransactions = localLedgers.flatMap((ledger) => ledger.transactions ?? []);
     if (!loadedTransactions.length) return [];
     const deduped = dedupeOverlappingLiveFeedTransactions(loadedTransactions);
-    if (typeof window === 'undefined' || !window.localStorage) {
-      return splitAmazonCreditCardTransactionsForBudget(
-        applySpendingCategoryInferences(deduped),
-      );
-    }
-    const overrides = readSpendingTransactionOverrides(window.localStorage);
-    const merchantRules = readSpendingMerchantCategoryRules(window.localStorage);
-    return splitAmazonCreditCardTransactionsForBudget(
-      applySpendingTransactionOverrides(
-        applySpendingMerchantCategoryRules(
-          applySpendingCategoryInferences(deduped),
-          merchantRules,
-        ),
-        overrides,
+    return applySpendingTransactionOverrides(
+      applySpendingMerchantCategoryRules(
+        deduped,
+        merchantCategoryRules,
       ),
+      categoryOverrides,
     );
-  }, [localLedgers]);
+  }, [categoryOverrides, localLedgers, merchantCategoryRules]);
 
   const spending = useMemo(
     () =>

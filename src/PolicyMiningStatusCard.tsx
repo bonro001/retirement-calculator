@@ -7,6 +7,7 @@ import {
 import type {
   PolicyEvaluation,
   PolicyAxes,
+  PolicySpendingScheduleBasis,
 } from './policy-miner-types';
 import { buildPolicyMinerRunEngineVersion } from './policy-miner-types';
 import type { MarketAssumptions, SeedData } from './types';
@@ -26,6 +27,10 @@ import {
   POLICY_MINING_REFINEMENT_TRIAL_COUNT,
   POLICY_MINING_TRIAL_COUNT,
 } from './policy-mining-config';
+import {
+  MONTHLY_REVIEW_POLICY_TRIAL_BUDGET,
+  MONTHLY_REVIEW_SKIP_REAL_CERTIFICATION,
+} from './monthly-review-flow-debug';
 import {
   buildPeerViewList,
   formatAgo,
@@ -77,6 +82,9 @@ export interface PolicyMiningControls {
   solvencyThreshold?: number;
   /** Trials per policy this session. Default is owned by caller. */
   trialCount?: number;
+  /** Optional schedule basis used to shape each mined spend candidate. */
+  spendingScheduleBasis?: PolicySpendingScheduleBasis;
+  spendingBasisLabel?: string;
 }
 
 interface Props {
@@ -90,6 +98,15 @@ interface Props {
    *  via `StartSessionOptions.axesOverride`; we just thread it through
    *  the UI. Pass `null` to use the default grid (the common case). */
   axesOverride?: import('./policy-miner-types').PolicyAxes | null;
+  /** When true, hide the "Start mine" button and its candidate-count /
+   *  basis-pill siblings. The Cancel button stays so an in-progress
+   *  mine can still be aborted. Used by the MiningScreen monitor where
+   *  Monthly Review drives mining and a manual start would be confusing. */
+  hideStartControls?: boolean;
+  /** When true, skip the Performance / Last Run Performance panel. Used by
+   *  the MiningScreen monitor which has its own compact summary above and
+   *  doesn't need the in-card metrics grid. */
+  hidePerformancePanel?: boolean;
 }
 
 const POLL_INTERVAL_MS = 5_000;
@@ -146,7 +163,14 @@ function formatTrialWork(value: number): string {
 
 function formatWholeWork(value: number): string {
   if (!Number.isFinite(value)) return '—';
-  return Math.max(0, Math.round(value)).toLocaleString();
+  return formatTrialWork(Math.max(0, Math.round(value)));
+}
+
+function maxPoliciesForTrialBudget(trialCount: number): number {
+  return Math.max(
+    1,
+    Math.floor(MONTHLY_REVIEW_POLICY_TRIAL_BUDGET / Math.max(1, trialCount)),
+  );
 }
 
 function formatDuration(ms: number): string {
@@ -211,6 +235,8 @@ export function PolicyMiningStatusCard({
   engineVersion,
   controls,
   axesOverride,
+  hideStartControls = false,
+  hidePerformancePanel = false,
 }: Props): JSX.Element | null {
   const cluster = useClusterSession();
   const [bestEval, setBestEval] = useState<PolicyEvaluation | null>(null);
@@ -434,8 +460,8 @@ export function PolicyMiningStatusCard({
           ctrls2.trialCount,
           recommendation.hasCliff,
           recommendation.axes.annualSpendTodayDollars,
-        );
-        setPipelinePass2TrialCount(pass2TrialCount ?? null);
+        ) ?? POLICY_MINING_TRIAL_COUNT;
+        setPipelinePass2TrialCount(pass2TrialCount);
         if (pipelineExplorationSeedRef.current !== null && pass2TrialCount) {
           setCorpusEngineVersion(
             buildPolicyMinerRunEngineVersion(
@@ -446,6 +472,12 @@ export function PolicyMiningStatusCard({
           );
         }
         try {
+          const pass2MaxPolicies = MONTHLY_REVIEW_SKIP_REAL_CERTIFICATION
+            ? Math.min(
+                recommendation.estimatedPass2Candidates,
+                maxPoliciesForTrialBudget(pass2TrialCount),
+              )
+            : recommendation.estimatedPass2Candidates;
           clusterRef.current.startSession({
             baseline: ctrls2.baseline,
             assumptions: ctrls2.assumptions,
@@ -453,10 +485,11 @@ export function PolicyMiningStatusCard({
             legacyTargetTodayDollars: ctrls2.legacyTargetTodayDollars,
             feasibilityThreshold:
               ctrls2.feasibilityThreshold ?? LEGACY_ATTAINMENT_FLOOR,
-            maxPoliciesPerSession: recommendation.estimatedPass2Candidates,
+            maxPoliciesPerSession: pass2MaxPolicies,
             trialCount: pass2TrialCount,
             axesOverride: recommendation.axes,
             explorationSeed: pipelineExplorationSeedRef.current ?? undefined,
+            spendingScheduleBasis: ctrls2.spendingScheduleBasis,
           });
         } catch (e) {
           pipelineActiveRef.current = false;
@@ -576,8 +609,8 @@ export function PolicyMiningStatusCard({
       return;
     }
     const cap = controls.maxPoliciesPerSession;
-    // Auto-pipeline activation: the default full mine gets pass-1 →
-    // combined pass-2. Manual override paths remain single-pass.
+    // Auto-pipeline activation: pass 1 remains the normal full mine. The
+    // debug budget is applied only when pass 2/refinement starts.
     const enablePipeline = !axesOverride;
     const explorationSeed = makeUiMiningSessionSeed();
     setCorpusEngineVersion(
@@ -621,6 +654,7 @@ export function PolicyMiningStatusCard({
         // back to `buildDefaultPolicyAxes(baseline)` (the default
         // 1,728-cell grid).
         axesOverride: axesOverride ?? undefined,
+        spendingScheduleBasis: controls.spendingScheduleBasis,
         // Phase 2.C: two-stage screening capability remains on
         // StartSessionOptions but is no longer surfaced in the UI
         // (testing showed no cluster wall-time win). Future code
@@ -711,6 +745,10 @@ export function PolicyMiningStatusCard({
   const spendFloor = controls
     ? computeMinimumSpendFloor(controls.baseline)
     : 0;
+  const sessionCap = controls?.maxPoliciesPerSession ?? null;
+  const cappedCandidateCount = totalCandidates;
+  const capIsActive =
+    totalCandidates !== null && sessionCap !== null && sessionCap < totalCandidates;
 
   // Throughput: prefer cluster snapshot value (it includes ALL hosts);
   // fallback to "?" until the first batch lands.
@@ -774,6 +812,15 @@ export function PolicyMiningStatusCard({
           onClick={cluster.disconnect}
         >
           disconnect
+        </button>
+      )}
+      {canCancel && (
+        <button
+          type="button"
+          onClick={cancelMining}
+          className="rounded-full bg-rose-100 px-2 py-0.5 text-[11px] font-semibold text-rose-700 transition hover:bg-rose-200"
+        >
+          cancel mine
         </button>
       )}
       {showConnectionError && (
@@ -847,7 +894,7 @@ export function PolicyMiningStatusCard({
   };
 
   const fullEtaMs =
-    totalCandidates !== null ? estimateSessionMs(totalCandidates) : null;
+    cappedCandidateCount !== null ? estimateSessionMs(cappedCandidateCount) : null;
 
   // Live evaluated count for the active pass — feeds the segmented
   // progress control's per-segment subtitle.
@@ -861,10 +908,10 @@ export function PolicyMiningStatusCard({
         )} / ${formatTrialWork(stats.totalPolicies * currentTrialCount)} policy-trials`
       : null;
   const evaluatedWorkLabel =
-    stats && activeTrialCount
+    stats && currentTrialCount
       ? `${formatTrialWork(
-          stats.policiesEvaluated * activeTrialCount,
-        )} / ${formatTrialWork(stats.totalPolicies * activeTrialCount)}`
+          stats.policiesEvaluated * currentTrialCount,
+        )} / ${formatTrialWork(stats.totalPolicies * currentTrialCount)}`
       : null;
   const pipelineIsVisible = pipelinePhase !== 'idle';
   const pipelinePass1EvaluatedForDisplay =
@@ -922,39 +969,49 @@ export function PolicyMiningStatusCard({
           pass2TrialCount={pipelinePass2TrialCount}
           bestPolicyId={pipelineBestPolicyId}
         />
-        <div className="flex flex-wrap items-center gap-2">
-          <button
-            type="button"
-            disabled={!canStart}
-            onClick={startMining}
-            className="rounded-full bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-stone-200 disabled:text-stone-400"
-          >
-            Start mine
-          </button>
-          {totalCandidates !== null && !sessionRunning && (
-            <span className="text-[11px] text-stone-500">
-              {totalCandidates.toLocaleString()} candidates
-              {fullEtaMs !== null ? ` · ~${formatDuration(fullEtaMs)}` : ''}
+        {!hideStartControls ? (
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              disabled={!canStart}
+              onClick={startMining}
+              className="rounded-full bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-stone-200 disabled:text-stone-400"
+            >
+              Start mine
+            </button>
+            {cappedCandidateCount !== null && !sessionRunning && (
+              <span className="text-[11px] text-stone-500">
+                {cappedCandidateCount.toLocaleString()} candidates
+                {fullEtaMs !== null ? ` · ~${formatDuration(fullEtaMs)}` : ''}
+              </span>
+            )}
+            <span className="rounded-full bg-stone-100 px-2 py-0.5 text-[11px] font-medium text-stone-600">
+              Basis: {controls.spendingBasisLabel ?? 'Current faithful'}
             </span>
-          )}
-          <button
-            type="button"
-            disabled={!canCancel}
-            onClick={cancelMining}
-            className="rounded-full bg-rose-50 px-3 py-1.5 text-xs font-semibold text-rose-700 transition hover:bg-rose-100 disabled:cursor-not-allowed disabled:text-stone-400"
-          >
-            Cancel
-          </button>
-          {startError && (
-            <span className="text-xs text-rose-600">{startError}</span>
-          )}
-          <span className="ml-auto text-[11px] text-stone-500">
-            floor: {formatCurrency(spendFloor)}/yr
-          </span>
-        </div>
+            {MONTHLY_REVIEW_SKIP_REAL_CERTIFICATION && !axesOverride && (
+              <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-800">
+                pass 2 cap: {formatWholeWork(MONTHLY_REVIEW_POLICY_TRIAL_BUDGET)} policy-trials
+              </span>
+            )}
+            {startError && (
+              <span className="text-xs text-rose-600">{startError}</span>
+            )}
+            <span className="ml-auto text-[11px] text-stone-500">
+              floor: {formatCurrency(spendFloor)}/yr
+            </span>
+          </div>
+        ) : (
+          startError && (
+            <p className="text-xs text-rose-600">{startError}</p>
+          )
+        )}
         {!sessionRunning && (
           <p className="text-[11px] text-stone-500">
-            Searches every spend × SS × Roth combination, then automatically refines the contenders.
+            {axesOverride
+              ? 'Searches the narrowed spend × SS × Roth range.'
+              : MONTHLY_REVIEW_SKIP_REAL_CERTIFICATION
+                ? 'Runs the full first pass, then automatically refines contenders with pass 2 capped for flow debugging.'
+                : 'Runs the full first pass, then automatically refines contenders with pass 2.'}
           </p>
         )}
       </div>
@@ -1311,17 +1368,21 @@ export function PolicyMiningStatusCard({
                     : evaluatedWorkLabel
                     ? evaluatedWorkLabel
                     : stats
-                    ? `${stats.policiesEvaluated.toLocaleString()} / ${stats.totalPolicies.toLocaleString()}`
-                    : evalCount.toLocaleString()}
+                    ? `${formatWholeWork(
+                        stats.policiesEvaluated * currentTrialCount,
+                      )} / ${formatWholeWork(stats.totalPolicies * currentTrialCount)}`
+                    : formatWholeWork(evalCount * pass1TrialCount)}
                 </p>
                 <p className="mt-1 text-[11px] text-stone-500">
                   {pipelineEvaluatedDetail
                     ? pipelineEvaluatedDetail
-                    : stats && activeTrialCount
+                    : stats && currentTrialCount
                     ? `policy-trials · ${stats.policiesEvaluated.toLocaleString()} / ${stats.totalPolicies.toLocaleString()} policies${progressPct !== null ? ` · ${progressPct}% complete` : ''}`
                     : progressPct !== null
                       ? `${progressPct}% complete`
-                      : ''}
+                      : evalCount > 0
+                        ? `policy-trials · ${evalCount.toLocaleString()} policy runs`
+                        : ''}
                 </p>
               </>
             );
@@ -1430,7 +1491,7 @@ export function PolicyMiningStatusCard({
         </div>
       </div>
       {renderControls()}
-      {renderPerformancePanel()}
+      {!hidePerformancePanel && renderPerformancePanel()}
       {renderHostPanel()}
     </div>
   );

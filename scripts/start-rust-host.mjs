@@ -12,6 +12,21 @@ const HOST_ENTRY = resolve(REPO_ROOT, 'cluster/host.ts');
 const UPDATE_REQUEST_PATH = resolve(REPO_ROOT, '.cluster-update-request.json');
 const AUTO_UPDATE_EXIT_CODE = 75;
 
+function shortLocalTime() {
+  return new Date().toLocaleTimeString([], {
+    hour: 'numeric',
+    minute: '2-digit',
+    second: '2-digit',
+  });
+}
+
+const rawConsoleLog = console.log.bind(console);
+const rawConsoleWarn = console.warn.bind(console);
+const rawConsoleError = console.error.bind(console);
+console.log = (...args) => rawConsoleLog(shortLocalTime(), ...args);
+console.warn = (...args) => rawConsoleWarn(shortLocalTime(), ...args);
+console.error = (...args) => rawConsoleError(shortLocalTime(), ...args);
+
 function readArg(name) {
   const prefix = `--${name}=`;
   const inline = process.argv.find((arg) => arg.startsWith(prefix));

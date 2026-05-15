@@ -3242,23 +3242,148 @@ fn symbol_exposure(symbol: &str) -> (f64, f64, f64, f64) {
     }
 }
 
-fn bucket_return_from_parts(data: &Value, bucket: &str, asset_returns: AssetReturns) -> f64 {
+#[derive(Clone, Copy)]
+struct AssetExposure {
+    us_equity: f64,
+    intl_equity: f64,
+    bonds: f64,
+    cash: f64,
+}
+
+impl AssetExposure {
+    fn normalized(self) -> Self {
+        let total = (self.us_equity + self.intl_equity + self.bonds + self.cash).max(0.0);
+        if total <= 0.0 {
+            return Self {
+                us_equity: 1.0,
+                intl_equity: 0.0,
+                bonds: 0.0,
+                cash: 0.0,
+            };
+        }
+        Self {
+            us_equity: self.us_equity.max(0.0) / total,
+            intl_equity: self.intl_equity.max(0.0) / total,
+            bonds: self.bonds.max(0.0) / total,
+            cash: self.cash.max(0.0) / total,
+        }
+    }
+
+    fn apply(self, asset_returns: AssetReturns) -> f64 {
+        self.us_equity * asset_returns.us_equity
+            + self.intl_equity * asset_returns.intl_equity
+            + self.bonds * asset_returns.bonds
+            + self.cash * asset_returns.cash
+    }
+}
+
+fn bucket_exposure_from_data(data: &Value, bucket: &str) -> AssetExposure {
     let Some(allocation) = data
         .pointer(&format!("/accounts/{bucket}/targetAllocation"))
         .and_then(Value::as_object)
     else {
-        return 0.0;
+        return AssetExposure {
+            us_equity: 1.0,
+            intl_equity: 0.0,
+            bonds: 0.0,
+            cash: 0.0,
+        };
     };
-    allocation.iter().fold(0.0, |total, (symbol, weight)| {
-        let weight = weight.as_f64().unwrap_or(0.0);
-        let (us_w, intl_w, bonds_w, cash_w) = symbol_exposure(symbol.as_str());
-        total
-            + weight
-                * (us_w * asset_returns.us_equity
-                    + intl_w * asset_returns.intl_equity
-                    + bonds_w * asset_returns.bonds
-                    + cash_w * asset_returns.cash)
-    })
+    allocation
+        .iter()
+        .fold(
+            AssetExposure {
+                us_equity: 0.0,
+                intl_equity: 0.0,
+                bonds: 0.0,
+                cash: 0.0,
+            },
+            |mut total, (symbol, weight)| {
+                let weight = weight.as_f64().unwrap_or(0.0).max(0.0);
+                let (us_w, intl_w, bonds_w, cash_w) = symbol_exposure(symbol.as_str());
+                total.us_equity += us_w * weight;
+                total.intl_equity += intl_w * weight;
+                total.bonds += bonds_w * weight;
+                total.cash += cash_w * weight;
+                total
+            },
+        )
+        .normalized()
+}
+
+fn current_invested_exposure(
+    data: &Value,
+    balances: Balances,
+    taxable_exposure: AssetExposure,
+) -> AssetExposure {
+    let buckets = [
+        (
+            "pretax",
+            balances.pretax,
+            bucket_exposure_from_data(data, "pretax"),
+        ),
+        (
+            "roth",
+            balances.roth,
+            bucket_exposure_from_data(data, "roth"),
+        ),
+        ("taxable", balances.taxable, taxable_exposure),
+    ];
+    let mut weighted = AssetExposure {
+        us_equity: 0.0,
+        intl_equity: 0.0,
+        bonds: 0.0,
+        cash: 0.0,
+    };
+    let mut total_balance = 0.0;
+    for (_, balance, exposure) in buckets {
+        let balance = balance.max(0.0);
+        if balance <= 0.0 {
+            continue;
+        }
+        weighted.us_equity += exposure.us_equity * balance;
+        weighted.intl_equity += exposure.intl_equity * balance;
+        weighted.bonds += exposure.bonds * balance;
+        weighted.cash += exposure.cash * balance;
+        total_balance += balance;
+    }
+    if total_balance <= 0.0 {
+        return taxable_exposure.normalized();
+    }
+    AssetExposure {
+        us_equity: weighted.us_equity / total_balance,
+        intl_equity: weighted.intl_equity / total_balance,
+        bonds: weighted.bonds / total_balance,
+        cash: weighted.cash / total_balance,
+    }
+    .normalized()
+}
+
+fn blend_exposure(
+    existing: AssetExposure,
+    existing_balance: f64,
+    added: AssetExposure,
+    added_balance: f64,
+) -> AssetExposure {
+    let existing_balance = existing_balance.max(0.0);
+    let added_balance = added_balance.max(0.0);
+    let total = existing_balance + added_balance;
+    if total <= 0.0 {
+        return existing.normalized();
+    }
+    AssetExposure {
+        us_equity: (existing.us_equity * existing_balance + added.us_equity * added_balance)
+            / total,
+        intl_equity: (existing.intl_equity * existing_balance + added.intl_equity * added_balance)
+            / total,
+        bonds: (existing.bonds * existing_balance + added.bonds * added_balance) / total,
+        cash: (existing.cash * existing_balance + added.cash * added_balance) / total,
+    }
+    .normalized()
+}
+
+fn bucket_return_from_parts(data: &Value, bucket: &str, asset_returns: AssetReturns) -> f64 {
+    bucket_exposure_from_data(data, bucket).apply(asset_returns)
 }
 
 fn withdraw_from(balance: &mut f64, need: &mut f64) -> f64 {
@@ -3497,6 +3622,8 @@ fn handle_request_with_replay_tape<'a>(
         }
         magi_history[..trial_year_count].fill(f64::NAN);
         let mut balances = start_balances;
+        let mut taxable_exposure = bucket_exposure_from_data(data, "taxable");
+        let mut taxable_exposure_dynamic = false;
         let mut hsa_balance = constants.hsa_balance;
         let mut inflation_index = 1.0;
         let mut medical_index = 1.0;
@@ -3550,6 +3677,11 @@ fn handle_request_with_replay_tape<'a>(
                 .as_ref()
                 .map(|returns| returns.taxable)
                 .unwrap_or_else(|| bucket_return_from_parts(data, "taxable", asset_returns));
+            let taxable_return = if taxable_exposure_dynamic {
+                taxable_exposure.apply(asset_returns)
+            } else {
+                taxable_return
+            };
             let cash_return = bucket_returns
                 .as_ref()
                 .map(|returns| returns.cash)
@@ -3635,7 +3767,7 @@ fn handle_request_with_replay_tape<'a>(
             }
             let rmd_amount =
                 constants.required_minimum_distribution(pretax_balance_for_rmd, offset);
-            let base_income = salary + ss_income + windfall_cash;
+            let base_income = salary + ss_income;
             let income = base_income + rmd_amount;
             let shortfall_before_healthcare = (spending_before_healthcare - base_income).max(0.0);
             let balances_before_withdrawal = balances;
@@ -3649,6 +3781,7 @@ fn handle_request_with_replay_tape<'a>(
                 pretax: 0.0,
                 roth: 0.0,
             };
+            let mut cash_withdrawn_for_year = 0.0;
             let (final_tax, need) = if replay_year.cashflow_present() || !planner_logic_active {
                 let market_state = replay_year.market_state();
                 let healthcare_context =
@@ -3813,6 +3946,7 @@ fn handle_request_with_replay_tape<'a>(
                 let attempt = final_attempt.expect("raw withdrawal loop should run at least once");
                 let _rmd_surplus_to_cash = attempt.rmd_surplus_to_cash;
                 debug_withdrawals = attempt.withdrawals;
+                cash_withdrawn_for_year = debug_withdrawals.cash;
                 let mut spendable_balances_after_withdrawal = attempt.balances;
                 let years_until_rmd = constants.years_until_rmd_start(rob_age, debbie_age);
                 let (roth_conversion, computed_tax) = proactive_roth_conversion(
@@ -3904,7 +4038,7 @@ fn handle_request_with_replay_tape<'a>(
                 let mut need = (spending + base_tax - income).max(0.0);
                 let (mut spendable_balances, protected_hsa) =
                     remove_protected_hsa_from_pretax(balances, hsa_balance);
-                withdraw_from(&mut spendable_balances.cash, &mut need);
+                cash_withdrawn_for_year += withdraw_from(&mut spendable_balances.cash, &mut need);
                 withdraw_from(&mut spendable_balances.taxable, &mut need);
                 let pretax_withdrawal = withdraw_from(&mut spendable_balances.pretax, &mut need);
                 withdraw_from(&mut spendable_balances.roth, &mut need);
@@ -3929,7 +4063,8 @@ fn handle_request_with_replay_tape<'a>(
                 .federal_tax;
                 let mut extra_tax_need = (final_tax - base_tax).max(0.0);
                 if extra_tax_need > 0.0 {
-                    withdraw_from(&mut spendable_balances.cash, &mut extra_tax_need);
+                    cash_withdrawn_for_year +=
+                        withdraw_from(&mut spendable_balances.cash, &mut extra_tax_need);
                     withdraw_from(&mut spendable_balances.taxable, &mut extra_tax_need);
                     withdraw_from(&mut spendable_balances.pretax, &mut extra_tax_need);
                     withdraw_from(&mut spendable_balances.roth, &mut extra_tax_need);
@@ -3943,6 +4078,23 @@ fn handle_request_with_replay_tape<'a>(
             } else {
                 0.0
             };
+            let windfall_used_for_spending = windfall_cash.min(cash_withdrawn_for_year);
+            let windfall_deployed_to_taxable = (windfall_cash - windfall_used_for_spending)
+                .max(0.0)
+                .min(balances.cash.max(0.0));
+            if windfall_deployed_to_taxable > 0.0 {
+                let deployment_exposure =
+                    current_invested_exposure(data, balances, taxable_exposure);
+                taxable_exposure = blend_exposure(
+                    taxable_exposure,
+                    balances.taxable,
+                    deployment_exposure,
+                    windfall_deployed_to_taxable,
+                );
+                taxable_exposure_dynamic = true;
+                balances.cash -= windfall_deployed_to_taxable;
+                balances.taxable += windfall_deployed_to_taxable;
+            }
 
             if offset >= yearly_years.len() {
                 yearly_years.push(year);
@@ -3980,6 +4132,7 @@ fn handle_request_with_replay_tape<'a>(
                     "debugWithdrawalTaxable": debug_withdrawals.taxable,
                     "debugWithdrawalPretax": debug_withdrawals.pretax,
                     "debugWithdrawalRoth": debug_withdrawals.roth,
+                    "debugWindfallDeployedToTaxable": windfall_deployed_to_taxable,
                 }));
             }
 

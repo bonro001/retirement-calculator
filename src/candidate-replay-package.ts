@@ -23,6 +23,7 @@ export interface CandidateReplayPackage {
   candidateAssumptions: MarketAssumptions;
   simulationMode: SimulationStrategyMode;
   annualSpendTarget: number;
+  annualSpendScheduleByYear?: Record<number, number>;
   tape?: SimulationRandomTape;
 }
 
@@ -56,6 +57,7 @@ export function buildCandidateReplayPackage(input: {
   summary: PolicyMiningSummary;
   candidateData: SeedData;
   candidateAssumptions: MarketAssumptions;
+  annualSpendScheduleByYear?: Record<number, number>;
   tape?: SimulationRandomTape;
 }): CandidateReplayPackage {
   return {
@@ -67,6 +69,7 @@ export function buildCandidateReplayPackage(input: {
     candidateAssumptions: input.candidateAssumptions,
     simulationMode: input.summary.simulationMode,
     annualSpendTarget: input.policy.annualSpendTodayDollars,
+    annualSpendScheduleByYear: input.annualSpendScheduleByYear,
     tape: input.tape,
   };
 }
@@ -88,6 +91,7 @@ export function candidateReplayPackageToRequest(
         ? compactTapeForSummaryRequest(replayPackage.tape)
         : replayPackage.tape,
     annualSpendTarget: replayPackage.annualSpendTarget,
+    annualSpendScheduleByYear: replayPackage.annualSpendScheduleByYear,
     outputLevel,
   };
 }

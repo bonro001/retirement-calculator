@@ -3,6 +3,7 @@ export type ScreenId =
   | 'cockpit'
   | 'mining'
   | 'history'
+  | 'plan2'
   | 'accounts'
   | 'social_security'
   | 'taxes'
@@ -12,7 +13,6 @@ export type ScreenId =
   // reach them — but the components still exist in App.tsx and would
   // throw type errors if removed before a proper cleanup pass.
   | 'overview'
-  | 'plan2'
   | 'explore'
   | 'paths'
   | 'compare'
@@ -116,6 +116,16 @@ export interface HousingAfterDownsizePolicy {
   assumptionSource?: string;
 }
 
+export interface WindfallDeploymentPolicy {
+  enabled?: boolean;
+  destinationAccount?: 'taxable';
+  investmentPolicy?: 'current_portfolio_mix' | 'taxable_target_allocation';
+  trackingMode?: 'taxable_shadow_sleeve' | 'commingled_taxable';
+  spendBeforeDeploy?: boolean;
+  cashReserveMonths?: number;
+  assumptionSource?: string;
+}
+
 export type WindfallTaxTreatment =
   | 'cash_non_taxable'
   | 'ordinary_income'
@@ -163,6 +173,28 @@ export interface WindfallEntry {
   presentValueGrowthRate?: number;
 }
 
+export type ScheduledOutflowTaxTreatment =
+  | 'gift_no_tax_consequence'
+  | 'requires_form_709';
+
+export type ScheduledOutflowVehicle =
+  | 'annual_exclusion_cash'
+  | '529_superfund'
+  | 'direct_pay_tuition_medical'
+  | 'utma'
+  | 'other';
+
+export interface ScheduledOutflow {
+  name: string;
+  year: number;
+  amount: number;
+  sourceAccount: 'cash' | 'taxable' | 'pretax' | 'roth';
+  recipient: string;
+  vehicle: ScheduledOutflowVehicle;
+  label: string;
+  taxTreatment: ScheduledOutflowTaxTreatment;
+}
+
 export interface IncomeData {
   salaryAnnual: number;
   salaryEndDate: string;
@@ -183,6 +215,7 @@ export interface SpendingData {
   optionalMonthly: number;
   annualTaxesInsurance: number;
   travelEarlyRetirementAnnual: number;
+  travelFloorAnnual?: number;
   // Optional per-category minimums; when omitted, defaults are inferred.
   essentialMinimumMonthly?: number;
   optionalMinimumMonthly?: number;
@@ -222,10 +255,32 @@ export interface AccountsData {
   hsa?: AccountBucket;
 }
 
+export interface MonthlyReviewIssueAnnotation {
+  signalId:
+    | 'aca_bridge_breach'
+    | 'cash_runway_gap'
+    | 'holding_concentration'
+    | 'legacy_headroom'
+    | string;
+  years?: number[];
+  disposition:
+    | 'intentional_tradeoff'
+    | 'accepted_risk'
+    | 'needs_decision'
+    | 'monitor';
+  title: string;
+  rationale: string;
+  decision: string;
+  evidence?: string[];
+  reviewedAtIso?: string;
+  source?: string;
+}
+
 export interface RulesData {
   withdrawalStyle: string;
   irmaaAware: boolean;
   replaceModeImports: boolean;
+  monthlyReviewIssueAnnotations?: MonthlyReviewIssueAnnotation[];
   rothConversionPolicy?: {
     enabled?: boolean;
     strategy?: 'aca_then_irmaa_headroom' | 'irmaa_headroom_only';
@@ -272,6 +327,7 @@ export interface RulesData {
   };
   contributionLimits?: ContributionLimitSettings;
   housingAfterDownsizePolicy?: HousingAfterDownsizePolicy;
+  windfallDeploymentPolicy?: WindfallDeploymentPolicy;
   healthcarePremiums?: {
     baselineAcaPremiumAnnual: number;
     baselineMedicarePremiumAnnual: number;
@@ -330,6 +386,7 @@ export interface SeedData {
   rules: RulesData;
   stressors: Stressor[];
   responses: ResponseOption[];
+  scheduledOutflows?: ScheduledOutflow[];
   goals?: {
     legacyTargetTodayDollars?: number | null;
     [key: string]: unknown;
@@ -363,6 +420,7 @@ export interface MarketAssumptions {
   robPlanningEndAge: number;
   debbiePlanningEndAge: number;
   travelPhaseYears: number;
+  travelFlatYears?: number;
   pivotSellHouseFloorYears?: number;
   pivotClaimSSEarlyFloorYears?: number;
   guardrailLadder?: GuardrailTier[];
@@ -506,6 +564,8 @@ export interface PathYearResult {
   medianIrmaaSurcharge: number;
   medianTotalHealthcarePremiumCost: number;
   medianWindfallCashInflow: number;
+  medianWindfallDeployedToTaxable: number;
+  medianWindfallInvestmentSleeveBalance: number;
   medianWindfallOrdinaryIncome: number;
   medianWindfallLtcgIncome: number;
   medianHomeSaleGrossProceeds: number;

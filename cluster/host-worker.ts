@@ -3,7 +3,11 @@ import { appendFileSync, mkdirSync } from 'node:fs';
 import { hostname } from 'node:os';
 import { dirname, resolve } from 'node:path';
 import type { MarketAssumptions, SeedData } from '../src/types';
-import type { PolicyEvaluation, PolicyMinerShadowStats } from '../src/policy-miner-types';
+import type {
+  PolicyEvaluation,
+  PolicyMinerShadowStats,
+  PolicySpendingScheduleBasis,
+} from '../src/policy-miner-types';
 import type { EngineCandidateRequest } from '../src/engine-compare';
 import {
   buildPolicyMiningReplayInput,
@@ -67,6 +71,7 @@ interface PrimedSession {
   engineVersion: string;
   evaluatedByNodeId: string;
   legacyTargetTodayDollars: number;
+  spendingScheduleBasis?: PolicySpendingScheduleBasis;
   replayTapeCache: Map<string, SimulationRandomTape>;
 }
 
@@ -259,6 +264,7 @@ function buildPolicyMiningReplayInputWithCache(
         session.baselineFingerprint,
         session.engineVersion,
         cloneSeedData,
+        { spendingScheduleBasis: session.spendingScheduleBasis },
       ),
       cacheHit: false,
     };
@@ -274,7 +280,10 @@ function buildPolicyMiningReplayInputWithCache(
         session.baselineFingerprint,
         session.engineVersion,
         cloneSeedData,
-        { replayTape: cachedTape },
+        {
+          replayTape: cachedTape,
+          spendingScheduleBasis: session.spendingScheduleBasis,
+        },
       ),
       cacheHit: true,
     };
@@ -286,6 +295,7 @@ function buildPolicyMiningReplayInputWithCache(
     session.baselineFingerprint,
     session.engineVersion,
     cloneSeedData,
+    { spendingScheduleBasis: session.spendingScheduleBasis },
   );
   session.replayTapeCache.set(cacheKey, replayInput.tape);
   return { replayInput, cacheHit: false };
@@ -332,6 +342,7 @@ async function evaluatePolicyWithRustNativeCompact(
     mode: replayInput.simulationMode,
     tape: replayInput.tape,
     annualSpendTarget: replayInput.annualSpendTarget,
+    annualSpendScheduleByYear: replayInput.annualSpendScheduleByYear,
     outputLevel: 'policy_mining_summary',
   };
   const requestBuildDurationMs = performance.now() - requestBuildStartedAt;
@@ -816,7 +827,23 @@ async function handleRun(payload: {
         });
         return;
       }
-      if (engineRuntime === 'rust-native-compact') {
+      if (session.spendingScheduleBasis) {
+        const evaluation = await evaluatePolicy(
+          policy,
+          session.data,
+          session.assumptions,
+          session.baselineFingerprint,
+          session.engineVersion,
+          session.evaluatedByNodeId,
+          cloneSeedData,
+          session.legacyTargetTodayDollars,
+          session.spendingScheduleBasis,
+        );
+        evaluations.push(evaluation);
+        if (shadowStats) {
+          shadowStats.skipped += 1;
+        }
+      } else if (engineRuntime === 'rust-native-compact') {
         const { evaluation, timings } = await evaluatePolicyWithRustNativeCompact(
           policy,
           session,
@@ -840,6 +867,7 @@ async function handleRun(payload: {
           session.legacyTargetTodayDollars,
           {
             recordTape: true,
+            spendingScheduleBasis: session.spendingScheduleBasis,
             onTiming: (timing) => {
               policyTiming = timing;
             },
@@ -879,6 +907,7 @@ async function handleRun(payload: {
           session.evaluatedByNodeId,
           cloneSeedData,
           session.legacyTargetTodayDollars,
+          session.spendingScheduleBasis,
         );
         evaluations.push(evaluation);
       }
@@ -924,6 +953,7 @@ port.on('message', (message: PolicyMinerWorkerRequest) => {
       engineVersion: message.payload.engineVersion,
       evaluatedByNodeId: message.payload.evaluatedByNodeId,
       legacyTargetTodayDollars: message.payload.legacyTargetTodayDollars,
+      spendingScheduleBasis: message.payload.spendingScheduleBasis,
       replayTapeCache: new Map(),
     });
     return;

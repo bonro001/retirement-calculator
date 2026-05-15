@@ -1,32 +1,27 @@
 /**
- * Mining screen — the household's "re-run the model" surface.
+ * Monthly Review screen — the household's "re-run the model" surface.
  *
- * Two things live here:
- *   1. PolicyMiningStatusCard — start / pause / resume mines, see
- *      cluster peers, throughput, best-so-far.
- *   2. PolicyMiningResultsTable — the ranked corpus with adopt buttons.
+ * Layout:
+ *   1. Monthly Review panel (hero) — mine → certify → AI review → adopt
+ *      with live progress narrated inside each StepCard. The Step 1 card
+ *      now carries the active mine progress inline, so there's no need
+ *      for a separate cluster monitor on this screen.
+ *   2. Diagnostics (collapsed) — candidate table, axis pruning, cliff
+ *      refinement, rule sweep. Power-user surface.
  *
- * Both used to live inside the old `UnifiedPlanScreen` (the dropped
- * "Plan" tab). When we collapsed the navigation to 5 sidebar items
- * for the household-facing surface, the mining workflow became
- * unreachable — this screen restores the path.
- *
- * Why a separate file from UnifiedPlanScreen: keeps the mining
- * surface decoupled from the legacy plan-controls / verdict / flight
- * path UI. The Cockpit + Mining + Export trio is the new "what the
- * household actually uses"; UnifiedPlanScreen and friends remain in
- * the codebase for reference but aren't on the household's path.
+ * Browser-as-host mode stays off (MonthlyReviewPanel enforces
+ * controller-only before reconnecting) — all mining work goes to Node hosts.
  */
 import { useMemo, useState } from 'react';
 import { useAppStore } from './store';
 import { useClusterSession } from './useClusterSession';
 import { buildEvaluationFingerprint } from './evaluation-fingerprint';
 import { getCachedBaselinePath } from './baseline-path-cache';
-import { PolicyMiningStatusCard } from './PolicyMiningStatusCard';
 import { PolicyMiningResultsTable } from './PolicyMiningResultsTable';
+import { MonthlyReviewPanel } from './MonthlyReviewPanel';
+import { MONTHLY_REVIEW_HIDE_CANDIDATE_TABLE } from './monthly-review-flow-debug';
 import { POLICY_MINER_ENGINE_VERSION } from './policy-miner-types';
 import { POLICY_MINING_TRIAL_COUNT } from './policy-mining-config';
-import { SOLVENCY_DEFENSE_FLOOR } from './policy-ranker';
 import { DEFAULT_LEGACY_TARGET_TODAY_DOLLARS } from './legacy-target-cache';
 import type { MarketAssumptions } from './types';
 import type { PolicyAxes } from './policy-miner-types';
@@ -34,16 +29,7 @@ import { AxisPruningCard } from './AxisPruningCard';
 import { CliffRefinementCard } from './CliffRefinementCard';
 import { RuleSweepCard } from './RuleSweepCard';
 
-/**
- * Pin the miner to its own trial count so the corpus key (which
- * embeds `simulationRuns`) doesn't change when the household dials
- * the interactive UI's run count up or down. Mirrors the helper
- * inside UnifiedPlanScreen — duplicated rather than imported because
- * UnifiedPlanScreen is on the deprecation path.
- */
-function getPolicyMiningAssumptions(
-  assumptions: MarketAssumptions,
-): MarketAssumptions {
+function getPolicyMiningAssumptions(assumptions: MarketAssumptions): MarketAssumptions {
   return {
     ...assumptions,
     simulationRuns: POLICY_MINING_TRIAL_COUNT,
@@ -56,29 +42,12 @@ function getPolicyMiningAssumptions(
 export function MiningScreen() {
   const data = useAppStore((state) => state.appliedData);
   const assumptions = useAppStore((state) => state.appliedAssumptions);
-  const selectedStressors = useAppStore(
-    (state) => state.appliedSelectedStressors,
-  );
-  const selectedResponses = useAppStore(
-    (state) => state.appliedSelectedResponses,
-  );
+  const selectedStressors = useAppStore((state) => state.appliedSelectedStressors);
+  const selectedResponses = useAppStore((state) => state.appliedSelectedResponses);
   const cluster = useClusterSession();
   const dispatcherUrl = cluster.snapshot.dispatcherUrl ?? null;
-
-  // Axis-pruning Apply-and-rerun state. When the household clicks
-  // "Apply narrower range" on the AxisPruningCard, the recommended
-  // narrowed grid lands here and is forwarded to PolicyMiningStatusCard,
-  // which threads it to `cluster.startSession({ axesOverride })`. The
-  // override is volatile (component-local) — closing the screen
-  // resets to the default grid. To persist across visits, lift to
-  // zustand store; tonight's scope kept it local for simplicity.
   const [axesOverride, setAxesOverride] = useState<PolicyAxes | null>(null);
 
-  // Build the evaluation fingerprint that scopes mining results to
-  // the current baseline. Keeps the corpus on disk segregated by
-  // baseline — a different policy adoption / spending dial / SS claim
-  // age makes for a different "what's optimal here" question, so the
-  // results shouldn't pool.
   const baselineFingerprint = useMemo(() => {
     if (!data || !assumptions) return null;
     try {
@@ -88,19 +57,10 @@ export function MiningScreen() {
         selectedStressors: selectedStressors ?? [],
         selectedResponses: selectedResponses ?? [],
       });
-    } catch (err) {
-      // eslint-disable-next-line no-console
-      console.warn('[mining] fingerprint build failed:', err);
+    } catch {
       return null;
     }
   }, [data, assumptions, selectedStressors, selectedResponses]);
-
-  // Suffix the fingerprint with the trial count + scheme version so
-  // bumping POLICY_MINING_TRIAL_COUNT cleanly invalidates the corpus
-  // (rather than mixing 2000-trial and 5000-trial percentiles).
-  const policyMiningFingerprint = baselineFingerprint
-    ? `${baselineFingerprint}|trials=${POLICY_MINING_TRIAL_COUNT}|fpv1`
-    : '';
 
   const annualTotalSpend = useMemo(() => {
     if (!data?.spending) return 0;
@@ -112,10 +72,6 @@ export function MiningScreen() {
     );
   }, [data]);
 
-  // Baseline path drives the "vs current" delta columns in the results
-  // table. Routed through the shared cache so navigating from Cockpit to
-  // here doesn't re-run the 5000-trial Monte Carlo (Cockpit already
-  // computed the same path; we hit the localStorage entry it wrote).
   const primaryPath = useMemo(() => {
     if (!data || !assumptions) return null;
     return getCachedBaselinePath(
@@ -127,120 +83,124 @@ export function MiningScreen() {
   }, [data, assumptions, selectedStressors, selectedResponses]);
 
   const legacyTargetTodayDollars =
-    data?.goals?.legacyTargetTodayDollars ??
-    DEFAULT_LEGACY_TARGET_TODAY_DOLLARS;
+    data?.goals?.legacyTargetTodayDollars ?? DEFAULT_LEGACY_TARGET_TODAY_DOLLARS;
+
+  const policyMiningFingerprint = baselineFingerprint
+    ? `${baselineFingerprint}|trials=${POLICY_MINING_TRIAL_COUNT}|basis=current_faithful|fpv2`
+    : '';
 
   if (!data || !assumptions) {
     return (
       <div className="rounded-2xl border border-stone-200 bg-white/70 p-6 text-stone-500">
-        <p>Load a plan first — mining needs a baseline to work against.</p>
+        <p>Load a plan first — monthly review needs a baseline to work against.</p>
       </div>
     );
   }
 
   return (
     <div className="space-y-4">
+      {/* Page header */}
       <div>
-        <h1 className="text-xl font-semibold text-stone-900">
-          Re-run the model
-        </h1>
-        <p className="mt-1 text-[12px] text-stone-500 max-w-2xl">
-          Policy mining searches thousands of spend × Social-Security ×
-          Roth-conversion combinations against your current plan to find
-          the strategies that most reliably hit your legacy target. Run
-          a Quick mine for fast exploration, a Full mine for
-          certification before you commit to a policy.
+        <h1 className="text-xl font-semibold text-stone-900">Monthly review</h1>
+        <p className="mt-1 max-w-xl text-[12px] text-stone-500">
+          One button. One answer. Run each month to get the amount you can spend right now.
         </p>
       </div>
 
-      <PolicyMiningStatusCard
-        baselineFingerprint={policyMiningFingerprint || null}
-        engineVersion={POLICY_MINER_ENGINE_VERSION}
-        controls={
-          policyMiningFingerprint
-            ? {
-                baseline: data,
-                assumptions: getPolicyMiningAssumptions(assumptions),
-                evaluatedByNodeId: 'local-browser',
-                legacyTargetTodayDollars,
-                solvencyThreshold: SOLVENCY_DEFENSE_FLOOR,
-                trialCount: POLICY_MINING_TRIAL_COUNT,
+      {/* Hero: the monthly review panel — its Step 1 card carries live mine
+         progress inline, so no separate cluster monitor is needed on this
+         screen. Diagnostics below holds the deep dive when you want it. */}
+      <div className="rounded-2xl border border-blue-200 bg-blue-50/50 p-5 shadow-sm">
+        <MonthlyReviewPanel
+          baseline={data}
+          assumptions={assumptions}
+          baselineFingerprint={baselineFingerprint}
+          engineVersion={POLICY_MINER_ENGINE_VERSION}
+          dispatcherUrl={dispatcherUrl}
+          legacyTargetTodayDollars={legacyTargetTodayDollars}
+          selectedStrategyId="current_faithful"
+        />
+      </div>
+
+      {/* Diagnostics — collapsed by default, lives below the household-facing
+         hero so it never competes with the answer. Contains the full mined
+         candidate table plus the analyzer/refinement/sweep cards. */}
+      {!MONTHLY_REVIEW_HIDE_CANDIDATE_TABLE && (
+        <details className="rounded-2xl border border-stone-200 bg-white/80 shadow-sm">
+          <summary className="cursor-pointer px-5 py-4 text-sm font-semibold text-stone-700 hover:bg-stone-50/80 rounded-2xl">
+            Diagnostics
+            <span className="ml-2 text-[11px] font-normal text-stone-400">
+              Candidate table · axis pruning · cliff refinement · rule sweep
+            </span>
+          </summary>
+          <div className="space-y-4 px-5 pb-5 pt-2">
+            <PolicyMiningResultsTable
+              baselineFingerprint={policyMiningFingerprint || null}
+              engineVersion={POLICY_MINER_ENGINE_VERSION}
+              dispatcherUrl={dispatcherUrl}
+              legacyTargetTodayDollars={legacyTargetTodayDollars}
+              currentPlan={
+                policyMiningFingerprint
+                  ? {
+                      annualSpendTodayDollars: annualTotalSpend,
+                      primarySocialSecurityClaimAge:
+                        data.income.socialSecurity[0]?.claimAge ?? null,
+                      spouseSocialSecurityClaimAge:
+                        data.income.socialSecurity[1]?.claimAge ?? null,
+                      rothConversionAnnualCeiling: null,
+                      p50EndingWealthTodayDollars: primaryPath?.medianEndingWealth ?? null,
+                    }
+                  : undefined
               }
-            : undefined
-        }
-        axesOverride={axesOverride}
-      />
-
-      <PolicyMiningResultsTable
-        baselineFingerprint={policyMiningFingerprint || null}
-        engineVersion={POLICY_MINER_ENGINE_VERSION}
-        dispatcherUrl={dispatcherUrl}
-        legacyTargetTodayDollars={legacyTargetTodayDollars}
-        currentPlan={
-          policyMiningFingerprint
-            ? {
-                annualSpendTodayDollars: annualTotalSpend,
-                primarySocialSecurityClaimAge:
-                  data.income.socialSecurity[0]?.claimAge ?? null,
-                spouseSocialSecurityClaimAge:
-                  data.income.socialSecurity[1]?.claimAge ?? null,
-                rothConversionAnnualCeiling: null,
-                p50EndingWealthTodayDollars:
-                  primaryPath?.medianEndingWealth ?? null,
+              sensitivityControls={
+                policyMiningFingerprint
+                  ? {
+                      baseline: data,
+                      assumptions: getPolicyMiningAssumptions(assumptions),
+                      legacyTargetTodayDollars,
+                    }
+                  : undefined
               }
-            : undefined
-        }
-        sensitivityControls={
-          policyMiningFingerprint
-            ? {
-                baseline: data,
-                assumptions: getPolicyMiningAssumptions(assumptions),
-                legacyTargetTodayDollars,
+              certificationControls={
+                policyMiningFingerprint
+                  ? {
+                      baseline: data,
+                      assumptions,
+                      legacyTargetTodayDollars,
+                      spendingScheduleBasis: undefined,
+                    }
+                  : undefined
               }
-            : undefined
-        }
-      />
+            />
 
-      {/* Adaptive axis-pruning insight. Surfaces only when the corpus
-          for the current baseline has ≥ 50 evaluations AND at least
-          one axis value contributed zero feasible candidates. Pure
-          analyzer; no engine calls. */}
-      <AxisPruningCard
-        seedData={data}
-        baselineFingerprint={policyMiningFingerprint || null}
-        engineVersion={POLICY_MINER_ENGINE_VERSION}
-        axesOverride={axesOverride}
-        onApplyAxesOverride={setAxesOverride}
-      />
+            <AxisPruningCard
+              seedData={data}
+              baselineFingerprint={policyMiningFingerprint || null}
+              engineVersion={POLICY_MINER_ENGINE_VERSION}
+              axesOverride={axesOverride}
+              onApplyAxesOverride={setAxesOverride}
+            />
 
-      {/* Cliff-refinement card. Watches the corpus, detects the spend
-       *  tier where feasibility crosses 85%, and offers a one-click
-       *  pass-2 axis at $1k resolution across the cliff band. Dynamic:
-       *  recomputes whenever the corpus changes, so a fresh mine on
-       *  a different plan picks up the new cliff automatically. */}
-      <CliffRefinementCard
-        seedData={data}
-        baselineFingerprint={policyMiningFingerprint || null}
-        engineVersion={POLICY_MINER_ENGINE_VERSION}
-        dispatcherUrl={dispatcherUrl}
-        axesOverride={axesOverride}
-        onApplyAxesOverride={setAxesOverride}
-      />
+            <CliffRefinementCard
+              seedData={data}
+              baselineFingerprint={policyMiningFingerprint || null}
+              engineVersion={POLICY_MINER_ENGINE_VERSION}
+              dispatcherUrl={dispatcherUrl}
+              axesOverride={axesOverride}
+              onApplyAxesOverride={setAxesOverride}
+            />
 
-      {/* Rule-sweep card. Pairs with V2.1's single-rule pass-1: when the
-       *  pass-1 corpus has contenders, this card offers a one-click
-       *  pass-2 that re-mines them under the three non-default
-       *  withdrawal rules (proportional, reverse waterfall,
-       *  Guyton-Klinger). Same axesOverride plumbing as cliff
-       *  refinement; the two pass-2 modes can run in either order. */}
-      <RuleSweepCard
-        seedData={data}
-        baselineFingerprint={policyMiningFingerprint || null}
-        engineVersion={POLICY_MINER_ENGINE_VERSION}
-        dispatcherUrl={dispatcherUrl}
-        axesOverride={axesOverride}
-        onApplyAxesOverride={setAxesOverride}
-      />
+            <RuleSweepCard
+              seedData={data}
+              baselineFingerprint={policyMiningFingerprint || null}
+              engineVersion={POLICY_MINER_ENGINE_VERSION}
+              dispatcherUrl={dispatcherUrl}
+              axesOverride={axesOverride}
+              onApplyAxesOverride={setAxesOverride}
+            />
+          </div>
+        </details>
+      )}
     </div>
   );
 }

@@ -40,9 +40,14 @@
  *     has to re-issue start_session. Resume is D.5.
  */
 
+import { config as loadDotenv } from 'dotenv';
 import { createServer, type IncomingMessage } from 'node:http';
 import { createHash } from 'node:crypto';
-import { hostname } from 'node:os';
+import dgram from 'node:dgram';
+import { mkdir, writeFile } from 'node:fs/promises';
+import net from 'node:net';
+import { hostname, networkInterfaces } from 'node:os';
+import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { WebSocketServer, type WebSocket } from 'ws';
 import {
@@ -54,6 +59,11 @@ import {
   decodeMessage,
   encodeMessage,
   type BatchAssignMessage,
+  type CertifyAssignMessage,
+  type CertifyErrorMessage,
+  type CertifyJobPayload,
+  type CertifyProgressMessage,
+  type CertifyResultMessage,
   type ClusterBuildInfo,
   type CancelSessionMessage,
   type ClusterMessage,
@@ -66,6 +76,7 @@ import {
   type StartSessionMessage,
   type WelcomeMessage,
 } from '../src/mining-protocol';
+import type { PolicyCertificationPack } from '../src/policy-certification';
 import {
   enumeratePolicies,
   policyId,
@@ -104,6 +115,25 @@ import {
   formatBuildInfo,
   getLocalBuildInfo,
 } from './build-info';
+import {
+  MiningNorthStarAiError,
+  runMiningNorthStarAiCheck,
+} from './north-star-ai-review';
+import type { MiningNorthStarAiCheckRequest } from '../src/mining-north-star-ai';
+import {
+  MonthlyReviewAiError,
+  runMonthlyReviewAiApproval,
+} from './monthly-review-ai-review';
+import type {
+  MonthlyReviewAiApproval,
+  MonthlyReviewRun,
+  MonthlyReviewValidationPacket,
+} from '../src/monthly-review';
+
+// Node does not load Vite-style `.env.local` by default. Load it before
+// reading API keys, then fall back to `.env` for shared non-secret defaults.
+loadDotenv({ path: '.env.local' });
+loadDotenv();
 
 // ---------------------------------------------------------------------------
 // Peer registry
@@ -506,6 +536,208 @@ interface ActiveSession {
 
 let activeSession: ActiveSession | null = null;
 
+// ---------------------------------------------------------------------------
+// Certification fan-out — single-job request/response routing
+// ---------------------------------------------------------------------------
+
+interface PendingCertifyJob {
+  jobId: string;
+  hostPeerId: string;
+  startedAtMs: number;
+  resolve: (pack: PolicyCertificationPack) => void;
+  reject: (error: Error) => void;
+  onAssigned?: (host: {
+    peerId: string;
+    displayName: string;
+    certifyCapacity: number;
+  }) => void;
+  onProgress?: (completed: number, total: number) => void;
+  timeout: NodeJS.Timeout;
+}
+
+const pendingCertifyJobs = new Map<string, PendingCertifyJob>();
+const CERTIFY_JOB_TIMEOUT_MS = 5 * 60 * 1_000;
+
+function certifyCapacity(peer: Peer): number {
+  const advertised = peer.capabilities?.certifyWorkerCount;
+  if (typeof advertised === 'number' && Number.isFinite(advertised)) {
+    return Math.max(0, Math.floor(advertised));
+  }
+  // Certification was added after the original host protocol. Older hosts
+  // still advertise mining capabilities, but they do not understand
+  // `certify_assign` or emit `certify_progress`, so treating them as a
+  // one-slot fallback creates stuck UI cards with no progress updates.
+  return 0;
+}
+
+function certifyInFlightForPeer(peerId: string): number {
+  let count = 0;
+  for (const job of pendingCertifyJobs.values()) {
+    if (job.hostPeerId === peerId) count += 1;
+  }
+  return count;
+}
+
+function pickHostForCertify(): Peer | null {
+  // Spread the first certify jobs across host computers before filling
+  // extra slots on a large host. This makes "is each host participating?"
+  // visible and avoids sending all early candidates to the M4 just because
+  // it advertises more certification workers.
+  const eligible: Array<{
+    peer: Peer;
+    certifyInFlight: number;
+    certifyCapacity: number;
+  }> = [];
+  for (const peer of peers.values()) {
+    if (!peer.roles.includes('host')) continue;
+    if (peer.socket.readyState !== peer.socket.OPEN) continue;
+    if (peer.quarantinedForSessionReason) continue;
+    const capacity = certifyCapacity(peer);
+    if (capacity <= 0) continue;
+    const certifyInFlight = certifyInFlightForPeer(peer.peerId);
+    if (certifyInFlight >= capacity) continue;
+    eligible.push({ peer, certifyInFlight, certifyCapacity: capacity });
+  }
+  if (eligible.length === 0) return null;
+  eligible.sort((a, b) => {
+    if (a.certifyInFlight !== b.certifyInFlight) {
+      return a.certifyInFlight - b.certifyInFlight;
+    }
+    const aFreeCertSlots = a.certifyCapacity - a.certifyInFlight;
+    const bFreeCertSlots = b.certifyCapacity - b.certifyInFlight;
+    if (aFreeCertSlots !== bFreeCertSlots) {
+      return bFreeCertSlots - aFreeCertSlots;
+    }
+    if (a.certifyCapacity !== b.certifyCapacity) {
+      return b.certifyCapacity - a.certifyCapacity;
+    }
+    return effectiveFreeSlots(b.peer) - effectiveFreeSlots(a.peer);
+  });
+  return eligible[0]?.peer ?? null;
+}
+
+function runCertifyJob(
+  payload: CertifyJobPayload,
+  callbacks: {
+    onAssigned?: PendingCertifyJob['onAssigned'];
+    onProgress?: PendingCertifyJob['onProgress'];
+  } = {},
+): Promise<PolicyCertificationPack> {
+  return new Promise<PolicyCertificationPack>((resolve, reject) => {
+    const host = pickHostForCertify();
+    if (!host) {
+      reject(new Error('no host available for certification'));
+      return;
+    }
+    const jobId = `cert-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+    const timeout = setTimeout(() => {
+      const job = pendingCertifyJobs.get(jobId);
+      if (!job) return;
+      pendingCertifyJobs.delete(jobId);
+      job.reject(new Error('certification job timed out'));
+    }, CERTIFY_JOB_TIMEOUT_MS);
+
+    const pending: PendingCertifyJob = {
+      jobId,
+      hostPeerId: host.peerId,
+      startedAtMs: Date.now(),
+      resolve,
+      reject,
+      onAssigned: callbacks.onAssigned,
+      onProgress: callbacks.onProgress,
+      timeout,
+    };
+    pendingCertifyJobs.set(jobId, pending);
+
+    const assign: CertifyAssignMessage = {
+      kind: 'certify_assign',
+      to: host.peerId,
+      jobId,
+      payload,
+      softDeadlineMs: Date.now() + CERTIFY_JOB_TIMEOUT_MS,
+    };
+    try {
+      sendTo(host, assign);
+      callbacks.onAssigned?.({
+        peerId: host.peerId,
+        displayName: host.displayName,
+        certifyCapacity: certifyCapacity(host),
+      });
+      log('info', 'certify dispatched', {
+        jobId,
+        hostPeerId: host.peerId,
+        hostCertifyCapacity: certifyCapacity(host),
+        spend: payload.policy.annualSpendTodayDollars,
+      });
+      broadcastClusterState();
+    } catch (err) {
+      clearTimeout(timeout);
+      pendingCertifyJobs.delete(jobId);
+      reject(err instanceof Error ? err : new Error(String(err)));
+    }
+  });
+}
+
+function handleCertifyResult(peer: Peer, message: CertifyResultMessage): void {
+  const job = pendingCertifyJobs.get(message.jobId);
+  if (!job) {
+    log('warn', 'certify_result for unknown job', { jobId: message.jobId, peerId: peer.peerId });
+    return;
+  }
+  if (job.hostPeerId !== peer.peerId) {
+    log('warn', 'certify_result from wrong host', {
+      jobId: message.jobId,
+      expectedHost: job.hostPeerId,
+      gotHost: peer.peerId,
+    });
+    return;
+  }
+  clearTimeout(job.timeout);
+  pendingCertifyJobs.delete(message.jobId);
+  log('info', 'certify result', {
+    jobId: message.jobId,
+    hostPeerId: peer.peerId,
+    verdict: message.pack.verdict,
+    durationMs: Date.now() - job.startedAtMs,
+  });
+  job.resolve(message.pack);
+  broadcastClusterState();
+}
+
+function handleCertifyProgress(peer: Peer, message: CertifyProgressMessage): void {
+  const job = pendingCertifyJobs.get(message.jobId);
+  if (!job) return;
+  if (job.hostPeerId !== peer.peerId) return;
+  job.onProgress?.(message.completed, message.total);
+}
+
+function handleCertifyError(peer: Peer, message: CertifyErrorMessage): void {
+  const job = pendingCertifyJobs.get(message.jobId);
+  if (!job) {
+    log('warn', 'certify_error for unknown job', { jobId: message.jobId, peerId: peer.peerId });
+    return;
+  }
+  clearTimeout(job.timeout);
+  pendingCertifyJobs.delete(message.jobId);
+  log('warn', 'certify error', {
+    jobId: message.jobId,
+    hostPeerId: peer.peerId,
+    error: message.error,
+  });
+  job.reject(new Error(message.error));
+  broadcastClusterState();
+}
+
+function failPendingCertifyJobsForPeer(peerId: string, reason: string): void {
+  for (const [jobId, job] of pendingCertifyJobs.entries()) {
+    if (job.hostPeerId !== peerId) continue;
+    clearTimeout(job.timeout);
+    pendingCertifyJobs.delete(jobId);
+    job.reject(new Error(`host disconnected mid-job: ${reason}`));
+  }
+}
+
+
 /**
  * Sessions found on disk at boot that have a manifest but no summary
  * (i.e. the dispatcher crashed mid-session). Keyed by
@@ -778,6 +1010,8 @@ function buildClusterSnapshot(): ClusterSnapshot {
       lastHeartbeatTs: p.lastHeartbeatTs,
       meanMsPerPolicy: p.meanMsPerPolicy,
       inFlightBatchCount: p.inFlightBatchIds.size,
+      certifyInFlightCount: certifyInFlightForPeer(p.peerId),
+      certifyCapacity: certifyCapacity(p),
       metrics: p.roles.includes('host') ? buildPeerMetrics(p) : undefined,
     })),
     session,
@@ -1023,6 +1257,7 @@ function handleDisconnect(peer: Peer | null, reason: string): void {
     activeSession.runtimeMetrics.policiesRequeued += requeued;
     activeSession.runtimeMetrics.policiesDropped += dropped;
   }
+  failPendingCertifyJobsForPeer(peer.peerId, reason);
   log('info', 'peer disconnected', {
     peerId: peer.peerId,
     displayName: peer.displayName,
@@ -1980,10 +2215,23 @@ function handleMessage(peer: Peer, message: ClusterMessage): void {
       handleBatchNack(peer, message);
       return;
 
+    case 'certify_result':
+      handleCertifyResult(peer, message);
+      return;
+
+    case 'certify_progress':
+      handleCertifyProgress(peer, message);
+      return;
+
+    case 'certify_error':
+      handleCertifyError(peer, message);
+      return;
+
     case 'welcome':
     case 'register_rejected':
     case 'batch_assign':
     case 'batch_ack':
+    case 'certify_assign':
     case 'host_control':
     case 'cluster_state':
     case 'evaluations_ingested':
@@ -2048,7 +2296,7 @@ function sweepStalePeers(): void {
  */
 function applyCorsHeaders(res: import('node:http').ServerResponse): void {
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
   res.setHeader('Access-Control-Max-Age', '600');
 }
@@ -2062,12 +2310,590 @@ function sendJson(
   res.end(JSON.stringify(body));
 }
 
+function wantsSse(req: IncomingMessage): boolean {
+  return String(req.headers.accept ?? '').includes('text/event-stream');
+}
+
+function startSse(res: import('node:http').ServerResponse): void {
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream; charset=utf-8',
+    'Cache-Control': 'no-cache, no-transform',
+    Connection: 'keep-alive',
+  });
+}
+
+function writeSse(
+  res: import('node:http').ServerResponse,
+  event: string,
+  data: unknown,
+): void {
+  res.write(`event: ${event}\n`);
+  res.write(`data: ${JSON.stringify(data)}\n\n`);
+}
+
+interface WakeTarget {
+  name: string;
+  mac: string;
+}
+
+interface WakePoke {
+  host: string;
+  port: number;
+}
+
+function parseMacAddress(raw: string): Buffer | null {
+  const hex = raw.replace(/[^a-fA-F0-9]/g, '');
+  if (hex.length !== 12) return null;
+  return Buffer.from(hex, 'hex');
+}
+
+function normalizeMac(raw: string): string | null {
+  const bytes = parseMacAddress(raw);
+  if (!bytes) return null;
+  return [...bytes].map((byte) => byte.toString(16).padStart(2, '0')).join(':');
+}
+
+function parseWakeTargets(): WakeTarget[] {
+  const raw = process.env.CLUSTER_WAKE_TARGETS ?? '';
+  return raw
+    .split(',')
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .flatMap((entry) => {
+      const [left, right] = entry.includes('=') ? entry.split('=', 2) : ['', entry];
+      const mac = normalizeMac(right ?? '');
+      if (!mac) return [];
+      return [{ name: left || mac, mac }];
+    });
+}
+
+function parseWakePokes(): WakePoke[] {
+  const raw = process.env.CLUSTER_WAKE_POKES ?? '';
+  return raw
+    .split(',')
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .flatMap((entry) => {
+      const [host, portText = '5900'] = entry.split(':', 2);
+      const port = Number.parseInt(portText, 10);
+      if (!host || !Number.isFinite(port) || port <= 0) return [];
+      return [{ host, port }];
+    });
+}
+
+function ipv4ToInt(ip: string): number {
+  return ip
+    .split('.')
+    .reduce((value, part) => ((value << 8) | Number.parseInt(part, 10)) >>> 0, 0);
+}
+
+function intToIpv4(value: number): string {
+  return [24, 16, 8, 0]
+    .map((shift) => String((value >>> shift) & 0xff))
+    .join('.');
+}
+
+function localBroadcastAddresses(): string[] {
+  const addresses = new Set<string>(['255.255.255.255']);
+  for (const iface of Object.values(networkInterfaces())) {
+    for (const entry of iface ?? []) {
+      if (entry.family !== 'IPv4' || entry.internal || !entry.netmask) continue;
+      const ip = ipv4ToInt(entry.address);
+      const mask = ipv4ToInt(entry.netmask);
+      addresses.add(intToIpv4((ip | (~mask >>> 0)) >>> 0));
+    }
+  }
+  const configured = process.env.CLUSTER_WAKE_BROADCASTS ?? '';
+  for (const item of configured.split(',')) {
+    const value = item.trim();
+    if (value) addresses.add(value);
+  }
+  return [...addresses];
+}
+
+function buildMagicPacket(mac: string): Buffer {
+  const macBytes = parseMacAddress(mac);
+  if (!macBytes) throw new Error(`invalid wake MAC: ${mac}`);
+  return Buffer.concat([Buffer.alloc(6, 0xff), ...Array.from({ length: 16 }, () => macBytes)]);
+}
+
+function sendMagicPacket(mac: string, address: string, port: number): Promise<void> {
+  const packet = buildMagicPacket(mac);
+  return new Promise((resolve, reject) => {
+    const socket = dgram.createSocket('udp4');
+    socket.once('error', (err) => {
+      socket.close();
+      reject(err);
+    });
+    socket.bind(() => {
+      socket.setBroadcast(true);
+      socket.send(packet, port, address, (err) => {
+        socket.close();
+        if (err) reject(err);
+        else resolve();
+      });
+    });
+  });
+}
+
+function pokeTcp(host: string, port: number): Promise<'connected' | 'timeout' | 'error'> {
+  return new Promise((resolve) => {
+    const socket = net.createConnection({ host, port });
+    let settled = false;
+    const finish = (status: 'connected' | 'timeout' | 'error') => {
+      if (settled) return;
+      settled = true;
+      socket.destroy();
+      resolve(status);
+    };
+    socket.setTimeout(2_000, () => finish('timeout'));
+    socket.once('connect', () => finish('connected'));
+    socket.once('error', () => finish('error'));
+  });
+}
+
+async function wakeConfiguredHosts(): Promise<{
+  targets: WakeTarget[];
+  broadcasts: string[];
+  magicPacketsSent: number;
+  pokes: Array<WakePoke & { status: 'connected' | 'timeout' | 'error' }>;
+  errors: string[];
+}> {
+  const targets = parseWakeTargets();
+  const broadcasts = localBroadcastAddresses();
+  const errors: string[] = [];
+  let magicPacketsSent = 0;
+  for (const target of targets) {
+    for (const address of broadcasts) {
+      for (const port of [9, 7]) {
+        try {
+          await sendMagicPacket(target.mac, address, port);
+          magicPacketsSent += 1;
+        } catch (err) {
+          errors.push(`${target.name}@${address}:${port}: ${err instanceof Error ? err.message : String(err)}`);
+        }
+      }
+    }
+  }
+  const pokes: Array<WakePoke & { status: 'connected' | 'timeout' | 'error' }> = [];
+  for (const poke of parseWakePokes()) {
+    pokes.push({ ...poke, status: await pokeTcp(poke.host, poke.port) });
+  }
+  return { targets, broadcasts, magicPacketsSent, pokes, errors };
+}
+
 function sendNotFound(
   res: import('node:http').ServerResponse,
   message = 'not found',
 ): void {
   res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
   res.end(message);
+}
+
+const MAX_JSON_BODY_BYTES = 10 * 1024 * 1024;
+
+function readJsonBody(req: IncomingMessage): Promise<unknown> {
+  return new Promise((resolve, reject) => {
+    let body = '';
+    let tooLarge = false;
+    req.setEncoding('utf8');
+    req.on('data', (chunk) => {
+      if (tooLarge) return;
+      body += chunk;
+      if (Buffer.byteLength(body, 'utf8') > MAX_JSON_BODY_BYTES) {
+        tooLarge = true;
+        body = '';
+      }
+    });
+    req.on('end', () => {
+      if (tooLarge) {
+        reject(
+          new MiningNorthStarAiError(
+            'request body too large',
+            'request_body_too_large',
+            413,
+          ),
+        );
+        return;
+      }
+      if (body.trim().length === 0) {
+        resolve({});
+        return;
+      }
+      try {
+        resolve(JSON.parse(body));
+      } catch (err) {
+        reject(
+          new MiningNorthStarAiError(
+            `request body is not valid JSON: ${String(err)}`,
+            'bad_json_body',
+            400,
+          ),
+        );
+      }
+    });
+    req.on('error', reject);
+  });
+}
+
+const MONTHLY_REVIEW_AUDIT_ROOT =
+  process.env.MONTHLY_REVIEW_AUDIT_DIR &&
+  process.env.MONTHLY_REVIEW_AUDIT_DIR.length > 0
+    ? process.env.MONTHLY_REVIEW_AUDIT_DIR
+    : 'artifacts/monthly-review-ui';
+
+function timestampForAuditPath(date = new Date()): string {
+  return date.toISOString().replaceAll(':', '').replaceAll('.', '-');
+}
+
+function safeAuditId(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  return /^[a-zA-Z0-9T._-]+$/.test(value) ? value : null;
+}
+
+function monthlyReviewAuditDir(auditId: string): string {
+  return resolve(MONTHLY_REVIEW_AUDIT_ROOT, auditId, 'iteration-01');
+}
+
+async function writeJsonFile(path: string, value: unknown): Promise<void> {
+  await writeFile(path, `${JSON.stringify(value, null, 2)}\n`);
+}
+
+function summarizeMonthlyReviewRun(run: MonthlyReviewRun): string {
+  const selected = run.strategies
+    .map((strategy) => strategy.selectedCertification)
+    .find(
+      (cert) =>
+        cert?.strategyId === run.recommendation.strategyId &&
+        cert.evaluation.id === run.recommendation.policyId,
+    );
+  const outcome =
+    selected?.pack.selectedPathEvidence?.outcome ??
+    selected?.evaluation.outcome ??
+    null;
+  const blockers = run.modelTasks.filter(
+    (task) => task.blocksApproval && task.status === 'open',
+  );
+  const lines = [
+    '# Monthly Review UI Audit',
+    '',
+    `- Status: ${run.recommendation.status}`,
+    `- Strategy: ${run.recommendation.strategyId ?? 'none'}`,
+    `- Spend: ${
+      run.recommendation.annualSpendTodayDollars == null
+        ? 'none'
+        : `$${Math.round(run.recommendation.annualSpendTodayDollars).toLocaleString()}/yr`
+    }`,
+    `- Policy: ${run.recommendation.policyId ?? 'none'}`,
+    `- Certification: ${run.recommendation.certificationVerdict ?? 'none'}`,
+    `- AI verdict: ${run.aiApproval?.verdict ?? 'none'}`,
+    `- API calls: ${run.apiCallCount}`,
+    '',
+    '## Selected Candidate',
+    '',
+    outcome ? `- Solvency: ${(outcome.solventSuccessRate * 100).toFixed(1)}%` : '- none',
+    outcome
+      ? `- Legacy attainment: ${(outcome.bequestAttainmentRate * 100).toFixed(1)}%`
+      : '',
+    outcome
+      ? `- P10/P50/P90 ending wealth: $${Math.round(
+          outcome.p10EndingWealthTodayDollars,
+        ).toLocaleString()} / $${Math.round(
+          outcome.p50EndingWealthTodayDollars,
+        ).toLocaleString()} / $${Math.round(
+          outcome.p90EndingWealthTodayDollars,
+        ).toLocaleString()}`
+      : '',
+    outcome
+      ? `- Lifetime federal tax estimate: $${Math.round(
+          outcome.medianLifetimeFederalTaxTodayDollars,
+        ).toLocaleString()}`
+      : '',
+    run.aiApproval && selected?.evaluation
+      ? ''
+      : '',
+    '',
+    '## Blockers',
+    '',
+    blockers.length === 0
+      ? '- none'
+      : blockers.map((task) => `- ${task.id}: ${task.title}`).join('\n'),
+    '',
+    '## AI Findings',
+    '',
+    run.aiApproval?.findings.length
+      ? run.aiApproval.findings
+          .map(
+            (finding) =>
+              `- ${finding.status.toUpperCase()} ${finding.id}: ${finding.title}`,
+          )
+          .join('\n')
+      : '- none',
+    '',
+  ];
+  return `${lines.filter((line) => line !== '').join('\n')}\n`;
+}
+
+async function createMonthlyReviewAudit(input: {
+  packet: MonthlyReviewValidationPacket;
+  approval: MonthlyReviewAiApproval;
+}): Promise<MonthlyReviewAiApproval['auditTrail']> {
+  const auditId = timestampForAuditPath();
+  const dir = monthlyReviewAuditDir(auditId);
+  await mkdir(dir, { recursive: true });
+  const files = {
+    packet: resolve(dir, 'packet.json'),
+    aiResponse: resolve(dir, 'ai-response.json'),
+  };
+  await writeJsonFile(files.packet, input.packet);
+  await writeJsonFile(files.aiResponse, input.approval);
+  return {
+    auditId,
+    auditDir: dir,
+    files,
+  };
+}
+
+async function completeMonthlyReviewAudit(input: {
+  auditId: string;
+  run: MonthlyReviewRun;
+  transactionEvents?: unknown;
+}): Promise<MonthlyReviewAiApproval['auditTrail']> {
+  const dir = monthlyReviewAuditDir(input.auditId);
+  await mkdir(dir, { recursive: true });
+  const files: Record<string, string> = {
+    packet: resolve(dir, 'packet.json'),
+    aiResponse: resolve(dir, 'ai-response.json'),
+    run: resolve(dir, 'run.json'),
+    summary: resolve(dir, 'summary.md'),
+  };
+  await writeJsonFile(files.run, input.run);
+  await writeFile(files.summary, summarizeMonthlyReviewRun(input.run));
+  if (input.transactionEvents !== undefined) {
+    files.transactionLog = resolve(dir, 'transaction-log.json');
+    await writeJsonFile(files.transactionLog, input.transactionEvents);
+  }
+  return {
+    auditId: input.auditId,
+    auditDir: dir,
+    files,
+  };
+}
+
+function finitePositiveNumber(value: unknown): number | undefined {
+  const n = typeof value === 'number' ? value : Number(value);
+  return Number.isFinite(n) && n > 0 ? n : undefined;
+}
+
+function finiteRate(value: unknown): number | undefined {
+  const n = typeof value === 'number' ? value : Number(value);
+  return Number.isFinite(n) && n >= 0 && n <= 1 ? n : undefined;
+}
+
+function parseNorthStarAiRequest(body: unknown): MiningNorthStarAiCheckRequest {
+  const r =
+    body && typeof body === 'object' && !Array.isArray(body)
+      ? (body as Record<string, unknown>)
+      : {};
+  const selectedPolicyId =
+    typeof r.selectedPolicyId === 'string' && r.selectedPolicyId.length > 0
+      ? r.selectedPolicyId
+      : null;
+  const topN = finitePositiveNumber(r.topN);
+  return {
+    selectedPolicyId,
+    legacyTargetTodayDollars: finitePositiveNumber(r.legacyTargetTodayDollars),
+    minFeasibility: finiteRate(r.minFeasibility),
+    minSolvency: finiteRate(r.minSolvency),
+    topN: topN ? Math.floor(topN) : undefined,
+  };
+}
+
+async function handleNorthStarAiCheckHttp(
+  sessionId: string,
+  req: IncomingMessage,
+  res: import('node:http').ServerResponse,
+): Promise<void> {
+  try {
+    const meta = readSessionMetadata(sessionId, getCorpusRoot());
+    if (!meta) {
+      sendNotFound(res, `session not found: ${sessionId}`);
+      return;
+    }
+    const body = await readJsonBody(req);
+    const request = parseNorthStarAiRequest(body);
+    const evaluations = readEvaluations(sessionId, getCorpusRoot());
+    const check = await runMiningNorthStarAiCheck({
+      sessionId,
+      config: meta.manifest.config,
+      evaluations,
+      legacyTargetTodayDollars: meta.manifest.legacyTargetTodayDollars,
+      request,
+    });
+    sendJson(res, 200, check);
+  } catch (err) {
+    if (err instanceof MiningNorthStarAiError) {
+      sendJson(res, err.statusCode, {
+        error: err.code,
+        detail: err.message,
+      });
+      return;
+    }
+    log('warn', 'POST /sessions/:id/north-star-ai-check failed', {
+      sessionId,
+      err: String(err),
+    });
+    sendJson(res, 500, { error: 'ai check failed', detail: String(err) });
+  }
+}
+
+async function handleMonthlyReviewAiCheckHttp(
+  req: IncomingMessage,
+  res: import('node:http').ServerResponse,
+): Promise<void> {
+  try {
+    const packet = (await readJsonBody(req)) as MonthlyReviewValidationPacket;
+    const approval = await runMonthlyReviewAiApproval({ packet });
+    const auditTrail = await createMonthlyReviewAudit({ packet, approval });
+    approval.auditTrail = auditTrail;
+    await writeJsonFile(resolve(auditTrail.auditDir, 'ai-response.json'), approval);
+    sendJson(res, 200, approval);
+  } catch (err) {
+    if (err instanceof MonthlyReviewAiError) {
+      sendJson(res, err.statusCode, {
+        error: err.code,
+        detail: err.message,
+      });
+      return;
+    }
+    log('warn', 'POST /monthly-review-ai-check failed', {
+      err: String(err),
+    });
+    sendJson(res, 500, { error: 'monthly review AI check failed', detail: String(err) });
+  }
+}
+
+async function handleCertifyHttp(
+  req: IncomingMessage,
+  res: import('node:http').ServerResponse,
+): Promise<void> {
+  try {
+    const body = (await readJsonBody(req)) as Partial<CertifyJobPayload>;
+    if (
+      !body ||
+      typeof body !== 'object' ||
+      !body.policy ||
+      !body.baseline ||
+      !body.assumptions ||
+      typeof body.baselineFingerprint !== 'string' ||
+      typeof body.engineVersion !== 'string' ||
+      typeof body.legacyTargetTodayDollars !== 'number'
+    ) {
+      sendJson(res, 400, { error: 'invalid certify payload' });
+      return;
+    }
+    const payload: CertifyJobPayload = {
+      policy: body.policy,
+      baseline: body.baseline,
+      assumptions: body.assumptions,
+      baselineFingerprint: body.baselineFingerprint,
+      engineVersion: body.engineVersion,
+      legacyTargetTodayDollars: body.legacyTargetTodayDollars,
+      spendingScheduleBasis: body.spendingScheduleBasis ?? null,
+    };
+    if (wantsSse(req)) {
+      startSse(res);
+      try {
+        const pack = await runCertifyJob(payload, {
+          onAssigned: (host) => {
+            writeSse(res, 'assigned', host);
+          },
+          onProgress: (completed, total) => {
+            writeSse(res, 'progress', { completed, total });
+          },
+        });
+        writeSse(res, 'result', { pack });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        writeSse(res, 'error', {
+          error: /no host available/i.test(message)
+            ? 'no_host_available'
+            : 'certify_failed',
+          detail: message,
+        });
+      } finally {
+        res.end();
+      }
+      return;
+    }
+    const pack = await runCertifyJob(payload);
+    sendJson(res, 200, { pack });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (/no host available/i.test(message)) {
+      sendJson(res, 503, { error: 'no host available for certification', detail: message });
+      return;
+    }
+    log('warn', 'POST /certify failed', { err: message });
+    sendJson(res, 500, { error: 'certify failed', detail: message });
+  }
+}
+
+async function handleWakeHostsHttp(
+  _req: IncomingMessage,
+  res: import('node:http').ServerResponse,
+): Promise<void> {
+  try {
+    const result = await wakeConfiguredHosts();
+    log('info', 'wake hosts requested', {
+      targets: result.targets.map((target) => target.name),
+      broadcasts: result.broadcasts,
+      magicPacketsSent: result.magicPacketsSent,
+      pokes: result.pokes,
+      errors: result.errors.length,
+    });
+    sendJson(res, 200, result);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    log('warn', 'POST /wake-hosts failed', { err: message });
+    sendJson(res, 500, { error: 'wake hosts failed', detail: message });
+  }
+}
+
+async function handleMonthlyReviewAuditHttp(
+  req: IncomingMessage,
+  res: import('node:http').ServerResponse,
+): Promise<void> {
+  try {
+    const body = (await readJsonBody(req)) as Record<string, unknown>;
+    const auditId = safeAuditId(body.auditId);
+    if (!auditId) {
+      sendJson(res, 400, {
+        error: 'bad_audit_id',
+        detail: 'auditId is required and must contain only letters, numbers, dot, underscore, dash, or T.',
+      });
+      return;
+    }
+    const run = body.run as MonthlyReviewRun | undefined;
+    if (!run || typeof run !== 'object') {
+      sendJson(res, 400, {
+        error: 'missing_run',
+        detail: 'run is required.',
+      });
+      return;
+    }
+    const auditTrail = await completeMonthlyReviewAudit({
+      auditId,
+      run,
+      transactionEvents: body.transactionEvents,
+    });
+    sendJson(res, 200, { auditTrail });
+  } catch (err) {
+    log('warn', 'POST /monthly-review-audit failed', {
+      err: String(err),
+    });
+    sendJson(res, 500, { error: 'monthly review audit failed', detail: String(err) });
+  }
 }
 
 /**
@@ -2095,13 +2921,69 @@ function startDispatcher(port: number, host?: string): void {
       return;
     }
 
+    const url = req.url ?? '/';
+
+    if (url === '/monthly-review-ai-check') {
+      if (req.method !== 'POST') {
+        res.writeHead(405, { 'Content-Type': 'text/plain' });
+        res.end('method not allowed');
+        return;
+      }
+      void handleMonthlyReviewAiCheckHttp(req, res);
+      return;
+    }
+
+    if (url === '/certify') {
+      if (req.method !== 'POST') {
+        res.writeHead(405, { 'Content-Type': 'text/plain' });
+        res.end('method not allowed');
+        return;
+      }
+      void handleCertifyHttp(req, res);
+      return;
+    }
+
+    if (url === '/wake-hosts') {
+      if (req.method !== 'POST') {
+        res.writeHead(405, { 'Content-Type': 'text/plain' });
+        res.end('method not allowed');
+        return;
+      }
+      void handleWakeHostsHttp(req, res);
+      return;
+    }
+
+    if (url === '/monthly-review-audit') {
+      if (req.method !== 'POST') {
+        res.writeHead(405, { 'Content-Type': 'text/plain' });
+        res.end('method not allowed');
+        return;
+      }
+      void handleMonthlyReviewAuditHttp(req, res);
+      return;
+    }
+
+    // POST /sessions/:id/north-star-ai-check — server-side OpenAI review
+    // of a mined corpus against "leave ~$1M, maximize early spending".
+    // The browser sends only knobs; the dispatcher reads the corpus from
+    // disk and keeps OPENAI_API_KEY out of client code.
+    const aiCheckMatch = url.match(/^\/sessions\/([^/]+)\/north-star-ai-check$/);
+    if (aiCheckMatch) {
+      if (req.method !== 'POST') {
+        res.writeHead(405, { 'Content-Type': 'text/plain' });
+        res.end('method not allowed');
+        return;
+      }
+      const sessionId = decodeURIComponent(aiCheckMatch[1]);
+      void handleNorthStarAiCheckHttp(sessionId, req, res);
+      return;
+    }
+
     if (req.method !== 'GET') {
       res.writeHead(405, { 'Content-Type': 'text/plain' });
       res.end('method not allowed');
       return;
     }
-
-    const url = req.url ?? '/';
 
     if (url === '/health') {
       sendJson(res, 200, {

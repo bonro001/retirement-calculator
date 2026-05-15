@@ -131,6 +131,7 @@ import type {
   Holding,
   PathResult,
   PathYearResult,
+  ScheduledOutflow,
   SeedData,
   ScreenId,
   SimulationParityReport,
@@ -205,6 +206,15 @@ const navigation: {
     // Compass / target — "where am I right now"
     iconPath:
       'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18Zm0-3.75a5.25 5.25 0 1 0 0-10.5 5.25 5.25 0 0 0 0 10.5Zm0-3a2.25 2.25 0 1 0 0-4.5 2.25 2.25 0 0 0 0 4.5Z',
+  },
+  {
+    id: 'plan2',
+    label: 'Plan 2.0',
+    shortLabel: 'Plan',
+    section: 'today',
+    // Flow bars — "where the money goes"
+    iconPath:
+      'M4 7h4.5A3.5 3.5 0 0 1 12 10.5v3A3.5 3.5 0 0 0 15.5 17H20M4 17h4.5A3.5 3.5 0 0 0 12 13.5v-3A3.5 3.5 0 0 1 15.5 7H20M4 4v6M20 4v6M4 14v6M20 14v6',
   },
   {
     id: 'mining',
@@ -662,6 +672,7 @@ type AnalysisTarget = 'plan' | 'simulation';
 interface ActiveAnalysisRequestMeta {
   target: AnalysisTarget;
   inputFingerprint: string;
+  isOverride?: boolean;
 }
 
 interface AnalysisInput {
@@ -736,6 +747,7 @@ export function App() {
   const REACHABLE_SCREENS: ScreenId[] = [
     'six_pack',
     'cockpit',
+    'plan2',
     'mining',
     'simulation',
     'history',
@@ -911,9 +923,10 @@ export function App() {
             lastSimulationRunInputsRef.current = completedInputFingerprint;
           }
           setSimulationStatus(
-            completedInputFingerprint !== latestSimulationInputFingerprintRef.current
-              ? 'stale'
-              : 'fresh',
+            activeMeta.isOverride ||
+              completedInputFingerprint === latestSimulationInputFingerprintRef.current
+              ? 'fresh'
+              : 'stale',
           );
           setSimulationError(null);
         } else {
@@ -1148,6 +1161,7 @@ export function App() {
     activeRequestMetaRef.current = {
       target,
       inputFingerprint: analysisInput.fingerprint,
+      isOverride: Boolean(overrideInput),
     };
     analysisTimersRef.current.set(requestId, {
       target,
@@ -1819,7 +1833,9 @@ export function App() {
                   simulationProgress={analysisProgress}
                   simulationError={simulationError}
                   isSimulationRunning={isSimulationRunning}
-                  onRunSimulation={() => runAnalysis('simulation')}
+                  onRunSimulation={(overrideInput) =>
+                    runAnalysis('simulation', overrideInput)
+                  }
                   onCancelSimulation={cancelSimulation}
                   suggestionRankingStatus={suggestionRankingStatus}
                   suggestionRankingProgress={suggestionRankingProgress}
@@ -7420,6 +7436,203 @@ function formatDeltaPercent(delta: number): string {
   return `${sign}${(Math.abs(delta) * 100).toFixed(1)} pts`;
 }
 
+function parseScenarioNumber(value: string | number): number {
+  if (typeof value === 'number') return Number.isFinite(value) ? value : 0;
+  const parsed = Number(value.replace(/[^0-9.-]/g, ''));
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function scenarioDateInput(value: string | undefined): string {
+  return value ? value.slice(0, 10) : '';
+}
+
+function cloneScenarioSeed(data: SeedData): SeedData {
+  return structuredClone(data) as SeedData;
+}
+
+function upsertScenarioInheritance(seed: SeedData, year: number, amount: number) {
+  const windfalls = [...(seed.income.windfalls ?? [])];
+  const index = windfalls.findIndex((item) => item.name === 'inheritance');
+  const nextYear = Math.max(1900, Math.round(year));
+  const nextAmount = Math.max(0, Math.round(amount));
+  if (index >= 0) {
+    const existing = windfalls[index];
+    windfalls[index] = {
+      ...existing,
+      year: nextYear,
+      amount: nextAmount,
+      liquidityAmount:
+        existing.liquidityAmount !== undefined ? nextAmount : existing.liquidityAmount,
+      taxTreatment: existing.taxTreatment ?? 'cash_non_taxable',
+    };
+  } else {
+    windfalls.push({
+      name: 'inheritance',
+      year: nextYear,
+      amount: nextAmount,
+      taxTreatment: 'cash_non_taxable',
+    });
+  }
+  seed.income.windfalls = windfalls;
+}
+
+function buildScenarioGiftOutflow(
+  year: number,
+  amount: number,
+  sourceAccount: ScheduledOutflow['sourceAccount'],
+): ScheduledOutflow {
+  const nextAmount = Math.max(0, Math.round(amount));
+  return {
+    name: `scenario_${sourceAccount}_gift_${Math.round(year)}_${nextAmount}`,
+    year: Math.max(1900, Math.round(year)),
+    amount: nextAmount,
+    sourceAccount,
+    recipient: 'scenario-probe',
+    vehicle: 'annual_exclusion_cash',
+    label: `Scenario ${sourceAccount} gift`,
+    taxTreatment:
+      nextAmount > 38_000 ? 'requires_form_709' : 'gift_no_tax_consequence',
+  };
+}
+
+type StressOneChangeId =
+  | 'salary_annual'
+  | 'retirement_date'
+  | 'cash_balance'
+  | 'taxable_balance'
+  | 'pretax_balance'
+  | 'roth_balance'
+  | 'essential_monthly'
+  | 'optional_monthly'
+  | 'travel_annual'
+  | 'inheritance_year'
+  | 'inheritance_amount'
+  | 'home_sale_year'
+  | 'home_sale_amount'
+  | 'equity_mean_percent'
+  | 'inflation_percent';
+
+const STRESS_ONE_CHANGE_OPTIONS: Array<{
+  id: StressOneChangeId;
+  label: string;
+  inputType: 'number' | 'date';
+}> = [
+  { id: 'salary_annual', label: 'Salary annual', inputType: 'number' },
+  { id: 'retirement_date', label: 'Retirement date', inputType: 'date' },
+  { id: 'cash_balance', label: 'Cash balance', inputType: 'number' },
+  { id: 'taxable_balance', label: 'Taxable balance', inputType: 'number' },
+  { id: 'pretax_balance', label: 'Pre-tax balance', inputType: 'number' },
+  { id: 'roth_balance', label: 'Roth balance', inputType: 'number' },
+  { id: 'essential_monthly', label: 'Essential monthly spend', inputType: 'number' },
+  { id: 'optional_monthly', label: 'Optional monthly spend', inputType: 'number' },
+  { id: 'travel_annual', label: 'Early travel annual', inputType: 'number' },
+  { id: 'inheritance_year', label: 'Inheritance year', inputType: 'number' },
+  { id: 'inheritance_amount', label: 'Inheritance amount', inputType: 'number' },
+  { id: 'home_sale_year', label: 'Home-sale year', inputType: 'number' },
+  { id: 'home_sale_amount', label: 'Home-sale amount', inputType: 'number' },
+  { id: 'equity_mean_percent', label: 'Equity mean percent', inputType: 'number' },
+  { id: 'inflation_percent', label: 'Inflation percent', inputType: 'number' },
+];
+
+function getStressOneChangeDefault(
+  id: StressOneChangeId,
+  data: SeedData,
+  assumptions: MarketAssumptions,
+): string {
+  const inheritance = data.income.windfalls.find((item) => item.name === 'inheritance');
+  const homeSale = data.income.windfalls.find((item) => item.name === 'home_sale');
+  switch (id) {
+    case 'salary_annual':
+      return String(Math.round(data.income.salaryAnnual));
+    case 'retirement_date':
+      return scenarioDateInput(data.income.salaryEndDate);
+    case 'cash_balance':
+      return String(Math.round(data.accounts.cash.balance));
+    case 'taxable_balance':
+      return String(Math.round(data.accounts.taxable.balance));
+    case 'pretax_balance':
+      return String(Math.round(data.accounts.pretax.balance));
+    case 'roth_balance':
+      return String(Math.round(data.accounts.roth.balance));
+    case 'essential_monthly':
+      return String(Math.round(data.spending.essentialMonthly));
+    case 'optional_monthly':
+      return String(Math.round(data.spending.optionalMonthly));
+    case 'travel_annual':
+      return String(Math.round(data.spending.travelEarlyRetirementAnnual));
+    case 'inheritance_year':
+      return String(inheritance?.year ?? new Date().getFullYear());
+    case 'inheritance_amount':
+      return String(Math.round(inheritance?.amount ?? 0));
+    case 'home_sale_year':
+      return String(homeSale?.year ?? new Date().getFullYear());
+    case 'home_sale_amount':
+      return String(Math.round(homeSale?.amount ?? 0));
+    case 'equity_mean_percent':
+      return String(Math.round((assumptions.equityMean ?? 0) * 1000) / 10);
+    case 'inflation_percent':
+      return String(Math.round((assumptions.inflation ?? 0) * 1000) / 10);
+  }
+}
+
+function applyStressOneChange(
+  data: SeedData,
+  assumptions: MarketAssumptions,
+  id: StressOneChangeId,
+  rawValue: string,
+) {
+  const value = parseScenarioNumber(rawValue);
+  const windfallByName = (name: string) =>
+    data.income.windfalls.find((item) => item.name === name);
+  switch (id) {
+    case 'salary_annual':
+      data.income.salaryAnnual = Math.max(0, value);
+      break;
+    case 'retirement_date':
+      if (rawValue) data.income.salaryEndDate = rawValue;
+      break;
+    case 'cash_balance':
+      data.accounts.cash.balance = Math.max(0, value);
+      break;
+    case 'taxable_balance':
+      data.accounts.taxable.balance = Math.max(0, value);
+      break;
+    case 'pretax_balance':
+      data.accounts.pretax.balance = Math.max(0, value);
+      break;
+    case 'roth_balance':
+      data.accounts.roth.balance = Math.max(0, value);
+      break;
+    case 'essential_monthly':
+      data.spending.essentialMonthly = Math.max(0, value);
+      break;
+    case 'optional_monthly':
+      data.spending.optionalMonthly = Math.max(0, value);
+      break;
+    case 'travel_annual':
+      data.spending.travelEarlyRetirementAnnual = Math.max(0, value);
+      break;
+    case 'inheritance_year':
+      if (windfallByName('inheritance')) windfallByName('inheritance')!.year = Math.round(value);
+      break;
+    case 'inheritance_amount':
+      if (windfallByName('inheritance')) windfallByName('inheritance')!.amount = Math.max(0, value);
+      break;
+    case 'home_sale_year':
+      if (windfallByName('home_sale')) windfallByName('home_sale')!.year = Math.round(value);
+      break;
+    case 'home_sale_amount':
+      if (windfallByName('home_sale')) windfallByName('home_sale')!.amount = Math.max(0, value);
+      break;
+    case 'equity_mean_percent':
+      assumptions.equityMean = value / 100;
+      break;
+    case 'inflation_percent':
+      assumptions.inflation = value / 100;
+      break;
+  }
+}
+
 function describeSpendDelta(deltaMonthly: number): string {
   if (!Number.isFinite(deltaMonthly) || Math.abs(deltaMonthly) < 5) {
     return 'holds steady at';
@@ -7461,7 +7674,7 @@ function SimulationScreen({
   simulationProgress: number;
   simulationError: string | null;
   isSimulationRunning: boolean;
-  onRunSimulation: () => void;
+  onRunSimulation: (overrideInput?: AnalysisInput) => void;
   onCancelSimulation: () => void;
   suggestionRankingStatus: 'idle' | 'running' | 'ready' | 'error';
   suggestionRankingProgress: { completed: number; total: number };
@@ -7484,6 +7697,100 @@ function SimulationScreen({
   const toggleResponse = useAppStore((state) => state.toggleResponse);
   const draftStressorKnobs = useAppStore((state) => state.draftStressorKnobs);
   const updateStressorKnob = useAppStore((state) => state.updateStressorKnob);
+  const currentYear = new Date().getFullYear();
+  const inheritanceWindfall = data.income.windfalls.find((item) => item.name === 'inheritance');
+  const [includeEarlyInheritance, setIncludeEarlyInheritance] = useState(false);
+  const [earlyInheritanceAmount, setEarlyInheritanceAmount] = useState(
+    Math.round(inheritanceWindfall?.amount ?? 0),
+  );
+  const [earlyInheritanceYear, setEarlyInheritanceYear] = useState(
+    Math.min(inheritanceWindfall?.year ?? currentYear, currentYear),
+  );
+  const [includeScenarioGift, setIncludeScenarioGift] = useState(false);
+  const [scenarioGiftAmount, setScenarioGiftAmount] = useState(20_000);
+  const [scenarioGiftYear, setScenarioGiftYear] = useState(currentYear);
+  const [scenarioGiftSource, setScenarioGiftSource] =
+    useState<ScheduledOutflow['sourceAccount']>('cash');
+  const [includeScenarioRetirementDate, setIncludeScenarioRetirementDate] =
+    useState(false);
+  const [scenarioRetirementDate, setScenarioRetirementDate] = useState(
+    scenarioDateInput(data.income.salaryEndDate),
+  );
+  const [includeOneChange, setIncludeOneChange] = useState(false);
+  const [oneChangeId, setOneChangeId] = useState<StressOneChangeId>('cash_balance');
+  const [oneChangeValue, setOneChangeValue] = useState(() =>
+    getStressOneChangeDefault('cash_balance', data, assumptions),
+  );
+
+  const customProbeCount =
+    (includeEarlyInheritance ? 1 : 0) +
+    (includeScenarioGift ? 1 : 0) +
+    (includeScenarioRetirementDate ? 1 : 0) +
+    (includeOneChange ? 1 : 0);
+
+  const runScenarioSimulation = () => {
+    if (customProbeCount === 0) {
+      onRunSimulation();
+      return;
+    }
+    const scenarioData = cloneScenarioSeed(data);
+    const scenarioAssumptions: MarketAssumptions = { ...assumptions };
+    if (includeEarlyInheritance && earlyInheritanceAmount > 0) {
+      upsertScenarioInheritance(
+        scenarioData,
+        earlyInheritanceYear,
+        earlyInheritanceAmount,
+      );
+    }
+    if (includeScenarioGift && scenarioGiftAmount > 0) {
+      scenarioData.scheduledOutflows = [
+        ...(scenarioData.scheduledOutflows ?? []),
+        buildScenarioGiftOutflow(
+          scenarioGiftYear,
+          scenarioGiftAmount,
+          scenarioGiftSource,
+        ),
+      ];
+    }
+    if (includeScenarioRetirementDate && scenarioRetirementDate) {
+      scenarioData.income.salaryEndDate = scenarioRetirementDate;
+    }
+    if (includeOneChange && oneChangeValue.trim() !== '') {
+      applyStressOneChange(
+        scenarioData,
+        scenarioAssumptions,
+        oneChangeId,
+        oneChangeValue,
+      );
+    }
+    const fingerprint = `${buildSimulationInputFingerprint({
+      data: scenarioData,
+      assumptions: scenarioAssumptions,
+      selectedStressors,
+      selectedResponses,
+    })}|knobs=${JSON.stringify(draftStressorKnobs)}|scenarioProbes=${JSON.stringify({
+      includeEarlyInheritance,
+      earlyInheritanceAmount,
+      earlyInheritanceYear,
+      includeScenarioGift,
+      scenarioGiftAmount,
+      scenarioGiftYear,
+      scenarioGiftSource,
+      includeScenarioRetirementDate,
+      scenarioRetirementDate,
+      includeOneChange,
+      oneChangeId,
+      oneChangeValue,
+    })}`;
+    onRunSimulation({
+      data: scenarioData,
+      assumptions: scenarioAssumptions,
+      selectedStressors,
+      selectedResponses,
+      stressorKnobs: draftStressorKnobs,
+      fingerprint,
+    });
+  };
 
   // Prefer the solver's constant-real monthly at the 85% success target. It's
   // the "honest" committed number — moves when later-year stressors (like
@@ -7514,7 +7821,8 @@ function SimulationScreen({
   const baseEffects = summarizeYearlyEffects(baselinePath);
   const simEffects = summarizeYearlyEffects(primaryPath);
 
-  const hasToggles = selectedStressors.length + selectedResponses.length > 0;
+  const scenarioChangeCount = selectedStressors.length + customProbeCount;
+  const hasToggles = scenarioChangeCount + selectedResponses.length > 0;
   const isFresh = simulationStatus === 'fresh';
   const showDelta = hasToggles && isFresh;
   // Distinguish "we have simulation numbers to show" (first run not yet done =>
@@ -7536,13 +7844,16 @@ function SimulationScreen({
     ? 'Stress-test diagnostics need a fresh simulation run.'
     : showDelta
       ? `Your ${spendNumberLabel} ${verb} ${formatCurrency(Math.round(simMonthly))} (${formatDeltaCurrency(Math.round(monthlyDelta))}/mo, ${formatDeltaCurrency(Math.round(annualDelta))}/yr).`
-      : `Current baseline ${spendNumberLabel}: ${formatCurrency(Math.round(baseMonthly))}/mo (${formatCurrency(Math.round(baseMonthly * 12))}/yr). Pick stressors, then run diagnostics to see what changes.`;
+      : `Current baseline ${spendNumberLabel}: ${formatCurrency(Math.round(baseMonthly))}/mo (${formatCurrency(Math.round(baseMonthly * 12))}/yr). Pick scenario changes, then run diagnostics to see what changes.`;
 
   const successHeadline = !hasBaselineData
     ? 'No stress-test result is loaded yet; this does not change your adopted plan.'
     : showDelta
       ? `Flex success ${formatDeltaPercent(successDelta)} (now ${formatPercent(primaryPath.successRate)}).`
       : `Flex success: ${formatPercent(baselinePath.successRate)}.`;
+  const selectedOneChangeOption =
+    STRESS_ONE_CHANGE_OPTIONS.find((item) => item.id === oneChangeId) ??
+    STRESS_ONE_CHANGE_OPTIONS[0];
 
   return (
     <Panel
@@ -7570,7 +7881,7 @@ function SimulationScreen({
             <div className="flex flex-wrap items-center gap-2">
               <button
                 type="button"
-                onClick={onRunSimulation}
+                onClick={runScenarioSimulation}
                 disabled={isSimulationRunning}
                 className="rounded-full bg-blue-700 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-600 disabled:cursor-not-allowed disabled:opacity-60"
               >
@@ -7638,12 +7949,24 @@ function SimulationScreen({
         <CemeteryCard current={solvedSpendProfile} />
       ) : null}
 
-      {/* Tweaks & Solutions */}
+      {/* Scenario builder & Solutions */}
       <div className="mb-6 grid gap-4 lg:grid-cols-2">
         <article className="rounded-[24px] border border-stone-200 bg-white p-4 shadow-sm">
-          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-stone-500">Tweaks</p>
-          <p className="mt-1 text-sm text-stone-600">
-            Things that might happen to you.
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-stone-500">
+                Scenario builder
+              </p>
+              <p className="mt-1 text-sm text-stone-600">
+                Presets and exact overrides are the same kind of stress input.
+              </p>
+            </div>
+            <span className="rounded-full bg-stone-100 px-3 py-1 text-xs font-semibold text-stone-600">
+              {scenarioChangeCount} active
+            </span>
+          </div>
+          <p className="mt-4 text-[11px] font-semibold uppercase tracking-[0.16em] text-stone-500">
+            Presets
           </p>
           <div className="mt-3 flex flex-col gap-2">
             {stressors.map((item) => {
@@ -7731,6 +8054,171 @@ function SimulationScreen({
                 </label>
               );
             })}
+          </div>
+          <div className="mt-4 border-t border-stone-100 pt-4">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-stone-500">
+              Exact changes
+            </p>
+            <div className="mt-3 space-y-3 text-sm text-stone-700">
+              <div className="grid gap-3 rounded-2xl border border-stone-200 bg-stone-50 px-3 py-3 md:grid-cols-[170px_1fr_1fr] md:items-center">
+                <label className="flex items-center gap-2 font-semibold text-stone-800">
+                  <input
+                    type="checkbox"
+                    checked={includeEarlyInheritance}
+                    onChange={(event) =>
+                      setIncludeEarlyInheritance(event.target.checked)
+                    }
+                  />
+                  Early inheritance
+                </label>
+                <label className="flex items-center gap-2">
+                  <span className="w-16 text-xs uppercase tracking-[0.14em] text-stone-500">
+                    Amount
+                  </span>
+                  <input
+                    type="number"
+                    min={0}
+                    step={10_000}
+                    value={earlyInheritanceAmount}
+                    onChange={(event) =>
+                      setEarlyInheritanceAmount(
+                        parseScenarioNumber(event.target.value),
+                      )
+                    }
+                    className="w-full rounded-xl border border-stone-200 bg-white px-3 py-2 text-right tabular-nums"
+                  />
+                </label>
+                <label className="flex items-center gap-2">
+                  <span className="w-12 text-xs uppercase tracking-[0.14em] text-stone-500">
+                    Year
+                  </span>
+                  <input
+                    type="number"
+                    min={currentYear}
+                    max={currentYear + 40}
+                    value={earlyInheritanceYear}
+                    onChange={(event) =>
+                      setEarlyInheritanceYear(
+                        parseScenarioNumber(event.target.value),
+                      )
+                    }
+                    className="w-full rounded-xl border border-stone-200 bg-white px-3 py-2 text-right tabular-nums"
+                  />
+                </label>
+              </div>
+
+              <div className="grid gap-3 rounded-2xl border border-stone-200 bg-stone-50 px-3 py-3 md:grid-cols-[170px_1fr_1fr_1fr] md:items-center">
+                <label className="flex items-center gap-2 font-semibold text-stone-800">
+                  <input
+                    type="checkbox"
+                    checked={includeScenarioGift}
+                    onChange={(event) =>
+                      setIncludeScenarioGift(event.target.checked)
+                    }
+                  />
+                  Gift cash
+                </label>
+                <label className="flex items-center gap-2">
+                  <span className="w-16 text-xs uppercase tracking-[0.14em] text-stone-500">
+                    Amount
+                  </span>
+                  <input
+                    type="number"
+                    min={0}
+                    step={5_000}
+                    value={scenarioGiftAmount}
+                    onChange={(event) =>
+                      setScenarioGiftAmount(parseScenarioNumber(event.target.value))
+                    }
+                    className="w-full rounded-xl border border-stone-200 bg-white px-3 py-2 text-right tabular-nums"
+                  />
+                </label>
+                <label className="flex items-center gap-2">
+                  <span className="w-12 text-xs uppercase tracking-[0.14em] text-stone-500">
+                    Year
+                  </span>
+                  <input
+                    type="number"
+                    min={currentYear}
+                    max={currentYear + 40}
+                    value={scenarioGiftYear}
+                    onChange={(event) =>
+                      setScenarioGiftYear(parseScenarioNumber(event.target.value))
+                    }
+                    className="w-full rounded-xl border border-stone-200 bg-white px-3 py-2 text-right tabular-nums"
+                  />
+                </label>
+                <select
+                  value={scenarioGiftSource}
+                  onChange={(event) =>
+                    setScenarioGiftSource(
+                      event.target.value as ScheduledOutflow['sourceAccount'],
+                    )
+                  }
+                  className="rounded-xl border border-stone-200 bg-white px-3 py-2"
+                >
+                  <option value="cash">Cash</option>
+                  <option value="taxable">Taxable</option>
+                  <option value="pretax">Pre-tax</option>
+                  <option value="roth">Roth</option>
+                </select>
+              </div>
+
+              <div className="grid gap-3 rounded-2xl border border-stone-200 bg-stone-50 px-3 py-3 md:grid-cols-[170px_1fr] md:items-center">
+                <label className="flex items-center gap-2 font-semibold text-stone-800">
+                  <input
+                    type="checkbox"
+                    checked={includeScenarioRetirementDate}
+                    onChange={(event) =>
+                      setIncludeScenarioRetirementDate(event.target.checked)
+                    }
+                  />
+                  Retirement date
+                </label>
+                <input
+                  type="date"
+                  value={scenarioRetirementDate}
+                  onChange={(event) =>
+                    setScenarioRetirementDate(event.target.value)
+                  }
+                  className="rounded-xl border border-stone-200 bg-white px-3 py-2"
+                />
+              </div>
+
+              <div className="grid gap-3 rounded-2xl border border-stone-200 bg-stone-50 px-3 py-3 md:grid-cols-[170px_1.2fr_1fr] md:items-center">
+                <label className="flex items-center gap-2 font-semibold text-stone-800">
+                  <input
+                    type="checkbox"
+                    checked={includeOneChange}
+                    onChange={(event) => setIncludeOneChange(event.target.checked)}
+                  />
+                  One-change probe
+                </label>
+                <select
+                  value={oneChangeId}
+                  onChange={(event) => {
+                    const next = event.target.value as StressOneChangeId;
+                    setOneChangeId(next);
+                    setOneChangeValue(
+                      getStressOneChangeDefault(next, data, assumptions),
+                    );
+                  }}
+                  className="rounded-xl border border-stone-200 bg-white px-3 py-2"
+                >
+                  {STRESS_ONE_CHANGE_OPTIONS.map((option) => (
+                    <option key={option.id} value={option.id}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+                <input
+                  type={selectedOneChangeOption.inputType}
+                  value={oneChangeValue}
+                  onChange={(event) => setOneChangeValue(event.target.value)}
+                  className="rounded-xl border border-stone-200 bg-white px-3 py-2 text-right tabular-nums"
+                />
+              </div>
+            </div>
           </div>
         </article>
         <article className="rounded-[24px] border border-stone-200 bg-white p-4 shadow-sm">

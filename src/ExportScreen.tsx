@@ -91,6 +91,8 @@ const AUDIT_COLUMNS: AuditColumn[] = [
   { key: 'social_security_debbie', label: '· SS Debbie', format: 'currency', pick: (y) => y.medianSocialSecurityDebbie },
   { key: 'social_security_inflation_index', label: '· SS inflation index', format: 'string', derive: (y) => y.medianSocialSecurityInflationIndex.toFixed(4) },
   { key: 'windfall_cash', label: 'Windfall cash', format: 'currency', pick: (y) => y.medianWindfallCashInflow },
+  { key: 'windfall_deployed_taxable', label: '· Windfall deployed to taxable', format: 'currency', pick: (y) => y.medianWindfallDeployedToTaxable },
+  { key: 'windfall_investment_sleeve', label: '· Windfall investment sleeve', format: 'currency', pick: (y) => y.medianWindfallInvestmentSleeveBalance },
   { key: 'income_total', label: 'Income total', format: 'currency', pick: (y) => y.medianIncome },
   // Spending
   { key: 'spend_total', label: 'Spend total', format: 'currency', pick: (y) => y.medianSpending },

@@ -23,20 +23,20 @@ import type { SeedData } from './types';
 import seedFixture from '../seed-data.json';
 
 describe('policy axis V2.1 (single-rule pass-1)', () => {
-  it('default pass-1 axes produce expected candidate count: 17 × 11 × 11 × 6 × 1 = 12,342', () => {
+  it('default pass-1 axes produce expected candidate count: 9 × 11 × 11 × 6 × 1 = 6,534', () => {
     const axes = buildDefaultPolicyAxes(seedFixture as SeedData);
-    expect(axes.annualSpendTodayDollars).toHaveLength(17);
+    expect(axes.annualSpendTodayDollars).toHaveLength(9);
     expect(axes.primarySocialSecurityClaimAge).toHaveLength(11);
     expect(axes.spouseSocialSecurityClaimAge).toHaveLength(11);
     expect(axes.rothConversionAnnualCeiling).toHaveLength(6);
     expect(axes.withdrawalRule).toHaveLength(1);
-    expect(countPolicyCandidates(axes)).toBe(12_342);
+    expect(countPolicyCandidates(axes)).toBe(6_534);
   });
 
-  it('spend axis covers $80k-$160k in $5k steps (coarse pass)', () => {
+  it('spend axis covers $90k-$130k in $5k steps (coarse pass, V2.2 household-narrowed)', () => {
     const axes = buildDefaultPolicyAxes(seedFixture as SeedData);
     const expected = [];
-    for (let v = 80_000; v <= 160_000; v += 5_000) expected.push(v);
+    for (let v = 90_000; v <= 130_000; v += 5_000) expected.push(v);
     expect(axes.annualSpendTodayDollars).toEqual(expected);
   });
 
@@ -64,7 +64,7 @@ describe('policy axis V2.1 (single-rule pass-1)', () => {
   it('every enumerated pass-1 policy carries a withdrawalRule', () => {
     const axes = buildDefaultPolicyAxes(seedFixture as SeedData);
     const policies = enumeratePolicies(axes);
-    expect(policies).toHaveLength(12_342);
+    expect(policies).toHaveLength(6_534);
     expect(policies.every((p) => p.withdrawalRule === 'tax_bracket_waterfall')).toBe(true);
   });
 

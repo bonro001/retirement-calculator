@@ -3,6 +3,7 @@ import { initialSeedData } from './data';
 import { DEFAULT_ENGINE_COMPARE_ASSUMPTIONS } from './engine-compare';
 import { candidateReplayPackageToRequest } from './candidate-replay-package';
 import {
+  buildPolicyAnnualSpendScheduleByYear,
   evaluatePolicyFullTrace,
   evaluatePolicyWithSummary,
 } from './policy-miner-eval';
@@ -58,6 +59,51 @@ describe('candidate replay package', () => {
     expect(request.tape.trialCount).toBe(8);
     expect(request.tape.trials[0].reference).toBeUndefined();
     expect(request.tape.trials[0].marketPath[0].cashflow).toEqual({});
+  });
+
+  it('shapes mined policy spend targets through a selected schedule basis', { timeout: 20_000 }, async () => {
+    const spendingScheduleBasis = {
+      id: 'jpmorgan_curve_travel_included',
+      label: 'J.P. Morgan Curve, Travel Included',
+      multipliersByYear: {
+        2026: 1,
+        2027: 0.97,
+        2028: 0.94,
+      },
+    };
+    const schedule = buildPolicyAnnualSpendScheduleByYear(
+      POLICY,
+      spendingScheduleBasis,
+    );
+    expect(schedule).toEqual({
+      2026: 120_000,
+      2027: 116_400,
+      2028: 112_800,
+    });
+
+    const replayPackage = await evaluatePolicyWithSummary(
+      POLICY,
+      initialSeedData,
+      {
+        ...DEFAULT_ENGINE_COMPARE_ASSUMPTIONS,
+        simulationRuns: 8,
+        assumptionsVersion: 'candidate-replay-schedule-basis-test',
+      },
+      'test-baseline-jpmorgan',
+      'test-engine',
+      'test-node',
+      cloneSeedData,
+      1_000_000,
+      { recordTape: true, spendingScheduleBasis },
+    );
+
+    const request = candidateReplayPackageToRequest(
+      replayPackage,
+      'policy_mining_summary',
+    );
+
+    expect(replayPackage.annualSpendScheduleByYear).toEqual(schedule);
+    expect(request.annualSpendScheduleByYear).toEqual(schedule);
   });
 
   it('reruns a mined policy with a full trace that matches the summary contract', { timeout: 20_000 }, async () => {

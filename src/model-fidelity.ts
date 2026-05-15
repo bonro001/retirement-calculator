@@ -292,6 +292,28 @@ function buildSpecificReliabilityChecks(input: BuildModelFidelityInput): ModelFi
   });
 
   const inheritance = input.data.income.windfalls.find((item) => item.name === 'inheritance');
+  const materialCashIns = input.data.income.windfalls.filter((item) => item.amount > 0);
+  const windfallDeployment = input.data.rules.windfallDeploymentPolicy;
+  checks.push({
+    id: 'windfall_cash_destination_policy',
+    label: 'Cash-in destination policy',
+    status: materialCashIns.length === 0
+      ? 'exact'
+      : windfallDeployment?.assumptionSource &&
+          windfallDeployment.enabled !== false &&
+          windfallDeployment.destinationAccount &&
+          windfallDeployment.investmentPolicy
+        ? 'exact'
+        : 'inferred',
+    reliabilityImpact: materialCashIns.length > 0 ? 'high' : 'low',
+    blocking: false,
+    detail: materialCashIns.length === 0
+      ? 'No material windfall or house-sale cash-in events included in the base plan.'
+      : windfallDeployment?.assumptionSource
+        ? `Cash-in deployment is explicit: unspent proceeds go to a ${windfallDeployment.trackingMode ?? 'taxable_shadow_sleeve'} in ${windfallDeployment.destinationAccount ?? 'taxable'} using ${windfallDeployment.investmentPolicy ?? 'current_portfolio_mix'} (${windfallDeployment.assumptionSource}).`
+        : 'Material windfall or house-sale cash-in events exist, but destination and investment policy are inferred from engine defaults rather than an explicit household rule.',
+  });
+
   checks.push({
     id: 'uncertain_inheritance',
     label: 'Inheritance certainty',

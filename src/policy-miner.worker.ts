@@ -1,7 +1,7 @@
 /// <reference lib="webworker" />
 
 import type { MarketAssumptions, SeedData } from './types';
-import type { PolicyEvaluation } from './policy-miner-types';
+import type { PolicyEvaluation, PolicySpendingScheduleBasis } from './policy-miner-types';
 import { evaluatePolicy } from './policy-miner';
 import type {
   PolicyMinerWorkerRequest,
@@ -31,6 +31,7 @@ interface PrimedSession {
   engineVersion: string;
   evaluatedByNodeId: string;
   legacyTargetTodayDollars: number;
+  spendingScheduleBasis?: PolicySpendingScheduleBasis;
 }
 
 const workerScope = self as DedicatedWorkerGlobalScope;
@@ -69,6 +70,7 @@ workerScope.onmessage = async (
       engineVersion: message.payload.engineVersion,
       evaluatedByNodeId: message.payload.evaluatedByNodeId,
       legacyTargetTodayDollars: message.payload.legacyTargetTodayDollars,
+      spendingScheduleBasis: message.payload.spendingScheduleBasis,
     });
     return;
   }
@@ -115,6 +117,7 @@ workerScope.onmessage = async (
         session.evaluatedByNodeId,
         cloneSeedData,
         session.legacyTargetTodayDollars,
+        session.spendingScheduleBasis,
       );
       evaluations.push(evaluation);
     }

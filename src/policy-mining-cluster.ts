@@ -19,14 +19,21 @@
  * makes it trivially testable and reusable from any future UI surface
  * (sweep view, frontier scatter, sensitivity sweeps).
  *
- * What this module DOESN'T do: it never writes — there is no
- * "import this cluster session into local IndexedDB" path here.
- * The results table renders cluster evaluations directly without
- * mirroring them locally. That keeps two stores from disagreeing
- * about which records exist.
+ * What this module DOESN'T do: it never mirrors cluster evaluations
+ * into local IndexedDB. The one POST helper below asks the dispatcher
+ * to run a server-side AI review; it still does not mutate the corpus.
  */
 
 import type { PolicyEvaluation, PolicyMiningSessionConfig } from './policy-miner-types';
+import type {
+  MiningNorthStarAiCheck,
+  MiningNorthStarAiCheckRequest,
+} from './mining-north-star-ai';
+import type {
+  MonthlyReviewAiApproval,
+  MonthlyReviewRun,
+  MonthlyReviewValidationPacket,
+} from './monthly-review';
 
 /**
  * What the dispatcher's `/sessions` listing returns per row. Mirror of
@@ -70,6 +77,18 @@ export interface ClusterEvaluationsPayload {
   engineVersion: string;
   evaluationCount: number;
   evaluations: PolicyEvaluation[];
+}
+
+export interface ClusterWakeHostsResult {
+  targets: Array<{ name: string; mac: string }>;
+  broadcasts: string[];
+  magicPacketsSent: number;
+  pokes: Array<{
+    host: string;
+    port: number;
+    status: 'connected' | 'timeout' | 'error';
+  }>;
+  errors: string[];
 }
 
 /**
@@ -119,6 +138,58 @@ async function fetchJson<T>(dispatcherUrl: string, path: string): Promise<T> {
   if (!res.ok) {
     throw new ClusterFetchError(
       `dispatcher returned ${res.status} for ${path}`,
+      'http_error',
+    );
+  }
+  try {
+    return (await res.json()) as T;
+  } catch (err) {
+    throw new ClusterFetchError(
+      `dispatcher returned non-JSON body for ${path}`,
+      'bad_payload',
+      { cause: err },
+    );
+  }
+}
+
+async function postJson<T>(
+  dispatcherUrl: string,
+  path: string,
+  body: unknown,
+): Promise<T> {
+  const origin = clusterUrlToHttp(dispatcherUrl);
+  const url = `${origin}${path}`;
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method: 'POST',
+      credentials: 'omit',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body ?? {}),
+    });
+  } catch (err) {
+    throw new ClusterFetchError(
+      `cannot reach dispatcher at ${origin} — is it running?`,
+      'unreachable',
+      { cause: err },
+    );
+  }
+  if (res.status === 404) {
+    throw new ClusterFetchError(`not found: ${path}`, 'not_found');
+  }
+  if (!res.ok) {
+    let detail = '';
+    try {
+      const payload = await res.json();
+      detail =
+        payload && typeof payload === 'object' && 'detail' in payload
+          ? ` — ${String((payload as { detail?: unknown }).detail)}`
+          : '';
+    } catch {
+      // Keep the generic status message if the dispatcher returned text.
+    }
+    throw new ClusterFetchError(
+      `dispatcher returned ${res.status} for ${path}${detail}`,
       'http_error',
     );
   }
@@ -237,4 +308,56 @@ export async function loadClusterSessionMetadata(
   evaluationCount: number;
 }> {
   return fetchJson(dispatcherUrl, `/sessions/${encodeURIComponent(sessionId)}`);
+}
+
+/**
+ * Ask the dispatcher to run the OpenAI-backed north-star review for a
+ * mining session. The API key stays in the dispatcher process; browser
+ * code sends only the selected row and threshold knobs.
+ */
+export async function runClusterNorthStarAiCheck(
+  dispatcherUrl: string,
+  sessionId: string,
+  request: MiningNorthStarAiCheckRequest,
+): Promise<MiningNorthStarAiCheck> {
+  return postJson<MiningNorthStarAiCheck>(
+    dispatcherUrl,
+    `/sessions/${encodeURIComponent(sessionId)}/north-star-ai-check`,
+    request,
+  );
+}
+
+/**
+ * Submit a monthly-review validation packet to the dispatcher for
+ * server-side OpenAI co-review.
+ */
+export async function runClusterMonthlyReviewAiApproval(
+  dispatcherUrl: string,
+  packet: MonthlyReviewValidationPacket,
+): Promise<MonthlyReviewAiApproval> {
+  return postJson<MonthlyReviewAiApproval>(
+    dispatcherUrl,
+    '/monthly-review-ai-check',
+    packet,
+  );
+}
+
+export async function wakeClusterHosts(
+  dispatcherUrl: string,
+): Promise<ClusterWakeHostsResult> {
+  return postJson<ClusterWakeHostsResult>(dispatcherUrl, '/wake-hosts', {});
+}
+
+export async function saveClusterMonthlyReviewAudit(
+  dispatcherUrl: string,
+  input: {
+    auditId: string;
+    run: MonthlyReviewRun;
+    transactionEvents?: unknown;
+  },
+): Promise<MonthlyReviewAiApproval['auditTrail']> {
+  const body = await postJson<{
+    auditTrail: MonthlyReviewAiApproval['auditTrail'];
+  }>(dispatcherUrl, '/monthly-review-audit', input);
+  return body.auditTrail;
 }

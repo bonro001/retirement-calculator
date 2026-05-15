@@ -68,6 +68,15 @@ function spendingContext(
     annualEscrowPlannedBudget: 30_000,
     annualEscrowActualSpend: 29_000,
     annualEscrowAdaptiveBudget: 30_000,
+    annualRequiredBudget: 24_000,
+    annualRequiredSpend: 12_000,
+    annualOptionalBudget: 6_000,
+    annualOptionalSpend: 3_000,
+    annualTotalBudget: 30_000,
+    annualTotalSpend: 15_000,
+    annualTravelBudget: 0,
+    annualTravelSpend: 0,
+    annualOtherSpend: 0,
     transactionCount: 12,
     ledgerStatus: 'loaded',
   };
@@ -168,6 +177,17 @@ describe('buildSixPackSnapshot', () => {
       order: 1,
       color: 'green',
       front_metric: '$2.2k / $7.5k mo',
+    });
+    expect(payload.attributes.pucks.find((puck) => puck.id === 'watch_items')).toMatchObject({
+      yearly_required_segment_percent: 40,
+      yearly_optional_segment_percent: 10,
+      yearly_total_percent: 50,
+      yearly_required_budget: 24_000,
+      yearly_required_spend: 12_000,
+      yearly_optional_budget: 6_000,
+      yearly_optional_spend: 3_000,
+      yearly_total_budget: 30_000,
+      yearly_total_spend: 15_000,
     });
     expect(JSON.stringify(payload)).not.toContain('diagnostics');
   });

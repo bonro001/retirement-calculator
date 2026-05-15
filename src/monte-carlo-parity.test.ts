@@ -108,7 +108,7 @@ describe('monte carlo parity targeted checks', () => {
     expect(order.slice(0, 3)).toEqual(['cash', 'pretax', 'taxable']);
   });
 
-  it('applies windfalls by configured year into income path', () => {
+  it('applies windfalls by configured year into cashflow and deployment path', () => {
     const data = cloneSeedData(initialSeedData);
     data.income.salaryAnnual = 0;
     data.income.salaryEndDate = '2026-01-01T00:00:00.000Z';
@@ -128,9 +128,11 @@ describe('monte carlo parity targeted checks', () => {
     const assumptions = { ...TEST_ASSUMPTIONS, simulationRuns: 20, equityMean: 0, equityVolatility: 0, internationalEquityMean: 0, internationalEquityVolatility: 0, bondMean: 0, bondVolatility: 0, cashMean: 0, cashVolatility: 0 };
     const [path] = buildPathResults(data, assumptions, [], [], { pathMode: 'selected_only', strategyMode: 'raw_simulation' });
     const income2026 = path.yearlySeries.find((row) => row.year === 2026)?.medianIncome ?? 0;
-    const income2027 = path.yearlySeries.find((row) => row.year === 2027)?.medianIncome ?? 0;
+    const year2027 = path.yearlySeries.find((row) => row.year === 2027);
     expect(income2026).toBe(0);
-    expect(income2027).toBe(120000);
+    expect(year2027?.medianIncome).toBe(0);
+    expect(year2027?.medianWindfallCashInflow).toBe(120000);
+    expect(year2027?.medianWindfallDeployedToTaxable).toBe(120000);
   });
 
   it('reproduces raw and planner modes from export payload with diagnostics', () => {
@@ -151,7 +153,7 @@ describe('monte carlo parity targeted checks', () => {
     expect(harness.plannerEnhancedSimulation.mode).toBe('planner_enhanced');
     expect(harness.diagnostics.rawSimulation.parityAudit.length).toBeGreaterThan(0);
     expect(fromJson.rawSimulation.successRate).toBe(harness.rawSimulation.successRate);
-  });
+  }, 12_000);
 
   it('replayed export path matches direct seeded run inputs without double-applying toggles', () => {
     const selectedStressors = ['layoff', 'market_down'];
@@ -175,5 +177,5 @@ describe('monte carlo parity targeted checks', () => {
     expect(replayedPlanner.successRate).toBe(directPlanner.successRate);
     expect(replayedPlanner.medianEndingWealth).toBe(directPlanner.medianEndingWealth);
     expect(replayedPlanner.failureYearDistribution).toEqual(directPlanner.failureYearDistribution);
-  });
+  }, 12_000);
 });

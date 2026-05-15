@@ -11,6 +11,7 @@ import type {
   PathYearResult,
   ProjectionPoint,
   ResponseOption,
+  ScheduledOutflow,
   SeedData,
   SimulationConfigurationSnapshot,
   SimulationModeDiagnostics,
@@ -22,6 +23,7 @@ import type {
   SimulationTimingConventions,
   SocialSecurityEntry,
   Stressor,
+  WindfallDeploymentPolicy,
   WindfallTaxTreatment,
   WithdrawalRule,
 } from './types';
@@ -112,10 +114,15 @@ interface SimPlan {
   optionalAnnual: number;
   taxesInsuranceAnnual: number;
   travelAnnual: number;
+  travelFloorAnnual: number;
   travelPhaseYears: number;
+  travelFlatYears: number;
   housingAfterDownsizePolicy?: HousingAfterDownsizePolicy;
+  windfallDeploymentPolicy: Required<Omit<WindfallDeploymentPolicy, 'assumptionSource'>> &
+    Pick<WindfallDeploymentPolicy, 'assumptionSource'>;
   socialSecurity: SocialSecurityEntry[];
   windfalls: SimWindfall[];
+  scheduledOutflows: ScheduledOutflow[];
   assetClassMappingAssumptions: Required<AssetClassMappingAssumptions>;
   accounts: Record<AccountBucketType, SimBucketConfig>;
   preserveRoth: boolean;
@@ -270,6 +277,8 @@ interface RunTrace {
   irmaaSurcharge: number;
   totalHealthcarePremiumCost: number;
   windfallCashInflow: number;
+  windfallDeployedToTaxable: number;
+  windfallInvestmentSleeveBalance: number;
   windfallOrdinaryIncome: number;
   windfallLtcgIncome: number;
   homeSaleGrossProceeds: number;
@@ -608,6 +617,7 @@ export interface AnnualSpendingTargets {
   essentialAnnual: number;
   flexibleAnnual: number;
   travelAnnual: number;
+  travelFloorAnnual: number;
   taxesInsuranceAnnual: number;
   totalAnnual: number;
 }
@@ -624,11 +634,13 @@ export function getAnnualSpendingTargets(data: SeedData): AnnualSpendingTargets 
   const essentialAnnual = Math.max(0, data.spending.essentialMonthly * 12);
   const flexibleAnnual = Math.max(0, data.spending.optionalMonthly * 12);
   const travelAnnual = Math.max(0, data.spending.travelEarlyRetirementAnnual);
+  const travelFloorAnnual = Math.max(0, data.spending.travelFloorAnnual ?? 0);
   const taxesInsuranceAnnual = Math.max(0, data.spending.annualTaxesInsurance);
   return {
     essentialAnnual,
     flexibleAnnual,
     travelAnnual,
+    travelFloorAnnual,
     taxesInsuranceAnnual,
     totalAnnual: essentialAnnual + flexibleAnnual + travelAnnual + taxesInsuranceAnnual,
   };
@@ -813,10 +825,15 @@ function buildPlan(
     optionalAnnual: rawOptionalAnnual,
     taxesInsuranceAnnual: rawTaxesInsuranceAnnual,
     travelAnnual: rawTravelAnnual,
+    travelFloorAnnual: Math.max(0, effectiveSpending.travelFloorAnnual ?? 0),
     travelPhaseYears: assumptions.travelPhaseYears,
+    travelFlatYears: assumptions.travelFlatYears ?? assumptions.travelPhaseYears,
     housingAfterDownsizePolicy: data.rules.housingAfterDownsizePolicy
       ? { ...data.rules.housingAfterDownsizePolicy }
       : undefined,
+    windfallDeploymentPolicy: resolveWindfallDeploymentPolicy(
+      data.rules.windfallDeploymentPolicy,
+    ),
     socialSecurity: data.income.socialSecurity.map((entry) => ({ ...entry })),
     windfalls: data.income.windfalls.map((item) => {
       // When `presentValueGrowthRate` is set, the entered amount is in
@@ -842,6 +859,9 @@ function buildPlan(
         presentValueGrowthRate: undefined,
       };
     }),
+    scheduledOutflows: (data.scheduledOutflows ?? []).map((entry) => ({
+      ...entry,
+    })),
     assetClassMappingAssumptions,
     accounts: {
       pretax: {
@@ -936,6 +956,7 @@ function applyStressors(
     ...plan,
     socialSecurity: plan.socialSecurity.map((entry) => ({ ...entry })),
     windfalls: plan.windfalls.map((entry) => ({ ...entry })),
+    scheduledOutflows: plan.scheduledOutflows.map((entry) => ({ ...entry })),
     activeStressors: stressors.map((item) => item.id),
   };
 
@@ -1009,6 +1030,7 @@ function applyResponses(
     ...plan,
     socialSecurity: plan.socialSecurity.map((entry) => ({ ...entry })),
     windfalls: plan.windfalls.map((entry) => ({ ...entry })),
+    scheduledOutflows: plan.scheduledOutflows.map((entry) => ({ ...entry })),
     housingAfterDownsizePolicy: plan.housingAfterDownsizePolicy
       ? { ...plan.housingAfterDownsizePolicy }
       : undefined,
@@ -1177,6 +1199,117 @@ function getBucketReturn(
     (assetReturns.BONDS ?? 0) * flat.bonds +
     (assetReturns.CASH ?? 0) * flat.cash
   );
+}
+
+function normalizeSymbolAllocation(
+  allocation: Record<string, number>,
+): Record<string, number> {
+  const entries = Object.entries(allocation)
+    .map(([symbol, weight]) => [symbol, Math.max(0, weight)] as const)
+    .filter(([, weight]) => weight > 0);
+  const total = entries.reduce((sum, [, weight]) => sum + weight, 0);
+  if (total <= 0) {
+    return { VTI: 1 };
+  }
+  return Object.fromEntries(
+    entries.map(([symbol, weight]) => [symbol, weight / total]),
+  );
+}
+
+function representativeAllocationFromExposure(
+  exposure: Pick<FlatBucketExposure, 'usEquity' | 'intlEquity' | 'bonds' | 'cash'>,
+): Record<string, number> {
+  return normalizeSymbolAllocation({
+    VTI: exposure.usEquity,
+    VXUS: exposure.intlEquity,
+    BND: exposure.bonds,
+    CASH: exposure.cash,
+  });
+}
+
+function buildCurrentInvestedMixAllocation(
+  plan: SimPlan,
+  balances: Record<AccountBucketType, number>,
+  taxableAllocation: Record<string, number>,
+) {
+  const totals = {
+    usEquity: 0,
+    intlEquity: 0,
+    bonds: 0,
+    cash: 0,
+  };
+  let investedBalance = 0;
+
+  for (const bucket of ['pretax', 'roth', 'taxable'] as AccountBucketType[]) {
+    const balance = Math.max(0, balances[bucket]);
+    if (balance <= 0) {
+      continue;
+    }
+    const allocation =
+      bucket === 'taxable'
+        ? taxableAllocation
+        : plan.accounts[bucket].targetAllocation;
+    const exposure = getOrBuildFlatBucketExposure(
+      allocation,
+      plan.assetClassMappingAssumptions,
+    );
+    totals.usEquity += exposure.usEquity * balance;
+    totals.intlEquity += exposure.intlEquity * balance;
+    totals.bonds += exposure.bonds * balance;
+    totals.cash += exposure.cash * balance;
+    investedBalance += balance;
+  }
+
+  if (investedBalance <= 0) {
+    return normalizeSymbolAllocation(taxableAllocation);
+  }
+
+  return representativeAllocationFromExposure({
+    usEquity: totals.usEquity / investedBalance,
+    intlEquity: totals.intlEquity / investedBalance,
+    bonds: totals.bonds / investedBalance,
+    cash: totals.cash / investedBalance,
+  });
+}
+
+function blendAllocationsByBalance(input: {
+  existingAllocation: Record<string, number>;
+  existingBalance: number;
+  addedAllocation: Record<string, number>;
+  addedBalance: number;
+}) {
+  const existingBalance = Math.max(0, input.existingBalance);
+  const addedBalance = Math.max(0, input.addedBalance);
+  const total = existingBalance + addedBalance;
+  if (total <= 0) {
+    return normalizeSymbolAllocation(input.existingAllocation);
+  }
+  const next: Record<string, number> = {};
+  for (const symbol of new Set([
+    ...Object.keys(input.existingAllocation),
+    ...Object.keys(input.addedAllocation),
+  ])) {
+    next[symbol] =
+      ((input.existingAllocation[symbol] ?? 0) * existingBalance +
+        (input.addedAllocation[symbol] ?? 0) * addedBalance) /
+      total;
+  }
+  return normalizeSymbolAllocation(next);
+}
+
+function reduceSleeveForTaxableWithdrawal(input: {
+  sleeveBalance: number;
+  taxableBalanceBeforeWithdrawal: number;
+  taxableWithdrawal: number;
+}) {
+  const sleeveBalance = Math.max(0, input.sleeveBalance);
+  const taxableBalanceBeforeWithdrawal = Math.max(0, input.taxableBalanceBeforeWithdrawal);
+  const taxableWithdrawal = Math.max(0, input.taxableWithdrawal);
+  if (sleeveBalance <= 0 || taxableBalanceBeforeWithdrawal <= 0 || taxableWithdrawal <= 0) {
+    return sleeveBalance;
+  }
+  const sleeveShare = Math.min(1, sleeveBalance / taxableBalanceBeforeWithdrawal);
+  return Math.max(0, sleeveBalance - taxableWithdrawal * sleeveShare);
 }
 
 function getDefenseScore(
@@ -1636,6 +1769,19 @@ function createBaseYearTaxInputs(
     headAge,
     spouseAge,
   };
+}
+
+function computeTaperedTravel(
+  yearsIntoRetirement: number,
+  peakAmount: number,
+  floorAmount: number,
+  flatYears: number,
+  phaseYears: number,
+): number {
+  if (yearsIntoRetirement < flatYears) return peakAmount;
+  if (yearsIntoRetirement >= phaseYears || flatYears >= phaseYears) return floorAmount;
+  const progress = (yearsIntoRetirement - flatYears) / (phaseYears - flatYears);
+  return peakAmount + (floorAmount - peakAmount) * progress;
 }
 
 function getScheduledAnnualSpendForYear(
@@ -2213,6 +2359,21 @@ const DEFAULT_ROTH_CONVERSION_BALANCE_RATIO_CAP = 0.12;
 const DEFAULT_ROTH_CONVERSION_MAGI_BUFFER = 2_000;
 const MIN_FAILURE_SHORTFALL_DOLLARS = 0.01;
 const RAW_WITHDRAWAL_ORDER: AccountBucketType[] = ['cash', 'taxable', 'pretax', 'roth'];
+
+function resolveWindfallDeploymentPolicy(
+  policy: WindfallDeploymentPolicy | undefined,
+): Required<Omit<WindfallDeploymentPolicy, 'assumptionSource'>> &
+  Pick<WindfallDeploymentPolicy, 'assumptionSource'> {
+  return {
+    enabled: policy?.enabled ?? true,
+    destinationAccount: policy?.destinationAccount ?? 'taxable',
+    investmentPolicy: policy?.investmentPolicy ?? 'current_portfolio_mix',
+    trackingMode: policy?.trackingMode ?? 'taxable_shadow_sleeve',
+    spendBeforeDeploy: policy?.spendBeforeDeploy ?? true,
+    cashReserveMonths: Math.max(0, policy?.cashReserveMonths ?? 0),
+    assumptionSource: policy?.assumptionSource,
+  };
+}
 
 const RETURN_GENERATION_ASSUMPTIONS: SimulationReturnGenerationAssumptions = {
   model: 'bounded_normal_by_asset_class',
@@ -4229,6 +4390,8 @@ function summaryOnlyPathYearResult(input: {
     medianIrmaaSurcharge: 0,
     medianTotalHealthcarePremiumCost: 0,
     medianWindfallCashInflow: 0,
+    medianWindfallDeployedToTaxable: 0,
+    medianWindfallInvestmentSleeveBalance: 0,
     medianWindfallOrdinaryIncome: 0,
     medianWindfallLtcgIncome: 0,
     medianHomeSaleGrossProceeds: 0,
@@ -4607,6 +4770,12 @@ function simulatePath(
         taxable: effectivePlan.accounts.taxable.balance,
         cash: effectivePlan.accounts.cash.balance,
       };
+      let taxableTargetAllocation = normalizeSymbolAllocation(
+        effectivePlan.accounts.taxable.targetAllocation,
+      );
+      let taxableAllocationIsDynamic = false;
+      let windfallInvestmentSleeveBalance = 0;
+      let windfallInvestmentSleeveAllocation = taxableTargetAllocation;
 
       let optionalCutActive = false;
       let spendingCutsTriggered = 0;
@@ -4689,8 +4858,13 @@ function simulatePath(
         // no risk of activating travel in years that don't matter to
         // the projection. The phase ends `travelPhaseYears` post-
         // retirement (when the household enters slow-go years).
-        const inTravelPhase =
-          yearsIntoRetirement < effectivePlan.travelPhaseYears;
+        const baselineTravelAnnual = computeTaperedTravel(
+          yearsIntoRetirement,
+          effectivePlan.travelAnnual,
+          effectivePlan.travelFloorAnnual,
+          effectivePlan.travelFlatYears,
+          effectivePlan.travelPhaseYears,
+        );
         const taxesInsuranceAnnualForYear = getTaxesInsuranceAnnualForYear(
           effectivePlan,
           year,
@@ -4698,7 +4872,7 @@ function simulatePath(
         const fixedSpendAnnual =
           effectivePlan.essentialAnnual + taxesInsuranceAnnualForYear;
         const baselineDiscretionaryAnnual =
-          effectivePlan.optionalAnnual + (inTravelPhase ? effectivePlan.travelAnnual : 0);
+          effectivePlan.optionalAnnual + baselineTravelAnnual;
         const scheduledAnnualSpend = getScheduledAnnualSpendForYear(
           options?.annualSpendScheduleByYear,
           year,
@@ -4711,9 +4885,7 @@ function simulatePath(
             ? discretionaryTargetAnnual / baselineDiscretionaryAnnual
             : 0;
         const optionalAnnualForYear = effectivePlan.optionalAnnual * discretionaryScale;
-        const travelAnnualForYear = inTravelPhase
-          ? effectivePlan.travelAnnual * discretionaryScale
-          : 0;
+        const travelAnnualForYear = baselineTravelAnnual * discretionaryScale;
         const baseSpending =
           fixedSpendAnnual + optionalAnnualForYear + travelAnnualForYear;
 
@@ -4851,21 +5023,41 @@ function simulatePath(
 
         const rothBalanceBeforeReturnsForYear = balances.roth;
         const bucketReturns =
-          marketPoint.bucketReturns ??
-          Object.fromEntries(
-            SIM_BUCKETS.map((bucket) => [
-              bucket,
-              getBucketReturn(
-                effectivePlan.accounts[bucket].targetAllocation,
-                assetReturns,
-                effectivePlan.assetClassMappingAssumptions,
-              ),
-            ]),
-          ) as Record<AccountBucketType, number>;
+          marketPoint.bucketReturns
+            ? { ...marketPoint.bucketReturns }
+            : Object.fromEntries(
+                SIM_BUCKETS.map((bucket) => [
+                  bucket,
+                  getBucketReturn(
+                    effectivePlan.accounts[bucket].targetAllocation,
+                    assetReturns,
+                    effectivePlan.assetClassMappingAssumptions,
+                  ),
+                ]),
+              ) as Record<AccountBucketType, number>;
+        if (taxableAllocationIsDynamic) {
+          bucketReturns.taxable = getBucketReturn(
+            taxableTargetAllocation,
+            assetReturns,
+            effectivePlan.assetClassMappingAssumptions,
+          );
+        }
         marketPoint.bucketReturns = bucketReturns;
         SIM_BUCKETS.forEach((bucket) => {
           balances[bucket] *= 1 + bucketReturns[bucket];
         });
+        if (windfallInvestmentSleeveBalance > 0) {
+          const sleeveReturn = getBucketReturn(
+            windfallInvestmentSleeveAllocation,
+            assetReturns,
+            effectivePlan.assetClassMappingAssumptions,
+          );
+          windfallInvestmentSleeveBalance *= 1 + sleeveReturn;
+          windfallInvestmentSleeveBalance = Math.min(
+            Math.max(0, windfallInvestmentSleeveBalance),
+            Math.max(0, balances.taxable),
+          );
+        }
         if (data.accounts.hsa && hsaBalance > 0) {
           const hsaReturn = getBucketReturn(
             data.accounts.hsa.targetAllocation,
@@ -4877,8 +5069,42 @@ function simulatePath(
         const rothMarketGainLossForYear = balances.roth - rothBalanceBeforeReturnsForYear;
 
         balances.cash += windfallCashInflow;
-        const baseIncome = adjustedWages + socialSecurityIncome + windfallCashInflow;
-        const shortfallBeforeHealthcare = Math.max(spendingBeforeHealthcare - baseIncome, 0);
+        const baseIncome = adjustedWages + socialSecurityIncome;
+
+        let outflowOrdinaryIncome = 0;
+        let outflowLtcgIncome = 0;
+        let outflowShortfallTotal = 0;
+        const scheduledOutflowsForYear = effectivePlan.scheduledOutflows.filter(
+          (entry) => entry.year === year,
+        );
+        for (const outflow of scheduledOutflowsForYear) {
+          if (!(outflow.amount > 0)) {
+            continue;
+          }
+          const nominalAmount = outflow.amount * inflationIndex;
+          const sourceBalance = Math.max(0, balances[outflow.sourceAccount]);
+          const available = Math.min(nominalAmount, sourceBalance);
+          const shortfall = nominalAmount - available;
+          balances[outflow.sourceAccount] -= available;
+          if (outflow.sourceAccount === 'taxable') {
+            windfallInvestmentSleeveBalance = reduceSleeveForTaxableWithdrawal({
+              sleeveBalance: windfallInvestmentSleeveBalance,
+              taxableBalanceBeforeWithdrawal: sourceBalance,
+              taxableWithdrawal: available,
+            });
+          }
+          if (outflow.sourceAccount === 'pretax') {
+            outflowOrdinaryIncome += available;
+          } else if (outflow.sourceAccount === 'taxable') {
+            outflowLtcgIncome += available * DEFAULT_TAXABLE_WITHDRAWAL_LTCG_RATIO;
+          }
+          if (shortfall > 0) {
+            outflowShortfallTotal += shortfall;
+          }
+        }
+
+        const shortfallBeforeHealthcare =
+          Math.max(spendingBeforeHealthcare - baseIncome, 0) + outflowShortfallTotal;
         const baseTaxInputs = createBaseYearTaxInputs(
           data.household.filingStatus,
           adjustedWages,
@@ -4886,8 +5112,8 @@ function simulatePath(
           robAge,
           debbieAge,
         );
-        baseTaxInputs.otherOrdinaryIncome += windfallOrdinaryIncome;
-        baseTaxInputs.realizedLTCG += windfallLtcgIncome;
+        baseTaxInputs.otherOrdinaryIncome += windfallOrdinaryIncome + outflowOrdinaryIncome;
+        baseTaxInputs.realizedLTCG += windfallLtcgIncome + outflowLtcgIncome;
         const balancesBeforeWithdrawal = { ...balances };
         const medicareEligibilityByPerson = [robAge >= 65, debbieAge >= 65];
         const medicareEligibleCount = medicareEligibilityByPerson.filter(Boolean).length;
@@ -5187,6 +5413,15 @@ function simulatePath(
         balances.roth = balancesAfterConversion.roth;
         balances.taxable = balancesAfterConversion.taxable;
         balances.cash = balancesAfterConversion.cash;
+        windfallInvestmentSleeveBalance = reduceSleeveForTaxableWithdrawal({
+          sleeveBalance: windfallInvestmentSleeveBalance,
+          taxableBalanceBeforeWithdrawal: balancesBeforeWithdrawal.taxable,
+          taxableWithdrawal: withdrawalResult.withdrawals.taxable,
+        });
+        windfallInvestmentSleeveBalance = Math.min(
+          windfallInvestmentSleeveBalance,
+          Math.max(0, balances.taxable),
+        );
         if (hsaOffsetUsed > 0) {
           const appliedOffset = Math.min(hsaOffsetUsed, hsaBalance);
           hsaBalance = Math.max(0, hsaBalance - appliedOffset);
@@ -5245,11 +5480,17 @@ function simulatePath(
             if (take <= 0) {
               continue;
             }
+            const balanceBeforeSupplementalTake = balances[bucket];
             balances[bucket] -= take;
             withdrawalResult.withdrawals[bucket] += take;
             supplementalNeed -= take;
             fundedThisPass += take;
             if (bucket === 'taxable') {
+              windfallInvestmentSleeveBalance = reduceSleeveForTaxableWithdrawal({
+                sleeveBalance: windfallInvestmentSleeveBalance,
+                taxableBalanceBeforeWithdrawal: balanceBeforeSupplementalTake,
+                taxableWithdrawal: take,
+              });
               withdrawalResult.taxInputs.realizedLTCG +=
                 take * DEFAULT_TAXABLE_WITHDRAWAL_LTCG_RATIO;
               refreshTaxAndHealthcareAfterSupplementalWithdrawal();
@@ -5280,6 +5521,55 @@ function simulatePath(
           rawUnresolvedCashflowGap >= MIN_FAILURE_SHORTFALL_DOLLARS
             ? rawUnresolvedCashflowGap
             : 0;
+        const deploymentPolicy = effectivePlan.windfallDeploymentPolicy;
+        const windfallCashUsedForSpending = deploymentPolicy.spendBeforeDeploy
+          ? Math.min(
+              windfallCashInflow,
+              withdrawalResult.withdrawals.cash,
+            )
+          : 0;
+        const deployableWindfallCash = Math.max(
+          0,
+          windfallCashInflow - windfallCashUsedForSpending,
+        );
+        const windfallCashReserveTarget =
+          (spendingBeforeHealthcare / 12) * deploymentPolicy.cashReserveMonths;
+        const cashAvailableAfterReserve = Math.max(
+          0,
+          balances.cash - windfallCashReserveTarget,
+        );
+        const windfallDeployedToTaxable =
+          deploymentPolicy.enabled && deploymentPolicy.destinationAccount === 'taxable'
+            ? Math.min(deployableWindfallCash, cashAvailableAfterReserve)
+            : 0;
+        if (windfallDeployedToTaxable > 0) {
+          const deploymentAllocation =
+            deploymentPolicy.investmentPolicy === 'current_portfolio_mix'
+              ? buildCurrentInvestedMixAllocation(
+                  effectivePlan,
+                  balances,
+                  taxableTargetAllocation,
+                )
+              : taxableTargetAllocation;
+          if (deploymentPolicy.trackingMode === 'taxable_shadow_sleeve') {
+            windfallInvestmentSleeveAllocation = blendAllocationsByBalance({
+              existingAllocation: windfallInvestmentSleeveAllocation,
+              existingBalance: windfallInvestmentSleeveBalance,
+              addedAllocation: deploymentAllocation,
+              addedBalance: windfallDeployedToTaxable,
+            });
+            windfallInvestmentSleeveBalance += windfallDeployedToTaxable;
+          }
+          taxableTargetAllocation = blendAllocationsByBalance({
+            existingAllocation: taxableTargetAllocation,
+            existingBalance: balances.taxable,
+            addedAllocation: deploymentAllocation,
+            addedBalance: windfallDeployedToTaxable,
+          });
+          taxableAllocationIsDynamic = true;
+          balances.cash -= windfallDeployedToTaxable;
+          balances.taxable += windfallDeployedToTaxable;
+        }
         marketPoint.cashflow = {
           adjustedWages,
           spendingCutActive: optionalCutActive,
@@ -5290,6 +5580,8 @@ function simulatePath(
           rothContributionFlow: rothContributionFlowForYear,
           socialSecurityIncome,
           windfallCashInflow,
+          windfallDeployedToTaxable,
+          windfallInvestmentSleeveBalance,
           homeSaleGrossProceeds,
           homeSaleSellingCosts,
           homeReplacementPurchaseCost,
@@ -5517,6 +5809,10 @@ function simulatePath(
             healthcarePremiums.totalHealthcarePremiumCost,
           ),
           windfallCashInflow: roundSeriesValue(windfallCashInflow),
+          windfallDeployedToTaxable: roundSeriesValue(windfallDeployedToTaxable),
+          windfallInvestmentSleeveBalance: roundSeriesValue(
+            windfallInvestmentSleeveBalance,
+          ),
           windfallOrdinaryIncome: roundSeriesValue(windfallOrdinaryIncome),
           windfallLtcgIncome: roundSeriesValue(windfallLtcgIncome),
           homeSaleGrossProceeds: roundSeriesValue(homeSaleGrossProceeds),
@@ -5821,6 +6117,12 @@ function simulatePath(
           traces.map((trace) => trace.totalHealthcarePremiumCost),
         ),
         medianWindfallCashInflow: median(traces.map((trace) => trace.windfallCashInflow)),
+        medianWindfallDeployedToTaxable: median(
+          traces.map((trace) => trace.windfallDeployedToTaxable),
+        ),
+        medianWindfallInvestmentSleeveBalance: median(
+          traces.map((trace) => trace.windfallInvestmentSleeveBalance),
+        ),
         medianWindfallOrdinaryIncome: median(
           traces.map((trace) => trace.windfallOrdinaryIncome),
         ),

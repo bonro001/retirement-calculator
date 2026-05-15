@@ -12,6 +12,7 @@ import {
   LineChart,
   ReferenceArea,
   ResponsiveContainer,
+  Sankey,
   Scatter,
   Tooltip,
   XAxis,
@@ -82,6 +83,44 @@ interface BridgeStressSummary {
   successRateChange: number;
   bufferTimingLabel: string;
   detail: string;
+}
+
+interface CashFlowSankeyNode {
+  name: string;
+  valueLabel?: string;
+  kind: 'source' | 'hub' | 'target';
+  color: string;
+}
+
+interface CashFlowSankeyLink {
+  source: number;
+  target: number;
+  value: number;
+  color: string;
+  flowKind: 'income' | 'drawdown' | 'gap' | 'spending' | 'tax' | 'surplus';
+}
+
+type CashFlowDollarMode = 'nominal' | 'today';
+
+interface CashFlowSankeyData {
+  year: number;
+  baseYear: number;
+  dollarMode: CashFlowDollarMode;
+  inflationRate: number;
+  dollarMultiplier: number;
+  modelCompleteness: PlanningStateExportCompact['planScorecard']['canonical']['modelCompleteness'];
+  source: 'cashflowReconciliation' | 'reconstructedFromYearMedians';
+  inferredAssumptions: string[];
+  totalInflows: number;
+  totalOutflows: number;
+  surplusOrGap: number;
+  equationCheck: number;
+  healthcareOutflow: number;
+  generalOutflow: number;
+  taxOutflow: number;
+  drawdownBuckets: string[];
+  nodes: CashFlowSankeyNode[];
+  links: CashFlowSankeyLink[];
 }
 
 interface TradeBuilderScenarioResult {
@@ -505,6 +544,434 @@ function buildWithdrawalMixChartData(outcome: CompactOutcome) {
     pretax: entry.ira401k,
     roth: entry.roth,
   }));
+}
+
+const CASH_FLOW_COLORS = {
+  wages: '#0f766e',
+  socialSecurity: '#0ea5e9',
+  windfall: '#14b8a6',
+  rmd: '#2563eb',
+  cash: '#64748b',
+  taxable: '#0891b2',
+  pretax: '#1d4ed8',
+  roth: '#7c3aed',
+  gap: '#dc2626',
+  hub: '#94a3b8',
+  spending: '#ef4444',
+  healthcare: '#475569',
+  tax: '#f59e0b',
+  surplus: '#22c55e',
+};
+
+function positiveMoney(value: number | null | undefined) {
+  return Number.isFinite(value) ? Math.max(0, Math.round(value ?? 0)) : 0;
+}
+
+function addSankeyNode(
+  nodes: CashFlowSankeyNode[],
+  node: CashFlowSankeyNode,
+) {
+  const index = nodes.length;
+  nodes.push(node);
+  return index;
+}
+
+function addSankeyFlow(
+  args: {
+    nodes: CashFlowSankeyNode[];
+    links: CashFlowSankeyLink[];
+    label: string;
+    amount: number;
+    color: string;
+    source: number;
+    target: number;
+    side: 'source' | 'target';
+    flowKind: CashFlowSankeyLink['flowKind'];
+  },
+) {
+  const value = positiveMoney(args.amount);
+  if (value <= 0) {
+    return;
+  }
+  const flowNode = addSankeyNode(args.nodes, {
+    name: labelWithAmount(args.label, value),
+    valueLabel: formatCurrency(value),
+    kind: args.side,
+    color: args.color,
+  });
+  if (args.side === 'source') {
+    args.links.push({
+      source: flowNode,
+      target: args.target,
+      value,
+      color: args.color,
+      flowKind: args.flowKind,
+    });
+  } else {
+    args.links.push({
+      source: args.source,
+      target: flowNode,
+      value,
+      color: args.color,
+      flowKind: args.flowKind,
+    });
+  }
+}
+
+function labelWithAmount(label: string, value: number) {
+  return `${label}: ${formatCurrency(value)}`;
+}
+
+function getCashFlowBaseYear(outcome: CompactOutcome) {
+  return outcome.yearlySeries[0]?.year ?? new Date().getUTCFullYear();
+}
+
+function getCashFlowInflationRate(payload: PlanningStateExportCompact) {
+  const rate = payload.assumptions.inflation.mean;
+  return Number.isFinite(rate) ? rate : 0;
+}
+
+function getCashFlowDollarMultiplier(input: {
+  payload: PlanningStateExportCompact;
+  outcome: CompactOutcome;
+  year: number;
+  dollarMode: CashFlowDollarMode;
+}) {
+  if (input.dollarMode === 'nominal') {
+    return 1;
+  }
+  const baseYear = getCashFlowBaseYear(input.outcome);
+  const inflationRate = getCashFlowInflationRate(input.payload);
+  return 1 / Math.pow(1 + inflationRate, input.year - baseYear);
+}
+
+function buildFallbackCashflowReconciliation(year: CompactOutcome['yearlySeries'][number]) {
+  const withdrawals = {
+    cash: positiveMoney(year.medianWithdrawalCash),
+    taxable: positiveMoney(year.medianWithdrawalTaxable),
+    ira401k: positiveMoney(year.medianWithdrawalIra401k),
+    roth: positiveMoney(year.medianWithdrawalRoth),
+  };
+  const withdrawalTotal =
+    withdrawals.cash + withdrawals.taxable + withdrawals.ira401k + withdrawals.roth;
+  const spendingIncludingHealthcareAndLtc = positiveMoney(year.medianSpending);
+  const federalTax = positiveMoney(year.medianFederalTax);
+  const totalOutflows = spendingIncludingHealthcareAndLtc + federalTax;
+  const totalAvailableForOutflows = positiveMoney(year.medianIncome) + withdrawalTotal;
+  const surplusOrGap = Math.round(totalAvailableForOutflows - totalOutflows);
+
+  return {
+    method: 'reconstructed_from_year_medians',
+    inflows: {
+      income: positiveMoney(year.medianIncome),
+      adjustedWages: positiveMoney(year.medianAdjustedWages),
+      socialSecurity: positiveMoney(year.medianSocialSecurityIncome),
+      rmd: positiveMoney(year.medianRmdAmount),
+      windfallCash: positiveMoney(year.medianWindfallCashInflow),
+    },
+    withdrawals: {
+      ...withdrawals,
+      total: withdrawalTotal,
+    },
+    outflows: {
+      spendingIncludingHealthcareAndLtc,
+      federalTax,
+      healthcarePremiums: positiveMoney(year.medianTotalHealthcarePremiumCost),
+      ltcCost: positiveMoney(year.medianLtcCost),
+      hsaOffset: positiveMoney(year.medianHsaOffsetUsed),
+      total: totalOutflows,
+    },
+    totalAvailableForOutflows,
+    surplusOrGap,
+    unresolvedFundingGap: positiveMoney(year.medianUnresolvedFundingGap),
+    equationCheck: {
+      availableMinusOutflowsMinusSurplusOrGap:
+        totalAvailableForOutflows - totalOutflows - surplusOrGap,
+    },
+    notes: ['Cash flow was reconstructed from yearly median fields.'],
+  };
+}
+
+function buildCashFlowSankeyData(input: {
+  payload: PlanningStateExportCompact;
+  outcome: CompactOutcome;
+  year: number;
+  dollarMode: CashFlowDollarMode;
+}): CashFlowSankeyData | null {
+  const yearResult = input.outcome.yearlySeries.find((entry) => entry.year === input.year);
+  if (!yearResult) {
+    return null;
+  }
+
+  const source = yearResult.cashflowReconciliation
+    ? 'cashflowReconciliation'
+    : 'reconstructedFromYearMedians';
+  const reconciliation =
+    yearResult.cashflowReconciliation ?? buildFallbackCashflowReconciliation(yearResult);
+  const nodes: CashFlowSankeyNode[] = [];
+  const links: CashFlowSankeyLink[] = [];
+  const hub = addSankeyNode(nodes, {
+    name: 'Available cash',
+    kind: 'hub',
+    color: CASH_FLOW_COLORS.hub,
+  });
+  const baseYear = getCashFlowBaseYear(input.outcome);
+  const inflationRate = getCashFlowInflationRate(input.payload);
+  const dollarMultiplier = getCashFlowDollarMultiplier(input);
+  const displayMoney = (value: number | null | undefined) =>
+    positiveMoney((value ?? 0) * dollarMultiplier);
+  const displaySignedMoney = (value: number | null | undefined) =>
+    Number.isFinite(value) ? Math.round((value ?? 0) * dollarMultiplier) : 0;
+
+  const sourceTotal = displayMoney(reconciliation.totalAvailableForOutflows);
+  const fundingGap = Math.max(
+    displayMoney(reconciliation.unresolvedFundingGap),
+    displayMoney(-Math.min(0, reconciliation.surplusOrGap)),
+  );
+  const incomeRemainder = Math.max(
+    0,
+    displayMoney(reconciliation.inflows.income) -
+      displayMoney(reconciliation.inflows.adjustedWages) -
+      displayMoney(reconciliation.inflows.socialSecurity) -
+      displayMoney(reconciliation.inflows.windfallCash) -
+      displayMoney(reconciliation.inflows.rmd),
+  );
+
+  addSankeyFlow({
+    nodes,
+    links,
+    label: 'Wages',
+    amount: displayMoney(reconciliation.inflows.adjustedWages),
+    color: CASH_FLOW_COLORS.wages,
+    source: 0,
+    target: hub,
+    side: 'source',
+    flowKind: 'income',
+  });
+  addSankeyFlow({
+    nodes,
+    links,
+    label: 'Social Security',
+    amount: displayMoney(reconciliation.inflows.socialSecurity),
+    color: CASH_FLOW_COLORS.socialSecurity,
+    source: 0,
+    target: hub,
+    side: 'source',
+    flowKind: 'income',
+  });
+  addSankeyFlow({
+    nodes,
+    links,
+    label: 'Windfalls',
+    amount: displayMoney(reconciliation.inflows.windfallCash),
+    color: CASH_FLOW_COLORS.windfall,
+    source: 0,
+    target: hub,
+    side: 'source',
+    flowKind: 'income',
+  });
+  addSankeyFlow({
+    nodes,
+    links,
+    label: 'RMD income',
+    amount: displayMoney(reconciliation.inflows.rmd),
+    color: CASH_FLOW_COLORS.rmd,
+    source: 0,
+    target: hub,
+    side: 'source',
+    flowKind: 'income',
+  });
+  addSankeyFlow({
+    nodes,
+    links,
+    label: 'Other income',
+    amount: incomeRemainder,
+    color: CASH_FLOW_COLORS.wages,
+    source: 0,
+    target: hub,
+    side: 'source',
+    flowKind: 'income',
+  });
+  addSankeyFlow({
+    nodes,
+    links,
+    label: 'Cash reserve drawdown',
+    amount: displayMoney(reconciliation.withdrawals.cash),
+    color: CASH_FLOW_COLORS.cash,
+    source: 0,
+    target: hub,
+    side: 'source',
+    flowKind: 'drawdown',
+  });
+  addSankeyFlow({
+    nodes,
+    links,
+    label: 'Taxable bucket drawdown',
+    amount: displayMoney(reconciliation.withdrawals.taxable),
+    color: CASH_FLOW_COLORS.taxable,
+    source: 0,
+    target: hub,
+    side: 'source',
+    flowKind: 'drawdown',
+  });
+  addSankeyFlow({
+    nodes,
+    links,
+    label: 'IRA/401(k) bucket drawdown',
+    amount: displayMoney(reconciliation.withdrawals.ira401k),
+    color: CASH_FLOW_COLORS.pretax,
+    source: 0,
+    target: hub,
+    side: 'source',
+    flowKind: 'drawdown',
+  });
+  addSankeyFlow({
+    nodes,
+    links,
+    label: 'Roth bucket drawdown',
+    amount: displayMoney(reconciliation.withdrawals.roth),
+    color: CASH_FLOW_COLORS.roth,
+    source: 0,
+    target: hub,
+    side: 'source',
+    flowKind: 'drawdown',
+  });
+  addSankeyFlow({
+    nodes,
+    links,
+    label: 'Funding gap',
+    amount: fundingGap,
+    color: CASH_FLOW_COLORS.gap,
+    source: 0,
+    target: hub,
+    side: 'source',
+    flowKind: 'gap',
+  });
+
+  const healthcareOutflow = Math.min(
+    displayMoney(reconciliation.outflows.spendingIncludingHealthcareAndLtc),
+    Math.max(
+      0,
+      displayMoney(reconciliation.outflows.healthcarePremiums) +
+        displayMoney(reconciliation.outflows.ltcCost) -
+        displayMoney(reconciliation.outflows.hsaOffset),
+    ),
+  );
+  const generalOutflow = Math.max(
+    0,
+    displayMoney(reconciliation.outflows.spendingIncludingHealthcareAndLtc) -
+      healthcareOutflow,
+  );
+  const taxOutflow = displayMoney(reconciliation.outflows.federalTax);
+  const surplus = Math.max(0, displayMoney(reconciliation.surplusOrGap));
+
+  addSankeyFlow({
+    nodes,
+    links,
+    label: 'General spending',
+    amount: generalOutflow,
+    color: CASH_FLOW_COLORS.spending,
+    source: hub,
+    target: 0,
+    side: 'target',
+    flowKind: 'spending',
+  });
+  addSankeyFlow({
+    nodes,
+    links,
+    label: 'Healthcare',
+    amount: healthcareOutflow,
+    color: CASH_FLOW_COLORS.healthcare,
+    source: hub,
+    target: 0,
+    side: 'target',
+    flowKind: 'spending',
+  });
+  addSankeyFlow({
+    nodes,
+    links,
+    label: 'Federal tax',
+    amount: taxOutflow,
+    color: CASH_FLOW_COLORS.tax,
+    source: hub,
+    target: 0,
+    side: 'target',
+    flowKind: 'tax',
+  });
+  addSankeyFlow({
+    nodes,
+    links,
+    label: 'Surplus to cash',
+    amount: surplus,
+    color: CASH_FLOW_COLORS.surplus,
+    source: hub,
+    target: 0,
+    side: 'target',
+    flowKind: 'surplus',
+  });
+
+  if (links.length === 0) {
+    return null;
+  }
+
+  const drawdownBuckets = [
+    reconciliation.withdrawals.cash > 0 ? 'Cash reserve' : null,
+    reconciliation.withdrawals.taxable > 0 ? 'Taxable' : null,
+    reconciliation.withdrawals.ira401k > 0 ? 'IRA/401(k)' : null,
+    reconciliation.withdrawals.roth > 0 ? 'Roth' : null,
+  ].filter((bucket): bucket is string => bucket !== null);
+
+  return {
+    year: yearResult.year,
+    baseYear,
+    dollarMode: input.dollarMode,
+    inflationRate,
+    dollarMultiplier,
+    modelCompleteness: input.payload.planScorecard.canonical.modelCompleteness,
+    source,
+    inferredAssumptions:
+      source === 'cashflowReconciliation'
+        ? input.payload.flightPath.evaluationContext.inferredAssumptions ?? []
+        : [
+            'Cash-flow reconciliation was not present in this export; Sankey values were reconstructed from yearly median fields.',
+            ...(input.payload.flightPath.evaluationContext.inferredAssumptions ?? []),
+          ],
+    totalInflows: sourceTotal + fundingGap,
+    totalOutflows: generalOutflow + healthcareOutflow + taxOutflow + surplus,
+    surplusOrGap: displaySignedMoney(reconciliation.surplusOrGap),
+    equationCheck: displaySignedMoney(
+      reconciliation.equationCheck.availableMinusOutflowsMinusSurplusOrGap,
+    ),
+    healthcareOutflow,
+    generalOutflow,
+    taxOutflow,
+    drawdownBuckets,
+    nodes,
+    links,
+  };
+}
+
+function getPlanYearLabel(payload: PlanningStateExportCompact, year: number) {
+  const birthYear = new Date(payload.household.robBirthDate).getUTCFullYear();
+  if (Number.isFinite(birthYear)) {
+    return `${year} (Age ${year - birthYear})`;
+  }
+  return `${year}`;
+}
+
+function resolveInitialCashFlowYear(payload: PlanningStateExportCompact, outcome: CompactOutcome) {
+  const years = outcome.yearlySeries.map((entry) => entry.year);
+  if (!years.length) {
+    return null;
+  }
+  const retirementYear = payload.income.retirementYear;
+  if (years.includes(retirementYear)) {
+    return retirementYear;
+  }
+  const firstDrawdownYear = outcome.yearlySeries.find(
+    (entry) => entry.medianWithdrawalTotal > 0,
+  )?.year;
+  return firstDrawdownYear ?? years[0];
 }
 
 function normalizePersonLabel(value: string) {
@@ -1302,6 +1769,309 @@ function Plan20ChartCard({
       </div>
       <div className="h-72">{children}</div>
     </article>
+  );
+}
+
+function CashFlowSankeyNodeShape(props: {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  payload: CashFlowSankeyNode;
+  compact?: boolean;
+}) {
+  const { x, y, width, height, payload, compact = false } = props;
+  const midpoint = y + height / 2;
+  const isSource = payload.kind === 'source';
+  const isTarget = payload.kind === 'target';
+  const labelX = isSource ? x + width + 9 : isTarget ? x - 9 : x + width / 2;
+  const textAnchor = isSource ? 'start' : isTarget ? 'end' : 'middle';
+  const labelColor = payload.kind === 'hub' ? '#64748b' : '#334155';
+
+  return (
+    <g>
+      <rect
+        x={x}
+        y={y}
+        width={width}
+        height={Math.max(2, height)}
+        rx={3}
+        fill={payload.color}
+        opacity={payload.kind === 'hub' ? 0.75 : 0.92}
+      />
+      {!compact ? (
+        <text
+          x={labelX}
+          y={midpoint}
+          dy="0.32em"
+          textAnchor={textAnchor}
+          className="fill-slate-700 text-[10px] font-medium"
+          fill={labelColor}
+          pointerEvents="none"
+        >
+          {payload.name}
+        </text>
+      ) : null}
+    </g>
+  );
+}
+
+function CashFlowSankeyLinkShape(props: {
+  sourceX: number;
+  sourceY: number;
+  sourceControlX: number;
+  targetX: number;
+  targetY: number;
+  targetControlX: number;
+  linkWidth: number;
+  payload: CashFlowSankeyLink;
+}) {
+  const {
+    sourceX,
+    sourceY,
+    sourceControlX,
+    targetX,
+    targetY,
+    targetControlX,
+    linkWidth,
+    payload,
+  } = props;
+
+  return (
+    <path
+      d={`M${sourceX},${sourceY} C${sourceControlX},${sourceY} ${targetControlX},${targetY} ${targetX},${targetY}`}
+      fill="none"
+      stroke={payload.color}
+      strokeWidth={Math.max(1, linkWidth)}
+      strokeOpacity={payload.flowKind === 'gap' ? 0.38 : 0.2}
+      strokeLinecap="round"
+    />
+  );
+}
+
+function CashFlowSankeyCard({
+  payload,
+  outcome,
+  selectedYear,
+  onYearChange,
+}: {
+  payload: PlanningStateExportCompact;
+  outcome: CompactOutcome;
+  selectedYear: number;
+  onYearChange: (year: number) => void;
+}) {
+  const years = outcome.yearlySeries.map((entry) => entry.year);
+  const selectedIndex = Math.max(0, years.indexOf(selectedYear));
+  const [dollarMode, setDollarMode] = useState<CashFlowDollarMode>('nominal');
+  const sankeyData = buildCashFlowSankeyData({
+    payload,
+    outcome,
+    year: selectedYear,
+    dollarMode,
+  });
+  const chartRef = useRef<HTMLDivElement | null>(null);
+  const [chartWidth, setChartWidth] = useState(0);
+  useEffect(() => {
+    if (!chartRef.current || typeof ResizeObserver === 'undefined') {
+      return;
+    }
+    const observer = new ResizeObserver((entries) => {
+      const width = entries[0]?.contentRect.width ?? 0;
+      setChartWidth(width);
+    });
+    observer.observe(chartRef.current);
+    return () => observer.disconnect();
+  }, []);
+
+  if (!sankeyData || years.length === 0) {
+    return null;
+  }
+
+  const compactChart = chartWidth > 0 && chartWidth < 720;
+  const fidelityTone =
+    sankeyData.modelCompleteness === 'faithful'
+      ? 'bg-emerald-50 text-emerald-700 ring-emerald-200'
+      : 'bg-amber-50 text-amber-800 ring-amber-200';
+  const sourceTone =
+    sankeyData.source === 'cashflowReconciliation'
+      ? 'Engine tie-out'
+      : 'Reconstructed';
+  const surplusLabel =
+    sankeyData.surplusOrGap >= 0
+      ? `Surplus ${formatCurrency(sankeyData.surplusOrGap)}`
+      : `Gap ${formatCurrency(Math.abs(sankeyData.surplusOrGap))}`;
+  const dollarModeLabel =
+    sankeyData.dollarMode === 'today' ? "today's dollars" : 'nominal dollars';
+
+  return (
+    <section>
+      <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <p className="text-xs uppercase tracking-[0.18em] text-stone-500">Cash Flow</p>
+          <h3 className="mt-2 text-3xl font-semibold tracking-tight text-stone-900">
+            Cash flow breakdown
+          </h3>
+        </div>
+        <div className="flex flex-wrap items-center gap-2 text-xs font-semibold uppercase tracking-[0.1em]">
+          <label className="inline-flex items-center gap-2 rounded-full bg-white px-3 py-1 text-stone-700 ring-1 ring-stone-200">
+            <input
+              type="checkbox"
+              checked={dollarMode === 'today'}
+              onChange={(event) =>
+                setDollarMode(event.target.checked ? 'today' : 'nominal')
+              }
+            />
+            Today&apos;s dollars
+          </label>
+          <span className={`rounded-full px-3 py-1 ring-1 ${fidelityTone}`}>
+            {sankeyData.modelCompleteness}
+          </span>
+          <span className="rounded-full bg-stone-100 px-3 py-1 text-stone-600 ring-1 ring-stone-200">
+            {sourceTone}
+          </span>
+        </div>
+      </div>
+
+      <article className="rounded-[30px] border border-stone-200/80 bg-white/95 p-5 shadow-sm">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <p className="text-lg font-semibold text-stone-900">
+              {getPlanYearLabel(payload, sankeyData.year)}
+            </p>
+            <p className="mt-1 text-sm text-stone-500">
+              Total inflows ({dollarModeLabel}) {formatCurrency(sankeyData.totalInflows)}
+            </p>
+            <p className="mt-1 text-sm text-stone-500">
+              Drawdown buckets:{' '}
+              {sankeyData.drawdownBuckets.length
+                ? sankeyData.drawdownBuckets.join(' + ')
+                : 'none'}
+            </p>
+          </div>
+          <div className="text-left sm:text-right">
+            <p className="text-sm font-semibold text-stone-900">
+              Total outflows ({dollarModeLabel}) {formatCurrency(sankeyData.totalOutflows)}
+            </p>
+            <p className="mt-1 text-sm text-stone-500">{surplusLabel}</p>
+          </div>
+        </div>
+
+        <div ref={chartRef} className="mt-5 h-[430px]">
+          <ResponsiveContainer width="100%" height="100%">
+            <Sankey
+              data={{
+                nodes: sankeyData.nodes,
+                links: sankeyData.links,
+              }}
+              node={(nodeProps) => (
+                <CashFlowSankeyNodeShape {...nodeProps} compact={compactChart} />
+              )}
+              link={CashFlowSankeyLinkShape}
+              nodePadding={compactChart ? 12 : 18}
+              nodeWidth={10}
+              linkCurvature={0.58}
+              iterations={48}
+              sort={false}
+              margin={
+                compactChart
+                  ? { top: 18, right: 28, bottom: 18, left: 28 }
+                  : { top: 22, right: 170, bottom: 18, left: 170 }
+              }
+            >
+              <Tooltip
+                formatter={(value: number) => formatCurrency(value)}
+                contentStyle={{
+                  fontSize: 12,
+                  borderRadius: 12,
+                  border: 'none',
+                  boxShadow: '0 4px 24px rgba(60,70,40,0.12)',
+                }}
+              />
+            </Sankey>
+          </ResponsiveContainer>
+        </div>
+
+        <div className="mt-5">
+          <div className="flex items-center justify-between text-sm font-semibold text-stone-700">
+            <span>{years[0]}</span>
+            <span className="rounded-full bg-slate-900 px-3 py-1 text-white">
+              {getPlanYearLabel(payload, sankeyData.year)}
+            </span>
+            <span>{years[years.length - 1]}</span>
+          </div>
+          <input
+            aria-label="Cash flow year"
+            className="mt-4 h-2 w-full accent-emerald-500"
+            type="range"
+            min={0}
+            max={Math.max(0, years.length - 1)}
+            value={selectedIndex}
+            onChange={(event) => onYearChange(years[Number(event.target.value)] ?? selectedYear)}
+          />
+        </div>
+
+        <div className="mt-4 rounded-[18px] bg-stone-50 px-4 py-3 text-xs leading-5 text-stone-600">
+          <span className="block">
+            {sankeyData.dollarMode === 'today'
+              ? `Today's-dollar view deflates ${sankeyData.year} nominal cash flows to ${sankeyData.baseYear} dollars using the export inflation assumption (${formatPercent(sankeyData.inflationRate)}).`
+              : `Nominal view shows the dollars projected in ${sankeyData.year}.`}
+          </span>
+          {sankeyData.drawdownBuckets.includes('Cash reserve') ? (
+            <span className="mt-2 block">
+              Cash reserve drawdown is the modeled cash bucket available in that year. It can include
+              today&apos;s cash plus prior-year surplus, payroll savings, windfalls, or RMD surplus that
+              the engine swept into cash before this year.
+            </span>
+          ) : null}
+          {sankeyData.inferredAssumptions.length ? (
+            <span className="mt-2 block">
+              Inferred assumptions tracked:{' '}
+              {sankeyData.inferredAssumptions.slice(0, 2).join(' · ')}
+              {sankeyData.inferredAssumptions.length > 2 ? ' · plus more in model trust' : ''}
+            </span>
+          ) : (
+            <span className="mt-2 block">
+              No inferred assumptions attached to this cash-flow tie-out.
+            </span>
+          )}
+        </div>
+
+        <div className="mt-5 grid gap-3 md:grid-cols-4">
+          <div className="rounded-[20px] bg-stone-50 p-4">
+            <p className="text-xs font-medium uppercase tracking-[0.12em] text-stone-500">
+              General spending
+            </p>
+            <p className="mt-2 text-lg font-semibold text-stone-900">
+              {formatCurrency(sankeyData.generalOutflow)}
+            </p>
+          </div>
+          <div className="rounded-[20px] bg-stone-50 p-4">
+            <p className="text-xs font-medium uppercase tracking-[0.12em] text-stone-500">
+              Healthcare
+            </p>
+            <p className="mt-2 text-lg font-semibold text-stone-900">
+              {formatCurrency(sankeyData.healthcareOutflow)}
+            </p>
+          </div>
+          <div className="rounded-[20px] bg-stone-50 p-4">
+            <p className="text-xs font-medium uppercase tracking-[0.12em] text-stone-500">
+              Federal tax
+            </p>
+            <p className="mt-2 text-lg font-semibold text-stone-900">
+              {formatCurrency(sankeyData.taxOutflow)}
+            </p>
+          </div>
+          <div className="rounded-[20px] bg-stone-50 p-4">
+            <p className="text-xs font-medium uppercase tracking-[0.12em] text-stone-500">
+              Equation check
+            </p>
+            <p className="mt-2 text-lg font-semibold text-stone-900">
+              {formatCurrency(sankeyData.equationCheck)}
+            </p>
+          </div>
+        </div>
+      </article>
+    </section>
   );
 }
 
@@ -2473,6 +3243,27 @@ export function Plan20Screen() {
     () => (activeOutcome ? buildWithdrawalMixChartData(activeOutcome) : []),
     [activeOutcome],
   );
+  const initialCashFlowYear = useMemo(
+    () =>
+      compactPayload && activeOutcome
+        ? resolveInitialCashFlowYear(compactPayload, activeOutcome)
+        : null,
+    [compactPayload, activeOutcome],
+  );
+  const [cashFlowYear, setCashFlowYear] = useState<number | null>(null);
+  useEffect(() => {
+    if (!activeOutcome || initialCashFlowYear === null) {
+      return;
+    }
+    const validYears = activeOutcome.yearlySeries.map((entry) => entry.year);
+    if (!validYears.length) {
+      return;
+    }
+    if (cashFlowYear === null || !validYears.includes(cashFlowYear)) {
+      setCashFlowYear(initialCashFlowYear);
+    }
+  }, [activeOutcome, cashFlowYear, initialCashFlowYear]);
+  const selectedCashFlowYear = cashFlowYear ?? initialCashFlowYear;
 
   const nearThresholdYears = useMemo(
     () =>
@@ -2699,6 +3490,15 @@ export function Plan20Screen() {
         </section>
 
         <PortfolioHistoryCard />
+
+        {selectedCashFlowYear !== null ? (
+          <CashFlowSankeyCard
+            payload={compactPayload}
+            outcome={activeOutcome}
+            selectedYear={selectedCashFlowYear}
+            onYearChange={setCashFlowYear}
+          />
+        ) : null}
 
         <section>
           <div className="mb-4">

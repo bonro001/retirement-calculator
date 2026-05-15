@@ -200,8 +200,7 @@ export function StressTestPanel({
   const subtitle = (
     <p className="text-[12px] text-stone-500">
       Re-runs the adopted policy under {DEFAULT_STRESS_SCENARIOS.length} adverse
-      scenarios (sequence risk, high inflation, layoff, delayed inheritance,
-      perfect storm) so you can see whether your bequest target survives them.
+      scenarios so you can see whether your bequest target survives them.
     </p>
   );
 
@@ -410,7 +409,7 @@ export function StressTestPanel({
       </div>
 
       {runState.kind === 'running' && (
-        <div className="text-[12px] text-stone-600">
+        <div className="mt-3 text-[12px] text-stone-600">
           Running scenario {runState.completed} of {runState.total}…
           <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-stone-200">
             <div
@@ -424,14 +423,14 @@ export function StressTestPanel({
       )}
 
       {runState.kind === 'failed' && (
-        <p className="text-[12px] text-rose-700">
+        <p className="mt-3 text-[12px] text-rose-700">
           Couldn&apos;t run the stress test: {runState.reason}
         </p>
       )}
 
       {runState.kind === 'complete' && (
         <>
-          <p className="text-[12px] text-stone-500">
+          <p className="mt-3 text-[12px] text-stone-500">
             Completed in{' '}
             {Math.max(
               1,

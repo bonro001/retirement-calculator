@@ -3,7 +3,11 @@ import type { SimulationRandomTape } from './random-tape';
 import { buildPathResults, buildPolicyMiningRandomTape } from './utils';
 import { approximateBequestAttainmentRate } from './plan-evaluation';
 import { policyId } from './policy-axis-enumerator';
-import type { Policy, PolicyEvaluation } from './policy-miner-types';
+import type {
+  Policy,
+  PolicyEvaluation,
+  PolicySpendingScheduleBasis,
+} from './policy-miner-types';
 import {
   buildCandidateReplayPackage,
   type CandidateReplayPackage,
@@ -48,6 +52,7 @@ export interface PolicyFullTraceOptions {
   selectedStressors?: string[];
   selectedResponses?: string[];
   useHistoricalBootstrap?: boolean;
+  spendingScheduleBasis?: PolicySpendingScheduleBasis;
 }
 
 export interface PolicyMiningDeterminismCheck {
@@ -111,13 +116,12 @@ export function buildPolicyEvaluationFromSummary(input: {
       p50EndingWealthTodayDollars: todayDollars.p50,
       p75EndingWealthTodayDollars: todayDollars.p75,
       p90EndingWealthTodayDollars: todayDollars.p90,
-      // V1 placeholders — these need engine-side aggregation that isn't
-      // on PathResult yet. Phase A ships with success/cemetery only;
-      // V1.1 adds the spend / tax aggregations.
+      // V1 placeholders — spend aggregation still needs engine-side
+      // lifetime/volatility rollups; tax is sourced from yearly medians.
       medianLifetimeSpendTodayDollars: 0,
       medianSpendVolatility: 0,
       medianLifetimeFederalTaxTodayDollars:
-        input.summary.annualFederalTaxEstimate ?? 0,
+        input.summary.lifetimeFederalTaxEstimate ?? 0,
       irmaaExposureRate: input.summary.irmaaExposureRate ?? 0,
     },
     evaluationDurationMs: input.evaluationDurationMs,
@@ -133,6 +137,28 @@ export function assumptionsForPolicy(
     : assumptions;
 }
 
+export function buildPolicyAnnualSpendScheduleByYear(
+  policy: Policy,
+  spendingScheduleBasis?: PolicySpendingScheduleBasis,
+): Record<number, number> | undefined {
+  if (!spendingScheduleBasis) {
+    return undefined;
+  }
+  const entries = Object.entries(spendingScheduleBasis.multipliersByYear)
+    .map(([year, multiplier]) => {
+      const numericYear = Number(year);
+      if (!Number.isFinite(numericYear) || !Number.isFinite(multiplier)) {
+        return null;
+      }
+      return [
+        numericYear,
+        Math.max(0, policy.annualSpendTodayDollars * Math.max(0, multiplier)),
+      ] as const;
+    })
+    .filter((entry): entry is readonly [number, number] => entry !== null);
+  return entries.length ? Object.fromEntries(entries) : undefined;
+}
+
 export function buildPolicyMiningReplayInput(
   policy: Policy,
   baseline: SeedData,
@@ -142,6 +168,7 @@ export function buildPolicyMiningReplayInput(
   cloner: SeedDataCloner,
   options: {
     replayTape?: SimulationRandomTape;
+    spendingScheduleBasis?: PolicySpendingScheduleBasis;
   } = {},
 ) {
   const seed = applyPolicyToSeed(cloner(baseline), policy);
@@ -164,6 +191,10 @@ export function buildPolicyMiningReplayInput(
     tape,
     simulationMode: tape.simulationMode,
     annualSpendTarget: policy.annualSpendTodayDollars,
+    annualSpendScheduleByYear: buildPolicyAnnualSpendScheduleByYear(
+      policy,
+      options.spendingScheduleBasis,
+    ),
   };
 }
 
@@ -175,6 +206,7 @@ export function runPolicyMiningDeterminismCheck(input: {
   engineVersion: string;
   cloner: SeedDataCloner;
   trialCount?: number;
+  spendingScheduleBasis?: PolicySpendingScheduleBasis;
 }): PolicyMiningDeterminismCheck {
   const trialCount = Math.max(1, Math.floor(input.trialCount ?? 32));
   const policyAssumptions = assumptionsForPolicy(
@@ -188,6 +220,10 @@ export function runPolicyMiningDeterminismCheck(input: {
     const seed = applyPolicyToSeed(input.cloner(input.baseline), input.policy);
     const [path] = buildPathResults(seed, policyAssumptions, [], [], {
       annualSpendTarget: input.policy.annualSpendTodayDollars,
+      annualSpendScheduleByYear: buildPolicyAnnualSpendScheduleByYear(
+        input.policy,
+        input.spendingScheduleBasis,
+      ),
       pathMode: 'selected_only',
       outputLevel: 'policy_mining_summary',
     });
@@ -283,6 +319,7 @@ export async function evaluatePolicy(
   evaluatedByNodeId: string,
   cloner: SeedDataCloner,
   legacyTargetTodayDollars: number,
+  spendingScheduleBasis?: PolicySpendingScheduleBasis,
 ): Promise<PolicyEvaluation> {
   const run = await evaluatePolicyWithSummary(
     policy,
@@ -293,6 +330,9 @@ export async function evaluatePolicy(
     evaluatedByNodeId,
     cloner,
     legacyTargetTodayDollars,
+    {
+      spendingScheduleBasis,
+    },
   );
   return run.evaluation;
 }
@@ -309,6 +349,7 @@ export async function evaluatePolicyWithSummary(
   options: {
     recordTape?: boolean;
     onTiming?: (timing: PolicyEvaluationTiming) => void;
+    spendingScheduleBasis?: PolicySpendingScheduleBasis;
   } = {},
 ): Promise<CandidateReplayPackage> {
   const startMs = Date.now();
@@ -325,6 +366,10 @@ export async function evaluatePolicyWithSummary(
   let tapeRecordDurationMs = 0;
   const paths = buildPathResults(seed, policyAssumptions, [], [], {
     annualSpendTarget: policy.annualSpendTodayDollars,
+    annualSpendScheduleByYear: buildPolicyAnnualSpendScheduleByYear(
+      policy,
+      options.spendingScheduleBasis,
+    ),
     pathMode: 'selected_only',
     outputLevel: 'policy_mining_summary',
     randomTape: options.recordTape
@@ -367,6 +412,10 @@ export async function evaluatePolicyWithSummary(
     summary,
     candidateData: seed,
     candidateAssumptions: policyAssumptions,
+    annualSpendScheduleByYear: buildPolicyAnnualSpendScheduleByYear(
+      policy,
+      options.spendingScheduleBasis,
+    ),
     tape: recordedTape,
   });
 }
@@ -400,6 +449,10 @@ export function evaluatePolicyFullTrace(
     options.selectedResponses ?? [],
     {
       annualSpendTarget: policy.annualSpendTodayDollars,
+      annualSpendScheduleByYear: buildPolicyAnnualSpendScheduleByYear(
+        policy,
+        options.spendingScheduleBasis,
+      ),
       pathMode: 'selected_only',
       outputLevel: 'full_trace',
     },

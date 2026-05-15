@@ -301,7 +301,7 @@ export function LogActualsCard({
           onClick={handleSave}
           className="rounded-md bg-emerald-600 px-3 py-1.5 text-[12px] font-semibold text-white shadow-sm hover:bg-emerald-700"
         >
-          Save snapshot
+          Log actuals
         </button>
         {savedAt && (
           <span className="text-[11px] text-emerald-700">

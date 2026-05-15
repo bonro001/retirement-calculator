@@ -244,6 +244,7 @@ export function runMiningSession(args: {
             evaluatedByNodeId,
             cloner,
             legacyTargetTodayDollars,
+            config.spendingScheduleBasis,
           );
           stats.coarseEvaluated += 1;
           if (coarseEval.outcome.bequestAttainmentRate >= coarseSurvivalThreshold) {
@@ -297,6 +298,7 @@ export function runMiningSession(args: {
           evaluatedByNodeId,
           cloner,
           legacyTargetTodayDollars,
+          config.spendingScheduleBasis,
         );
         const durationMs = Date.now() - evalStart;
         recentDurations.push(durationMs);
@@ -671,6 +673,7 @@ export function runMiningSessionWithPool(args: {
         engineVersion: config.engineVersion,
         evaluatedByNodeId,
         legacyTargetTodayDollars,
+        spendingScheduleBasis: config.spendingScheduleBasis,
       });
       const survivors: Policy[] = [];
       try {
@@ -738,6 +741,7 @@ export function runMiningSessionWithPool(args: {
       engineVersion: config.engineVersion,
       evaluatedByNodeId,
       legacyTargetTodayDollars,
+      spendingScheduleBasis: config.spendingScheduleBasis,
     });
 
     try {

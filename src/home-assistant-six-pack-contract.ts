@@ -58,6 +58,20 @@ export interface HomeAssistantSixPackPanelPayload {
       stale: boolean;
       updated_at: string;
       reason: string;
+      yearly_required_segment_percent?: number | null;
+      yearly_optional_segment_percent?: number | null;
+      yearly_total_percent?: number | null;
+      yearly_elapsed_percent?: number | null;
+      yearly_pace_delta_percent?: number | null;
+      yearly_required_budget?: number | null;
+      yearly_required_spend?: number | null;
+      yearly_optional_budget?: number | null;
+      yearly_optional_spend?: number | null;
+      yearly_total_budget?: number | null;
+      yearly_total_spend?: number | null;
+      yearly_travel_budget?: number | null;
+      yearly_travel_spend?: number | null;
+      yearly_other_spend?: number | null;
     }>;
   };
 }
@@ -123,6 +137,66 @@ export function buildHomeAssistantSixPackPanelPayload(
         stale: instrument.sourceFreshness.stale,
         updated_at: instrument.sourceFreshness.asOfIso ?? snapshot.asOfIso,
         reason: instrument.reason,
+        ...(instrument.id === 'watch_items'
+          ? {
+              yearly_required_segment_percent:
+                typeof instrument.diagnostics.annualRequiredSegmentShare === 'number'
+                  ? instrument.diagnostics.annualRequiredSegmentShare * 100
+                  : null,
+              yearly_optional_segment_percent:
+                typeof instrument.diagnostics.annualOptionalSegmentShare === 'number'
+                  ? instrument.diagnostics.annualOptionalSegmentShare * 100
+                  : null,
+              yearly_total_percent:
+                typeof instrument.diagnostics.annualTotalShare === 'number'
+                  ? instrument.diagnostics.annualTotalShare * 100
+                  : null,
+              yearly_elapsed_percent:
+                typeof instrument.diagnostics.annualElapsedYearShare === 'number'
+                  ? instrument.diagnostics.annualElapsedYearShare * 100
+                  : null,
+              yearly_pace_delta_percent:
+                typeof instrument.diagnostics.annualPaceDelta === 'number'
+                  ? instrument.diagnostics.annualPaceDelta * 100
+                  : null,
+              yearly_required_budget:
+                typeof instrument.diagnostics.annualRequiredBudget === 'number'
+                  ? instrument.diagnostics.annualRequiredBudget
+                  : null,
+              yearly_required_spend:
+                typeof instrument.diagnostics.annualRequiredSpend === 'number'
+                  ? instrument.diagnostics.annualRequiredSpend
+                  : null,
+              yearly_optional_budget:
+                typeof instrument.diagnostics.annualOptionalBudget === 'number'
+                  ? instrument.diagnostics.annualOptionalBudget
+                  : null,
+              yearly_optional_spend:
+                typeof instrument.diagnostics.annualOptionalSpend === 'number'
+                  ? instrument.diagnostics.annualOptionalSpend
+                  : null,
+              yearly_total_budget:
+                typeof instrument.diagnostics.annualTotalBudget === 'number'
+                  ? instrument.diagnostics.annualTotalBudget
+                  : null,
+              yearly_total_spend:
+                typeof instrument.diagnostics.annualTotalSpend === 'number'
+                  ? instrument.diagnostics.annualTotalSpend
+                  : null,
+              yearly_travel_budget:
+                typeof instrument.diagnostics.annualTravelBudget === 'number'
+                  ? instrument.diagnostics.annualTravelBudget
+                  : null,
+              yearly_travel_spend:
+                typeof instrument.diagnostics.annualTravelSpend === 'number'
+                  ? instrument.diagnostics.annualTravelSpend
+                  : null,
+              yearly_other_spend:
+                typeof instrument.diagnostics.annualOtherSpend === 'number'
+                  ? instrument.diagnostics.annualOtherSpend
+                  : null,
+            }
+          : {}),
       })),
     },
   };

@@ -1,6 +1,6 @@
 import http from 'node:http';
 import { existsSync } from 'node:fs';
-import { readFile } from 'node:fs/promises';
+import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { initialSeedData } from '../src/data';
 import { defaultAssumptions } from '../src/default-assumptions';
@@ -10,8 +10,18 @@ import {
   type PlanEvaluation,
 } from '../src/plan-evaluation';
 import type { SpendingTransaction } from '../src/spending-ledger';
-import { applySpendingCategoryInferences, splitAmazonCreditCardTransactionsForBudget } from '../src/spending-classification';
+import { applySpendingCategoryInferences } from '../src/spending-classification';
 import { dedupeOverlappingLiveFeedTransactions } from '../src/spending-live-feed-dedupe';
+import {
+  applySpendingMerchantCategoryRules,
+  applySpendingTransactionOverrides,
+  buildSpendingMerchantCategoryRule,
+  buildSpendingTransactionOverride,
+  parseSpendingOverridesFilePayload,
+  type SpendingMerchantCategoryRuleMap,
+  type SpendingOverridesFilePayload,
+  type SpendingTransactionOverrideMap,
+} from '../src/spending-overrides';
 import { buildSixPackSpendingContext } from '../src/six-pack-spending';
 import { buildSixPackSnapshot } from '../src/six-pack-rules';
 import type { SixPackInstrumentId, SixPackSnapshot } from '../src/six-pack-types';
@@ -27,7 +37,7 @@ import {
 import { DEFAULT_LEGACY_TARGET_TODAY_DOLLARS } from '../src/legacy-target-cache';
 
 const PORT = Number(process.env.SIX_PACK_API_PORT ?? 8787);
-const HOST = process.env.SIX_PACK_API_HOST ?? '127.0.0.1';
+const HOST = process.env.SIX_PACK_API_HOST ?? '0.0.0.0';
 const PLAN_EVALUATION_ENABLED = process.env.SIX_PACK_API_PLAN_EVAL !== 'off';
 const PLAN_EVALUATION_CACHE_MS = Number(
   process.env.SIX_PACK_API_PLAN_EVAL_CACHE_MS ?? 15 * 60 * 1000,
@@ -39,9 +49,32 @@ const LOCAL_LEDGER_FILES = [
   'public/local/spending-ledger.gmail.json',
 ];
 const PORTFOLIO_QUOTES_FILE = 'public/local/portfolio-quotes.json';
+const SPENDING_OVERRIDES_FILE = 'public/local/spending-overrides.json';
 
 interface LocalLedgerPayload {
   transactions?: SpendingTransaction[];
+}
+
+interface RecentSpendingTransactionPayload {
+  idNumber: number;
+  id: string;
+  postedDate: string;
+  transactionDate?: string;
+  merchant: string;
+  displayTitle?: string;
+  description?: string;
+  amount: number;
+  currency: 'USD';
+  categoryId?: string;
+  classificationMethod?: string;
+  ignored?: boolean;
+  source?: SpendingTransaction['source'];
+}
+
+interface SpendingOverrideRequestBody {
+  categoryId?: string;
+  title?: string;
+  applyToMerchant?: boolean;
 }
 
 interface CachedPlanEvaluation {
@@ -161,10 +194,109 @@ async function loadTransactions(): Promise<SpendingTransaction[]> {
     }),
   );
   const transactions = payloads.flatMap((payload) => payload?.transactions ?? []);
-  return splitAmazonCreditCardTransactionsForBudget(
-    applySpendingCategoryInferences(
-      dedupeOverlappingLiveFeedTransactions(transactions),
+  return dedupeOverlappingLiveFeedTransactions(transactions);
+}
+
+function emptySpendingOverridesPayload(): SpendingOverridesFilePayload {
+  return {
+    schemaVersion: 'spending-overrides-v1',
+    updatedAtIso: new Date().toISOString(),
+    transactionOverrides: {},
+    merchantCategoryRules: {},
+  };
+}
+
+async function loadSpendingOverrides(): Promise<SpendingOverridesFilePayload> {
+  const fullPath = path.resolve(SPENDING_OVERRIDES_FILE);
+  if (!existsSync(fullPath)) return emptySpendingOverridesPayload();
+  const parsed = parseSpendingOverridesFilePayload(
+    JSON.parse(await readFile(fullPath, 'utf8')),
+  );
+  return parsed ?? emptySpendingOverridesPayload();
+}
+
+async function saveSpendingOverrides(input: {
+  transactionOverrides: SpendingTransactionOverrideMap;
+  merchantCategoryRules: SpendingMerchantCategoryRuleMap;
+}): Promise<SpendingOverridesFilePayload> {
+  const payload: SpendingOverridesFilePayload = {
+    schemaVersion: 'spending-overrides-v1',
+    updatedAtIso: new Date().toISOString(),
+    transactionOverrides: input.transactionOverrides,
+    merchantCategoryRules: input.merchantCategoryRules,
+  };
+  await writeFile(
+    path.resolve(SPENDING_OVERRIDES_FILE),
+    `${JSON.stringify(payload, null, 2)}\n`,
+    'utf8',
+  );
+  return payload;
+}
+
+async function loadBudgetTransactions(): Promise<SpendingTransaction[]> {
+  const transactions = applySpendingCategoryInferences(await loadTransactions());
+  const overrides = await loadSpendingOverrides();
+  return applySpendingTransactionOverrides(
+    applySpendingMerchantCategoryRules(
+      transactions,
+      overrides.merchantCategoryRules,
     ),
+    overrides.transactionOverrides,
+  );
+}
+
+function recentIdNumber(transactionId: string): number {
+  let hash = 2166136261;
+  for (const char of transactionId) {
+    hash ^= char.charCodeAt(0);
+    hash = Math.imul(hash, 16777619);
+  }
+  return Math.abs(hash >>> 0) % 1_000_000_000;
+}
+
+function recentTransactionPayload(
+  transaction: SpendingTransaction,
+): RecentSpendingTransactionPayload {
+  return {
+    idNumber: recentIdNumber(transaction.id),
+    id: transaction.id,
+    postedDate: transaction.postedDate,
+    ...(transaction.transactionDate ? { transactionDate: transaction.transactionDate } : {}),
+    merchant: transaction.merchant,
+    ...(transaction.displayTitle ? { displayTitle: transaction.displayTitle } : {}),
+    ...(transaction.description ? { description: transaction.description } : {}),
+    amount: transaction.amount,
+    currency: transaction.currency,
+    ...(transaction.categoryId ? { categoryId: transaction.categoryId } : {}),
+    ...(transaction.classificationMethod
+      ? { classificationMethod: transaction.classificationMethod }
+      : {}),
+    ...(transaction.ignored !== undefined ? { ignored: transaction.ignored } : {}),
+    ...(transaction.source ? { source: transaction.source } : {}),
+  };
+}
+
+async function loadRecentSpendingTransactions(
+  limit: number,
+): Promise<RecentSpendingTransactionPayload[]> {
+  const transactions = await loadBudgetTransactions();
+  return transactions
+    .filter((transaction) => transaction.amount > 0)
+    .sort((left, right) => {
+      const dateCompare = right.postedDate.localeCompare(left.postedDate);
+      if (dateCompare !== 0) return dateCompare;
+      return right.amount - left.amount;
+    })
+    .slice(0, limit)
+    .map(recentTransactionPayload);
+}
+
+async function transactionIdForRecentIdNumber(
+  idNumber: number,
+): Promise<string | null> {
+  const transactions = await loadRecentSpendingTransactions(250);
+  return (
+    transactions.find((transaction) => transaction.idNumber === idNumber)?.id ?? null
   );
 }
 
@@ -211,28 +343,216 @@ function writeJson(response: http.ServerResponse, statusCode: number, payload: u
   response.end(JSON.stringify(payload, null, 2));
 }
 
+async function readJsonBody(request: http.IncomingMessage): Promise<unknown> {
+  const chunks: Buffer[] = [];
+  for await (const chunk of request) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+  }
+  const raw = Buffer.concat(chunks).toString('utf8').trim();
+  if (!raw) return {};
+  return JSON.parse(raw) as unknown;
+}
+
+async function saveTransactionOverride(input: {
+  transactionId: string;
+  categoryId: string;
+  title?: string;
+  applyToMerchant?: boolean;
+}): Promise<SpendingOverridesFilePayload> {
+  const overrides = await loadSpendingOverrides();
+  const transactionOverrides = { ...overrides.transactionOverrides };
+  const merchantCategoryRules = { ...overrides.merchantCategoryRules };
+  transactionOverrides[input.transactionId] = buildSpendingTransactionOverride({
+    transactionId: input.transactionId,
+    categoryId: input.categoryId,
+    title: input.title,
+  });
+  if (input.applyToMerchant) {
+    const transaction = (await loadTransactions()).find(
+      (candidate) => candidate.id === input.transactionId,
+    );
+    if (transaction) {
+      const rule = buildSpendingMerchantCategoryRule({
+        merchant: transaction.merchant,
+        categoryId: input.categoryId,
+      });
+      merchantCategoryRules[rule.merchantKey] = rule;
+    }
+  }
+  return saveSpendingOverrides({ transactionOverrides, merchantCategoryRules });
+}
+
 const server = http.createServer(async (request, response) => {
   try {
     const url = new URL(request.url ?? '/', `http://${request.headers.host ?? `${HOST}:${PORT}`}`);
     if (request.method === 'OPTIONS') {
       response.writeHead(204, {
         'access-control-allow-origin': '*',
-        'access-control-allow-methods': 'GET, OPTIONS',
+        'access-control-allow-methods': 'GET, POST, DELETE, OPTIONS',
         'access-control-allow-headers': 'content-type',
       });
       response.end();
       return;
     }
-    if (request.method !== 'GET') {
-      writeJson(response, 405, { error: 'method_not_allowed' });
-      return;
-    }
     if (url.pathname === '/api/health') {
+      if (request.method !== 'GET') {
+        writeJson(response, 405, { error: 'method_not_allowed' });
+        return;
+      }
       writeJson(response, 200, {
         state: 'ok',
         service: 'six-pack-api',
         as_of: new Date().toISOString(),
       });
+      return;
+    }
+
+    if (url.pathname === '/api/spending/overrides') {
+      if (request.method !== 'GET') {
+        writeJson(response, 405, { error: 'method_not_allowed' });
+        return;
+      }
+      writeJson(response, 200, await loadSpendingOverrides());
+      return;
+    }
+
+    if (url.pathname === '/api/spending/transactions/recent') {
+      if (request.method !== 'GET') {
+        writeJson(response, 405, { error: 'method_not_allowed' });
+        return;
+      }
+      const limit = Math.min(
+        100,
+        Math.max(1, Number(url.searchParams.get('limit') ?? 25) || 25),
+      );
+      const transactions = await loadRecentSpendingTransactions(limit);
+      writeJson(response, 200, {
+        count: transactions.length,
+        idNumberScope: 'fnv1a_transaction_id_v1',
+        transactions,
+      });
+      return;
+    }
+
+    const directOverrideMatch =
+      /^\/api\/spending\/transactions\/([^/]+)\/override$/.exec(url.pathname);
+    if (directOverrideMatch) {
+      if (request.method !== 'POST' && request.method !== 'DELETE') {
+        writeJson(response, 405, { error: 'method_not_allowed' });
+        return;
+      }
+      const transactionId = decodeURIComponent(directOverrideMatch[1]);
+      const overrides = await loadSpendingOverrides();
+      if (request.method === 'DELETE') {
+        const transactionOverrides = { ...overrides.transactionOverrides };
+        delete transactionOverrides[transactionId];
+        writeJson(
+          response,
+          200,
+          await saveSpendingOverrides({
+            transactionOverrides,
+            merchantCategoryRules: overrides.merchantCategoryRules,
+          }),
+        );
+        return;
+      }
+      const body = (await readJsonBody(request)) as SpendingOverrideRequestBody;
+      if (typeof body.categoryId !== 'string' || !body.categoryId.trim()) {
+        writeJson(response, 400, { error: 'category_id_required' });
+        return;
+      }
+      writeJson(
+        response,
+        200,
+        await saveTransactionOverride({
+          transactionId,
+          categoryId: body.categoryId,
+          title: body.title,
+          applyToMerchant: body.applyToMerchant,
+        }),
+      );
+      return;
+    }
+
+    const recentOverrideMatch =
+      /^\/api\/spending\/transactions\/recent\/(\d+)\/override$/.exec(
+        url.pathname,
+      );
+    if (recentOverrideMatch) {
+      if (request.method !== 'POST' && request.method !== 'DELETE') {
+        writeJson(response, 405, { error: 'method_not_allowed' });
+        return;
+      }
+      const transactionId = await transactionIdForRecentIdNumber(
+        Number(recentOverrideMatch[1]),
+      );
+      if (!transactionId) {
+        writeJson(response, 404, { error: 'recent_transaction_not_found' });
+        return;
+      }
+      if (request.method === 'DELETE') {
+        const overrides = await loadSpendingOverrides();
+        const transactionOverrides = { ...overrides.transactionOverrides };
+        delete transactionOverrides[transactionId];
+        writeJson(
+          response,
+          200,
+          await saveSpendingOverrides({
+            transactionOverrides,
+            merchantCategoryRules: overrides.merchantCategoryRules,
+          }),
+        );
+        return;
+      }
+      const body = (await readJsonBody(request)) as SpendingOverrideRequestBody;
+      if (typeof body.categoryId !== 'string' || !body.categoryId.trim()) {
+        writeJson(response, 400, { error: 'category_id_required' });
+        return;
+      }
+      writeJson(
+        response,
+        200,
+        await saveTransactionOverride({
+          transactionId,
+          categoryId: body.categoryId,
+          title: body.title,
+          applyToMerchant: body.applyToMerchant,
+        }),
+      );
+      return;
+    }
+
+    const recentIgnoreMatch =
+      /^\/api\/spending\/transactions\/recent\/(\d+)\/ignore$/.exec(
+        url.pathname,
+      );
+    if (recentIgnoreMatch) {
+      if (request.method !== 'POST') {
+        writeJson(response, 405, { error: 'method_not_allowed' });
+        return;
+      }
+      const transactionId = await transactionIdForRecentIdNumber(
+        Number(recentIgnoreMatch[1]),
+      );
+      if (!transactionId) {
+        writeJson(response, 404, { error: 'recent_transaction_not_found' });
+        return;
+      }
+      const body = (await readJsonBody(request)) as SpendingOverrideRequestBody;
+      writeJson(
+        response,
+        200,
+        await saveTransactionOverride({
+          transactionId,
+          categoryId: 'ignored',
+          title: body.title,
+        }),
+      );
+      return;
+    }
+
+    if (request.method !== 'GET') {
+      writeJson(response, 405, { error: 'method_not_allowed' });
       return;
     }
 

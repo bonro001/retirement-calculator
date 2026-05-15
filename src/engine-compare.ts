@@ -73,6 +73,7 @@ export interface EngineCandidateRequestV1 {
   mode: SimulationStrategyMode;
   tape: SimulationRandomTape;
   annualSpendTarget?: number;
+  annualSpendScheduleByYear?: Record<number, number>;
   outputLevel?: 'full_trace' | 'policy_mining_summary';
   instrumentation?: {
     taxCallCounts?: boolean;
@@ -124,11 +125,15 @@ function runSelectedPath(input: {
   assumptions: MarketAssumptions;
   mode: SimulationStrategyMode;
   randomTape?: RandomTapeController;
+  annualSpendTarget?: number;
+  annualSpendScheduleByYear?: Record<number, number>;
 }) {
   const paths = buildPathResults(input.data, input.assumptions, [], [], {
     pathMode: 'selected_only',
     strategyMode: input.mode,
     randomTape: input.randomTape,
+    annualSpendTarget: input.annualSpendTarget,
+    annualSpendScheduleByYear: input.annualSpendScheduleByYear,
   });
   const path = paths[0];
   if (!path) {
@@ -238,6 +243,8 @@ export function runEngineCandidateRequest(
       mode: 'replay',
       tape: request.tape,
     },
+    annualSpendTarget: request.annualSpendTarget,
+    annualSpendScheduleByYear: request.annualSpendScheduleByYear,
   });
 
   return {

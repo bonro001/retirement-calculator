@@ -45,6 +45,10 @@ import { deriveAssetClassMappingAssumptionsFromAccounts } from './asset-class-ma
 import { getRmdStartAgeForBirthYear } from './retirement-rules';
 import { buildPathResults } from './utils';
 import { buildNorthStarResult, type NorthStarResult } from './north-star-result';
+import {
+  buildPortfolioStrategyAssessment,
+  type PortfolioStrategyAssessment,
+} from './portfolio-strategy-assessment';
 import { computePlanFingerprint } from './prediction-log';
 import { CURRENT_RULE_PACK_VERSION } from './rule-packs';
 
@@ -361,6 +365,7 @@ export interface PlanningStateExport {
     };
   };
   northStarResult: NorthStarResult;
+  portfolioStrategyAssessment: PortfolioStrategyAssessment;
   flightPath: {
     evaluationContext: {
       source: 'unified_plan' | 'derived_plan' | 'none';
@@ -3328,6 +3333,14 @@ export function buildPlanningStateExport(
     activeSimulationProfile,
     generatedAtIso: exportTimestamp,
   });
+  const portfolioStrategyAssessment = buildPortfolioStrategyAssessment({
+    data: effectiveData,
+    assumptions: input.assumptions,
+    path: plannerEnhancedSimulationOutcome,
+    legacyTargetTodayDollars: effectiveData.goals?.legacyTargetTodayDollars,
+    supportedAnnualSpendTodayDollars: northStarResult.supportedAnnualSpend,
+    generatedAtIso: exportTimestamp,
+  });
   const exportFreshness = buildExportFreshness({
     generatedAtIso: exportTimestamp,
     data: effectiveData,
@@ -3398,6 +3411,7 @@ export function buildPlanningStateExport(
     runwayRiskModel,
     planScorecard,
     northStarResult,
+    portfolioStrategyAssessment,
     flightPath: {
       evaluationContext: {
         source: unifiedPlanEvaluation ? unifiedPlanEvaluationSource : 'none',

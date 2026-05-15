@@ -1,5 +1,9 @@
 import type { MarketAssumptions, SeedData } from './types';
-import type { Policy, PolicyEvaluation } from './policy-miner-types';
+import type {
+  Policy,
+  PolicyEvaluation,
+  PolicySpendingScheduleBasis,
+} from './policy-miner-types';
 import type {
   PolicyMinerWorkerRequest,
   PolicyMinerWorkerResponse,
@@ -96,7 +100,46 @@ export function setBrowserHostMode(mode: BrowserHostMode): BrowserHostMode {
   if (typeof localStorage !== 'undefined') {
     localStorage.setItem(BROWSER_HOST_MODE_KEY, mode);
   }
+  if (mode === 'off') {
+    shutdownMinerPool('browser host mode disabled');
+  }
   return mode;
+}
+
+function rejectPendingRequests(error: Error): void {
+  while (queuedRequests.length > 0) {
+    const queued = queuedRequests.shift();
+    if (!queued) break;
+    const pending = pendingByRequestId.get(queued.requestId);
+    if (!pending) continue;
+    pendingByRequestId.delete(queued.requestId);
+    pending.reject(error);
+  }
+  for (const [requestId, pending] of pendingByRequestId.entries()) {
+    pendingByRequestId.delete(requestId);
+    pending.reject(error);
+  }
+}
+
+export function shutdownMinerPool(reason = 'policy miner pool shut down'): void {
+  rejectPendingRequests(new Error('POLICY_MINER_CANCELLED'));
+  if (!slots) return;
+  for (const slot of slots) {
+    try {
+      if (slot.busy && slot.currentRequestId) {
+        slot.worker.postMessage({
+          type: 'cancel',
+          requestId: slot.currentRequestId,
+        } satisfies PolicyMinerWorkerRequest);
+      }
+      slot.worker.terminate();
+    } catch {
+      // Best effort; the pool is already being torn down.
+    }
+  }
+  slots = null;
+  // eslint-disable-next-line no-console
+  console.info(`[policy-miner-pool] shut down: ${reason}`);
 }
 
 function hardwareConcurrency(): number {
@@ -175,6 +218,7 @@ export function primeMinerSession(args: {
   engineVersion: string;
   evaluatedByNodeId: string;
   legacyTargetTodayDollars: number;
+  spendingScheduleBasis?: PolicySpendingScheduleBasis;
 }): void {
   const pool = ensurePool();
   for (const slot of pool) {

@@ -21,7 +21,8 @@ export const defaultAssumptions: MarketAssumptions = {
   guardrailLadder: undefined,
   robPlanningEndAge: 90,
   debbiePlanningEndAge: 95,
-  travelPhaseYears: 10,
+  travelPhaseYears: 12,
+  travelFlatYears: 5,
   simulationSeed: 20260416,
   assumptionsVersion: 'v1',
 };

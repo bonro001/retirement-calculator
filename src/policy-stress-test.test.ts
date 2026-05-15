@@ -100,7 +100,28 @@ function buildSeed(): SeedData {
     stressors: stubStressors,
     income: {
       salaryAnnual: 240_000,
+      salaryEndDate: '2027-07-01',
       socialSecurity: [{ claimAge: 67 }, { claimAge: 67 }],
+      windfalls: [
+        {
+          name: 'inheritance',
+          year: 2028,
+          amount: 500_000,
+          taxTreatment: 'cash_non_taxable',
+        },
+      ],
+    },
+    spending: {
+      essentialMonthly: 6_000,
+      optionalMonthly: 3_000,
+      annualTaxesInsurance: 12_000,
+      travelEarlyRetirementAnnual: 20_000,
+    },
+    accounts: {
+      cash: { balance: 50_000, targetAllocation: { CASH: 1 } },
+      taxable: { balance: 150_000, targetAllocation: { VTI: 1 } },
+      pretax: { balance: 300_000, targetAllocation: { BND: 1 } },
+      roth: { balance: 200_000, targetAllocation: { VTI: 1 } },
     },
     rules: {},
     responses: [],
@@ -232,6 +253,56 @@ describe('runPolicyStressTest', () => {
     );
     expect(report.scenarios.length).toBe(1);
     expect(report.scenarios[0].scenario.id).toBe('just_markets');
+  });
+
+  it('applies custom scenario seed, policy, and assumption patches before the engine run', async () => {
+    await runPolicyStressTest(
+      buildPolicy(),
+      buildSeed(),
+      ASSUMPTIONS,
+      1_000_000,
+      cloner,
+      {
+        scenarios: [
+          {
+            id: 'patched_probe',
+            name: 'Patched probe',
+            description: 'patches one run',
+            stressorIds: [],
+            policyPatch: (policy) => {
+              policy.annualSpendTodayDollars = 88_000;
+            },
+            seedPatch: (seed) => {
+              seed.income.salaryEndDate = '2028-01-01';
+              seed.scheduledOutflows = [
+                {
+                  name: 'test_gift',
+                  year: 2027,
+                  amount: 20_000,
+                  sourceAccount: 'cash',
+                  recipient: 'test',
+                  vehicle: 'annual_exclusion_cash',
+                  label: 'Test gift',
+                  taxTreatment: 'gift_no_tax_consequence',
+                },
+              ];
+            },
+            assumptionsPatch: (nextAssumptions) => {
+              nextAssumptions.inflation = 0.04;
+            },
+          },
+        ],
+      },
+    );
+
+    const scenarioCall = mockedBuildPathResults.mock.calls[1];
+    const seedArg = scenarioCall[0] as SeedData;
+    const assumptionsArg = scenarioCall[1] as MarketAssumptions;
+    const optionsArg = scenarioCall[4] as { annualSpendTarget: number };
+    expect(seedArg.income.salaryEndDate).toBe('2028-01-01');
+    expect(seedArg.scheduledOutflows).toHaveLength(1);
+    expect(assumptionsArg.inflation).toBe(0.04);
+    expect(optionsArg.annualSpendTarget).toBe(88_000);
   });
 
   it('passes the October layoff date and three months severance to the engine', async () => {

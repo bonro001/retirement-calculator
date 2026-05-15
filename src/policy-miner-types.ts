@@ -29,7 +29,7 @@
  * Format: `policy-miner-vN-engineYYYY-MM` so a glance tells you when a
  * given record's lineage was minted.
  */
-export const POLICY_MINER_ENGINE_VERSION = 'policy-miner-v2-2026-05-01';
+export const POLICY_MINER_ENGINE_VERSION = 'policy-miner-v2.1-2026-05-13';
 
 /**
  * Mining records are keyed by engineVersion as well as baseline. For
@@ -101,6 +101,19 @@ export interface PolicyAxes {
    *  callers that omit this default to tax_bracket_waterfall only
    *  (preserving pre-2026-05-01 corpus behavior). */
   withdrawalRule?: import('./types').WithdrawalRule[];
+}
+
+export interface PolicySpendingScheduleBasis {
+  id: string;
+  label: string;
+  /**
+   * Per-calendar-year multiplier applied to each candidate policy's
+   * `annualSpendTodayDollars`. A value of 1 means the candidate's full
+   * starting spend target; 0.9 means that year's modeled spend is 90%
+   * of the candidate target. This lets Mine search a starting spend
+   * number while still evaluating age-shaped spending curves.
+   */
+  multipliersByYear: Record<number, number>;
 }
 
 /**
@@ -398,6 +411,8 @@ export interface PolicyMiningSessionConfig {
   feasibilityThreshold: number;
   /** Hard cap on records to evaluate this session. Stops the miner after N. */
   maxPoliciesPerSession: number;
+  /** Optional annual-spend curve basis for per-policy schedule-shaped mining. */
+  spendingScheduleBasis?: PolicySpendingScheduleBasis;
   /**
    * Phase 2.C — two-stage screening config (optional).
    *

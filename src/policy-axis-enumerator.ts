@@ -47,17 +47,24 @@ export function buildDefaultPolicyAxes(seedData: SeedData): PolicyAxes {
     65, 65.5, 66, 66.5, 67, 67.5, 68, 68.5, 69, 69.5, 70,
   ];
   return {
-    // V2: $5k spend resolution from $80k–$160k. This is the COARSE pass.
-    // After it completes, `cliff-refinement-analyzer.ts` inspects the
-    // corpus, identifies the spend tier where feasibility crosses the
-    // household's threshold, and recommends a FINE second pass at $1k
-    // resolution around that cliff. The fine pass mines via the
+    // V2.2 (2026-05-15): Narrowed to $90k–$130k for the Bonner household
+    // — the realistic ceiling given the current portfolio and the floor
+    // below which essentials don't fit. $5k resolution stays. This is the
+    // COARSE pass.
+    //
+    // Widen the top if $130k starts winning consistently (i.e. the
+    // miner picks $130k as the green ceiling); widen the bottom only
+    // if essentials drop below $90k somehow.
+    //
+    // After this pass completes, `cliff-refinement-analyzer.ts` inspects
+    // the corpus, identifies the spend tier where feasibility crosses
+    // the household's threshold, and recommends a FINE second pass at
+    // $1k resolution around that cliff. The fine pass mines via the
     // existing `axesOverride` plumbing — same ranker, same corpus,
     // ids stay distinct because spend changes.
     annualSpendTodayDollars: [
-      80_000, 85_000, 90_000, 95_000, 100_000, 105_000, 110_000, 115_000,
-      120_000, 125_000, 130_000, 135_000, 140_000, 145_000, 150_000, 155_000,
-      160_000,
+      90_000, 95_000, 100_000, 105_000, 110_000, 115_000, 120_000, 125_000,
+      130_000,
     ],
     primarySocialSecurityClaimAge: ssAges,
     spouseSocialSecurityClaimAge: hasSpouseSs ? ssAges : null,

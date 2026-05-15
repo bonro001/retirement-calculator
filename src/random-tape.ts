@@ -25,6 +25,8 @@ export interface RandomTapeMarketYear {
     rothContributionFlow: number;
     socialSecurityIncome: number;
     windfallCashInflow: number;
+    windfallDeployedToTaxable?: number;
+    windfallInvestmentSleeveBalance?: number;
     homeSaleGrossProceeds: number;
     homeSaleSellingCosts: number;
     homeReplacementPurchaseCost: number;

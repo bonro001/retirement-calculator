@@ -11,8 +11,10 @@
 //!   ✓ Social Security income per household member (FRA-monthly ×
 //!     12 × benefit factor for early/late claims, age-gated).
 //!   ✓ One-time windfalls (inheritance, home sale) added to cash on
-//!     their landing year. Tax treatment NOT yet modeled — they're
-//!     all treated as cash inflows for now.
+//!     their landing year, used once for same-year spending if needed,
+//!     then swept into taxable so they no longer sit as idle cash.
+//!     Tax treatment NOT yet modeled — they're all treated as cash
+//!     inflows for now.
 //!   ✓ Income reduces the spending shortfall before any withdrawal —
 //!     household uses income first, taps accounts only for the gap.
 //!   ✓ Surplus income (income > spend) flows to taxable account.
@@ -186,21 +188,12 @@ pub fn run_trial(plan: &PlanInput, assumptions: &AssumptionsInput, seed: u64) ->
 
         // Salary that actually arrives in the household (post-401k post-HSA).
         let salary = salary_gross - employee_401k_contrib - hsa_contrib;
-        // Two income concepts:
-        //   - earned_income: what flows into the "salary surplus →
-        //     taxable" deposit rule (genuine new earnings).
-        //   - total_income: what offsets spending need (includes
-        //     windfalls already deposited to cash).
-        // TS engine (utils.ts:3292-3294) treats windfallCashInflow as
-        // both a cash deposit AND a baseIncome offset, so spending in
-        // the windfall year is "covered" without cascade withdrawal.
-        // Without folding windfalls into income, Rust drained the cash
-        // buffer in the inheritance year — defeating the buffer's
-        // purpose. Excluding windfalls from earned_income prevents
-        // the inheritance from being re-deposited to taxable as a
-        // "surplus" in the same year.
+        // Earned income is genuine recurring cashflow. Direct-to-cash
+        // windfalls already landed in the cash bucket above, so they
+        // must not also offset spending as income; otherwise the model
+        // creates wealth twice in the landing year.
         let earned_income = salary + ss_income + windfalls.income_inflow;
-        let total_income = earned_income + windfalls.direct_to_cash;
+        let total_income = earned_income;
 
         // ── SS taxability ─────────────────────────────────────────
         // IRS rule: combined income (AGI + 50% SS + tax-exempt interest)
@@ -382,8 +375,7 @@ pub fn run_trial(plan: &PlanInput, assumptions: &AssumptionsInput, seed: u64) ->
         let (withdraw_cash, withdraw_taxable, withdraw_pretax, withdraw_roth);
         if net_need <= 0.0 {
             // Surplus year — bank leftover EARNED income into taxable.
-            // Don't bank windfalls — they already landed in cash and
-            // should stay there as a buffer (TS keeps them in cash too).
+            // Direct windfalls are handled after same-year funding below.
             let earned_surplus =
                 (earned_income - nominal_spend - healthcare_total - pre_withdrawal_tax - irmaa)
                     .max(0.0);
@@ -438,6 +430,14 @@ pub fn run_trial(plan: &PlanInput, assumptions: &AssumptionsInput, seed: u64) ->
                 success = false;
                 failure_year = Some(year);
             }
+        }
+        let windfall_used_for_spending = windfalls.direct_to_cash.min(withdraw_cash);
+        let windfall_deployed_to_taxable = (windfalls.direct_to_cash - windfall_used_for_spending)
+            .max(0.0)
+            .min(balances.cash.max(0.0));
+        if windfall_deployed_to_taxable > 0.0 {
+            balances.cash -= windfall_deployed_to_taxable;
+            balances.taxable += windfall_deployed_to_taxable;
         }
 
         yearly.push(TraceRow {

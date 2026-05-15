@@ -49,6 +49,8 @@ import {
   type BatchNackMessage,
   type BatchResultMessage,
   type CancelSessionMessage,
+  type CertifyAssignMessage,
+  type CertifyErrorMessage,
   type ClusterMessage,
   type ClusterSnapshot,
   type HeartbeatMessage,
@@ -72,6 +74,7 @@ import {
   type MiningJobResult,
   type PolicyEvaluation,
   type PolicyMiningSessionConfig,
+  type PolicySpendingScheduleBasis,
 } from './policy-miner-types';
 import { buildDefaultPolicyAxes, enumeratePolicies } from './policy-axis-enumerator';
 import { runPolicyMiningDeterminismCheck } from './policy-miner-eval';
@@ -158,6 +161,8 @@ export interface StartSessionOptions {
    * still does cartesian enumeration — caller controls the shape.
    */
   axesOverride?: import('./policy-miner-types').PolicyAxes;
+  /** Optional per-policy spending curve basis for schedule-shaped mining. */
+  spendingScheduleBasis?: PolicySpendingScheduleBasis;
   /**
    * Phase 2.C — two-stage screening (opt-in). When set, the dispatcher
    * runs a cheap coarse pass at `coarseStage.trialCount` first, drops
@@ -401,6 +406,7 @@ export function createClusterClient(config: ClusterClientConfig): ClusterClient 
     });
 
     s.addEventListener('close', (event) => {
+      if (socket !== s) return;
       clearTimers();
       socket = null;
       // Drop any cached session — when we reconnect, the dispatcher will
@@ -493,6 +499,10 @@ export function createClusterClient(config: ClusterClientConfig): ClusterClient 
         inFlightBatchIds.delete(message.batchId);
         return;
       }
+      case 'certify_assign': {
+        handleCertifyAssign(message);
+        return;
+      }
       case 'cluster_state': {
         publish({ cluster: message.snapshot });
         return;
@@ -508,6 +518,9 @@ export function createClusterClient(config: ClusterClientConfig): ClusterClient 
       case 'heartbeat':
       case 'batch_result':
       case 'batch_nack':
+      case 'certify_progress':
+      case 'certify_result':
+      case 'certify_error':
       case 'host_control':
         return;
       default: {
@@ -518,6 +531,18 @@ export function createClusterClient(config: ClusterClientConfig): ClusterClient 
         return;
       }
     }
+  }
+
+  function handleCertifyAssign(message: CertifyAssignMessage): void {
+    if (!socket || socket.readyState !== WebSocket.OPEN) return;
+    const error: CertifyErrorMessage = {
+      kind: 'certify_error',
+      from: snapshot.peerId ?? undefined,
+      jobId: message.jobId,
+      error:
+        'browser cluster client does not run certification jobs; use a Node host for /certify',
+    };
+    socket.send(encodeMessage(error));
   }
 
   function handleStartSession(message: StartSessionMessage): void {
@@ -542,6 +567,7 @@ export function createClusterClient(config: ClusterClientConfig): ClusterClient 
       engineVersion: message.config.engineVersion,
       evaluatedByNodeId: snapshot.peerId ?? 'browser',
       legacyTargetTodayDollars: message.legacyTargetTodayDollars,
+      spendingScheduleBasis: message.config.spendingScheduleBasis,
     });
   }
 
@@ -661,6 +687,7 @@ export function createClusterClient(config: ClusterClientConfig): ClusterClient 
         engineVersion: sessionEngineVersion,
         cloner: cloneSeedDataForDeterminism,
         trialCount: opts.determinismCheck?.trialCount ?? Math.min(32, trialCount),
+        spendingScheduleBasis: opts.spendingScheduleBasis,
       });
       if (!check.passed) {
         const diff = check.firstDifference;
@@ -685,6 +712,7 @@ export function createClusterClient(config: ClusterClientConfig): ClusterClient 
       feasibilityThreshold: opts.feasibilityThreshold,
       maxPoliciesPerSession:
         opts.maxPoliciesPerSession ?? Number.MAX_SAFE_INTEGER,
+      spendingScheduleBasis: opts.spendingScheduleBasis,
       // Phase 2.C: optional two-stage screening config. When undefined
       // (the default), the dispatcher runs single-pass behavior. When
       // set, the dispatcher pre-screens every policy at coarse trial

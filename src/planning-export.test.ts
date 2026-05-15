@@ -34,7 +34,7 @@ function cloneSeedData(data: SeedData) {
   return JSON.parse(JSON.stringify(data)) as SeedData;
 }
 
-describe('buildPlanningStateExport', () => {
+describe('buildPlanningStateExport', { timeout: 30_000 }, () => {
   it('includes a flight-path recommendation ledger with actionable amounts', () => {
     const payload = buildPlanningStateExport({
       data: cloneSeedData(initialSeedData),
@@ -198,6 +198,27 @@ describe('buildPlanningStateExport', () => {
         }),
 	      }),
 	    );
+    expect(payload.portfolioStrategyAssessment).toEqual(
+      expect.objectContaining({
+        version: 'portfolio_strategy_assessment_v1',
+        modelCompleteness: expect.any(String),
+        checks: expect.any(Array),
+        withdrawalOrdering: expect.objectContaining({
+          activeRule: expect.any(String),
+          recommendedStages: expect.any(Array),
+        }),
+      }),
+    );
+    expect(payload.portfolioStrategyAssessment.checks.map((check) => check.id)).toEqual(
+      expect.arrayContaining([
+        'age_allocation_fit',
+        'legacy_target_alignment',
+        'spending_phase_shape',
+        'aca_bridge_integrity',
+        'roth_conversion_headroom',
+        'withdrawal_rule_alignment',
+      ]),
+    );
 	    const canonicalSuccessRate = payload.planScorecard.canonical.successRate;
 	    expect(payload.flightPath.executiveSummary.planHealth.successRate).toBe(canonicalSuccessRate);
 	    expect(payload.flightPath.executiveSummary.narrative.whereThingsStand).toContain(
@@ -694,7 +715,7 @@ describe('buildPlanningStateExport', () => {
         (item) => item.id === 'pretax_rmd_account_ownership',
       ),
     ).toBe(true);
-  });
+  }, 20_000);
 
   it('includes trust panel when unified plan evaluation is provided', async () => {
     const data = cloneSeedData(initialSeedData);

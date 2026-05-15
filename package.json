@@ -14,6 +14,7 @@
     "test:watch": "vitest",
     "sim:query": "node --import tsx scripts/sim-query.ts",
     "sim:mine": "node --import tsx scripts/mine-query.ts",
+    "monthly-review:loop": "node --import tsx scripts/monthly-review-loop.ts",
     "sim:eval": "node --import tsx scripts/plan-eval-query.ts",
     "spending:gmail:sync": "node --import tsx scripts/sync-gmail-spending.ts",
     "spending:amazon:align": "node --import tsx scripts/align-amazon-spending.ts",

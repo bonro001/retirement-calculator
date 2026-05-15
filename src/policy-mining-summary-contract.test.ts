@@ -81,6 +81,7 @@ describe('policy mining summary contract', () => {
     expect(summary.successRate).toBe(0.91);
     expect(summary.endingWealthPercentiles.p50).toBe(500_000);
     expect(summary.annualFederalTaxEstimate).toBe(24_000);
+    expect(summary.lifetimeFederalTaxEstimate).toBe(240_000);
     expect(summary.irmaaExposureRate).toBe(0.2);
     expect(summary.modelCompleteness.indicator).toBe('reconstructed');
     expect(summary.modelCompleteness.inferredAssumptions).toEqual([

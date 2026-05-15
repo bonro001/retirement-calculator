@@ -58,12 +58,17 @@ import {
   type BatchAssignMessage,
   type BatchResultMessage,
   type CancelSessionMessage,
+  type CertifyAssignMessage,
+  type CertifyErrorMessage,
+  type CertifyProgressMessage,
+  type CertifyResultMessage,
   type ClusterMessage,
   type HeartbeatMessage,
   type HostCapabilities,
   type RegisterMessage,
   type StartSessionMessage,
 } from '../src/mining-protocol';
+import type { PolicyCertificationPack } from '../src/policy-certification';
 import {
   compareBuildInfo,
   formatBuildInfo,
@@ -81,6 +86,10 @@ import type {
   PolicyMinerWorkerRequest,
   PolicyMinerWorkerResponse,
 } from '../src/policy-miner-worker-types';
+import type {
+  PolicyCertificationWorkerRequest,
+  PolicyCertificationWorkerResponse,
+} from '../src/policy-certification.worker-types';
 import type { MarketAssumptions, SeedData } from '../src/types';
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -113,6 +122,15 @@ const HOST_WORKER_COUNT = (() => {
   if (!raw) return DEFAULT_WORKER_COUNT;
   const n = Number.parseInt(raw, 10);
   return Number.isFinite(n) && n > 0 ? n : DEFAULT_WORKER_COUNT;
+})();
+
+const HOST_CERTIFY_WORKER_COUNT = (() => {
+  const raw = process.env.HOST_CERTIFY_WORKERS;
+  if (raw !== undefined) {
+    const n = Number.parseInt(raw, 10);
+    if (Number.isFinite(n) && n >= 0) return n;
+  }
+  return Math.max(1, Math.min(4, HOST_WORKER_COUNT));
 })();
 
 const HOST_PERF_CLASS = ((): HostCapabilities['perfClass'] => {
@@ -151,13 +169,21 @@ const AUTO_UPDATE_EXIT_CODE = 75;
 // ---------------------------------------------------------------------------
 
 const LOG_TAG = `[host@${hostname()}]`;
+function shortLocalTime(): string {
+  return new Date().toLocaleTimeString([], {
+    hour: 'numeric',
+    minute: '2-digit',
+    second: '2-digit',
+  });
+}
+
 function log(
   level: 'info' | 'warn' | 'error',
   msg: string,
   meta?: Record<string, unknown>,
 ): void {
   const tail = meta ? ' ' + JSON.stringify(meta) : '';
-  const line = `${LOG_TAG} [${level}] ${msg}${tail}`;
+  const line = `${shortLocalTime()} ${LOG_TAG} [${level}] ${msg}${tail}`;
   // eslint-disable-next-line no-console
   (level === 'error' ? console.error : console.log)(line);
 }
@@ -834,6 +860,152 @@ async function shutdownPool(): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
+// Certification worker pool
+// ---------------------------------------------------------------------------
+
+interface CertifyWorkerSlot {
+  worker: Worker;
+  index: number;
+  busy: boolean;
+}
+
+interface PendingCertifyRun {
+  slot: CertifyWorkerSlot;
+  resolve: (pack: PolicyCertificationPack) => void;
+  reject: (err: Error) => void;
+}
+
+const certifySlots: CertifyWorkerSlot[] = [];
+const pendingCertifyRuns = new Map<string, PendingCertifyRun>();
+const retiringCertifyWorkers = new WeakSet<Worker>();
+
+function createCertifyWorker(index: number): Worker {
+  const loaderUrl = new URL('./certify-worker-loader.mjs', import.meta.url);
+  const worker = new Worker(loaderUrl, { execArgv: [...process.execArgv] });
+  worker.on('message', (msg: PolicyCertificationWorkerResponse) =>
+    handleCertifyWorkerMessage(index, msg),
+  );
+  worker.on('error', (err) => {
+    log('error', `certify worker ${index} crashed`, { err: String(err) });
+    failCertifySlot(index, `certify worker crashed: ${String(err)}`);
+  });
+  worker.on('exit', (code) => {
+    if (retiringCertifyWorkers.has(worker)) return;
+    if (!shuttingDown) {
+      log('warn', `certify worker ${index} exited`, { code });
+      failCertifySlot(index, `certify worker exited with code ${code}`);
+    }
+  });
+  return worker;
+}
+
+function spawnCertifyPool(): void {
+  for (let i = 0; i < HOST_CERTIFY_WORKER_COUNT; i += 1) {
+    certifySlots.push({
+      worker: createCertifyWorker(i),
+      index: i,
+      busy: false,
+    });
+  }
+  log('info', 'certify worker pool ready', {
+    workers: HOST_CERTIFY_WORKER_COUNT,
+  });
+}
+
+function replaceCertifyWorker(slot: CertifyWorkerSlot): void {
+  const oldWorker = slot.worker;
+  retiringCertifyWorkers.add(oldWorker);
+  oldWorker.terminate().catch((err) => {
+    log('warn', `failed to terminate certify worker ${slot.index}`, {
+      err: String(err),
+    });
+  });
+  slot.worker = createCertifyWorker(slot.index);
+  slot.busy = false;
+}
+
+function failCertifySlot(index: number, message: string): void {
+  const slot = certifySlots[index];
+  if (!slot) return;
+  for (const [requestId, pending] of pendingCertifyRuns) {
+    if (pending.slot !== slot) continue;
+    pending.reject(new Error(message));
+    pendingCertifyRuns.delete(requestId);
+  }
+  replaceCertifyWorker(slot);
+}
+
+function handleCertifyWorkerMessage(
+  index: number,
+  msg: PolicyCertificationWorkerResponse,
+): void {
+  const pending = pendingCertifyRuns.get(msg.requestId);
+  if (!pending) return;
+  if (msg.type === 'progress') {
+    sendCertifyProgress(msg.requestId, msg.completed, msg.total);
+    return;
+  }
+  pendingCertifyRuns.delete(msg.requestId);
+  pending.slot.busy = false;
+  if (msg.type === 'result') {
+    pending.resolve(msg.pack);
+    return;
+  }
+  pending.reject(new Error(msg.error));
+}
+
+function pickFreeCertifySlot(): CertifyWorkerSlot | null {
+  for (const slot of certifySlots) {
+    if (!slot.busy) return slot;
+  }
+  return null;
+}
+
+function freeCertifySlotCount(): number {
+  let n = 0;
+  for (const slot of certifySlots) if (!slot.busy) n += 1;
+  return n;
+}
+
+function runCertifyOnPool(
+  requestId: string,
+  payload: CertifyAssignMessage['payload'],
+): Promise<PolicyCertificationPack> {
+  return new Promise((resolve, reject) => {
+    const slot = pickFreeCertifySlot();
+    if (!slot) {
+      reject(new Error('host: no free certification worker slots'));
+      return;
+    }
+    pendingCertifyRuns.set(requestId, { slot, resolve, reject });
+    slot.busy = true;
+    const run: PolicyCertificationWorkerRequest = {
+      type: 'run',
+      requestId,
+      payload,
+    };
+    slot.worker.postMessage(run);
+  });
+}
+
+function cancelAllCertifyInFlight(reason: string): void {
+  for (const [requestId, pending] of pendingCertifyRuns) {
+    pending.reject(new Error(reason));
+    pendingCertifyRuns.delete(requestId);
+  }
+  for (const slot of certifySlots) {
+    if (slot.busy) {
+      replaceCertifyWorker(slot);
+    }
+  }
+}
+
+async function shutdownCertifyPool(): Promise<void> {
+  cancelAllCertifyInFlight('host: shutting down');
+  await Promise.all(certifySlots.map((slot) => slot.worker.terminate()));
+}
+
+// ---------------------------------------------------------------------------
 // Session bookkeeping
 // ---------------------------------------------------------------------------
 
@@ -954,7 +1126,12 @@ function maybeRequestAutoUpdate(
   // launcher's start-host script hard-resets to origin/main on relaunch,
   // so blowing away local edits is the intended behavior.
   const expectedKey = formatBuildInfo(expectedBuildInfo);
-  if (activeSession || inFlightBatchIds.size > 0 || pendingRuns.size > 0) {
+  if (
+    activeSession ||
+    inFlightBatchIds.size > 0 ||
+    pendingRuns.size > 0 ||
+    pendingCertifyRuns.size > 0
+  ) {
     if (lastWaitingWarnExpected !== expectedKey) {
       log('info', 'auto-update waiting for idle host', {
         local: formatBuildInfo(HOST_BUILD_INFO),
@@ -962,6 +1139,7 @@ function maybeRequestAutoUpdate(
         source,
         activeSession: activeSession?.sessionId ?? null,
         inFlightBatches: inFlightBatchIds.size,
+        inFlightCertifications: pendingCertifyRuns.size,
       });
       lastWaitingWarnExpected = expectedKey;
     }
@@ -999,6 +1177,7 @@ function resetPeerScopedState(): void {
   // Cancel anything the workers are still chewing on — its result would
   // never make it back to the dispatcher anyway.
   cancelAllInFlight();
+  cancelAllCertifyInFlight('host: dispatcher disconnected');
   // Reject pending promises so handleBatchAssign's await resolves and
   // the slots get marked free again. We use a tagged error so a future
   // error-handling path can distinguish "host disconnected" from
@@ -1071,6 +1250,7 @@ function connect(): void {
       buildInfo: HOST_BUILD_INFO,
       capabilities: {
         workerCount: HOST_WORKER_COUNT,
+        certifyWorkerCount: HOST_CERTIFY_WORKER_COUNT,
         perfClass: HOST_PERF_CLASS,
         platformDescriptor: PLATFORM_DESCRIPTOR,
         engineRuntime: HOST_ENGINE_RUNTIME,
@@ -1079,6 +1259,7 @@ function connect(): void {
     ws.send(encodeMessage(register));
     log('info', 'sent register', {
       workers: HOST_WORKER_COUNT,
+      certifyWorkers: HOST_CERTIFY_WORKER_COUNT,
       perf: HOST_PERF_CLASS,
       platform: PLATFORM_DESCRIPTOR,
       runtime: HOST_ENGINE_RUNTIME,
@@ -1180,6 +1361,12 @@ async function handleDispatcherMessage(message: ClusterMessage): Promise<void> {
       inFlightBatchIds.delete(message.batchId);
       return;
     }
+    case 'certify_assign': {
+      // Fire-and-forget — certification jobs run independently of the
+      // mining worker pool and return their own result/error message.
+      void handleCertifyAssign(message);
+      return;
+    }
     case 'cluster_state':
       maybeRequestAutoUpdate(message.snapshot.dispatcherBuildInfo, 'cluster_state');
       return;
@@ -1197,6 +1384,9 @@ async function handleDispatcherMessage(message: ClusterMessage): Promise<void> {
     case 'register':
     case 'batch_result':
     case 'batch_nack':
+    case 'certify_result':
+    case 'certify_progress':
+    case 'certify_error':
       // Outbound-only from this host's perspective.
       return;
     default: {
@@ -1475,6 +1665,77 @@ function sendNack(
 }
 
 // ---------------------------------------------------------------------------
+// Certification fan-out — single-job request/response
+// ---------------------------------------------------------------------------
+
+async function handleCertifyAssign(message: CertifyAssignMessage): Promise<void> {
+  const { jobId, payload, softDeadlineMs } = message;
+  if (softDeadlineMs && Date.now() > softDeadlineMs) {
+    sendCertifyError(jobId, 'deadline_exceeded_before_start');
+    return;
+  }
+  log('info', 'certify start', {
+    jobId,
+    spend: payload.policy.annualSpendTodayDollars,
+    basis: payload.spendingScheduleBasis ?? null,
+    freeCertifySlots: freeCertifySlotCount(),
+  });
+  const startedAtMs = Date.now();
+  try {
+    const pack = await runCertifyOnPool(jobId, payload);
+    sendCertifyResult(jobId, pack);
+    log('info', 'certify done', {
+      jobId,
+      verdict: pack.verdict,
+      durationMs: Date.now() - startedAtMs,
+      freeCertifySlots: freeCertifySlotCount(),
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    sendCertifyError(jobId, message);
+    log('error', 'certify failed', {
+      jobId,
+      error: message,
+      durationMs: Date.now() - startedAtMs,
+    });
+  }
+}
+
+function sendCertifyResult(jobId: string, pack: CertifyResultMessage['pack']): void {
+  if (!socket || socket.readyState !== WebSocket.OPEN) return;
+  const msg: CertifyResultMessage = {
+    kind: 'certify_result',
+    from: myPeerId ?? undefined,
+    jobId,
+    pack,
+  };
+  socket.send(encodeMessage(msg));
+}
+
+function sendCertifyProgress(jobId: string, completed: number, total: number): void {
+  if (!socket || socket.readyState !== WebSocket.OPEN) return;
+  const msg: CertifyProgressMessage = {
+    kind: 'certify_progress',
+    from: myPeerId ?? undefined,
+    jobId,
+    completed,
+    total,
+  };
+  socket.send(encodeMessage(msg));
+}
+
+function sendCertifyError(jobId: string, error: string): void {
+  if (!socket || socket.readyState !== WebSocket.OPEN) return;
+  const msg: CertifyErrorMessage = {
+    kind: 'certify_error',
+    from: myPeerId ?? undefined,
+    jobId,
+    error,
+  };
+  socket.send(encodeMessage(msg));
+}
+
+// ---------------------------------------------------------------------------
 // Bootstrap / shutdown
 // ---------------------------------------------------------------------------
 
@@ -1493,7 +1754,9 @@ function gracefulShutdown(signal: string): void {
   }
   // Failsafe: terminate workers and exit even if WS close hangs.
   setTimeout(() => process.exit(0), 1500).unref();
-  void shutdownPool().then(() => process.exit(0));
+  void Promise.all([shutdownPool(), shutdownCertifyPool()]).then(() =>
+    process.exit(0),
+  );
 }
 
 // Detect whether this file was invoked directly (vs imported by the smoke
@@ -1506,10 +1769,12 @@ if (isMain) {
   log('info', 'host starting', {
     name: HOST_DISPLAY_NAME,
     workers: HOST_WORKER_COUNT,
+    certifyWorkers: HOST_CERTIFY_WORKER_COUNT,
     perf: HOST_PERF_CLASS,
     dispatcher: DISPATCHER_URL,
   });
   spawnPool();
+  spawnCertifyPool();
   connect();
 }
 
@@ -1521,5 +1786,7 @@ export {
   unprimeAllSlots,
   runBatchOnPool,
   freeSlotCount,
+  freeCertifySlotCount,
   HOST_WORKER_COUNT,
+  HOST_CERTIFY_WORKER_COUNT,
 };

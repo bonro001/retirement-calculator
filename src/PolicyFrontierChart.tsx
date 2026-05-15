@@ -348,7 +348,7 @@ export function PolicyFrontierChart({
             up-and-to-the-right of it is a strict improvement.
           </>
         )}
-        {onAdoptPolicy && ' Click any green dot to adopt that policy.'}
+        {onAdoptPolicy && ' Click any green dot to review that policy.'}
       </p>
     </div>
   );

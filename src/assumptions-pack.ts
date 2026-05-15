@@ -46,7 +46,9 @@ export interface SharedAssumptionsPack {
     optionalMonthly: number;
     annualTaxesInsurance: number;
     travelEarlyRetirementAnnual: number;
+    travelFloorAnnual: number;
     travelPhaseYears: number;
+    travelFlatYears: number;
   };
   horizon: {
     robPlanningEndAge: number;
@@ -134,7 +136,9 @@ export function createSharedAssumptionsPack(
       optionalMonthly: data.spending.optionalMonthly,
       annualTaxesInsurance: data.spending.annualTaxesInsurance,
       travelEarlyRetirementAnnual: data.spending.travelEarlyRetirementAnnual,
+      travelFloorAnnual: data.spending.travelFloorAnnual ?? 0,
       travelPhaseYears: assumptions.travelPhaseYears,
+      travelFlatYears: assumptions.travelFlatYears ?? assumptions.travelPhaseYears,
     },
     horizon: {
       robPlanningEndAge: assumptions.robPlanningEndAge,

@@ -1,6 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { captureSnapshot, saveSnapshot } from './history-store';
+import {
+  captureSnapshot,
+  saveSnapshot,
+  type SnapshotPlanHighlights,
+} from './history-store';
 import { POLICY_MINER_ENGINE_VERSION } from './policy-miner-types';
+import type {
+  MonthlyReviewAiApproval,
+  MonthlyReviewValidationPacket,
+} from './monthly-review';
 import {
   findOptimalSocialSecurityClaimAsync,
   type SocialSecurityOptimizationResult,
@@ -3893,6 +3901,17 @@ export function CockpitScreen() {
         </MountWhenVisible>
       )}
 
+      <SaveSnapshotPanel
+        data={data}
+        assumptions={assumptions}
+        yearlySeries={yearlySeries}
+        headlineSuccessRate={optimizedSolventRate ?? planPath?.successRate ?? null}
+        headlineMedianEndingWealth={
+          trustMedianEndingWealth ?? planPath?.medianEndingWealth ?? null
+        }
+        adoptedPolicy={adopted}
+      />
+
       {/* Log actuals — household enters real balances / spending /
           taxes; engine writes them to the actuals log; reconciliation
           surfaces drift in the DeltaDashboardTile above. Lazy: form
@@ -4034,14 +4053,6 @@ export function CockpitScreen() {
         selectedResponses={selectedResponses ?? []}
       />
 
-      <SaveSnapshotPanel
-        data={data}
-        assumptions={assumptions}
-        yearlySeries={yearlySeries}
-        baselinePath={planPath}
-        adoptedPolicy={adopted}
-      />
-
       <YearlyAuditDownload data={data} yearlySeries={yearlySeries} />
 
       {/* Mortality sensitivity — bottom-of-page sensitivity reading, not
@@ -4076,10 +4087,53 @@ export function CockpitScreen() {
  * Inspector view stays the place to see every column.
  */
 
+const LAST_AI_PACKET_KEY = 'monthly-review:last-ai-validation-packet';
+const LAST_AI_RESPONSE_KEY = 'monthly-review:last-ai-response';
+
+function readStoredJson<T>(key: string): T | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = window.localStorage.getItem(key);
+    return raw ? (JSON.parse(raw) as T) : null;
+  } catch {
+    return null;
+  }
+}
+
+function readMonthlyReviewPlanHighlights(): Omit<SnapshotPlanHighlights, 'cockpit'> | null {
+  const packet = readStoredJson<MonthlyReviewValidationPacket>(LAST_AI_PACKET_KEY);
+  const approval = readStoredJson<MonthlyReviewAiApproval>(LAST_AI_RESPONSE_KEY);
+  if (!packet && !approval) {
+    return null;
+  }
+
+  return {
+    source: 'monthly_review_cache',
+    capturedAtIso: approval?.generatedAtIso ?? packet?.generatedAtIso ?? null,
+    recommendationStatus: packet?.recommendation.status ?? null,
+    strategyId: packet?.recommendation.strategyId ?? null,
+    policyId: packet?.recommendation.policyId ?? null,
+    annualSpendTodayDollars:
+      packet?.recommendation.annualSpendTodayDollars ?? null,
+    monthlySpendTodayDollars:
+      packet?.recommendation.monthlySpendTodayDollars ?? null,
+    certificationVerdict:
+      packet?.recommendation.certificationVerdict ?? null,
+    aiVerdict: approval?.verdict ?? packet?.recommendation.aiVerdict ?? null,
+    aiConfidence: approval?.confidence ?? null,
+    summary: approval?.summary ?? packet?.recommendation.summary ?? null,
+    actionItems: approval?.actionItems ?? [],
+    proofBundlePath: approval?.auditTrail?.auditDir ?? null,
+    proofFiles: approval?.auditTrail?.files ?? {},
+  };
+}
+
 /**
- * "Save snapshot" panel — captures the current plan state into the
- * history store. Pulls all the inputs from the cockpit's existing
- * memos (no duplicate sim runs) and writes via `history-store.ts`.
+   * "Save snapshot" panel — captures the current portfolio/checkpoint state into the
+   * history store. Pulls all the inputs from the cockpit's existing
+   * memos and writes via `history-store.ts`. It intentionally works even
+   * when the year-by-year projection is cold, because a before-Fidelity
+   * checkpoint should not require a fresh detail run.
  *
  * UX: a single button + an optional label input. After save, shows
  * a brief confirmation with a "View history" link. Doesn't block the
@@ -4089,13 +4143,15 @@ function SaveSnapshotPanel({
   data,
   assumptions,
   yearlySeries,
-  baselinePath,
+  headlineSuccessRate,
+  headlineMedianEndingWealth,
   adoptedPolicy,
 }: {
   data: SeedData | null | undefined;
   assumptions: MarketAssumptions | null | undefined;
   yearlySeries: PathYearResult[];
-  baselinePath: PathResult | null;
+  headlineSuccessRate: number | null;
+  headlineMedianEndingWealth: number | null;
   adoptedPolicy: { annualSpendTodayDollars: number; primarySocialSecurityClaimAge: number; spouseSocialSecurityClaimAge: number | null; rothConversionAnnualCeiling: number } | null;
 }) {
   const [label, setLabel] = useState('');
@@ -4103,7 +4159,12 @@ function SaveSnapshotPanel({
   const [savedAt, setSavedAt] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  if (!data || !assumptions || !baselinePath || yearlySeries.length === 0) {
+  if (
+    !data ||
+    !assumptions ||
+    headlineSuccessRate === null ||
+    headlineMedianEndingWealth === null
+  ) {
     return null;
   }
 
@@ -4117,10 +4178,11 @@ function SaveSnapshotPanel({
         data,
         assumptions,
         yearlySeries,
-        successRate: baselinePath.successRate,
-        medianEndingWealth: baselinePath.medianEndingWealth,
+        successRate: headlineSuccessRate,
+        medianEndingWealth: headlineMedianEndingWealth,
         adoptedPolicy: adoptedPolicy as any,
         engineVersion: POLICY_MINER_ENGINE_VERSION,
+        planHighlights: readMonthlyReviewPlanHighlights(),
       });
       await saveSnapshot(snapshot);
       setSavedAt(new Date().toLocaleTimeString());
@@ -4137,12 +4199,12 @@ function SaveSnapshotPanel({
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex-1 min-w-[280px]">
           <p className="text-[12px] font-semibold text-stone-700">
-            📸 Save plan snapshot
+            Save portfolio checkpoint
           </p>
           <p className="text-[11px] text-stone-500">
-            Capture today's state for month-over-month tracking. Solvency,
-            assets, projection trajectory, and adopted policy get archived
-            locally — view trends in the History tab.
+            Capture investments, source-account holdings, bank/cash, and the
+            latest Monthly Review recommendation so the next Fidelity refresh
+            has a clean before/after comparison.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -4150,7 +4212,7 @@ function SaveSnapshotPanel({
             type="text"
             value={label}
             onChange={(e) => setLabel(e.target.value)}
-            placeholder="Optional label (e.g. April 2026 review)"
+            placeholder="Optional label (e.g. before Fidelity refresh)"
             className="rounded-lg border border-stone-300 bg-white px-3 py-2 text-sm placeholder:text-stone-400 focus:border-[#0066CC] focus:outline-none"
             disabled={saving}
             onKeyDown={(e) => {
@@ -4169,7 +4231,8 @@ function SaveSnapshotPanel({
       </div>
       {savedAt && (
         <p className="mt-2 text-[11px] text-emerald-700">
-          ✓ Saved at {savedAt}. Open the History tab to see it.
+          ✓ Saved at {savedAt}. Open History to compare investments, bank/cash,
+          and the monthly recommendation.
         </p>
       )}
       {error && (

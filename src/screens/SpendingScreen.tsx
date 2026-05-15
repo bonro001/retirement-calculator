@@ -4,6 +4,9 @@ import {
   applySpendingTransactionOverrides,
   buildSpendingMerchantCategoryRule,
   buildSpendingTransactionOverride,
+  mergeSpendingMerchantCategoryRules,
+  mergeSpendingTransactionOverrides,
+  parseSpendingOverridesFilePayload,
   readSpendingMerchantCategoryRules,
   readSpendingTransactionOverrides,
   writeSpendingMerchantCategoryRules,
@@ -52,6 +55,13 @@ const LOCAL_SPENDING_LEDGER_URLS = [
   '/local/spending-ledger.gmail.json',
 ] as const;
 const AMAZON_ALIGNMENT_URL = '/local/spending-amazon-card-email-alignment.json';
+const SPENDING_OVERRIDES_URL = '/local/spending-overrides.json';
+const LOCAL_API_BASE_URL =
+  typeof window !== 'undefined' &&
+  window.location.hostname &&
+  !['localhost', '127.0.0.1'].includes(window.location.hostname)
+    ? `http://${window.location.hostname}:8787`
+    : 'http://127.0.0.1:8787';
 
 const STATUS_LABELS: Record<SpendingPaceStatus, string> = {
   under: 'Under pace',
@@ -1493,6 +1503,32 @@ function formatLedgerTimestamp(value: string | undefined): string {
   });
 }
 
+async function persistSpendingBackendOverride(update: {
+  transactionId: string;
+  categoryId: string;
+  applyToMerchant?: boolean;
+  title?: string;
+}) {
+  try {
+    await fetch(
+      `${LOCAL_API_BASE_URL}/api/spending/transactions/${encodeURIComponent(
+        update.transactionId,
+      )}/override`,
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          categoryId: update.categoryId,
+          title: update.title ?? '',
+          applyToMerchant: Boolean(update.applyToMerchant),
+        }),
+      },
+    );
+  } catch {
+    // Browser-local overrides keep the UI responsive when the local API is down.
+  }
+}
+
 function StatusPill({ status }: { status: SpendingPaceStatus }) {
   return (
     <span
@@ -2746,6 +2782,52 @@ export function SpendingScreen({
     setMerchantCategoryRules(readSpendingMerchantCategoryRules(window.localStorage));
   }, []);
 
+  useEffect(() => {
+    let cancelled = false;
+    fetch(SPENDING_OVERRIDES_URL, { cache: 'no-store' })
+      .then(async (response) => {
+        if (!response.ok) return null;
+        return parseSpendingOverridesFilePayload(await response.json());
+      })
+      .then((payload) => {
+        if (cancelled || !payload) return;
+        setCategoryOverrides((current) => {
+          const next = mergeSpendingTransactionOverrides(
+            current,
+            payload.transactionOverrides,
+          );
+          if (typeof window !== 'undefined' && window.localStorage) {
+            try {
+              writeSpendingTransactionOverrides(window.localStorage, next);
+            } catch {
+              // File-backed overrides still apply in memory.
+            }
+          }
+          return next;
+        });
+        setMerchantCategoryRules((current) => {
+          const next = mergeSpendingMerchantCategoryRules(
+            current,
+            payload.merchantCategoryRules,
+          );
+          if (typeof window !== 'undefined' && window.localStorage) {
+            try {
+              writeSpendingMerchantCategoryRules(window.localStorage, next);
+            } catch {
+              // File-backed rules still apply in memory.
+            }
+          }
+          return next;
+        });
+      })
+      .catch(() => {
+        // Missing local override file is normal on a fresh install.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const modeledSpending = useMemo(() => {
     const fixedSpendingBase = {
       ...appliedData.spending,
@@ -2951,6 +3033,9 @@ export function SpendingScreen({
         }
       }
       return next;
+    });
+    updates.forEach((update) => {
+      void persistSpendingBackendOverride(update);
     });
   };
   const moveTransaction = (

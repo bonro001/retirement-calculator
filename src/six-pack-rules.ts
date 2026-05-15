@@ -293,7 +293,7 @@ function buildPlanIntegrity(input: {
     trend: 'flat',
     headline:
       status === 'green'
-        ? 'CLOSES'
+        ? 'ON POINT'
         : status === 'amber'
           ? 'WATCH'
           : 'AT RISK',
@@ -360,6 +360,32 @@ function buildWatchItems(input: {
     ? Math.max(0, input.spending.annualEscrowActualSpend - input.spending.annualEscrowPlannedBudget)
     : 0;
   const status: SixPackStatus = input.spending ? 'green' : 'unknown';
+  const annualBudget = input.spending?.annualTotalBudget ?? 0;
+  const requiredShare = input.spending && annualBudget > 0
+    ? input.spending.annualRequiredSpend / annualBudget
+    : null;
+  const optionalShare = input.spending && annualBudget > 0
+    ? input.spending.annualOptionalSpend / annualBudget
+    : null;
+  const totalShare = input.spending && annualBudget > 0
+    ? input.spending.annualTotalSpend / annualBudget
+    : null;
+  const asOfDate = new Date(input.asOfIso);
+  const yearStart = new Date(asOfDate.getFullYear(), 0, 1);
+  const nextYearStart = new Date(asOfDate.getFullYear() + 1, 0, 1);
+  const elapsedYearShare = Number.isFinite(asOfDate.getTime())
+    ? Math.max(
+        0,
+        Math.min(
+          (asOfDate.getTime() - yearStart.getTime()) /
+            (nextYearStart.getTime() - yearStart.getTime()),
+          1,
+        ),
+      )
+    : null;
+  const paceDelta = totalShare !== null && elapsedYearShare !== null
+    ? totalShare - elapsedYearShare
+    : null;
   return {
     id: 'watch_items',
     label: 'Watch Items',
@@ -384,6 +410,20 @@ function buildWatchItems(input: {
     sourceFreshness: dataFreshness(input.spending?.summary.asOfIso ?? input.asOfIso, input.asOfIso, 'watch rules'),
     diagnostics: {
       annualEscrowSqueeze: escrowSqueeze,
+      annualRequiredBudget: input.spending?.annualRequiredBudget ?? null,
+      annualRequiredSpend: input.spending?.annualRequiredSpend ?? null,
+      annualOptionalBudget: input.spending?.annualOptionalBudget ?? null,
+      annualOptionalSpend: input.spending?.annualOptionalSpend ?? null,
+      annualTotalBudget: input.spending?.annualTotalBudget ?? null,
+      annualTotalSpend: input.spending?.annualTotalSpend ?? null,
+      annualTravelBudget: input.spending?.annualTravelBudget ?? null,
+      annualTravelSpend: input.spending?.annualTravelSpend ?? null,
+      annualOtherSpend: input.spending?.annualOtherSpend ?? null,
+      annualRequiredSegmentShare: requiredShare === null ? null : Number(requiredShare.toFixed(4)),
+      annualOptionalSegmentShare: optionalShare === null ? null : Number(optionalShare.toFixed(4)),
+      annualTotalShare: totalShare === null ? null : Number(totalShare.toFixed(4)),
+      annualElapsedYearShare: elapsedYearShare === null ? null : Number(elapsedYearShare.toFixed(4)),
+      annualPaceDelta: paceDelta === null ? null : Number(paceDelta.toFixed(4)),
     },
   };
 }

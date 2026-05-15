@@ -22,7 +22,7 @@
     <key>PATH</key>
     <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
     <key>SIX_PACK_API_HOST</key>
-    <string>127.0.0.1</string>
+    <string>0.0.0.0</string>
     <key>SIX_PACK_API_PORT</key>
     <string>8787</string>
   </dict>

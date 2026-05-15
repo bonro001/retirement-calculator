@@ -3,6 +3,7 @@ import type {
   Policy,
   PolicyEvaluation,
   PolicyMinerShadowStats,
+  PolicySpendingScheduleBasis,
 } from './policy-miner-types';
 
 /**
@@ -33,6 +34,7 @@ export interface PolicyMinerPrimePayload {
   engineVersion: string;
   evaluatedByNodeId: string;
   legacyTargetTodayDollars: number;
+  spendingScheduleBasis?: PolicySpendingScheduleBasis;
 }
 
 export interface PolicyMinerRunPayload {

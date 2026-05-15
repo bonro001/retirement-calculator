@@ -4,7 +4,9 @@ import {
   applySpendingTransactionOverrides,
   buildSpendingMerchantCategoryRule,
   buildSpendingTransactionOverride,
+  mergeSpendingTransactionOverrides,
   normalizeSpendingMerchant,
+  parseSpendingOverridesFilePayload,
   readSpendingMerchantCategoryRules,
   readSpendingTransactionOverrides,
   SPENDING_CATEGORY_OVERRIDE_STORAGE_KEY,
@@ -142,6 +144,46 @@ describe('spending transaction overrides', () => {
     );
 
     expect(Object.keys(readSpendingTransactionOverrides(storage))).toEqual(['good']);
+  });
+
+  it('parses durable backend override files', () => {
+    const override = buildSpendingTransactionOverride({
+      transactionId: 'tx-1',
+      categoryId: 'health',
+      updatedAtIso: '2026-05-11T12:00:00Z',
+    });
+
+    const payload = parseSpendingOverridesFilePayload({
+      schemaVersion: 'spending-overrides-v1',
+      updatedAtIso: '2026-05-11T12:00:00Z',
+      transactionOverrides: {
+        'tx-1': override,
+        malformed: { categoryId: 'optional' },
+      },
+      merchantCategoryRules: {},
+    });
+
+    expect(payload?.transactionOverrides).toEqual({ 'tx-1': override });
+  });
+
+  it('keeps the newest transaction override when merging sources', () => {
+    const older = buildSpendingTransactionOverride({
+      transactionId: 'tx-1',
+      categoryId: 'optional',
+      updatedAtIso: '2026-05-10T12:00:00Z',
+    });
+    const newer = buildSpendingTransactionOverride({
+      transactionId: 'tx-1',
+      categoryId: 'health',
+      updatedAtIso: '2026-05-11T12:00:00Z',
+    });
+
+    expect(
+      mergeSpendingTransactionOverrides({ 'tx-1': older }, { 'tx-1': newer }),
+    ).toEqual({ 'tx-1': newer });
+    expect(
+      mergeSpendingTransactionOverrides({ 'tx-1': newer }, { 'tx-1': older }),
+    ).toEqual({ 'tx-1': newer });
   });
 });
 

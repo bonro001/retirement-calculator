@@ -1,10 +1,11 @@
 import {
   applyPolicyToSeed,
+  buildPolicyAnnualSpendScheduleByYear,
   type SeedDataCloner,
 } from './policy-miner-eval';
 import { approximateBequestAttainmentRate } from './plan-evaluation';
 import { buildPathResults, type SimulationStressorKnobs } from './utils';
-import type { Policy } from './policy-miner-types';
+import type { Policy, PolicySpendingScheduleBasis } from './policy-miner-types';
 import type { MarketAssumptions, SeedData } from './types';
 
 /**
@@ -64,6 +65,16 @@ export interface StressScenario {
   stressorKnobs?:
     | SimulationStressorKnobs
     | ((seed: SeedData, policy: Policy) => SimulationStressorKnobs);
+  /** Optional one-off policy change for scenario probes. */
+  policyPatch?: (policy: Policy, seed: SeedData) => void;
+  /** Optional one-off seed-data change for scenario probes. */
+  seedPatch?: (seed: SeedData, policy: Policy) => void;
+  /** Optional one-off assumptions change for scenario probes. */
+  assumptionsPatch?: (
+    assumptions: MarketAssumptions,
+    seed: SeedData,
+    policy: Policy,
+  ) => void;
 }
 
 const OCTOBER_2026_LAYOFF_DATE = '2026-10-01';
@@ -206,18 +217,33 @@ export function evaluatePolicyUnderStress(
   legacyTargetTodayDollars: number,
   cloner: SeedDataCloner,
   stressorKnobs?: StressScenario['stressorKnobs'],
+  scenarioPatches?: Pick<
+    StressScenario,
+    'policyPatch' | 'seedPatch' | 'assumptionsPatch'
+  >,
+  spendingScheduleBasis?: PolicySpendingScheduleBasis,
 ): { outcome: StressOutcome; appliedStressors: string[]; durationMs: number } {
   const startMs = Date.now();
-  const seed = applyPolicyToSeed(cloner(baseline), policy);
+  const policyForRun: Policy = { ...policy };
+  const baseSeed = cloner(baseline);
+  scenarioPatches?.policyPatch?.(policyForRun, baseSeed);
+  const seed = applyPolicyToSeed(baseSeed, policyForRun);
+  scenarioPatches?.seedPatch?.(seed, policyForRun);
+  const assumptionsForRun: MarketAssumptions = { ...assumptions };
+  scenarioPatches?.assumptionsPatch?.(assumptionsForRun, seed, policyForRun);
   const knownIds = new Set(seed.stressors?.map((s) => s.id) ?? []);
   const appliedStressors = stressorIds.filter((id) => knownIds.has(id));
   const resolvedStressorKnobs = resolveStressorKnobs(
     stressorKnobs,
     seed,
-    policy,
+    policyForRun,
   );
-  const paths = buildPathResults(seed, assumptions, appliedStressors, [], {
-    annualSpendTarget: policy.annualSpendTodayDollars,
+  const paths = buildPathResults(seed, assumptionsForRun, appliedStressors, [], {
+    annualSpendTarget: policyForRun.annualSpendTodayDollars,
+    annualSpendScheduleByYear: buildPolicyAnnualSpendScheduleByYear(
+      policyForRun,
+      spendingScheduleBasis,
+    ),
     pathMode: 'selected_only',
     stressorKnobs: resolvedStressorKnobs,
   });
@@ -226,7 +252,7 @@ export function evaluatePolicyUnderStress(
     throw new Error('evaluatePolicyUnderStress: engine returned no path result');
   }
   const horizonYears = path.yearlySeries?.length ?? 30;
-  const inflation = assumptions.inflation ?? 0.025;
+  const inflation = assumptionsForRun.inflation ?? 0.025;
   const deflate = (n: number) => toTodayDollars(n, inflation, horizonYears);
   const todayDollarsP10 = deflate(path.endingWealthPercentiles.p10);
   const todayDollarsP25 = deflate(path.endingWealthPercentiles.p25);
@@ -275,6 +301,8 @@ export interface RunPolicyStressTestOptions {
    * caller should pass a small positive number (e.g. 16 ms).
    */
   yieldEveryMs?: number;
+  /** Optional spending curve basis used to shape the policy's spend by year. */
+  spendingScheduleBasis?: PolicySpendingScheduleBasis;
 }
 
 /**
@@ -304,6 +332,9 @@ export async function runPolicyStressTest(
     [],
     legacyTargetTodayDollars,
     cloner,
+    undefined,
+    undefined,
+    options.spendingScheduleBasis,
   );
   const baselineResult: StressTestResult = {
     scenario: {
@@ -332,6 +363,8 @@ export async function runPolicyStressTest(
       legacyTargetTodayDollars,
       cloner,
       scenario.stressorKnobs,
+      scenario,
+      options.spendingScheduleBasis,
     );
     results.push({
       scenario,

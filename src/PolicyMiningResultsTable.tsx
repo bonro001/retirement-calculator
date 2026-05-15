@@ -4,12 +4,18 @@ import type { Policy, PolicyEvaluation } from './policy-miner-types';
 import {
   loadClusterEvaluations,
   loadClusterSessions,
+  runClusterNorthStarAiCheck,
   type ClusterSessionListing,
 } from './policy-mining-cluster';
+import type {
+  MiningNorthStarAiCheck,
+  MiningNorthStarAiFinding,
+} from './mining-north-star-ai';
 import { PolicyAdoptionModal } from './PolicyAdoptionModal';
 import { PolicyFrontierChart } from './PolicyFrontierChart';
 import { SensitivityPanel } from './SensitivityPanel';
 import { StressTestPanel } from './StressTestPanel';
+import { PolicyCertificationPanel } from './PolicyCertificationPanel';
 import { buildAdoptedSeedData, explainAdoption } from './policy-adoption';
 import { useAppStore } from './store';
 import { primeRecommendedPathCache } from './recommended-path-cache';
@@ -17,6 +23,11 @@ import {
   LEGACY_ATTAINMENT_FLOOR,
   SOLVENCY_DEFENSE_FLOOR,
 } from './policy-ranker';
+import type { PolicySpendingScheduleBasis } from './policy-miner-types';
+import { MONTHLY_REVIEW_SKIP_REAL_CERTIFICATION } from './monthly-review-flow-debug';
+import { POLICY_MINING_TRIAL_COUNT } from './policy-mining-config';
+import type { SeedData } from './types';
+import { calculateCurrentAges } from './utils';
 
 /**
  * Policy Mining — Results Table.
@@ -117,6 +128,13 @@ interface Props {
     assumptions: import('./types').MarketAssumptions;
     legacyTargetTodayDollars: number;
   };
+  /** Inputs for the conservative per-candidate certification pack. */
+  certificationControls?: {
+    baseline: import('./types').SeedData;
+    assumptions: import('./types').MarketAssumptions;
+    legacyTargetTodayDollars: number;
+    spendingScheduleBasis?: PolicySpendingScheduleBasis | null;
+  };
 }
 
 type Source = 'local' | 'cluster';
@@ -141,6 +159,19 @@ function formatCurrency(amount: number): string {
   if (amount >= 1_000_000) return `$${(amount / 1_000_000).toFixed(1)}M`;
   if (amount >= 1_000) return `$${(amount / 1_000).toFixed(0)}k`;
   return `$${Math.round(amount)}`;
+}
+
+function formatMonthlyCurrency(amount: number): string {
+  if (!Number.isFinite(amount)) return '—';
+  return `$${Math.round(amount).toLocaleString()}`;
+}
+
+function formatTrialWork(value: number): string {
+  if (!Number.isFinite(value)) return '—';
+  if (value >= 1_000_000_000) return `${Math.round(value / 1_000_000_000)}B`;
+  if (value >= 1_000_000) return `${Math.round(value / 1_000_000)}M`;
+  if (value >= 1_000) return `${Math.round(value / 1_000)}k`;
+  return value.toLocaleString();
 }
 
 function formatSpendLevels(levels: number[]): string | null {
@@ -171,6 +202,10 @@ function formatSpendLevels(levels: number[]): string | null {
     )
     .join(' + ');
   return minStep ? `${rangeText} · ${formatCurrency(minStep)} steps` : rangeText;
+}
+
+function formatCompactSpendLevels(levels: number[]): string {
+  return formatSpendLevels(levels) ?? 'none';
 }
 
 function formatPct(rate: number | null): string {
@@ -204,9 +239,86 @@ function deltaClass(tone: 'positive' | 'negative' | 'neutral'): string {
   }
 }
 
+function northStarVerdictClass(
+  verdict: MiningNorthStarAiCheck['verdict'],
+): string {
+  switch (verdict) {
+    case 'aligned':
+      return 'bg-emerald-100 text-emerald-800 ring-emerald-200';
+    case 'misaligned':
+      return 'bg-rose-100 text-rose-800 ring-rose-200';
+    case 'insufficient_data':
+      return 'bg-stone-100 text-stone-700 ring-stone-200';
+    case 'watch':
+    default:
+      return 'bg-amber-100 text-amber-800 ring-amber-200';
+  }
+}
+
+function findingStatusClass(status: MiningNorthStarAiFinding['status']): string {
+  switch (status) {
+    case 'pass':
+      return 'border-emerald-200 bg-emerald-50 text-emerald-900';
+    case 'fail':
+      return 'border-rose-200 bg-rose-50 text-rose-900';
+    case 'watch':
+    default:
+      return 'border-amber-200 bg-amber-50 text-amber-900';
+  }
+}
+
 function ageOrDash(age: number | null | undefined): string {
   if (age == null) return '—';
   return String(age);
+}
+
+function sortedScheduleYears(
+  basis: PolicySpendingScheduleBasis | null | undefined,
+): number[] {
+  if (!basis) return [];
+  return Object.keys(basis.multipliersByYear)
+    .map((year) => Number(year))
+    .filter((year) => Number.isFinite(year))
+    .sort((a, b) => a - b);
+}
+
+function averageHouseholdAge(data: SeedData): number | null {
+  try {
+    const ages = calculateCurrentAges(data);
+    return (ages.rob + ages.debbie) / 2;
+  } catch {
+    return null;
+  }
+}
+
+function scheduleYearAtHouseholdAge(input: {
+  data: SeedData;
+  basis: PolicySpendingScheduleBasis | null | undefined;
+  targetAge: number;
+}): number | null {
+  const years = sortedScheduleYears(input.basis);
+  const firstYear = years[0];
+  if (firstYear == null) return null;
+  const age = averageHouseholdAge(input.data);
+  if (age === null) return firstYear;
+  const targetYear = firstYear + Math.max(0, Math.ceil(input.targetAge - age));
+  return years.find((year) => year >= targetYear) ?? years[years.length - 1]!;
+}
+
+function scheduledAnnualSpend(input: {
+  policy: Policy;
+  basis: PolicySpendingScheduleBasis | null | undefined;
+  year: number | null;
+}): number {
+  if (!input.basis || input.year === null) {
+    return input.policy.annualSpendTodayDollars;
+  }
+  const multiplier = input.basis.multipliersByYear[input.year] ?? 1;
+  return input.policy.annualSpendTodayDollars * Math.max(0, multiplier);
+}
+
+function distinctSortedNumbers(values: Iterable<number>): number[] {
+  return Array.from(new Set(values)).sort((a, b) => a - b);
 }
 
 function compareEvals(a: PolicyEvaluation, b: PolicyEvaluation, sort: SortSpec): number {
@@ -238,6 +350,145 @@ function compareEvals(a: PolicyEvaluation, b: PolicyEvaluation, sort: SortSpec):
     return a.id.localeCompare(b.id);
   }
   return (av - bv) * dir;
+}
+
+function SpendBoundaryRead({
+  best,
+  gatePassingEvaluations,
+  spendLevels,
+  legacyFloor,
+  solvencyFloor,
+}: {
+  best: PolicyEvaluation | null;
+  gatePassingEvaluations: readonly PolicyEvaluation[];
+  spendLevels: readonly number[];
+  legacyFloor: number;
+  solvencyFloor: number;
+}) {
+  if (!best) return null;
+  const bestSpend = best.policy.annualSpendTodayDollars;
+  const gatePassingSpends = distinctSortedNumbers(
+    gatePassingEvaluations.map((e) => e.policy.annualSpendTodayDollars),
+  );
+  const testedHigherSpends = spendLevels.filter((spend) => spend > bestSpend);
+  const bestSpendRows = gatePassingEvaluations.filter(
+    (e) => e.policy.annualSpendTodayDollars === bestSpend,
+  ).length;
+  const higherText =
+    testedHigherSpends.length > 0
+      ? `${formatCompactSpendLevels(testedHigherSpends)} were tested in this session but did not clear both gates.`
+      : 'No higher spend level was tested in this session.';
+
+  return (
+    <div className="mb-3 rounded-lg border border-amber-100 bg-amber-50/70 px-3 py-2 text-[12px] text-stone-700">
+      <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
+        <div>
+          <p className="font-semibold text-amber-950">
+            Decision boundary: {formatCurrency(bestSpend)}/yr
+          </p>
+          <p className="mt-0.5 text-amber-900">
+            Highest spend clearing {formatPct(legacyFloor)} legacy and{' '}
+            {formatPct(solvencyFloor)} solvency. At that tier, {bestSpendRows.toLocaleString()}{' '}
+            loaded candidate{bestSpendRows === 1 ? '' : 's'} clear the gates.
+          </p>
+        </div>
+        <div className="text-stone-600 lg:max-w-[44%]">
+          <p>{higherText}</p>
+          <p className="mt-0.5 text-stone-500">
+            Gate-passing spend tiers loaded: {formatCompactSpendLevels(gatePassingSpends)}.
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function NorthStarAiCheckPanel({
+  check,
+  loading,
+  error,
+  disabled,
+  onRun,
+}: {
+  check: MiningNorthStarAiCheck | null;
+  loading: boolean;
+  error: string | null;
+  disabled: boolean;
+  onRun: () => void;
+}) {
+  const topFindings = check?.findings.slice(0, 4) ?? [];
+  return (
+    <div className="mb-3 rounded-lg border border-blue-100 bg-blue-50/60 px-3 py-2 text-[12px] text-stone-700">
+      <div className="flex flex-col gap-2 lg:flex-row lg:items-start lg:justify-between">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="font-semibold text-blue-950">AI North Star Check</p>
+            {check && (
+              <span
+                className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ring-1 ${northStarVerdictClass(
+                  check.verdict,
+                )}`}
+              >
+                {check.verdict.replace(/_/g, ' ')}
+              </span>
+            )}
+          </div>
+          {check ? (
+            <p className="mt-1 max-w-4xl text-stone-700">{check.summary}</p>
+          ) : (
+            <p className="mt-1 max-w-4xl text-stone-600">
+              Reviews the selected mined row against the legacy target,
+              spending boundary, early-spend shape, and withdrawal-order
+              coverage.
+            </p>
+          )}
+          {error && (
+            <p className="mt-1 text-rose-700">
+              {error}
+            </p>
+          )}
+        </div>
+        <button
+          type="button"
+          disabled={disabled || loading}
+          onClick={onRun}
+          className="self-start rounded-full bg-blue-700 px-3 py-1 text-[11px] font-semibold text-white shadow-sm transition hover:bg-blue-800 disabled:cursor-not-allowed disabled:bg-stone-300"
+        >
+          {loading ? 'Checking…' : check ? 'Recheck' : 'Check'}
+        </button>
+      </div>
+      {topFindings.length > 0 && (
+        <div className="mt-2 grid gap-2 lg:grid-cols-2">
+          {topFindings.map((finding) => (
+            <div
+              key={finding.id}
+              className={`rounded-md border px-2.5 py-2 ${findingStatusClass(
+                finding.status,
+              )}`}
+            >
+              <div className="flex items-center justify-between gap-2">
+                <p className="font-semibold">{finding.title}</p>
+                <span className="rounded-full bg-white/70 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide">
+                  {finding.status}
+                </span>
+              </div>
+              <p className="mt-1 text-[11px] leading-snug">{finding.detail}</p>
+              {finding.recommendation && (
+                <p className="mt-1 text-[11px] font-medium leading-snug">
+                  {finding.recommendation}
+                </p>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+      {check && check.actionItems.length > 0 && (
+        <p className="mt-2 text-[11px] text-blue-900">
+          Next: {check.actionItems.slice(0, 2).join(' · ')}
+        </p>
+      )}
+    </div>
+  );
 }
 
 function policyDiffSummary(
@@ -317,6 +568,7 @@ export function PolicyMiningResultsTable({
   onSolvencyThresholdChange,
   rowLimit = DEFAULT_ROW_LIMIT,
   sensitivityControls,
+  certificationControls,
 }: Props): JSX.Element | null {
   // Default to cluster when the dispatcher is connected — the household's
   // normal state has the cluster doing the mining work, so records live
@@ -351,15 +603,18 @@ export function PolicyMiningResultsTable({
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
   const [clusterError, setClusterError] = useState<string | null>(null);
   const [clusterLoading, setClusterLoading] = useState<boolean>(false);
+  const [northStarAiCheck, setNorthStarAiCheck] =
+    useState<MiningNorthStarAiCheck | null>(null);
+  const [northStarAiLoading, setNorthStarAiLoading] =
+    useState<boolean>(false);
+  const [northStarAiError, setNorthStarAiError] = useState<string | null>(null);
 
-  // E.2 — adoption state. The modal is open when `adoptingPolicy` is set.
-  // The undo banner lives at the top of the table when the store has a
-  // recent adoption to revert. Pulling the seed via the store rather
-  // than threading it through props because the modal needs CURRENT
-  // values (not a snapshot from when the table mounted) to show the
-  // diff accurately — the user might edit Spending while the modal is
-  // open, though that's a corner case.
+  // Candidate review/adoption state. In flow-debug mode the modal is a
+  // review-only checkpoint; once the flow is stable, this same surface can
+  // expose the explicit adoption action after review.
   const [adoptingEvaluation, setAdoptingEvaluation] =
+    useState<PolicyEvaluation | null>(null);
+  const [certifyingEvaluation, setCertifyingEvaluation] =
     useState<PolicyEvaluation | null>(null);
   const currentSeed = useAppStore((s) => s.data);
   const appliedSeed = useAppStore((s) => s.appliedData);
@@ -374,6 +629,25 @@ export function PolicyMiningResultsTable({
     useState<'idle' | 'saving' | 'saved' | 'failed'>('idle');
   const [adoptionProjectionError, setAdoptionProjectionError] =
     useState<string | null>(null);
+  const [reviewBeforeAdoptMessage, setReviewBeforeAdoptMessage] =
+    useState<string | null>(null);
+  const planChoiceSpendingBasis =
+    certificationControls?.spendingScheduleBasis ?? null;
+  const planChoiceSpendingData = certificationControls?.baseline ?? currentSeed;
+  const age65ScheduleYear = useMemo(
+    () =>
+      scheduleYearAtHouseholdAge({
+        data: planChoiceSpendingData,
+        basis: planChoiceSpendingBasis,
+        targetAge: 65,
+      }),
+    [planChoiceSpendingData, planChoiceSpendingBasis],
+  );
+  const age65MonthlyTitle = planChoiceSpendingBasis
+    ? `Monthly spend for the first ${planChoiceSpendingBasis.label} schedule year at average household age 65${
+        age65ScheduleYear ? ` (${age65ScheduleYear})` : ''
+      }.`
+    : 'Monthly spend from the flat annual spend target.';
 
   const clusterEnabled = !!dispatcherUrl;
   const selectedSession = clusterSessions.find(
@@ -567,17 +841,24 @@ export function PolicyMiningResultsTable({
     spendFilter,
   ]);
 
-  const filtered = useMemo(() => {
+  const gatePassingEvaluations = useMemo(() => {
     return evaluations
       .filter(
         (e) =>
           e.outcome.bequestAttainmentRate >= defaultFeasibilityThreshold &&
-          e.outcome.solventSuccessRate >= solvencyThreshold &&
-          (spendFilter === null ||
-            e.policy.annualSpendTodayDollars === spendFilter),
+          e.outcome.solventSuccessRate >= solvencyThreshold,
+      );
+  }, [evaluations, defaultFeasibilityThreshold, solvencyThreshold]);
+
+  const filtered = useMemo(() => {
+    return gatePassingEvaluations
+      .filter(
+        (e) =>
+          spendFilter === null ||
+          e.policy.annualSpendTodayDollars === spendFilter,
       )
       .sort((a, b) => compareEvals(a, b, sort));
-  }, [evaluations, defaultFeasibilityThreshold, solvencyThreshold, spendFilter, sort]);
+  }, [gatePassingEvaluations, spendFilter, sort]);
 
   /**
    * Highest-spend evaluation that still clears both policy gates.
@@ -586,9 +867,7 @@ export function PolicyMiningResultsTable({
    */
   const bestByMaxSpend = useMemo(() => {
     let best: PolicyEvaluation | null = null;
-    for (const ev of evaluations) {
-      if (ev.outcome.bequestAttainmentRate < defaultFeasibilityThreshold) continue;
-      if (ev.outcome.solventSuccessRate < solvencyThreshold) continue;
+    for (const ev of gatePassingEvaluations) {
       if (!best) {
         best = ev;
         continue;
@@ -623,7 +902,20 @@ export function PolicyMiningResultsTable({
       }
     }
     return best;
-  }, [evaluations, defaultFeasibilityThreshold, solvencyThreshold]);
+  }, [gatePassingEvaluations]);
+
+  useEffect(() => {
+    setNorthStarAiCheck(null);
+    setNorthStarAiError(null);
+    setNorthStarAiLoading(false);
+  }, [
+    source,
+    selectedSessionId,
+    bestByMaxSpend?.id,
+    defaultFeasibilityThreshold,
+    solvencyThreshold,
+    legacyTargetTodayDollars,
+  ]);
 
   const visible = useMemo(() => {
     const base = showAll ? filtered : filtered.slice(0, rowLimit);
@@ -634,6 +926,30 @@ export function PolicyMiningResultsTable({
     if (base.some((ev) => ev.id === bestByMaxSpend.id)) return base;
     return [bestByMaxSpend, ...base];
   }, [filtered, rowLimit, showAll, bestByMaxSpend]);
+
+  const runNorthStarAiCheck = async () => {
+    if (!dispatcherUrl || !selectedSessionId) return;
+    setNorthStarAiLoading(true);
+    setNorthStarAiError(null);
+    try {
+      const check = await runClusterNorthStarAiCheck(
+        dispatcherUrl,
+        selectedSessionId,
+        {
+          selectedPolicyId: bestByMaxSpend?.id ?? null,
+          legacyTargetTodayDollars,
+          minFeasibility: defaultFeasibilityThreshold,
+          minSolvency: solvencyThreshold,
+          topN: 8,
+        },
+      );
+      setNorthStarAiCheck(check);
+    } catch (err) {
+      setNorthStarAiError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setNorthStarAiLoading(false);
+    }
+  };
 
   // Whether to render at all. Local mode hides if there's no baseline /
   // no records. Cluster mode renders even when empty so the picker /
@@ -650,6 +966,9 @@ export function PolicyMiningResultsTable({
   // mode we don't have that signal, so fall back to the array length.
   const totalEvaluated =
     source === 'cluster' ? evaluationCount : evaluations.length;
+  const totalEvaluatedTrialWork =
+    totalEvaluated *
+    (selectedSession?.manifest?.trialCount ?? POLICY_MINING_TRIAL_COUNT);
   const totalFeasible = filtered.length;
 
   const toggleSort = (key: SortKey) => {
@@ -714,10 +1033,25 @@ export function PolicyMiningResultsTable({
     );
   }, [lastPolicyAdoption, evaluations]);
 
-  const adoptAndPrimeProjection = (evaluation: PolicyEvaluation) => {
+  const adoptAndPrimeProjection = (
+    evaluation: PolicyEvaluation,
+    options: { certifyAfter?: boolean } = {},
+  ) => {
+    if (MONTHLY_REVIEW_SKIP_REAL_CERTIFICATION) {
+      setReviewBeforeAdoptMessage(
+        `Review requested for ${formatCurrency(
+          evaluation.policy.annualSpendTodayDollars,
+        )}/yr. No adoption was made while flow-debug mode is on.`,
+      );
+      setAdoptingEvaluation(null);
+      return;
+    }
     const adoptedSeed = buildAdoptedSeedData(appliedSeed, evaluation.policy);
     adoptMinedPolicy(evaluation.policy, evaluation);
     setAdoptingEvaluation(null);
+    if (options.certifyAfter && certificationControls && baselineFingerprint) {
+      setCertifyingEvaluation(evaluation);
+    }
     setAdoptionProjectionStatus('saving');
     setAdoptionProjectionError(null);
 
@@ -758,6 +1092,35 @@ export function PolicyMiningResultsTable({
               {lastPolicyAdoption.summary}
             </div>
             <div className="flex items-center gap-2">
+              {certificationControls && baselineFingerprint && (
+                <button
+                  type="button"
+                  disabled={!lastPolicyAdoption.evaluation}
+                  onClick={() => {
+                    if (!lastPolicyAdoption.evaluation) return;
+                    if (MONTHLY_REVIEW_SKIP_REAL_CERTIFICATION) {
+                      setReviewBeforeAdoptMessage(
+                        `Review requested for ${formatCurrency(
+                          lastPolicyAdoption.evaluation.policy
+                            .annualSpendTodayDollars,
+                        )}/yr. Real certification is paused for flow debugging.`,
+                      );
+                      return;
+                    }
+                    setCertifyingEvaluation(lastPolicyAdoption.evaluation);
+                  }}
+                  title={
+                    MONTHLY_REVIEW_SKIP_REAL_CERTIFICATION
+                      ? 'Record a review request without running real certification.'
+                      : lastPolicyAdoption.evaluation
+                      ? 'Run the certification pack on the adopted mined row'
+                      : 'Certification needs the mined evaluation row; re-adopt from the current table to certify.'
+                  }
+                  className="rounded-full bg-blue-600 px-3 py-0.5 text-[11px] font-semibold text-white shadow-sm transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-stone-300"
+                >
+                  {MONTHLY_REVIEW_SKIP_REAL_CERTIFICATION ? 'Review' : 'Certify'}
+                </button>
+              )}
               <button
                 type="button"
                 onClick={undoLastPolicyAdoption}
@@ -811,6 +1174,11 @@ export function PolicyMiningResultsTable({
           )}
         </div>
       )}
+      {reviewBeforeAdoptMessage && (
+        <p className="mb-3 rounded-md border border-blue-100 bg-blue-50 px-3 py-2 text-[12px] text-blue-900">
+          {reviewBeforeAdoptMessage}
+        </p>
+      )}
       {/* E.5 — sensitivity check sits directly below the adoption banner.
           Only renders when (a) the household has just adopted a policy
           (so there's something to test sensitivity around) and (b) the
@@ -845,7 +1213,7 @@ export function PolicyMiningResultsTable({
           </p>
           <p className="mt-0.5 text-[12px] text-stone-500">
             {totalFeasible.toLocaleString()} candidates clear gates of{' '}
-            {totalEvaluated.toLocaleString()} evaluated · sorted by{' '}
+            {formatTrialWork(totalEvaluatedTrialWork)} evaluated · sorted by{' '}
             {sort.key === 'spend'
               ? 'highest annual spend'
               : sort.key === 'bequestP50'
@@ -946,6 +1314,19 @@ export function PolicyMiningResultsTable({
         </div>
       )}
 
+      {certifyingEvaluation && certificationControls && baselineFingerprint && (
+        <PolicyCertificationPanel
+          evaluation={certifyingEvaluation}
+          baseline={certificationControls.baseline}
+          assumptions={certificationControls.assumptions}
+          baselineFingerprint={baselineFingerprint}
+          engineVersion={engineVersion}
+          legacyTargetTodayDollars={certificationControls.legacyTargetTodayDollars}
+          spendingScheduleBasis={certificationControls.spendingScheduleBasis}
+          onClose={() => setCertifyingEvaluation(null)}
+        />
+      )}
+
       {totalEvaluated === 0 ? (
         <p className="rounded-md bg-stone-50 px-3 py-2 text-[12px] text-stone-600">
           {source === 'cluster'
@@ -988,7 +1369,23 @@ export function PolicyMiningResultsTable({
               setAdoptingEvaluation(evaluation ?? null);
             }}
           />
-        <div className="mt-4 -mx-4 overflow-x-auto px-4">
+          <SpendBoundaryRead
+            best={bestByMaxSpend}
+            gatePassingEvaluations={gatePassingEvaluations}
+            spendLevels={spendLevels}
+            legacyFloor={defaultFeasibilityThreshold}
+            solvencyFloor={solvencyThreshold}
+          />
+          {source === 'cluster' && dispatcherUrl && selectedSessionId && (
+            <NorthStarAiCheckPanel
+              check={northStarAiCheck}
+              loading={northStarAiLoading}
+              error={northStarAiError}
+              disabled={clusterLoading || totalEvaluated === 0}
+              onRun={() => void runNorthStarAiCheck()}
+            />
+          )}
+          <div className="mt-4 -mx-4 overflow-x-auto px-4">
           <table className="w-full text-left text-[12px] tabular-nums">
             <thead>
               <tr className="border-b border-stone-200 text-[11px] font-medium uppercase tracking-wider text-stone-500">
@@ -997,6 +1394,9 @@ export function PolicyMiningResultsTable({
                   onClick={() => toggleSort('spend')}
                 >
                   Spend / yr{sortIndicator('spend')}
+                </th>
+                <th className="py-2 pr-3" title={age65MonthlyTitle}>
+                  Age 65 / mo
                 </th>
                 <th
                   className="cursor-pointer py-2 pr-3 hover:text-stone-700"
@@ -1077,6 +1477,15 @@ export function PolicyMiningResultsTable({
                   ev.policy,
                   lastPolicyAdoption?.policy,
                 );
+                const age65AnnualSpend = scheduledAnnualSpend({
+                  policy: ev.policy,
+                  basis: planChoiceSpendingBasis,
+                  year: age65ScheduleYear,
+                });
+                const age65MonthlyCellTitle =
+                  planChoiceSpendingBasis && age65ScheduleYear !== null
+                    ? `${formatCurrency(age65AnnualSpend)}/yr in ${age65ScheduleYear} using ${planChoiceSpendingBasis.label}`
+                    : `${formatCurrency(age65AnnualSpend)}/yr flat spend target`;
                 const solventPct = ev.outcome.solventSuccessRate;
                 const rowClassName = isAdopted
                   ? 'bg-emerald-50/80 hover:bg-emerald-50'
@@ -1106,6 +1515,12 @@ export function PolicyMiningResultsTable({
                         </span>
                       )}
                       {formatCurrency(ev.policy.annualSpendTodayDollars)}
+                    </td>
+                    <td
+                      className="py-2 pr-3 font-semibold text-stone-700"
+                      title={age65MonthlyCellTitle}
+                    >
+                      {formatMonthlyCurrency(age65AnnualSpend / 12)}
                     </td>
                     <td className="py-2 pr-3">
                       {ageOrDash(ev.policy.primarySocialSecurityClaimAge)}
@@ -1162,6 +1577,7 @@ export function PolicyMiningResultsTable({
                       </>
                     ) : null}
                     <td className="py-2 text-right">
+                      <div className="flex justify-end gap-1">
                       {isAdopted ? (
                         <span className="inline-flex rounded-full bg-emerald-100 px-3 py-1 text-[11px] font-semibold text-emerald-800">
                           Adopted
@@ -1172,16 +1588,17 @@ export function PolicyMiningResultsTable({
                           onClick={() => setAdoptingEvaluation(ev)}
                           className="rounded-full bg-emerald-600 px-3 py-1 text-[11px] font-semibold text-white shadow-sm transition hover:bg-emerald-700"
                         >
-                          Adopt
+                          Review
                         </button>
                       )}
+                      </div>
                     </td>
                   </tr>
                 );
               })}
             </tbody>
           </table>
-        </div>
+          </div>
         </>
       )}
 
@@ -1206,9 +1623,43 @@ export function PolicyMiningResultsTable({
           currentData={currentSeed}
           baselineMismatch={!!baselineMismatch}
           onCancel={() => setAdoptingEvaluation(null)}
+          suppressPrimaryAdoption={MONTHLY_REVIEW_SKIP_REAL_CERTIFICATION}
+          secondaryActionLabel={
+            MONTHLY_REVIEW_SKIP_REAL_CERTIFICATION
+              ? 'Review before adopt'
+              : 'Adopt and certify'
+          }
+          secondaryActionTitle={
+            MONTHLY_REVIEW_SKIP_REAL_CERTIFICATION
+              ? 'Review before adoption'
+              : undefined
+          }
+          secondaryActionDescription={
+            MONTHLY_REVIEW_SKIP_REAL_CERTIFICATION
+              ? 'Flow-debug mode records the review request without changing the plan or running certification.'
+              : undefined
+          }
           onConfirm={() => {
             adoptAndPrimeProjection(adoptingEvaluation);
           }}
+          onConfirmAndCertify={
+            certificationControls && baselineFingerprint
+              ? () => {
+                  if (!MONTHLY_REVIEW_SKIP_REAL_CERTIFICATION) {
+                    adoptAndPrimeProjection(adoptingEvaluation, {
+                      certifyAfter: true,
+                    });
+                    return;
+                  }
+                  setReviewBeforeAdoptMessage(
+                    `Review requested for ${formatCurrency(
+                      adoptingEvaluation.policy.annualSpendTodayDollars,
+                    )}/yr. No adoption was made and real certification is paused for flow debugging.`,
+                  );
+                  setAdoptingEvaluation(null);
+                }
+              : undefined
+          }
         />
       )}
     </div>

@@ -45,6 +45,11 @@ interface Props {
   policy: Policy;
   currentData: SeedData;
   onConfirm: () => void;
+  onConfirmAndCertify?: () => void;
+  secondaryActionLabel?: string;
+  secondaryActionTitle?: string;
+  secondaryActionDescription?: string;
+  suppressPrimaryAdoption?: boolean;
   onCancel: () => void;
   /** True when the policy's baseline doesn't match the current plan
    *  (cluster session ran against different inputs). The modal surfaces
@@ -56,6 +61,11 @@ export function PolicyAdoptionModal({
   policy,
   currentData,
   onConfirm,
+  onConfirmAndCertify,
+  secondaryActionLabel = 'Adopt and certify',
+  secondaryActionTitle = 'Would you like to certify this after adoption?',
+  secondaryActionDescription = 'Certification runs the dual-basis stress review and seed audit before treating this as authorized spending.',
+  suppressPrimaryAdoption = false,
   onCancel,
   baselineMismatch = false,
 }: Props): JSX.Element {
@@ -109,7 +119,7 @@ export function PolicyAdoptionModal({
       >
         <header className="border-b border-stone-200 px-6 py-4">
           <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-emerald-700">
-            Adopt mined policy
+            Review mined policy
           </p>
           <h2
             id="adopt-policy-title"
@@ -118,11 +128,18 @@ export function PolicyAdoptionModal({
             {diff.summary}
           </h2>
           <p className="mt-1 text-[12px] text-stone-500">
-            Stages these values into your draft plan. Click{' '}
-            <span className="font-semibold text-stone-700">
-              Run Plan Analysis
-            </span>{' '}
-            after to see updated projections.
+            {suppressPrimaryAdoption ? (
+              'Review these values before changing your draft plan.'
+            ) : (
+              <>
+                Review these values before staging them into your draft plan.
+                Click{' '}
+                <span className="font-semibold text-stone-700">
+                  Run Plan Analysis
+                </span>{' '}
+                after to see updated projections.
+              </>
+            )}
           </p>
         </header>
 
@@ -194,12 +211,22 @@ export function PolicyAdoptionModal({
           )}
 
           <p className="mt-4 text-[11px] text-stone-500">
-            Accounts and contributions are not modified. The previous values
-            are saved so you can undo this in one click.
+            {suppressPrimaryAdoption
+              ? 'No plan values are changed from this review step.'
+              : 'Accounts and contributions are not modified. The previous values are saved so you can undo this in one click.'}
           </p>
+
+          {onConfirmAndCertify && (
+            <div className="mt-3 rounded-md border border-blue-100 bg-blue-50 px-3 py-2 text-[12px] text-blue-900">
+              <p className="font-semibold">{secondaryActionTitle}</p>
+              <p className="mt-1 text-blue-800">
+                {secondaryActionDescription}
+              </p>
+            </div>
+          )}
         </div>
 
-        <footer className="flex items-center justify-end gap-2 border-t border-stone-200 bg-stone-50 px-6 py-3">
+        <footer className="flex flex-wrap items-center justify-end gap-2 border-t border-stone-200 bg-stone-50 px-6 py-3">
           <button
             type="button"
             onClick={onCancel}
@@ -207,13 +234,24 @@ export function PolicyAdoptionModal({
           >
             Cancel
           </button>
-          <button
-            type="button"
-            onClick={onConfirm}
-            className="rounded-full bg-emerald-600 px-4 py-1.5 text-[12px] font-semibold text-white shadow-sm transition hover:bg-emerald-700"
-          >
-            Adopt this plan
-          </button>
+          {!suppressPrimaryAdoption && (
+            <button
+              type="button"
+              onClick={onConfirm}
+              className="rounded-full bg-emerald-600 px-4 py-1.5 text-[12px] font-semibold text-white shadow-sm transition hover:bg-emerald-700"
+            >
+              Adopt this plan
+            </button>
+          )}
+          {onConfirmAndCertify && (
+            <button
+              type="button"
+              onClick={onConfirmAndCertify}
+              className="rounded-full bg-blue-600 px-4 py-1.5 text-[12px] font-semibold text-white shadow-sm transition hover:bg-blue-700"
+            >
+              {secondaryActionLabel}
+            </button>
+          )}
         </footer>
       </div>
     </div>,

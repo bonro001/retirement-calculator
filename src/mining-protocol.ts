@@ -35,8 +35,12 @@ import type {
   MiningJobBatch,
   MiningJobResult,
   MiningStats,
+  Policy,
   PolicyMiningSessionConfig,
+  PolicySpendingScheduleBasis,
 } from './policy-miner-types';
+import type { PolicyCertificationPack } from './policy-certification';
+import type { MarketAssumptions, SeedData } from './types';
 
 /**
  * Cluster protocol version. Bumped when an existing message kind's shape
@@ -127,6 +131,11 @@ export interface HostCapabilities {
    * older hosts can still join; UI treats missing as "unknown".
    */
   engineRuntime?: string;
+  /**
+   * Dedicated certification workers available on this host. Optional so
+   * older hosts can still certify one job at a time.
+   */
+  certifyWorkerCount?: number;
 }
 
 /**
@@ -407,6 +416,10 @@ export interface ClusterSnapshot {
     meanMsPerPolicy: number | null;
     /** Batches in flight on this host right now. */
     inFlightBatchCount: number;
+    /** Certification jobs currently assigned to this host. */
+    certifyInFlightCount?: number;
+    /** Certification capacity the dispatcher will assign to this host. */
+    certifyCapacity?: number;
     metrics?: ClusterPeerMetrics;
   }>;
   /** Current session — null when nothing is mining. */
@@ -443,6 +456,73 @@ export interface EvaluationsIngestedMessage extends BaseMessage {
 }
 
 // ============================================================================
+// Certification fan-out — single-job request/response (Phase 1 of cluster cert)
+// ============================================================================
+
+/**
+ * Self-contained payload for a single certification job. Unlike mining
+ * batches, certify jobs don't ride on a session, so the message carries
+ * the full baseline + assumptions + policy needed to run the cert. Hosts
+ * call `runPolicyCertification` on receipt.
+ */
+export interface CertifyJobPayload {
+  policy: Policy;
+  baseline: SeedData;
+  assumptions: MarketAssumptions;
+  baselineFingerprint: string;
+  engineVersion: string;
+  legacyTargetTodayDollars: number;
+  spendingScheduleBasis?: PolicySpendingScheduleBasis | null;
+}
+
+/**
+ * Dispatcher → host: please run this certification job. The host replies
+ * with `certify_result` on success or `certify_error` on failure. There is
+ * no ack — the result itself is the ack. If the host can't accept the job
+ * (overloaded, cycling for update), it sends `certify_error` immediately.
+ */
+export interface CertifyAssignMessage extends BaseMessage {
+  kind: 'certify_assign';
+  jobId: string;
+  payload: CertifyJobPayload;
+  /** Soft deadline (ms-since-epoch). Hosts that can't finish by this
+   *  should send `certify_error` with reason='deadline'. */
+  softDeadlineMs?: number;
+}
+
+/**
+ * Host → dispatcher: certification job completed. Dispatcher resolves the
+ * pending HTTP request keyed by `jobId`.
+ */
+export interface CertifyResultMessage extends BaseMessage {
+  kind: 'certify_result';
+  jobId: string;
+  pack: PolicyCertificationPack;
+}
+
+/**
+ * Host → dispatcher: certification job progress. Dispatcher forwards it
+ * to the waiting HTTP client when that client requested a streaming
+ * response.
+ */
+export interface CertifyProgressMessage extends BaseMessage {
+  kind: 'certify_progress';
+  jobId: string;
+  completed: number;
+  total: number;
+}
+
+/**
+ * Host → dispatcher: certification job failed or was refused. Dispatcher
+ * rejects the pending HTTP request with the error message.
+ */
+export interface CertifyErrorMessage extends BaseMessage {
+  kind: 'certify_error';
+  jobId: string;
+  error: string;
+}
+
+// ============================================================================
 // Discriminated union of every kind the wire can carry
 // ============================================================================
 
@@ -459,7 +539,11 @@ export type ClusterMessage =
   | BatchAckMessage
   | HostControlMessage
   | ClusterStateMessage
-  | EvaluationsIngestedMessage;
+  | EvaluationsIngestedMessage
+  | CertifyAssignMessage
+  | CertifyProgressMessage
+  | CertifyResultMessage
+  | CertifyErrorMessage;
 
 // ============================================================================
 // Serialization helpers

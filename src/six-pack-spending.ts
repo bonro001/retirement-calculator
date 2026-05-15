@@ -8,11 +8,13 @@ import {
   buildRetirementSpendingBudgetPlan,
   buildSpendingMonthSummary,
   monthKeyFromIsoDate,
+  spendingTransactionMonthKey,
 } from './spending-ledger';
 import {
   annualEscrowBudgetFromPlan,
   annualEscrowSpendFromCategories,
   enhanceBudgetPlanWithOperatingBuckets,
+  isYearlySpendingCategoryId,
   monthlyOperatingBudgetAfterAnnualEscrow,
   monthlyOperatingSpendFromCategories,
 } from './spending-budget-policy';
@@ -38,8 +40,52 @@ export interface SixPackSpendingContext {
   annualEscrowPlannedBudget: number;
   annualEscrowActualSpend: number;
   annualEscrowAdaptiveBudget: number;
+  annualRequiredBudget: number;
+  annualRequiredSpend: number;
+  annualOptionalBudget: number;
+  annualOptionalSpend: number;
+  annualTotalBudget: number;
+  annualTotalSpend: number;
+  annualTravelBudget: number;
+  annualTravelSpend: number;
+  annualOtherSpend: number;
   transactionCount: number;
   ledgerStatus: 'loaded' | 'missing' | 'error' | 'demo';
+}
+
+const REQUIRED_CATEGORY_IDS = new Set(['essential']);
+const OPTIONAL_CATEGORY_IDS = new Set(['optional']);
+const EXCLUDED_ANNUAL_CATEGORY_IDS = new Set(['ignored', 'long_term_items']);
+
+function transactionBudgetCategoryId(transaction: SpendingTransaction): string {
+  return transaction.categoryId ?? 'uncategorized';
+}
+
+function isIncludedAnnualTransaction(
+  transaction: SpendingTransaction,
+  budgetPlan: SpendingBudgetPlan,
+): boolean {
+  if (transaction.ignored === true) return false;
+  const categoryId = transactionBudgetCategoryId(transaction);
+  if (EXCLUDED_ANNUAL_CATEGORY_IDS.has(categoryId)) return false;
+  const category = budgetPlan.categories.find((candidate) => candidate.id === categoryId);
+  return category?.kind !== 'ignore' && category?.includeInBudget !== false;
+}
+
+function annualTransactionSpend(input: {
+  transactions: SpendingTransaction[];
+  budgetPlan: SpendingBudgetPlan;
+  asOf: Date;
+  includeCategoryId: (categoryId: string) => boolean;
+}): number {
+  const ytdMonthKeySet = new Set(monthKeysThrough(input.asOf));
+  return roundMoney(
+    input.transactions
+      .filter((transaction) => ytdMonthKeySet.has(spendingTransactionMonthKey(transaction)))
+      .filter((transaction) => isIncludedAnnualTransaction(transaction, input.budgetPlan))
+      .filter((transaction) => input.includeCategoryId(transactionBudgetCategoryId(transaction)))
+      .reduce((total, transaction) => total + transaction.amount, 0),
+  );
 }
 
 export function buildSixPackSpendingContext(input: {
@@ -79,6 +125,49 @@ export function buildSixPackSpendingContext(input: {
       0,
     ),
   );
+  const annualRequiredBudget = roundMoney(input.data.spending.essentialMonthly * 12);
+  const annualOptionalBudget = roundMoney(input.data.spending.optionalMonthly * 12);
+  const annualTotalBudget = roundMoney(annualRequiredBudget + annualOptionalBudget);
+  const annualTravelBudget = roundMoney(
+    budgetPlan.categories
+      .filter((category) => category.id === 'travel')
+      .reduce((total, category) => total + category.monthlyBudget * 12, 0),
+  );
+  const annualRequiredSpend = annualTransactionSpend({
+    transactions: input.transactions,
+    budgetPlan,
+    asOf,
+    includeCategoryId: (categoryId) => REQUIRED_CATEGORY_IDS.has(categoryId),
+  });
+  const annualTotalSpend = annualTransactionSpend({
+    transactions: input.transactions,
+    budgetPlan,
+    asOf,
+    includeCategoryId: (categoryId) =>
+      REQUIRED_CATEGORY_IDS.has(categoryId) || OPTIONAL_CATEGORY_IDS.has(categoryId),
+  });
+  const annualTravelSpend = annualTransactionSpend({
+    transactions: input.transactions,
+    budgetPlan,
+    asOf,
+    includeCategoryId: (categoryId) => categoryId === 'travel',
+  });
+  const annualOptionalSpend = annualTransactionSpend({
+    transactions: input.transactions,
+    budgetPlan,
+    asOf,
+    includeCategoryId: (categoryId) => OPTIONAL_CATEGORY_IDS.has(categoryId),
+  });
+  const annualOtherSpend = roundMoney(
+    annualTransactionSpend({
+      transactions: input.transactions,
+      budgetPlan,
+      asOf,
+      includeCategoryId: () => true,
+    }) -
+      annualRequiredSpend -
+      annualOptionalSpend,
+  );
   const annualEscrowAdaptiveBudget = Math.max(
     annualEscrowPlannedBudget,
     annualEscrowActualSpend,
@@ -100,6 +189,15 @@ export function buildSixPackSpendingContext(input: {
     annualEscrowPlannedBudget,
     annualEscrowActualSpend,
     annualEscrowAdaptiveBudget,
+    annualRequiredBudget,
+    annualRequiredSpend,
+    annualOptionalBudget,
+    annualOptionalSpend,
+    annualTotalBudget,
+    annualTotalSpend,
+    annualTravelBudget,
+    annualTravelSpend,
+    annualOtherSpend,
     transactionCount: input.transactions.length,
     ledgerStatus: input.ledgerStatus ?? (input.transactions.length ? 'loaded' : 'missing'),
   };
