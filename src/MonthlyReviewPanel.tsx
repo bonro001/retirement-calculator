@@ -403,6 +403,14 @@ function SpendBoundaryStrip({
           slot.status === 'running' && slot.total > 0
             ? ` · ${slot.completed}/${slot.total}`
             : '';
+        const slotSubLabel =
+          slot.status === 'running'
+            ? slot.hostDisplayName ?? 'assigning'
+            : slot.verdict === 'green'
+              ? 'certified'
+              : slot.reasons[0]
+                ? certificationReasonLabel(slot.reasons[0].code)
+                : slot.verdict ?? '-';
         return (
           <div key={slot.candidateId} className="flex min-w-[92px] flex-col gap-0.5">
             {isRecommended && (
@@ -446,9 +454,7 @@ function SpendBoundaryStrip({
                       : 'text-stone-400'
               }`}
             >
-              {slot.status === 'running'
-                ? slot.hostDisplayName ?? 'assigning'
-                : slot.verdict ?? '-'}
+              {slotSubLabel}
             </span>
           </div>
         );
