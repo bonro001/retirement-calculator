@@ -266,17 +266,13 @@ function buildBases(
 function selectedOperatingBasisId(
   spendingScheduleBasis?: PolicySpendingScheduleBasis | null,
 ): PolicyCertificationBasisId {
-  return spendingScheduleBasis && spendingScheduleBasis.id !== 'current_faithful'
-    ? spendingScheduleBasis.id
-    : 'current_faithful';
+  return spendingScheduleBasis?.id ?? 'current_faithful';
 }
 
 function selectedOperatingBasisLabel(
   spendingScheduleBasis?: PolicySpendingScheduleBasis | null,
 ): string {
-  return spendingScheduleBasis && spendingScheduleBasis.id !== 'current_faithful'
-    ? spendingScheduleBasis.label
-    : 'Current faithful';
+  return spendingScheduleBasis?.label ?? 'Current faithful';
 }
 
 function selectedOperatingBasis(
@@ -286,7 +282,7 @@ function selectedOperatingBasis(
   label: string;
   scheduleBasis: PolicySpendingScheduleBasis | null;
 } {
-  if (spendingScheduleBasis && spendingScheduleBasis.id !== 'current_faithful') {
+  if (spendingScheduleBasis) {
     return {
       id: spendingScheduleBasis.id,
       label: spendingScheduleBasis.label,
@@ -807,9 +803,9 @@ export async function runPolicyCertification(
       engineVersion: input.engineVersion,
       spendTarget: input.policy.annualSpendTodayDollars,
       selectedSpendingBasisId:
-        selectedBasisId === 'current_faithful' ? null : selectedBasisId,
+        input.spendingScheduleBasis ? selectedBasisId : null,
       selectedSpendingBasisLabel:
-        selectedBasisId === 'current_faithful' ? null : selectedBasisLabel,
+        input.spendingScheduleBasis ? selectedBasisLabel : null,
       spendingBasisFingerprint: basisFingerprint(input.spendingScheduleBasis ?? null),
       baseSeed,
       auditSeeds,

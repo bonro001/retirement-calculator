@@ -4,6 +4,7 @@ import {
   MONTHLY_REVIEW_AI_DEFAULT_MODEL,
   MONTHLY_REVIEW_AI_DEFAULT_REASONING_EFFORT,
   runMonthlyReview,
+  type MonthlyReviewAiApproval,
   type MonthlyReviewAiFinding,
   type MonthlyReviewCertification,
   type MonthlyReviewModelTask,
@@ -51,6 +52,13 @@ type MonthlyReviewStage =
   | 'failed';
 
 type StepStatus = 'waiting' | 'active' | 'done' | 'failed';
+type AiReviewProgressStatus = 'waiting' | 'active' | 'done' | 'failed';
+type AiReviewProgressStepId =
+  | 'packet_prepared'
+  | 'sent_to_model'
+  | 'model_response'
+  | 'checklist_merged'
+  | 'verdict_ready';
 
 interface Props {
   baseline: SeedData;
@@ -90,8 +98,56 @@ interface MiningSnapshot {
   feasibleCount: number;
 }
 
+interface AiReviewProgressStep {
+  id: AiReviewProgressStepId;
+  title: string;
+  detail: string;
+  status: AiReviewProgressStatus;
+  atIso: string | null;
+}
+
 const LAST_AI_PACKET_KEY = 'monthly-review:last-ai-validation-packet';
 const LAST_AI_RESPONSE_KEY = 'monthly-review:last-ai-response';
+
+function initialAiReviewProgress(): AiReviewProgressStep[] {
+  return [
+    {
+      id: 'packet_prepared',
+      title: 'Validation packet prepared',
+      detail: 'Waiting for certification to finish.',
+      status: 'waiting',
+      atIso: null,
+    },
+    {
+      id: 'sent_to_model',
+      title: 'Reviewing the validation packet',
+      detail: 'Waiting to send the packet to the model.',
+      status: 'waiting',
+      atIso: null,
+    },
+    {
+      id: 'model_response',
+      title: 'Model response received',
+      detail: 'Waiting for the reviewer response.',
+      status: 'waiting',
+      atIso: null,
+    },
+    {
+      id: 'checklist_merged',
+      title: 'Checklist merged',
+      detail: 'Waiting to merge AI findings with household signals.',
+      status: 'waiting',
+      atIso: null,
+    },
+    {
+      id: 'verdict_ready',
+      title: 'Verdict ready',
+      detail: 'Waiting for final co-review verdict.',
+      status: 'waiting',
+      atIso: null,
+    },
+  ];
+}
 
 // ─── Formatters ───────────────────────────────────────────────────────────────
 
@@ -169,11 +225,19 @@ function StepCard({
   n,
   title,
   status,
+  collapsible = false,
+  collapsed = false,
+  collapsedSummary,
+  onCollapsedChange,
   children,
 }: {
   n: number;
   title: string;
   status: StepStatus;
+  collapsible?: boolean;
+  collapsed?: boolean;
+  collapsedSummary?: React.ReactNode;
+  onCollapsedChange?: (collapsed: boolean) => void;
   children?: React.ReactNode;
 }): JSX.Element {
   const borderColor =
@@ -216,9 +280,11 @@ function StepCard({
 
   const badgeLabel =
     status === 'done' ? 'done' : status === 'active' ? 'running' : status === 'failed' ? 'failed' : 'waiting';
+  const hasBody = status !== 'waiting' && !!children;
+  const bodyCollapsed = collapsible && collapsed && hasBody;
 
   return (
-    <div className={`rounded-xl border ${borderColor} ${bgColor} overflow-hidden`}>
+    <div className={`overflow-hidden rounded-xl border ${borderColor} ${bgColor} transition-colors duration-300`}>
       {/* Header row — always present */}
       <div className="flex items-center gap-3 px-4 py-3">
         <div
@@ -226,18 +292,44 @@ function StepCard({
         >
           {status === 'done' ? '✓' : status === 'failed' ? '!' : n}
         </div>
-        <p className={`text-sm font-semibold ${titleColor}`}>{title}</p>
+        <div className="min-w-0 flex-1">
+          <p className={`text-sm font-semibold ${titleColor}`}>{title}</p>
+          {bodyCollapsed && collapsedSummary && (
+            <p className="mt-0.5 truncate text-[11px] tabular-nums text-stone-500">
+              {collapsedSummary}
+            </p>
+          )}
+        </div>
         <span
-          className={`ml-auto rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] ${badgeColor}`}
+          className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] ${badgeColor}`}
         >
           {badgeLabel}
         </span>
+        {collapsible && hasBody && (
+          <button
+            type="button"
+            aria-expanded={!bodyCollapsed}
+            onClick={() => onCollapsedChange?.(!collapsed)}
+            className="shrink-0 rounded-full border border-stone-200 bg-white px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-stone-500 transition hover:border-stone-300 hover:bg-stone-50 hover:text-stone-700"
+          >
+            {bodyCollapsed ? 'Show' : 'Hide'}
+          </button>
+        )}
       </div>
 
       {/* Body — only rendered when not waiting */}
-      {status !== 'waiting' && children && (
-        <div className="border-t border-stone-100 px-4 py-3 text-[12px]">
-          {children}
+      {hasBody && (
+        <div
+          aria-hidden={bodyCollapsed}
+          className={`grid transition-[grid-template-rows,opacity] duration-500 ease-in-out ${
+            bodyCollapsed ? 'grid-rows-[0fr] opacity-0' : 'grid-rows-[1fr] opacity-100'
+          }`}
+        >
+          <div className="min-h-0 overflow-hidden">
+            <div className="border-t border-stone-100 px-4 py-3 text-[12px]">
+              {children}
+            </div>
+          </div>
         </div>
       )}
     </div>
@@ -626,6 +718,75 @@ function ReviewChecklist({ items }: { items: ReviewChecklistItem[] }): JSX.Eleme
   );
 }
 
+function AiReviewProgressTimeline({
+  steps,
+  elapsedMs,
+}: {
+  steps: AiReviewProgressStep[];
+  elapsedMs: number;
+}): JSX.Element {
+  const visibleSteps = steps.length > 0 ? steps : initialAiReviewProgress();
+
+  return (
+    <div className="rounded-xl border border-blue-100 bg-white/70 px-3 py-3">
+      <div className="mb-2 flex items-center justify-between gap-3">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-blue-700">
+          Reviewing the validation packet
+        </p>
+        {elapsedMs > 0 && (
+          <p className="tabular-nums text-[11px] text-stone-500">
+            {formatDuration(elapsedMs)}
+          </p>
+        )}
+      </div>
+      <ol className="space-y-0">
+        {visibleSteps.map((step, index) => {
+          const isLast = index === visibleSteps.length - 1;
+          const isActive = step.status === 'active';
+          const isDone = step.status === 'done';
+          const isFailed = step.status === 'failed';
+          const circleClass = isFailed
+            ? 'border-rose-500 bg-rose-500 text-white'
+            : isDone
+              ? 'border-emerald-500 bg-emerald-500 text-white'
+              : isActive
+                ? 'border-blue-500 bg-blue-500 text-white'
+                : 'border-stone-300 bg-white text-stone-300';
+          const lineClass = isDone
+            ? 'bg-emerald-200'
+            : isActive
+              ? 'bg-blue-200'
+              : 'bg-stone-200';
+          const titleClass =
+            step.status === 'waiting' ? 'text-stone-400' : 'text-stone-900';
+          const detailClass =
+            step.status === 'waiting' ? 'text-stone-400' : 'text-stone-500';
+          return (
+            <li key={step.id} className="grid grid-cols-[1.25rem_1fr] gap-3">
+              <div className="flex flex-col items-center">
+                <span
+                  className={`mt-0.5 flex size-5 items-center justify-center rounded-md border text-[10px] font-bold leading-none ${circleClass}`}
+                >
+                  {isFailed ? '!' : isDone ? '✓' : isActive ? '…' : ''}
+                </span>
+                {!isLast && <span className={`h-8 w-px ${lineClass}`} />}
+              </div>
+              <div className={isLast ? 'pb-0' : 'pb-3'}>
+                <p className={`text-[12px] font-semibold ${titleClass}`}>
+                  {step.title}
+                </p>
+                <p className={`mt-0.5 text-[11px] ${detailClass}`}>
+                  {step.detail}
+                </p>
+              </div>
+            </li>
+          );
+        })}
+      </ol>
+    </div>
+  );
+}
+
 // ─── Proof bundle ─────────────────────────────────────────────────────────────
 
 type MonthlyReviewAuditTrail = NonNullable<
@@ -833,9 +994,15 @@ export function MonthlyReviewPanel({
     batchesAssigned: number;
     startedAtMs: number | null;
   } | null>(null);
+  const [minePanelCollapsed, setMinePanelCollapsed] = useState(false);
+  const minePanelAutoCollapsedRef = useRef(false);
   const [adoptingCertification, setAdoptingCertification] =
     useState<MonthlyReviewCertification | null>(null);
   const [certificationSlots, setCertificationSlots] = useState<CertificationSlot[]>([]);
+  const [aiReviewProgress, setAiReviewProgress] = useState<AiReviewProgressStep[]>(
+    () => initialAiReviewProgress(),
+  );
+  const aiReviewStartedAtRef = useRef<number | null>(null);
   const [showRawAiResponse, setShowRawAiResponse] = useState(false);
   const [showValidationPacket, setShowValidationPacket] = useState(false);
   const [lastValidationPacket, setLastValidationPacket] =
@@ -915,7 +1082,8 @@ export function MonthlyReviewPanel({
     if (
       reviewStage !== 'mining' &&
       reviewStage !== 'connecting' &&
-      reviewStage !== 'certifying'
+      reviewStage !== 'certifying' &&
+      reviewStage !== 'ai_review'
     ) {
       return undefined;
     }
@@ -930,6 +1098,15 @@ export function MonthlyReviewPanel({
       setLiveMineProgress(null);
     }
   }, [reviewStage]);
+
+  const minePanelShouldAutoCollapse =
+    miningSnapshot !== null &&
+    (reviewStage === 'certifying' || reviewStage === 'ai_review' || reviewStage === 'complete');
+  useEffect(() => {
+    if (!minePanelShouldAutoCollapse || minePanelAutoCollapsedRef.current) return;
+    minePanelAutoCollapsedRef.current = true;
+    setMinePanelCollapsed(true);
+  }, [minePanelShouldAutoCollapse]);
 
   const canRun = !!baselineFingerprint;
   const runId = useMemo(() => `monthly-review-${new Date().toISOString().slice(0, 10)}`, []);
@@ -949,6 +1126,26 @@ export function MonthlyReviewPanel({
     [onProgressStageChange],
   );
 
+  const updateAiReviewProgressStep = useCallback((
+    id: AiReviewProgressStepId,
+    status: AiReviewProgressStatus,
+    detail?: string,
+  ) => {
+    const atIso = new Date().toISOString();
+    setAiReviewProgress((steps) =>
+      steps.map((step) =>
+        step.id === id
+          ? {
+            ...step,
+            status,
+            detail: detail ?? step.detail,
+            atIso,
+          }
+          : step,
+      ),
+    );
+  }, []);
+
   const start = async () => {
     if (!baselineFingerprint) return;
     setBrowserHostMode('off');
@@ -956,8 +1153,12 @@ export function MonthlyReviewPanel({
       clusterRef.current.reconnect();
     }
     setMiningSnapshot(null);
+    setMinePanelCollapsed(false);
+    minePanelAutoCollapsedRef.current = false;
     setLastValidationPacket(null);
     setLastAiResponse(null);
+    setAiReviewProgress(initialAiReviewProgress());
+    aiReviewStartedAtRef.current = null;
     clearStoredJson(LAST_AI_PACKET_KEY);
     clearStoredJson(LAST_AI_RESPONSE_KEY);
     setCertificationSlots([]);
@@ -1186,11 +1387,57 @@ export function MonthlyReviewPanel({
           },
           aiReview: async (packet) => {
             setStage('ai_review');
+            aiReviewStartedAtRef.current = Date.now();
             setLastValidationPacket(packet);
             writeStoredJson(LAST_AI_PACKET_KEY, packet);
+            const householdSignals = packet.householdSignals ?? [];
+            const checklistCount =
+              11 + Math.max(0, householdSignals.filter((signal) => signal.status !== 'ok').length);
+            setAiReviewProgress([
+              {
+                id: 'packet_prepared',
+                title: 'Validation packet prepared',
+                detail: `${packet.strategies.length} strategy row${packet.strategies.length === 1 ? '' : 's'} · ${packet.certificationSummary.length} certification row${packet.certificationSummary.length === 1 ? '' : 's'} · ${householdSignals.length} household signal${householdSignals.length === 1 ? '' : 's'}`,
+                status: 'done',
+                atIso: new Date().toISOString(),
+              },
+              {
+                id: 'sent_to_model',
+                title: 'Reviewing the validation packet',
+                detail: `${MONTHLY_REVIEW_AI_DEFAULT_MODEL} is checking ${checklistCount} required review item${checklistCount === 1 ? '' : 's'}.`,
+                status: 'active',
+                atIso: new Date().toISOString(),
+              },
+              {
+                id: 'model_response',
+                title: 'Model response received',
+                detail: 'Waiting for the reviewer response.',
+                status: 'waiting',
+                atIso: null,
+              },
+              {
+                id: 'checklist_merged',
+                title: 'Checklist merged',
+                detail: 'Waiting to merge AI findings with household signals.',
+                status: 'waiting',
+                atIso: null,
+              },
+              {
+                id: 'verdict_ready',
+                title: 'Verdict ready',
+                detail: 'Waiting for final co-review verdict.',
+                status: 'waiting',
+                atIso: null,
+              },
+            ]);
             appendTransactionEvent(`AI co-review: ${MONTHLY_REVIEW_AI_DEFAULT_MODEL} (${MONTHLY_REVIEW_AI_DEFAULT_REASONING_EFFORT})`);
-            setRunState({ kind: 'running', message: `AI co-review in progress…` });
+            setRunState({ kind: 'running', message: 'Reviewing the validation packet…' });
             if (!dispatcherUrl) {
+              updateAiReviewProgressStep(
+                'sent_to_model',
+                'failed',
+                'Dispatcher is not connected, so the packet could not be sent.',
+              );
               return {
                 verdict: 'insufficient_data', confidence: 'low',
                 summary: 'Dispatcher not connected — AI co-review could not run.',
@@ -1200,9 +1447,44 @@ export function MonthlyReviewPanel({
                 generatedAtIso: new Date().toISOString(),
               };
             }
-            const approval = await runClusterMonthlyReviewAiApproval(dispatcherUrl, packet);
+            let approval: MonthlyReviewAiApproval;
+            try {
+              approval = await runClusterMonthlyReviewAiApproval(dispatcherUrl, packet);
+            } catch (err) {
+              updateAiReviewProgressStep(
+                'model_response',
+                'failed',
+                err instanceof Error ? err.message : 'Model review request failed.',
+              );
+              throw err;
+            }
+            updateAiReviewProgressStep(
+              'sent_to_model',
+              'done',
+              `Packet sent to ${MONTHLY_REVIEW_AI_DEFAULT_MODEL}.`,
+            );
+            updateAiReviewProgressStep(
+              'model_response',
+              'done',
+              `${approval.verdict} response received with ${approval.confidence} confidence.`,
+            );
+            updateAiReviewProgressStep(
+              'checklist_merged',
+              'active',
+              'Merging fixed checklist findings with household signals.',
+            );
             setLastAiResponse(approval);
             writeStoredJson(LAST_AI_RESPONSE_KEY, approval);
+            updateAiReviewProgressStep(
+              'checklist_merged',
+              'done',
+              `${approval.findings.length} AI finding${approval.findings.length === 1 ? '' : 's'} merged with packet signals.`,
+            );
+            updateAiReviewProgressStep(
+              'verdict_ready',
+              'done',
+              `Final AI co-review verdict: ${approval.verdict}.`,
+            );
             appendTransactionEvent(`AI co-review: ${approval.verdict} (${approval.confidence})`);
             return approval;
           },
@@ -1300,6 +1582,16 @@ export function MonthlyReviewPanel({
   const criticalTasks = run?.modelTasks.filter((t) => t.blocksApproval && t.status === 'open') ?? [];
   const isGreen = run?.recommendation.status === 'green';
   const aiVerdict = aiApproval?.verdict ?? null;
+  const aiReviewElapsedMs =
+    aiReviewStartedAtRef.current === null
+      ? 0
+      : Math.max(0, throughputTickMs - aiReviewStartedAtRef.current);
+  const minePanelSummary =
+    miningSnapshot !== null
+      ? `${miningSnapshot.evaluationCount.toLocaleString()} policies · ${formatCurrency(miningSnapshot.spendMin)}-${formatCurrency(miningSnapshot.spendMax)}/yr · ${miningSnapshot.feasibleCount.toLocaleString()} meet floor`
+      : liveMineProgress !== null
+        ? `${liveMineProgress.evaluated.toLocaleString()} / ${liveMineProgress.total.toLocaleString()} policies`
+        : null;
 
   return (
     <>
@@ -1339,7 +1631,15 @@ export function MonthlyReviewPanel({
               the session is in flight; sticks across pass-1/pass-2 gap)
            3. Done → evaluation count + spend range summary
            4. Connecting → "Connecting…" placeholder */}
-      <StepCard n={1} title="Mine" status={stepStatusForMine(reviewStage)}>
+      <StepCard
+        n={1}
+        title="Mine"
+        status={stepStatusForMine(reviewStage)}
+        collapsible
+        collapsed={minePanelCollapsed}
+        collapsedSummary={minePanelSummary}
+        onCollapsedChange={setMinePanelCollapsed}
+      >
         {reviewStage === 'failed' ? (
           <p className="text-rose-700">
             {runState.kind === 'failed' ? runState.reason : 'Mining failed.'}
@@ -1412,8 +1712,8 @@ export function MonthlyReviewPanel({
         ) : null}
       </StepCard>
 
-      {/* ── Step 2: Certify ─────────────────────────────────────────────────── */}
-      <StepCard n={2} title="Certify candidates" status={stepStatusForCertify(reviewStage)}>
+      {/* ── Step 2: Model validation ────────────────────────────────────────── */}
+      <StepCard n={2} title="Model validation" status={stepStatusForCertify(reviewStage)}>
         {certificationSlots.length > 0 ? (
           <div className="space-y-3">
             <p className="text-stone-500">
@@ -1437,14 +1737,19 @@ export function MonthlyReviewPanel({
         ) : null}
       </StepCard>
 
-      {/* ── Step 3: AI review ───────────────────────────────────────────────── */}
-      <StepCard n={3} title="AI review" status={stepStatusForAi(reviewStage)}>
+      {/* ── Step 3: AI co-review ────────────────────────────────────────────── */}
+      <StepCard n={3} title="AI co-review" status={stepStatusForAi(reviewStage)}>
         {reviewStage === 'ai_review' && !aiVerdict ? (
-          <p className="text-stone-500">
-            Sending validation packet to {MONTHLY_REVIEW_AI_DEFAULT_MODEL}…
-          </p>
+          <AiReviewProgressTimeline
+            steps={aiReviewProgress}
+            elapsedMs={aiReviewElapsedMs}
+          />
         ) : aiApproval ? (
           <div className="space-y-3">
+            <AiReviewProgressTimeline
+              steps={aiReviewProgress}
+              elapsedMs={aiReviewElapsedMs}
+            />
             <div className="flex items-center gap-3">
               <span
                 className={`rounded-full px-3 py-1 text-[11px] font-semibold ring-1 ${

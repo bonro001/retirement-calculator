@@ -315,4 +315,42 @@ describe('runPolicyCertification', () => {
     );
     expect(pack.guardrail.modeledAssetPath.length).toBeGreaterThan(0);
   });
+
+  it('does not drop a shaped Current Faithful basis during certification', async () => {
+    const pack = await runPolicyCertification({
+      policy: POLICY,
+      baseline: makeSeed(),
+      assumptions: ASSUMPTIONS,
+      baselineFingerprint: 'baseline-fp',
+      engineVersion: 'engine-test',
+      legacyTargetTodayDollars: 1_000_000,
+      cloner: (seed) => JSON.parse(JSON.stringify(seed)) as SeedData,
+      spendingScheduleBasis: {
+        id: 'current_faithful',
+        label: 'Current Faithful spending path',
+        multipliersByYear: {
+          2026: 1,
+          2027: 0.95,
+        },
+      },
+      scenarios: [],
+      yieldEveryMs: 0,
+    });
+
+    const options = mockedBuildPathResults.mock.calls.map((call) => call[4]);
+    expect(
+      options.every(
+        (option) =>
+          option.annualSpendScheduleByYear?.[2026] === 120_000 &&
+          option.annualSpendScheduleByYear?.[2027] === 114_000,
+      ),
+    ).toBe(true);
+    expect(new Set(pack.rows.map((row) => row.basisId))).toEqual(
+      new Set(['current_faithful']),
+    );
+    expect(pack.metadata.selectedSpendingBasisId).toBe('current_faithful');
+    expect(pack.metadata.selectedSpendingBasisLabel).toBe(
+      'Current Faithful spending path',
+    );
+  });
 });

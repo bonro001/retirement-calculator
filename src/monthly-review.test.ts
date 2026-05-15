@@ -477,7 +477,10 @@ describe('monthly review gates', () => {
 
 describe('monthly review strategy and orchestration', () => {
   it('builds the Current Faithful strategy', () => {
-    const strategies = buildMonthlyReviewStrategies();
+    const strategies = buildMonthlyReviewStrategies({
+      data: initialSeedData,
+      assumptions: defaultAssumptions,
+    });
     const fingerprints = strategies.map((s) =>
       buildMonthlyReviewMiningFingerprint({
         baselineFingerprint: 'baseline-a',
@@ -488,6 +491,16 @@ describe('monthly review strategy and orchestration', () => {
 
     expect(strategies.map((s) => s.id)).toEqual(['current_faithful']);
     expect(new Set(fingerprints).size).toBe(1);
+    expect(strategies[0]?.spendingScheduleBasis).toMatchObject({
+      id: 'current_faithful_spending_path',
+      label: 'Current Faithful spending path',
+    });
+    expect(strategies[0]?.modelCompleteness).toBe('faithful');
+    expect(
+      Math.min(
+        ...Object.values(strategies[0]?.spendingScheduleBasis?.multipliersByYear ?? {}),
+      ),
+    ).toBeLessThan(1);
   });
 
   it('builds compact QA signals for ACA, runway, concentration, and legacy headroom', () => {
@@ -590,7 +603,7 @@ describe('monthly review strategy and orchestration', () => {
         annualSpendTodayDollars: 140_000,
         certificationVerdict: 'green',
         spendingPath: expect.objectContaining({
-          scalarMeaning: 'flat_annual_spend',
+          scalarMeaning: 'spending_path_anchor',
           policySpendScalarTodayDollars: 140_000,
           firstRetirementYearAnnualSpendTodayDollars: expect.any(Number),
           peakGoGoAnnualSpendTodayDollars: expect.any(Number),

@@ -179,7 +179,7 @@ export interface MonthlyReviewSpendingPathRow {
 
 export interface MonthlyReviewSpendingPathMetrics {
   valueBasis: 'today_dollars';
-  scalarMeaning: 'flat_annual_spend' | 'curve_anchor';
+  scalarMeaning: 'flat_annual_spend' | 'curve_anchor' | 'spending_path_anchor';
   policySpendScalarTodayDollars: number;
   firstScheduleYear: number | null;
   retirementYear: number | null;
@@ -465,8 +465,10 @@ export function buildMonthlyReviewMiningFingerprint(input: {
   )}|fpv2`;
 }
 
+const CURRENT_FAITHFUL_SPENDING_BASIS_ID = 'current_faithful_spending_path';
+
 function scheduleToBasis(
-  id: MonthlyReviewStrategyId,
+  id: string,
   label: string,
   schedule: ReturnType<typeof buildSpendingModelSchedule>,
 ): PolicySpendingScheduleBasis | null {
@@ -484,15 +486,40 @@ function scheduleToBasis(
   };
 }
 
-export function buildMonthlyReviewStrategies(): MonthlyReviewStrategyDefinition[] {
+function scalarMeaningForBasis(
+  basis: PolicySpendingScheduleBasis | null,
+): MonthlyReviewSpendingPathMetrics['scalarMeaning'] {
+  if (!basis) return 'flat_annual_spend';
+  return basis.id.startsWith('jpmorgan') || basis.id === 'magic_average'
+    ? 'curve_anchor'
+    : 'spending_path_anchor';
+}
+
+export function buildMonthlyReviewStrategies(input?: {
+  data: SeedData;
+  assumptions: MarketAssumptions;
+}): MonthlyReviewStrategyDefinition[] {
+  const currentFaithfulSchedule = input
+    ? buildSpendingModelSchedule(input.data, input.assumptions, {
+        presetId: 'current_faithful',
+      })
+    : null;
+  const currentFaithfulBasis =
+    currentFaithfulSchedule?.status === 'complete'
+      ? scheduleToBasis(
+          CURRENT_FAITHFUL_SPENDING_BASIS_ID,
+          'Current Faithful spending path',
+          currentFaithfulSchedule,
+        )
+      : null;
   return [
     {
       id: 'current_faithful',
       label: 'Current Faithful',
       presetId: 'current_faithful',
-      spendingScheduleBasis: null,
-      modelCompleteness: 'faithful',
-      inferredAssumptions: [],
+      spendingScheduleBasis: currentFaithfulBasis,
+      modelCompleteness: currentFaithfulSchedule?.modelCompleteness ?? 'faithful',
+      inferredAssumptions: currentFaithfulSchedule?.inferredAssumptions ?? [],
     },
   ];
 }
@@ -986,7 +1013,7 @@ function buildMonthlyReviewSpendingPathMetrics(input: {
 
   return {
     valueBasis: 'today_dollars',
-    scalarMeaning: basis ? 'curve_anchor' : 'flat_annual_spend',
+    scalarMeaning: scalarMeaningForBasis(basis),
     policySpendScalarTodayDollars: scalar,
     firstScheduleYear,
     retirementYear,
@@ -1952,7 +1979,10 @@ export async function runMonthlyReview(
 ): Promise<MonthlyReviewRun> {
   const generatedAtIso = input.generatedAtIso ?? new Date().toISOString();
   const strategyIdSet = input.strategyIds ? new Set(input.strategyIds) : null;
-  const strategies = buildMonthlyReviewStrategies().filter(
+  const strategies = buildMonthlyReviewStrategies({
+    data: input.data,
+    assumptions: input.assumptions,
+  }).filter(
     (strategy) => !strategyIdSet || strategyIdSet.has(strategy.id),
   );
   const strategyResults: MonthlyReviewStrategyResult[] = [];
