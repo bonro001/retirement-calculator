@@ -15,6 +15,7 @@ import {
 import {
   loadClusterMonthlyReviewJob,
   startClusterMonthlyReviewJob,
+  type ClusterMonthlyReviewJob,
 } from './policy-mining-cluster';
 import { setBrowserHostMode } from './cluster-client';
 import { PolicyAdoptionModal } from './PolicyAdoptionModal';
@@ -151,6 +152,11 @@ function formatMonthly(amount: number | null): string {
   return `$${Math.round(amount).toLocaleString()}/mo`;
 }
 
+function formatPercent(value: number | null): string {
+  if (value === null || !Number.isFinite(value)) return '—';
+  return `${(value * 100).toFixed(1)}%`;
+}
+
 function formatDuration(ms: number): string {
   if (!Number.isFinite(ms) || ms <= 0) return '0s';
   const totalSeconds = Math.floor(ms / 1_000);
@@ -203,6 +209,20 @@ function stepStatusForCertify(
 ): StepStatus {
   if (stage === 'idle' || stage === 'connecting' || stage === 'mining') return 'waiting';
   if (stage === 'certifying') return 'active';
+  if (stage === 'failed') {
+    if (failedStep === 'certify') return 'failed';
+    return failedStep === 'ai' ? 'done' : 'waiting';
+  }
+  return 'done';
+}
+
+function stepStatusForTradeoffs(
+  stage: MonthlyReviewStage,
+  failedStep: FailedReviewStep,
+): StepStatus {
+  if (stage === 'idle' || stage === 'connecting' || stage === 'mining' || stage === 'certifying') {
+    return 'waiting';
+  }
   if (stage === 'failed') {
     if (failedStep === 'certify') return 'failed';
     return failedStep === 'ai' ? 'done' : 'waiting';
@@ -431,6 +451,320 @@ function SpendBoundaryStrip({
           </div>
         );
       })}
+    </div>
+  );
+}
+
+// ─── Validation tradeoff map ─────────────────────────────────────────────────
+
+const CERTIFICATION_REASON_LABELS: Record<string, string> = {
+  baseline_solvency_red: 'base solvency',
+  baseline_first10_red: 'early failure',
+  stress_solvency_red: 'stress solvency',
+  stress_first10_red: 'stress early failure',
+  baseline_not_green: 'base margin',
+  north_star_legacy_watch: 'legacy cushion',
+  stress_not_green: 'stress margin',
+  seed_stability_yellow: 'seed stability',
+  sleep_well_green: 'cleared',
+};
+
+function certificationReasonLabel(code: string): string {
+  return CERTIFICATION_REASON_LABELS[code] ?? code.replaceAll('_', ' ');
+}
+
+function certificationVerdictClasses(
+  verdict: MonthlyReviewCertification['verdict'],
+): string {
+  if (verdict === 'green') return 'bg-emerald-100 text-emerald-800 ring-emerald-200';
+  if (verdict === 'yellow') return 'bg-amber-100 text-amber-800 ring-amber-200';
+  return 'bg-rose-100 text-rose-800 ring-rose-200';
+}
+
+function weakestCertificationRows(cert: MonthlyReviewCertification) {
+  return [...cert.pack.rows]
+    .sort((a, b) => {
+      const score = (row: typeof a) =>
+        (1 - row.solvencyRate) * 4 +
+        row.first10YearFailureRisk * 3 +
+        (1 - row.legacyAttainmentRate) * 2 +
+        row.spendingCutRate;
+      return score(b) - score(a);
+    })
+    .slice(0, 3);
+}
+
+function certificationMetricSummary(cert: MonthlyReviewCertification): {
+  baselineSolvency: number | null;
+  stressSolvency: number | null;
+  legacy: number | null;
+  first10Failure: number | null;
+} {
+  const rows = cert.pack.rows;
+  const baselineRows = rows.filter((row) => row.scenarioKind === 'baseline');
+  const stressRows = rows.filter((row) => row.scenarioKind === 'stress');
+  const minOf = (values: number[]) => {
+    const finiteValues = values.filter((value) => Number.isFinite(value));
+    return finiteValues.length > 0 ? Math.min(...finiteValues) : null;
+  };
+  const maxOf = (values: number[]) => {
+    const finiteValues = values.filter((value) => Number.isFinite(value));
+    return finiteValues.length > 0 ? Math.max(...finiteValues) : null;
+  };
+  return {
+    baselineSolvency: minOf(baselineRows.map((row) => row.solvencyRate)),
+    stressSolvency: minOf(stressRows.map((row) => row.solvencyRate)),
+    legacy: minOf(rows.map((row) => row.legacyAttainmentRate)),
+    first10Failure: maxOf(rows.map((row) => row.first10YearFailureRisk)),
+  };
+}
+
+function ValidationTradeoffMap({
+  run,
+  packet,
+}: {
+  run: MonthlyReviewRun | null;
+  packet?: MonthlyReviewValidationPacket | null;
+}): JSX.Element | null {
+  if (!run && packet) {
+    const selectedSpend = packet.recommendation.annualSpendTodayDollars;
+    const certificationByPolicyId = new Map(
+      packet.certificationSummary.map((row) => [row.policyId, row]),
+    );
+    const rows = packet.rawExportEvidence.proofRows.higherSpendRowsTested
+      .filter((row) =>
+        selectedSpend === null
+          ? certificationByPolicyId.get(row.policyId)?.verdict !== 'green'
+          : row.annualSpendTodayDollars > selectedSpend,
+      )
+      .sort((a, b) => b.annualSpendTodayDollars - a.annualSpendTodayDollars)
+      .slice(0, 5);
+
+    return (
+      <div className="space-y-3">
+        <p className="text-stone-500">
+          {rows.length} higher candidate{rows.length === 1 ? '' : 's'} packaged for AI review
+        </p>
+        {rows.length > 0 ? (
+          <div className="grid gap-2">
+            {rows.map((row) => {
+              const cert = certificationByPolicyId.get(row.policyId);
+              const annualDelta =
+                selectedSpend === null ? null : Math.max(0, row.annualSpendTodayDollars - selectedSpend);
+              return (
+                <div
+                  key={row.policyId}
+                  className="rounded-lg border border-stone-200 bg-white p-3"
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-sm font-semibold tabular-nums text-stone-950">
+                        {formatCurrency(row.annualSpendTodayDollars)}/yr
+                      </span>
+                      {cert && (
+                        <span
+                          className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] ring-1 ${certificationVerdictClasses(cert.verdict)}`}
+                        >
+                          {cert.verdict}
+                        </span>
+                      )}
+                      {annualDelta !== null && annualDelta > 0 && (
+                        <span className="rounded-full bg-stone-100 px-2 py-0.5 text-[10px] font-semibold tabular-nums text-stone-600">
+                          +{formatMonthly(annualDelta / 12)}
+                        </span>
+                      )}
+                    </div>
+                    <div className="grid grid-cols-3 gap-x-3 text-right text-[10px] tabular-nums text-stone-500">
+                      <span>mine solv {formatPercent(row.solventSuccessRate)}</span>
+                      <span>legacy {formatPercent(row.bequestAttainmentRate)}</span>
+                      <span>p50 {formatCurrency(row.p50EndingWealthTodayDollars)}</span>
+                    </div>
+                  </div>
+                  {cert && cert.reasons.length > 0 && (
+                    <div className="mt-2 grid gap-1">
+                      {cert.reasons.slice(0, 3).map((reason) => (
+                        <p key={reason} className="text-[11px] text-stone-600">
+                          {reason}
+                        </p>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <p className="rounded-lg border border-stone-200 bg-white px-3 py-2 text-[12px] text-stone-500">
+            No higher candidate rows were packaged above the selected spend.
+          </p>
+        )}
+      </div>
+    );
+  }
+
+  if (!run) return null;
+
+  const selectedSpend = run.recommendation.annualSpendTodayDollars;
+  const certifications = run.strategies
+    .flatMap((strategy) =>
+      strategy.certifications.map((cert) => ({
+        cert,
+        strategyLabel: strategy.strategy.label,
+      })),
+    )
+    .sort(
+      (a, b) =>
+        b.cert.evaluation.policy.annualSpendTodayDollars -
+        a.cert.evaluation.policy.annualSpendTodayDollars,
+    );
+  if (certifications.length === 0) return null;
+
+  const higherCandidates = certifications.filter(({ cert }) => {
+    const spend = cert.evaluation.policy.annualSpendTodayDollars;
+    return selectedSpend === null ? cert.verdict !== 'green' : spend > selectedSpend;
+  });
+  const displayCandidates =
+    higherCandidates.length > 0
+      ? higherCandidates
+      : certifications.filter(({ cert }) => cert.verdict !== 'green');
+  const ladder = [...certifications].sort(
+    (a, b) =>
+      a.cert.evaluation.policy.annualSpendTodayDollars -
+      b.cert.evaluation.policy.annualSpendTodayDollars,
+  );
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-stone-500">
+          {selectedSpend !== null
+            ? `${higherCandidates.length} higher candidate${higherCandidates.length === 1 ? '' : 's'} tested above ${formatCurrency(selectedSpend)}/yr`
+            : `${displayCandidates.length} non-green candidate${displayCandidates.length === 1 ? '' : 's'} tested`}
+        </p>
+        {selectedSpend !== null && (
+          <span className="shrink-0 rounded-full bg-emerald-100 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-emerald-800 ring-1 ring-emerald-200">
+            pick {formatCurrency(selectedSpend)}
+          </span>
+        )}
+      </div>
+
+      <div className="grid grid-flow-col auto-cols-[minmax(76px,1fr)] gap-1 overflow-x-auto pb-1">
+        {ladder.map(({ cert }) => {
+          const spend = cert.evaluation.policy.annualSpendTodayDollars;
+          const isPick = selectedSpend !== null && spend === selectedSpend;
+          return (
+            <div
+              key={cert.evaluation.id}
+              className={`rounded border bg-white p-2 text-center ring-1 ${
+                isPick
+                  ? 'border-emerald-300 ring-emerald-400'
+                  : cert.verdict === 'green'
+                    ? 'border-emerald-100 ring-emerald-100'
+                    : cert.verdict === 'yellow'
+                      ? 'border-amber-100 ring-amber-100'
+                      : 'border-rose-100 ring-rose-100'
+              }`}
+            >
+              <p className="text-[11px] font-semibold tabular-nums text-stone-900">
+                {formatCurrency(spend)}
+              </p>
+              <p
+                className={`mt-1 rounded-full px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-[0.08em] ring-1 ${certificationVerdictClasses(cert.verdict)}`}
+              >
+                {isPick ? 'pick' : cert.verdict}
+              </p>
+            </div>
+          );
+        })}
+      </div>
+
+      {displayCandidates.length > 0 ? (
+        <div className="grid gap-2">
+          {displayCandidates.slice(0, 5).map(({ cert, strategyLabel }) => {
+            const spend = cert.evaluation.policy.annualSpendTodayDollars;
+            const annualDelta =
+              selectedSpend === null ? null : Math.max(0, spend - selectedSpend);
+            const monthlyDelta = annualDelta === null ? null : annualDelta / 12;
+            const metrics = certificationMetricSummary(cert);
+            const reasons = cert.pack.reasons.filter(
+              (reason) => reason.code !== 'sleep_well_green',
+            );
+            const weakestRows = weakestCertificationRows(cert);
+            return (
+              <div
+                key={cert.evaluation.id}
+                className="rounded-lg border border-stone-200 bg-white p-3"
+              >
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="text-sm font-semibold tabular-nums text-stone-950">
+                        {formatCurrency(spend)}/yr
+                      </p>
+                      <span
+                        className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] ring-1 ${certificationVerdictClasses(cert.verdict)}`}
+                      >
+                        {cert.verdict}
+                      </span>
+                      {monthlyDelta !== null && monthlyDelta > 0 && (
+                        <span className="rounded-full bg-stone-100 px-2 py-0.5 text-[10px] font-semibold tabular-nums text-stone-600">
+                          +{formatMonthly(monthlyDelta)}
+                        </span>
+                      )}
+                    </div>
+                    <p className="mt-1 text-[11px] text-stone-500">{strategyLabel}</p>
+                  </div>
+                  <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-right text-[10px] tabular-nums text-stone-500 sm:grid-cols-4">
+                    <span>base {formatPercent(metrics.baselineSolvency)}</span>
+                    <span>stress {formatPercent(metrics.stressSolvency)}</span>
+                    <span>legacy {formatPercent(metrics.legacy)}</span>
+                    <span>10y fail {formatPercent(metrics.first10Failure)}</span>
+                  </div>
+                </div>
+
+                {reasons.length > 0 && (
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {reasons.slice(0, 4).map((reason) => (
+                      <span
+                        key={`${cert.evaluation.id}-${reason.code}`}
+                        className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ring-1 ${
+                          reason.level === 'red'
+                            ? 'bg-rose-50 text-rose-800 ring-rose-100'
+                            : 'bg-amber-50 text-amber-800 ring-amber-100'
+                        }`}
+                      >
+                        {certificationReasonLabel(reason.code)}
+                      </span>
+                    ))}
+                  </div>
+                )}
+
+                <div className="mt-2 grid gap-1 sm:grid-cols-3">
+                  {weakestRows.map((row) => (
+                    <div
+                      key={row.id}
+                      className="rounded border border-stone-100 bg-stone-50 px-2 py-1.5"
+                    >
+                      <p className="truncate text-[10px] font-semibold text-stone-700">
+                        {row.modeLabel} · {row.scenarioName}
+                      </p>
+                      <p className="mt-0.5 text-[10px] tabular-nums text-stone-500">
+                        solv {formatPercent(row.solvencyRate)} · legacy{' '}
+                        {formatPercent(row.legacyAttainmentRate)} · 10y{' '}
+                        {formatPercent(row.first10YearFailureRisk)}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        <p className="rounded-lg border border-stone-200 bg-white px-3 py-2 text-[12px] text-stone-500">
+          No higher certified candidate failed above the selected spend.
+        </p>
+      )}
     </div>
   );
 }
@@ -997,6 +1331,86 @@ function certificationSlotsFromRun(run: MonthlyReviewRun | null): CertificationS
     .sort((a, b) => b.annualSpendTodayDollars - a.annualSpendTodayDollars);
 }
 
+function parseCertificationReason(reason: string): { code: string; message: string } {
+  const splitAt = reason.indexOf(':');
+  if (splitAt <= 0) return { code: 'certification_reason', message: reason };
+  return {
+    code: reason.slice(0, splitAt).trim(),
+    message: reason.slice(splitAt + 1).trim(),
+  };
+}
+
+function certificationSlotsFromJobLogs(job: ClusterMonthlyReviewJob): CertificationSlot[] {
+  const slotsById = new Map<string, CertificationSlot>();
+  for (const line of job.logTail) {
+    const certifyingMatch = line.match(
+      /\bcertifying\s+(pol_[a-z0-9]+)\s+at\s+\$([\d,]+)\/yr\s+\((\d+)\/(\d+)\)/i,
+    );
+    if (certifyingMatch) {
+      const candidateId = certifyingMatch[1];
+      const annualSpendTodayDollars = Number(certifyingMatch[2]?.replaceAll(',', ''));
+      const completed = Math.max(0, Number(certifyingMatch[3]) - 1);
+      const total = Number(certifyingMatch[4]);
+      if (candidateId && Number.isFinite(annualSpendTodayDollars)) {
+        slotsById.set(candidateId, {
+          candidateId,
+          annualSpendTodayDollars,
+          status: 'running',
+          mode: 'node_host',
+          completed: Number.isFinite(completed) ? completed : 0,
+          total: Number.isFinite(total) ? total : 0,
+          startedAtIso: job.startedAtIso,
+          verdict: null,
+          reasons: [],
+        });
+      }
+      continue;
+    }
+    const completedMatch = line.match(
+      /\b(pol_[a-z0-9]+)\s+certification\s+(green|yellow|red)\b/i,
+    );
+    if (completedMatch) {
+      const candidateId = completedMatch[1];
+      const verdict = completedMatch[2] as MonthlyReviewCertification['verdict'];
+      const slot = candidateId ? slotsById.get(candidateId) : null;
+      if (candidateId && slot) {
+        slotsById.set(candidateId, {
+          ...slot,
+          status: 'done',
+          completed: slot.total || 1,
+          total: slot.total || 1,
+          verdict,
+        });
+      }
+    }
+  }
+  return [...slotsById.values()];
+}
+
+function certificationSlotsFromJob(job: ClusterMonthlyReviewJob): CertificationSlot[] {
+  const slotsById = new Map<string, CertificationSlot>();
+  for (const slot of certificationSlotsFromJobLogs(job)) {
+    slotsById.set(slot.candidateId, slot);
+  }
+  const attempts = job.certificationAttempts ?? [];
+  for (const attempt of attempts) {
+    slotsById.set(attempt.policyId, {
+    candidateId: attempt.policyId,
+    annualSpendTodayDollars: attempt.annualSpendTodayDollars,
+    status: 'done',
+    mode: 'node_host',
+    completed: 1,
+    total: 1,
+    startedAtIso: attempt.attemptedAtIso,
+    verdict: attempt.verdict,
+    reasons: attempt.reasons.map(parseCertificationReason),
+    });
+  }
+  return [...slotsById.values()].sort(
+    (a, b) => b.annualSpendTodayDollars - a.annualSpendTodayDollars,
+  );
+}
+
 function aiProgressFromRun(run: MonthlyReviewRun | null): AiReviewProgressStep[] {
   if (!run?.aiApproval) return initialAiReviewProgress();
   const atIso = run.aiApproval.generatedAtIso;
@@ -1267,6 +1681,16 @@ export function MonthlyReviewPanel({
         appendTransactionEvent(latestLogLine);
         setRunState({ kind: 'running', message: latestLogLine });
         if (latestLogLine.toLowerCase().includes('certifying')) {
+          setStage('certifying');
+        }
+      }
+      const jobCertificationSlots = certificationSlotsFromJob(job);
+      if (jobCertificationSlots.length > 0 && !job.run) {
+        setCertificationSlots(jobCertificationSlots);
+        if (
+          !job.packet &&
+          jobCertificationSlots.some((slot) => slot.status === 'running')
+        ) {
           setStage('certifying');
         }
       }
@@ -1575,8 +1999,21 @@ export function MonthlyReviewPanel({
         ) : null}
       </StepCard>
 
-      {/* ── Step 3: AI co-review ────────────────────────────────────────────── */}
-      <StepCard n={3} title="AI co-review" status={stepStatusForAi(reviewStage, failedStep)}>
+      {/* ── Step 3: Boundary tradeoffs ──────────────────────────────────────── */}
+      <StepCard
+        n={3}
+        title="Boundary tradeoffs"
+        status={
+          run || lastValidationPacket
+            ? stepStatusForTradeoffs(reviewStage, failedStep)
+            : 'waiting'
+        }
+      >
+        <ValidationTradeoffMap run={run} packet={lastValidationPacket} />
+      </StepCard>
+
+      {/* ── Step 4: AI co-review ────────────────────────────────────────────── */}
+      <StepCard n={4} title="AI co-review" status={stepStatusForAi(reviewStage, failedStep)}>
         {(reviewStage === 'ai_review' || (reviewStage === 'failed' && failedStep === 'ai')) && !aiVerdict ? (
           <AiReviewProgressTimeline
             steps={aiReviewProgress}
@@ -1642,8 +2079,8 @@ export function MonthlyReviewPanel({
         ) : null}
       </StepCard>
 
-      {/* ── Step 4: Answer ──────────────────────────────────────────────────── */}
-      <StepCard n={4} title="Answer" status={stepStatusForAnswer(reviewStage)}>
+      {/* ── Step 5: Answer ──────────────────────────────────────────────────── */}
+      <StepCard n={5} title="Answer" status={stepStatusForAnswer(reviewStage)}>
         {run ? (
           <div className="space-y-4">
             {/* The number */}

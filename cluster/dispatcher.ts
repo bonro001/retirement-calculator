@@ -2695,6 +2695,15 @@ interface MonthlyReviewServerJob {
   logTail: string[];
 }
 
+interface MonthlyReviewCertificationAttemptArtifact {
+  strategyId: string;
+  policyId: string;
+  annualSpendTodayDollars: number;
+  verdict: 'green' | 'yellow' | 'red';
+  reasons: string[];
+  attemptedAtIso: string;
+}
+
 const MONTHLY_REVIEW_JOB_ROOT =
   process.env.MONTHLY_REVIEW_JOB_DIR &&
   process.env.MONTHLY_REVIEW_JOB_DIR.length > 0
@@ -2722,7 +2731,7 @@ async function readJsonFileIfExists<T>(path: string): Promise<T | null> {
 
 async function monthlyReviewJobPayload(job: MonthlyReviewServerJob) {
   const iterationDir = resolve(job.artifactDir, 'iteration-01');
-  const [run, packet, aiApproval, summary] = await Promise.all([
+  const [run, packet, aiApproval, summary, certificationAttempts] = await Promise.all([
     readJsonFileIfExists<MonthlyReviewRun>(resolve(iterationDir, 'run.json')),
     readJsonFileIfExists<MonthlyReviewValidationPacket>(
       resolve(iterationDir, 'packet.json'),
@@ -2731,6 +2740,9 @@ async function monthlyReviewJobPayload(job: MonthlyReviewServerJob) {
       resolve(iterationDir, 'ai-response.json'),
     ),
     readFile(resolve(iterationDir, 'summary.md'), 'utf8').catch(() => null),
+    readJsonFileIfExists<MonthlyReviewCertificationAttemptArtifact[]>(
+      resolve(iterationDir, 'certification-attempts.json'),
+    ),
   ]);
   return {
     id: job.id,
@@ -2745,6 +2757,7 @@ async function monthlyReviewJobPayload(job: MonthlyReviewServerJob) {
     packet,
     aiApproval,
     summary,
+    certificationAttempts: certificationAttempts ?? [],
   };
 }
 

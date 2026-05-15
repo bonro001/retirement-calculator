@@ -31,6 +31,7 @@ import type {
 } from './mining-north-star-ai';
 import type {
   MonthlyReviewAiApproval,
+  MonthlyReviewCertification,
   MonthlyReviewRun,
   MonthlyReviewValidationPacket,
 } from './monthly-review';
@@ -375,6 +376,16 @@ export interface ClusterMonthlyReviewJob {
   packet: MonthlyReviewValidationPacket | null;
   aiApproval: MonthlyReviewAiApproval | null;
   summary: string | null;
+  certificationAttempts: ClusterMonthlyReviewCertificationAttempt[];
+}
+
+export interface ClusterMonthlyReviewCertificationAttempt {
+  strategyId: string;
+  policyId: string;
+  annualSpendTodayDollars: number;
+  verdict: MonthlyReviewCertification['verdict'];
+  reasons: string[];
+  attemptedAtIso: string;
 }
 
 export async function startClusterMonthlyReviewJob(
