@@ -524,50 +524,101 @@ function certificationMetricSummary(cert: MonthlyReviewCertification): {
 function ValidationTradeoffMap({
   run,
   packet,
+  certificationSlots,
 }: {
   run: MonthlyReviewRun | null;
   packet?: MonthlyReviewValidationPacket | null;
+  certificationSlots: CertificationSlot[];
 }): JSX.Element | null {
   if (!run && packet) {
     const selectedSpend = packet.recommendation.annualSpendTodayDollars;
-    const certificationByPolicyId = new Map(
-      packet.certificationSummary.map((row) => [row.policyId, row]),
+    const completedSlots = certificationSlots
+      .filter((slot) => slot.status === 'done')
+      .sort((a, b) => b.annualSpendTodayDollars - a.annualSpendTodayDollars);
+    const higherSlots = completedSlots.filter((slot) =>
+      selectedSpend === null
+        ? slot.verdict !== 'green'
+        : slot.annualSpendTodayDollars > selectedSpend,
     );
-    const rows = packet.rawExportEvidence.proofRows.higherSpendRowsTested
-      .filter((row) =>
-        selectedSpend === null
-          ? certificationByPolicyId.get(row.policyId)?.verdict !== 'green'
-          : row.annualSpendTodayDollars > selectedSpend,
-      )
-      .sort((a, b) => b.annualSpendTodayDollars - a.annualSpendTodayDollars)
-      .slice(0, 5);
+    const displaySlots =
+      higherSlots.length > 0
+        ? higherSlots
+        : completedSlots.filter((slot) => slot.verdict !== 'green');
 
     return (
       <div className="space-y-3">
-        <p className="text-stone-500">
-          {rows.length} higher candidate{rows.length === 1 ? '' : 's'} packaged for AI review
-        </p>
-        {rows.length > 0 ? (
+        <div className="flex items-center justify-between gap-3">
+          <p className="text-stone-500">
+            {selectedSpend !== null
+              ? `${higherSlots.length} higher certified candidate${higherSlots.length === 1 ? '' : 's'} tested above ${formatCurrency(selectedSpend)}/yr`
+              : `${displaySlots.length} non-green certified candidate${displaySlots.length === 1 ? '' : 's'} tested`}
+          </p>
+          {selectedSpend !== null && (
+            <span className="shrink-0 rounded-full bg-emerald-100 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-emerald-800 ring-1 ring-emerald-200">
+              pick {formatCurrency(selectedSpend)}
+            </span>
+          )}
+        </div>
+        {completedSlots.length > 0 && (
+          <div className="grid grid-flow-col auto-cols-[minmax(76px,1fr)] gap-1 overflow-x-auto pb-1">
+            {[...completedSlots]
+              .sort((a, b) => a.annualSpendTodayDollars - b.annualSpendTodayDollars)
+              .map((slot) => {
+                const isPick =
+                  selectedSpend !== null &&
+                  slot.annualSpendTodayDollars === selectedSpend;
+                return (
+                  <div
+                    key={slot.candidateId}
+                    className={`rounded border bg-white p-2 text-center ring-1 ${
+                      isPick
+                        ? 'border-emerald-300 ring-emerald-400'
+                        : slot.verdict === 'green'
+                          ? 'border-emerald-100 ring-emerald-100'
+                          : slot.verdict === 'yellow'
+                            ? 'border-amber-100 ring-amber-100'
+                            : 'border-rose-100 ring-rose-100'
+                    }`}
+                  >
+                    <p className="text-[11px] font-semibold tabular-nums text-stone-900">
+                      {formatCurrency(slot.annualSpendTodayDollars)}
+                    </p>
+                    <p
+                      className={`mt-1 rounded-full px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-[0.08em] ring-1 ${
+                        slot.verdict
+                          ? certificationVerdictClasses(slot.verdict)
+                          : 'bg-stone-100 text-stone-600 ring-stone-200'
+                      }`}
+                    >
+                      {isPick ? 'pick' : slot.verdict ?? '-'}
+                    </p>
+                  </div>
+                );
+              })}
+          </div>
+        )}
+        {displaySlots.length > 0 ? (
           <div className="grid gap-2">
-            {rows.map((row) => {
-              const cert = certificationByPolicyId.get(row.policyId);
+            {displaySlots.slice(0, 5).map((slot) => {
               const annualDelta =
-                selectedSpend === null ? null : Math.max(0, row.annualSpendTodayDollars - selectedSpend);
+                selectedSpend === null
+                  ? null
+                  : Math.max(0, slot.annualSpendTodayDollars - selectedSpend);
               return (
                 <div
-                  key={row.policyId}
+                  key={slot.candidateId}
                   className="rounded-lg border border-stone-200 bg-white p-3"
                 >
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="text-sm font-semibold tabular-nums text-stone-950">
-                        {formatCurrency(row.annualSpendTodayDollars)}/yr
+                        {formatCurrency(slot.annualSpendTodayDollars)}/yr
                       </span>
-                      {cert && (
+                      {slot.verdict && (
                         <span
-                          className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] ring-1 ${certificationVerdictClasses(cert.verdict)}`}
+                          className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] ring-1 ${certificationVerdictClasses(slot.verdict)}`}
                         >
-                          {cert.verdict}
+                          {slot.verdict}
                         </span>
                       )}
                       {annualDelta !== null && annualDelta > 0 && (
@@ -576,18 +627,17 @@ function ValidationTradeoffMap({
                         </span>
                       )}
                     </div>
-                    <div className="grid grid-cols-3 gap-x-3 text-right text-[10px] tabular-nums text-stone-500">
-                      <span>mine solv {formatPercent(row.solventSuccessRate)}</span>
-                      <span>legacy {formatPercent(row.bequestAttainmentRate)}</span>
-                      <span>p50 {formatCurrency(row.p50EndingWealthTodayDollars)}</span>
-                    </div>
                   </div>
-                  {cert && cert.reasons.length > 0 && (
-                    <div className="mt-2 grid gap-1">
-                      {cert.reasons.slice(0, 3).map((reason) => (
-                        <p key={reason} className="text-[11px] text-stone-600">
-                          {reason}
-                        </p>
+                  {slot.reasons.length > 0 && (
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                      {slot.reasons.slice(0, 4).map((reason) => (
+                        <span
+                          key={`${slot.candidateId}-${reason.code}`}
+                          className="rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-800 ring-1 ring-amber-100"
+                          title={reason.message}
+                        >
+                          {certificationReasonLabel(reason.code)}
+                        </span>
                       ))}
                     </div>
                   )}
@@ -597,7 +647,7 @@ function ValidationTradeoffMap({
           </div>
         ) : (
           <p className="rounded-lg border border-stone-200 bg-white px-3 py-2 text-[12px] text-stone-500">
-            No higher candidate rows were packaged above the selected spend.
+            Waiting for certified candidates above the selected spend.
           </p>
         )}
       </div>
@@ -2106,7 +2156,11 @@ export function MonthlyReviewPanel({
             : 'waiting'
         }
       >
-        <ValidationTradeoffMap run={run} packet={lastValidationPacket} />
+        <ValidationTradeoffMap
+          run={run}
+          packet={lastValidationPacket}
+          certificationSlots={certificationSlots}
+        />
       </StepCard>
 
       {/* ── Step 4: AI co-review ────────────────────────────────────────────── */}

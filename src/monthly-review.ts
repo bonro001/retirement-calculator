@@ -1835,13 +1835,19 @@ export function buildMonthlyReviewRawExportEvidence(input: {
       strategy.selectedCertification?.evaluation.policy.annualSpendTodayDollars ??
       null;
     if (selectedSpend === null) return [];
-    return strategy.evidenceCandidates
+    return strategy.certifications
       .filter(
-        (evaluation) =>
-          evaluation.policy.annualSpendTodayDollars > selectedSpend,
+        (cert) =>
+          cert.evaluation.policy.annualSpendTodayDollars > selectedSpend,
+      )
+      .sort(
+        (a, b) =>
+          b.evaluation.policy.annualSpendTodayDollars -
+          a.evaluation.policy.annualSpendTodayDollars,
       )
       .slice(0, 12)
-      .map((evaluation) => {
+      .map((cert) => {
+        const evaluation = cert.evaluation;
         const outcome = outcomeFor(evaluation);
         return {
           strategyId: strategy.strategy.id,

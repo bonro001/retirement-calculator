@@ -693,17 +693,7 @@ describe('monthly review strategy and orchestration', () => {
         (signal) => signal.id === 'holding_concentration',
       ),
     ).toMatchObject({ status: 'act_now' });
-    expect(
-      packet?.rawExportEvidence.proofRows.higherSpendRowsTested,
-    ).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          policyId: 'current_faithful-fails',
-          annualSpendTodayDollars: 155_000,
-          solventSuccessRate: 0.5,
-        }),
-      ]),
-    );
+    expect(packet?.rawExportEvidence.proofRows.higherSpendRowsTested).toEqual([]);
   });
 
   it('stops the autonomous loop when a green result appears', async () => {
