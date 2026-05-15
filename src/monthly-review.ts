@@ -143,12 +143,29 @@ export interface MonthlyReviewAiFinding {
   recommendation?: string;
 }
 
+export interface MonthlyReviewAiModelTodo {
+  id: string;
+  priority: 'high' | 'medium' | 'low';
+  category:
+    | 'model_evidence'
+    | 'data_quality'
+    | 'assumption'
+    | 'search_or_certification'
+    | 'ux'
+    | 'other';
+  title: string;
+  detail: string;
+  evidence: string[];
+  suggestedNextStep: string;
+}
+
 export interface MonthlyReviewAiApproval {
   verdict: MonthlyReviewAiVerdict;
   confidence: 'low' | 'medium' | 'high';
   summary: string;
   findings: MonthlyReviewAiFinding[];
   actionItems: string[];
+  modelImprovementTodos: MonthlyReviewAiModelTodo[];
   model: string;
   generatedAtIso: string;
   rawResponseText?: string;

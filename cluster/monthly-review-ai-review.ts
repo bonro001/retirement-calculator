@@ -4,6 +4,7 @@ import {
   MONTHLY_REVIEW_AI_DEFAULT_REASONING_EFFORT,
   type MonthlyReviewAiApproval,
   type MonthlyReviewAiFinding,
+  type MonthlyReviewAiModelTodo,
   type MonthlyReviewAiVerdict,
   type MonthlyReviewValidationPacket,
 } from '../src/monthly-review';
@@ -35,6 +36,15 @@ const VALID_VERDICTS = new Set<MonthlyReviewAiVerdict>([
 ]);
 const VALID_FINDING_STATUSES = new Set(['pass', 'watch', 'fail']);
 const VALID_CONFIDENCE = new Set(['low', 'medium', 'high']);
+const VALID_MODEL_TODO_PRIORITIES = new Set(['high', 'medium', 'low']);
+const VALID_MODEL_TODO_CATEGORIES = new Set([
+  'model_evidence',
+  'data_quality',
+  'assumption',
+  'search_or_certification',
+  'ux',
+  'other',
+]);
 const LEGACY_ATTAINMENT_GATE = 0.85;
 const SOLVENCY_GATE = 0.8;
 
@@ -631,6 +641,32 @@ function sanitizeFinding(value: unknown, fallbackId: string): MonthlyReviewAiFin
   };
 }
 
+function sanitizeModelTodo(
+  value: unknown,
+  fallbackId: string,
+): MonthlyReviewAiModelTodo | null {
+  const r = asRecord(value);
+  const title = asString(r.title);
+  const detail = asString(r.detail);
+  const suggestedNextStep = asString(r.suggestedNextStep);
+  if (!title || !detail || !suggestedNextStep) return null;
+  const priorityRaw = asString(r.priority, 'medium');
+  const categoryRaw = asString(r.category, 'other');
+  return {
+    id: asString(r.id, fallbackId),
+    priority: VALID_MODEL_TODO_PRIORITIES.has(priorityRaw)
+      ? (priorityRaw as MonthlyReviewAiModelTodo['priority'])
+      : 'medium',
+    category: VALID_MODEL_TODO_CATEGORIES.has(categoryRaw)
+      ? (categoryRaw as MonthlyReviewAiModelTodo['category'])
+      : 'other',
+    title,
+    detail,
+    evidence: asStringArray(r.evidence),
+    suggestedNextStep,
+  };
+}
+
 export function sanitizeMonthlyReviewAiApproval(
   payload: unknown,
   context: {
@@ -690,6 +726,16 @@ export function sanitizeMonthlyReviewAiApproval(
   const fallbackActionItems = findings
     .filter((finding) => finding.status !== 'pass' && finding.recommendation)
     .map((finding) => finding.recommendation as string);
+  const rawModelTodos =
+    Array.isArray(r.modelImprovementTodos)
+      ? r.modelImprovementTodos
+      : Array.isArray(r.aiReturnTodos)
+        ? r.aiReturnTodos
+        : [];
+  const modelImprovementTodos = rawModelTodos
+    .map((todo, index) => sanitizeModelTodo(todo, `ai_model_todo_${index + 1}`))
+    .filter((todo): todo is MonthlyReviewAiModelTodo => !!todo)
+    .slice(0, 8);
 
   return {
     verdict,
@@ -697,6 +743,7 @@ export function sanitizeMonthlyReviewAiApproval(
     summary,
     findings,
     actionItems: actionItems.length > 0 ? actionItems : fallbackActionItems,
+    modelImprovementTodos,
     model: context.model,
     generatedAtIso: context.generatedAtIso,
     ...(context.rawResponseText ? { rawResponseText: context.rawResponseText } : {}),
@@ -745,6 +792,8 @@ Excess legacy headroom means the household may be leaving too much on the table;
 
 For shaped spending strategies such as J.P. Morgan, do not compare the policy scalar directly to a flat-spend strategy as if both numbers meant annual household spending. Use rawExportEvidence.selectedPolicy.spendingPath: report scalarMeaning, first-retirement-year spend, peak go-go spend, age-75/80/85 spend, and lifetime average spend. Treat the scalar as a curve anchor when scalarMeaning is "curve_anchor"; judge whether the actual early-retirement spend path supports the north-star objective.
 
+After judging approval, add a separate nonblocking model-improvement list. Ask yourself: "What would make the next review packet, model, search, certification, or UI more trustworthy or easier to audit?" Include only improvements grounded in packet evidence. Do not put household decisions here; those belong in actionItems. Do not let these suggestions change the verdict unless they are already represented as fail/watch findings.
+
 Write the summary and finding details like a human reviewer explaining what they see: name the candidate spend, whether the mined corpus is present, what proof is missing, and the next concrete step. Avoid terse boilerplate.
 
 Return only valid JSON with this shape:
@@ -762,7 +811,18 @@ Return only valid JSON with this shape:
       "recommendation": "optional next action"
     }
   ],
-  "actionItems": ["short concrete task"]
+  "actionItems": ["short concrete household/review task"],
+  "modelImprovementTodos": [
+    {
+      "id": "snake_case",
+      "priority": "high" | "medium" | "low",
+      "category": "model_evidence" | "data_quality" | "assumption" | "search_or_certification" | "ux" | "other",
+      "title": "short model-improvement title",
+      "detail": "why this would improve the model or review packet",
+      "evidence": ["specific packet values that motivated the suggestion"],
+      "suggestedNextStep": "concrete implementation or investigation step"
+    }
+  ]
 }
 
 Validation packet:

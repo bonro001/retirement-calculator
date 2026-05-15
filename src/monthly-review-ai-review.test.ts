@@ -268,6 +268,19 @@ describe('monthly review AI review sanitizer', () => {
           evidence: [`${id}=pass`],
         })),
         actionItems: ['Document the nonblocking JPM assumption provenance.'],
+        modelImprovementTodos: [
+          {
+            id: 'expose_payroll_transition_context',
+            priority: 'high',
+            category: 'model_evidence',
+            title: 'Expose payroll transition context',
+            detail:
+              'ACA bridge review is easier to audit when the packet states whether MAGI includes final payroll.',
+            evidence: ['salaryEndDate=2027-07-01'],
+            suggestedNextStep:
+              'Add modeled salary for each ACA bridge row in selected-path evidence.',
+          },
+        ],
       },
       {
         model: 'gpt-5.5',
@@ -283,6 +296,13 @@ describe('monthly review AI review sanitizer', () => {
     expect(
       approval.findings.find((finding) => finding.id === 'model_tasks'),
     ).toMatchObject({ status: 'pass' });
+    expect(approval.modelImprovementTodos).toEqual([
+      expect.objectContaining({
+        id: 'expose_payroll_transition_context',
+        priority: 'high',
+        category: 'model_evidence',
+      }),
+    ]);
   });
 
   it('turns skipped certification into a substantive watch instead of insufficient data', () => {

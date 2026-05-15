@@ -1443,6 +1443,7 @@ export function MonthlyReviewPanel({
                 summary: 'Dispatcher not connected — AI co-review could not run.',
                 findings: [{ id: 'dispatcher_missing', status: 'fail', title: 'No dispatcher', detail: 'Start the dispatcher and rerun.', evidence: ['dispatcherUrl=null'] }],
                 actionItems: ['Start the dispatcher and rerun monthly review.'],
+                modelImprovementTodos: [],
                 model: MONTHLY_REVIEW_AI_DEFAULT_MODEL,
                 generatedAtIso: new Date().toISOString(),
               };
@@ -1776,6 +1777,26 @@ export function MonthlyReviewPanel({
                   </li>
                 ))}
               </ul>
+            )}
+            {aiApproval.modelImprovementTodos && aiApproval.modelImprovementTodos.length > 0 && (
+              <div className="space-y-2 rounded-lg border border-blue-100 bg-blue-50/60 p-3">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-blue-800">
+                  AI-return todo list
+                </p>
+                <ul className="space-y-2">
+                  {aiApproval.modelImprovementTodos.map((todo) => (
+                    <li key={todo.id} className="text-[11px] text-blue-950">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="font-semibold">{todo.title}</span>
+                        <span className="rounded-full bg-white/80 px-2 py-0.5 text-[10px] uppercase tracking-[0.08em] text-blue-700 ring-1 ring-blue-100">
+                          {todo.priority}
+                        </span>
+                      </div>
+                      <p className="mt-1 text-blue-900/80">{todo.suggestedNextStep}</p>
+                    </li>
+                  ))}
+                </ul>
+              </div>
             )}
             {run?.aiApproval?.auditTrail && (
               <ProofBundleLinks auditTrail={run.aiApproval.auditTrail} />

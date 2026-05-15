@@ -200,6 +200,7 @@ const alignedAi: MonthlyReviewAiApproval = {
   summary: 'Aligned.',
   findings: [],
   actionItems: [],
+  modelImprovementTodos: [],
   model: 'gpt-5.5',
   generatedAtIso,
 };
