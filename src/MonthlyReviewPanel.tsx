@@ -81,7 +81,9 @@ interface MiningSnapshot {
   evaluationCount: number;
   spendMin: number | null;
   spendMax: number | null;
-  feasibleCount: number;
+  feasibleCount: number | null;
+  source?: 'run' | 'reused';
+  sessionId?: string | null;
 }
 
 interface AiReviewProgressStep {
@@ -1300,12 +1302,32 @@ function miningSnapshotFromRun(run: MonthlyReviewRun | null): MiningSnapshot | n
     evaluationCount,
     spendMin: greenSpends.length > 0 ? Math.min(...greenSpends) : null,
     spendMax,
+    source: 'run',
     feasibleCount: run.strategies.reduce(
       (total, strategy) =>
         total +
         strategy.certifications.filter((cert) => cert.verdict === 'green').length,
       0,
     ),
+  };
+}
+
+function miningSnapshotFromJobLogs(job: ClusterMonthlyReviewJob): MiningSnapshot | null {
+  const reuseLine = [...job.logTail]
+    .reverse()
+    .find((line) => /\busing\s+s-[^\s]+\s+\([\d,]+\s+evals\)/.test(line));
+  if (!reuseLine) return null;
+  const match = reuseLine.match(/\busing\s+(s-[^\s]+)\s+\(([\d,]+)\s+evals\)/);
+  if (!match) return null;
+  const evaluationCount = Number(match[2]?.replaceAll(',', ''));
+  if (!Number.isFinite(evaluationCount)) return null;
+  return {
+    evaluationCount,
+    spendMin: null,
+    spendMax: null,
+    feasibleCount: null,
+    source: 'reused',
+    sessionId: match[1] ?? null,
   };
 }
 
@@ -1654,23 +1676,13 @@ export function MonthlyReviewPanel({
     );
   }, []);
 
-  const runServerOwnedReview = useCallback(async () => {
+  const watchServerOwnedReviewJob = useCallback(async (shouldStop?: () => boolean) => {
     if (!dispatcherUrl) {
       throw new Error('Monthly review needs the dispatcher for mining and AI review.');
     }
-    setStage('connecting');
-    setRunState({ kind: 'running', message: 'Starting server-side Monthly Review…' });
-    appendTransactionEvent('server-side review requested');
-    const started = await startClusterMonthlyReviewJob(dispatcherUrl, {
-      mineMode: 'missing',
-      maxCertCandidates: 8,
-    });
-    if (!started) {
-      throw new Error('Dispatcher did not return a Monthly Review job.');
-    }
-    appendTransactionEvent(`server job ${started.id} started`);
     let lastLogLine = '';
     for (;;) {
+      if (shouldStop?.()) return;
       const job = await loadClusterMonthlyReviewJob(dispatcherUrl);
       if (!job) {
         throw new Error('Dispatcher lost the Monthly Review job status.');
@@ -1683,6 +1695,11 @@ export function MonthlyReviewPanel({
         if (latestLogLine.toLowerCase().includes('certifying')) {
           setStage('certifying');
         }
+      }
+      const logMiningSnapshot = miningSnapshotFromJobLogs(job);
+      if (logMiningSnapshot && !job.run) {
+        setMiningSnapshot(logMiningSnapshot);
+        writeStoredJson(LAST_MINING_SNAPSHOT_KEY, logMiningSnapshot);
       }
       const jobCertificationSlots = certificationSlotsFromJob(job);
       if (jobCertificationSlots.length > 0 && !job.run) {
@@ -1738,6 +1755,59 @@ export function MonthlyReviewPanel({
       await waitMs(1_000);
     }
   }, [appendTransactionEvent, dispatcherUrl, setStage]);
+
+  const runServerOwnedReview = useCallback(async () => {
+    if (!dispatcherUrl) {
+      throw new Error('Monthly review needs the dispatcher for mining and AI review.');
+    }
+    setStage('connecting');
+    setRunState({ kind: 'running', message: 'Starting server-side Monthly Review…' });
+    appendTransactionEvent('server-side review requested');
+    const started = await startClusterMonthlyReviewJob(dispatcherUrl, {
+      mineMode: 'missing',
+      maxCertCandidates: 8,
+    });
+    if (!started) {
+      throw new Error('Dispatcher did not return a Monthly Review job.');
+    }
+    appendTransactionEvent(`server job ${started.id} started`);
+    await watchServerOwnedReviewJob();
+  }, [appendTransactionEvent, dispatcherUrl, setStage, watchServerOwnedReviewJob]);
+
+  useEffect(() => {
+    if (!dispatcherUrl || !baselineFingerprint || runState.kind !== 'idle') return;
+    let cancelled = false;
+    void (async () => {
+      const job = await loadClusterMonthlyReviewJob(dispatcherUrl);
+      if (cancelled || !job || job.status !== 'running') return;
+      setBrowserHostMode('off');
+      setStage('connecting');
+      appendTransactionEvent(`reattached to server job ${job.id}`);
+      setRunState({
+        kind: 'running',
+        message: 'Reattached to server-side Monthly Review...',
+      });
+      await watchServerOwnedReviewJob(() => cancelled);
+    })().catch((error) => {
+      if (cancelled) return;
+      const reason = error instanceof Error ? error.message : String(error);
+      const failedAt = failedStepForStage(reviewStageRef.current);
+      setFailedStep(failedAt);
+      setStage('failed');
+      appendTransactionEvent(`server-side review failed: ${reason}`);
+      setRunState({ kind: 'failed', reason });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    appendTransactionEvent,
+    baselineFingerprint,
+    dispatcherUrl,
+    runState.kind,
+    setStage,
+    watchServerOwnedReviewJob,
+  ]);
 
   const start = async () => {
     if (!baselineFingerprint) return;
@@ -1850,7 +1920,9 @@ export function MonthlyReviewPanel({
       : Math.max(0, throughputTickMs - aiReviewStartedAtRef.current);
   const minePanelSummary =
     miningSnapshot !== null
-      ? `${miningSnapshot.evaluationCount.toLocaleString()} policies · ${formatCurrency(miningSnapshot.spendMin)}-${formatCurrency(miningSnapshot.spendMax)}/yr · ${miningSnapshot.feasibleCount.toLocaleString()} meet floor`
+      ? miningSnapshot.source === 'reused'
+        ? `reused ${miningSnapshot.evaluationCount.toLocaleString()} evals${miningSnapshot.sessionId ? ` · ${miningSnapshot.sessionId}` : ''}`
+        : `${miningSnapshot.evaluationCount.toLocaleString()} policies · ${formatCurrency(miningSnapshot.spendMin)}-${formatCurrency(miningSnapshot.spendMax)}/yr · ${(miningSnapshot.feasibleCount ?? 0).toLocaleString()} meet floor`
       : liveMineProgress !== null
         ? `${liveMineProgress.evaluated.toLocaleString()} / ${liveMineProgress.total.toLocaleString()} policies`
         : null;
@@ -1906,7 +1978,8 @@ export function MonthlyReviewPanel({
           <p className="text-rose-700">
             {runState.kind === 'failed' ? runState.reason : 'Mining failed.'}
           </p>
-        ) : reviewStage === 'connecting' || reviewStage === 'mining' ? (
+        ) : (reviewStage === 'connecting' || reviewStage === 'mining') &&
+          miningSnapshot?.source !== 'reused' ? (
           (() => {
             const pct =
               liveMineProgress && liveMineProgress.total > 0
@@ -1959,18 +2032,42 @@ export function MonthlyReviewPanel({
             );
           })()
         ) : miningSnapshot ? (
-          <div className="space-y-1 text-stone-700">
-            <p>
-              <span className="tabular-nums font-semibold">{miningSnapshot.evaluationCount.toLocaleString()}</span>{' '}
-              policies evaluated · spend range{' '}
-              <span className="tabular-nums font-semibold">{formatCurrency(miningSnapshot.spendMin)}</span>
-              {' – '}
-              <span className="tabular-nums font-semibold">{formatCurrency(miningSnapshot.spendMax)}</span>/yr
-            </p>
-            <p className="text-stone-500">
-              <span className="tabular-nums">{miningSnapshot.feasibleCount.toLocaleString()}</span> meet the ≥85% solvency floor
-            </p>
-          </div>
+          miningSnapshot.source === 'reused' ? (
+            <div className="space-y-2 text-stone-700">
+              <div className="rounded-lg border border-blue-100 bg-blue-50 px-3 py-2">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-blue-700">
+                  Reused completed mine
+                </p>
+                <p className="mt-1 text-[12px] text-blue-950">
+                  Found matching corpus{' '}
+                  {miningSnapshot.sessionId && (
+                    <span className="font-semibold tabular-nums">{miningSnapshot.sessionId}</span>
+                  )}{' '}
+                  with{' '}
+                  <span className="font-semibold tabular-nums">
+                    {miningSnapshot.evaluationCount.toLocaleString()}
+                  </span>{' '}
+                  evaluations.
+                </p>
+              </div>
+              <p className="text-[11px] text-stone-500">
+                No miner hosts were launched for Step 1 because this baseline and strategy already had a completed mine.
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-1 text-stone-700">
+              <p>
+                <span className="tabular-nums font-semibold">{miningSnapshot.evaluationCount.toLocaleString()}</span>{' '}
+                policies evaluated · spend range{' '}
+                <span className="tabular-nums font-semibold">{formatCurrency(miningSnapshot.spendMin)}</span>
+                {' – '}
+                <span className="tabular-nums font-semibold">{formatCurrency(miningSnapshot.spendMax)}</span>/yr
+              </p>
+              <p className="text-stone-500">
+                <span className="tabular-nums">{(miningSnapshot.feasibleCount ?? 0).toLocaleString()}</span> meet the ≥85% solvency floor
+              </p>
+            </div>
+          )
         ) : null}
       </StepCard>
 
