@@ -383,9 +383,24 @@ export interface ClusterMonthlyReviewCertificationAttempt {
   strategyId: string;
   policyId: string;
   annualSpendTodayDollars: number;
-  verdict: MonthlyReviewCertification['verdict'];
+  status?: 'running' | 'done' | 'failed';
+  verdict: MonthlyReviewCertification['verdict'] | null;
   reasons: string[];
+  rows?: unknown[];
+  seedAudits?: unknown[];
+  startedAtIso?: string;
   attemptedAtIso: string;
+  completedAtIso?: string | null;
+  assignedHost?: {
+    peerId: string;
+    displayName: string;
+    certifyCapacity: number;
+  } | null;
+  progress?: {
+    completed: number;
+    total: number;
+  } | null;
+  error?: string | null;
 }
 
 export async function startClusterMonthlyReviewJob(
@@ -394,6 +409,7 @@ export async function startClusterMonthlyReviewJob(
     aiMode?: 'mock' | 'real' | 'off';
     mineMode?: 'missing' | 'always' | 'never';
     maxCertCandidates?: number;
+    certificationMaxConcurrency?: number;
   } = {},
 ): Promise<ClusterMonthlyReviewJob | null> {
   const body = await postJson<{ job: ClusterMonthlyReviewJob | null }>(

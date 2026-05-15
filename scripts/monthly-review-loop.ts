@@ -63,7 +63,32 @@ interface CliOptions {
   timestampOutDir: boolean;
   mineTimeoutMs: number;
   maxCertCandidates: number;
+  certificationMaxConcurrency: number;
 }
+
+type CertificationAttemptArtifact = {
+  strategyId: MonthlyReviewStrategyId;
+  policyId: string;
+  annualSpendTodayDollars: number;
+  status: 'running' | 'done' | 'failed';
+  verdict: 'green' | 'yellow' | 'red' | null;
+  reasons: string[];
+  rows: unknown[];
+  seedAudits: unknown[];
+  startedAtIso: string;
+  attemptedAtIso: string;
+  completedAtIso: string | null;
+  assignedHost: {
+    peerId: string;
+    displayName: string;
+    certifyCapacity: number;
+  } | null;
+  progress: {
+    completed: number;
+    total: number;
+  } | null;
+  error: string | null;
+};
 
 function parseArgs(argv: string[]): CliOptions {
   const opts: CliOptions = {
@@ -77,6 +102,7 @@ function parseArgs(argv: string[]): CliOptions {
     timestampOutDir: true,
     mineTimeoutMs: 12 * 60 * 60 * 1_000,
     maxCertCandidates: 8,
+    certificationMaxConcurrency: 4,
   };
 
   for (const arg of argv) {
@@ -108,6 +134,10 @@ function parseArgs(argv: string[]): CliOptions {
         break;
       case 'max-cert-candidates':
         opts.maxCertCandidates = Math.max(0, Math.floor(Number(value)));
+        break;
+      case 'cert-concurrency':
+      case 'certification-max-concurrency':
+        opts.certificationMaxConcurrency = Math.max(1, Math.floor(Number(value)));
         break;
       case 'strategy':
         if (value === 'all') {
@@ -154,6 +184,7 @@ Options:
   --ai=mock | real | off        mock is deterministic; real calls OpenAI
   --mine=missing | always | never
   --max-cert-candidates=N     exploratory cap; 0 means unlimited
+  --cert-concurrency=N        deterministic certifications to run in parallel
   --api-calls=N                hard cap for real OpenAI calls
   --dispatcher=ws://host:8765  dispatcher HTTP/WS root
   --out=DIR                    artifact root
@@ -569,6 +600,7 @@ async function main(): Promise<void> {
   console.log(`Strategy: ${opts.strategyIds?.join(', ') ?? 'all'}`);
   console.log(`AI: ${opts.aiMode} (cap ${opts.apiCalls})`);
   console.log(`Mine: ${opts.mineMode}`);
+  console.log(`Certify concurrency: ${opts.certificationMaxConcurrency}`);
   console.log(`Dispatcher: ${opts.dispatcherUrl}`);
   console.log(`Baseline: ${baselineFingerprint}`);
 
@@ -581,16 +613,26 @@ async function main(): Promise<void> {
     );
     await mkdir(iterationDir, { recursive: true });
     const sessionMap: Record<string, string> = {};
-    const certificationAttempts: Array<{
-      strategyId: MonthlyReviewStrategyId;
-      policyId: string;
-      annualSpendTodayDollars: number;
-      verdict: string;
-      reasons: string[];
-      rows: unknown[];
-      seedAudits: unknown[];
-      attemptedAtIso: string;
-    }> = [];
+    const certificationAttempts: CertificationAttemptArtifact[] = [];
+    const certificationAttemptsPath = resolve(
+      iterationDir,
+      'certification-attempts.json',
+    );
+    let certificationAttemptWrite = Promise.resolve();
+    const persistCertificationAttempts = (): Promise<void> => {
+      const snapshot = certificationAttempts.map((attempt) => ({
+        ...attempt,
+        reasons: [...attempt.reasons],
+        rows: attempt.rows,
+        seedAudits: attempt.seedAudits,
+        assignedHost: attempt.assignedHost ? { ...attempt.assignedHost } : null,
+        progress: attempt.progress ? { ...attempt.progress } : null,
+      }));
+      certificationAttemptWrite = certificationAttemptWrite
+        .catch(() => undefined)
+        .then(() => writeJson(certificationAttemptsPath, snapshot));
+      return certificationAttemptWrite;
+    };
     const certAttemptCountByStrategy: Partial<Record<MonthlyReviewStrategyId, number>> = {};
     let lastPacket: MonthlyReviewValidationPacket | null = null;
     let lastAiApproval: MonthlyReviewAiApproval | null = null;
@@ -605,6 +647,7 @@ async function main(): Promise<void> {
       assumptions: defaultAssumptions,
       generatedAtIso,
       strategyIds: opts.strategyIds,
+      certificationMaxConcurrency: opts.certificationMaxConcurrency,
       ports: {
         mineStrategy: async (strategy: MonthlyReviewStrategyDefinition) => {
           const strategyFingerprint = buildMonthlyReviewMiningFingerprint({
@@ -654,40 +697,87 @@ async function main(): Promise<void> {
           console.log(
             `${strategy.label}: certifying ${evaluation.id} at $${evaluation.policy.annualSpendTodayDollars.toLocaleString()}/yr (${certAttemptCountByStrategy[strategy.id]}${opts.maxCertCandidates > 0 ? `/${opts.maxCertCandidates}` : ''})`,
           );
-          const pack = await runClusterCertification(opts.dispatcherUrl, {
-            policy: evaluation.policy,
-            baseline: initialSeedData,
-            assumptions: defaultAssumptions,
-            baselineFingerprint: evaluation.baselineFingerprint,
-            engineVersion: evaluation.engineVersion,
-            legacyTargetTodayDollars:
-              initialSeedData.goals?.legacyTargetTodayDollars ?? 1_000_000,
-            spendingScheduleBasis: strategy.spendingScheduleBasis,
-          });
-          certificationAttempts.push({
+          const startedAtIso = new Date().toISOString();
+          const attempt: CertificationAttemptArtifact = {
             strategyId: strategy.id,
             policyId: evaluation.id,
             annualSpendTodayDollars: evaluation.policy.annualSpendTodayDollars,
-            verdict: pack.verdict,
-            reasons: pack.reasons.map((reason) => `${reason.code}: ${reason.message}`),
-            rows: pack.rows,
-            seedAudits: pack.seedAudits,
-            attemptedAtIso: new Date().toISOString(),
-          });
-          await writeJson(
-            resolve(iterationDir, 'certification-attempts.json'),
-            certificationAttempts,
-          );
-          console.log(
-            `${strategy.label}: ${evaluation.id} certification ${pack.verdict}`,
-          );
-          return {
-            strategyId: strategy.id,
-            evaluation,
-            pack,
-            verdict: pack.verdict,
-            certifiedAtIso: new Date().toISOString(),
+            status: 'running',
+            verdict: null,
+            reasons: [],
+            rows: [],
+            seedAudits: [],
+            startedAtIso,
+            attemptedAtIso: startedAtIso,
+            completedAtIso: null,
+            assignedHost: null,
+            progress: null,
+            error: null,
           };
+          certificationAttempts.push(attempt);
+          await persistCertificationAttempts();
+          try {
+            const pack = await runClusterCertification(
+              opts.dispatcherUrl,
+              {
+                policy: evaluation.policy,
+                baseline: initialSeedData,
+                assumptions: defaultAssumptions,
+                baselineFingerprint: evaluation.baselineFingerprint,
+                engineVersion: evaluation.engineVersion,
+                legacyTargetTodayDollars:
+                  initialSeedData.goals?.legacyTargetTodayDollars ?? 1_000_000,
+                spendingScheduleBasis: strategy.spendingScheduleBasis,
+              },
+              {
+                onAssigned: (host) => {
+                  attempt.assignedHost = host;
+                  console.log(
+                    `${strategy.label}: ${evaluation.id} assigned to ${host.displayName}`,
+                  );
+                  void persistCertificationAttempts();
+                },
+                onProgress: (completed, total) => {
+                  attempt.progress = { completed, total };
+                  void persistCertificationAttempts();
+                },
+              },
+            );
+            const completedAtIso = new Date().toISOString();
+            attempt.status = 'done';
+            attempt.verdict = pack.verdict;
+            attempt.reasons = pack.reasons.map(
+              (reason) => `${reason.code}: ${reason.message}`,
+            );
+            attempt.rows = pack.rows;
+            attempt.seedAudits = pack.seedAudits;
+            attempt.attemptedAtIso = completedAtIso;
+            attempt.completedAtIso = completedAtIso;
+            attempt.progress =
+              attempt.progress && attempt.progress.total > 0
+                ? { completed: attempt.progress.total, total: attempt.progress.total }
+                : { completed: 1, total: 1 };
+            await persistCertificationAttempts();
+            console.log(
+              `${strategy.label}: ${evaluation.id} certification ${pack.verdict}`,
+            );
+            return {
+              strategyId: strategy.id,
+              evaluation,
+              pack,
+              verdict: pack.verdict,
+              certifiedAtIso: completedAtIso,
+            };
+          } catch (error) {
+            const completedAtIso = new Date().toISOString();
+            attempt.status = 'failed';
+            attempt.attemptedAtIso = completedAtIso;
+            attempt.completedAtIso = completedAtIso;
+            attempt.error = error instanceof Error ? error.message : String(error);
+            attempt.reasons = [`certification_failed: ${attempt.error}`];
+            await persistCertificationAttempts();
+            throw error;
+          }
         },
         aiReview: async (packet) => {
           lastPacket = packet;
@@ -725,6 +815,7 @@ async function main(): Promise<void> {
       },
     });
 
+    await certificationAttemptWrite;
     await writeIterationArtifacts({
       dir: iterationDir,
       run,

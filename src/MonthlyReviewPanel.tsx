@@ -869,9 +869,13 @@ function ClusterStatusRail({
     (total, peer) => total + hostCertifyCapacity(peer),
     0,
   );
-  const activeCertifications = hosts.reduce(
+  const activeCertificationsFromHosts = hosts.reduce(
     (total, peer) => total + hostCertifyInFlight(peer),
     0,
+  );
+  const activeCertifications = Math.max(
+    activeCertificationsFromHosts,
+    certificationSlots.filter((slot) => slot.status === 'running').length,
   );
   const assignedSlots = certificationSlots.filter((slot) => slot.hostDisplayName);
   return (
@@ -1472,16 +1476,33 @@ function certificationSlotsFromJob(job: ClusterMonthlyReviewJob): CertificationS
   }
   const attempts = job.certificationAttempts ?? [];
   for (const attempt of attempts) {
+    const progress = attempt.progress ?? null;
+    const isRunning = attempt.status === 'running';
+    const isDone = !isRunning;
+    const total =
+      progress && Number.isFinite(progress.total)
+        ? progress.total
+        : isDone
+          ? 1
+          : 0;
+    const completed =
+      progress && Number.isFinite(progress.completed)
+        ? progress.completed
+        : isDone
+          ? total
+          : 0;
     slotsById.set(attempt.policyId, {
-    candidateId: attempt.policyId,
-    annualSpendTodayDollars: attempt.annualSpendTodayDollars,
-    status: 'done',
-    mode: 'node_host',
-    completed: 1,
-    total: 1,
-    startedAtIso: attempt.attemptedAtIso,
-    verdict: attempt.verdict,
-    reasons: attempt.reasons.map(parseCertificationReason),
+      candidateId: attempt.policyId,
+      annualSpendTodayDollars: attempt.annualSpendTodayDollars,
+      status: isRunning ? 'running' : 'done',
+      mode: 'node_host',
+      hostPeerId: attempt.assignedHost?.peerId ?? null,
+      hostDisplayName: attempt.assignedHost?.displayName ?? null,
+      completed,
+      total,
+      startedAtIso: attempt.startedAtIso ?? attempt.attemptedAtIso,
+      verdict: attempt.verdict,
+      reasons: attempt.reasons.map(parseCertificationReason),
     });
   }
   return [...slotsById.values()].sort(
@@ -1822,6 +1843,7 @@ export function MonthlyReviewPanel({
     const started = await startClusterMonthlyReviewJob(dispatcherUrl, {
       mineMode: 'missing',
       maxCertCandidates: 8,
+      certificationMaxConcurrency: 4,
     });
     if (!started) {
       throw new Error('Dispatcher did not return a Monthly Review job.');

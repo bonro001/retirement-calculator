@@ -2699,9 +2699,24 @@ interface MonthlyReviewCertificationAttemptArtifact {
   strategyId: string;
   policyId: string;
   annualSpendTodayDollars: number;
-  verdict: 'green' | 'yellow' | 'red';
+  status?: 'running' | 'done' | 'failed';
+  verdict: 'green' | 'yellow' | 'red' | null;
   reasons: string[];
+  rows?: unknown[];
+  seedAudits?: unknown[];
+  startedAtIso?: string;
   attemptedAtIso: string;
+  completedAtIso?: string | null;
+  assignedHost?: {
+    peerId: string;
+    displayName: string;
+    certifyCapacity: number;
+  } | null;
+  progress?: {
+    completed: number;
+    total: number;
+  } | null;
+  error?: string | null;
 }
 
 const MONTHLY_REVIEW_JOB_ROOT =
@@ -2765,6 +2780,7 @@ function parseMonthlyReviewJobRequest(body: unknown): {
   aiMode: 'mock' | 'real' | 'off';
   mineMode: 'missing' | 'always' | 'never';
   maxCertCandidates: number;
+  certificationMaxConcurrency: number;
 } {
   const record =
     body && typeof body === 'object' && !Array.isArray(body)
@@ -2773,6 +2789,8 @@ function parseMonthlyReviewJobRequest(body: unknown): {
   const aiRaw = record.aiMode;
   const mineRaw = record.mineMode;
   const maxCertRaw = record.maxCertCandidates;
+  const certConcurrencyRaw =
+    record.certificationMaxConcurrency ?? record.certConcurrency;
   const aiMode =
     aiRaw === 'mock' || aiRaw === 'real' || aiRaw === 'off'
       ? aiRaw
@@ -2787,7 +2805,11 @@ function parseMonthlyReviewJobRequest(body: unknown): {
     typeof maxCertRaw === 'number' && Number.isFinite(maxCertRaw)
       ? Math.max(0, Math.floor(maxCertRaw))
       : 8;
-  return { aiMode, mineMode, maxCertCandidates };
+  const certificationMaxConcurrency =
+    typeof certConcurrencyRaw === 'number' && Number.isFinite(certConcurrencyRaw)
+      ? Math.max(1, Math.floor(certConcurrencyRaw))
+      : 4;
+  return { aiMode, mineMode, maxCertCandidates, certificationMaxConcurrency };
 }
 
 async function handleMonthlyReviewJobHttp(
@@ -2831,6 +2853,7 @@ async function handleMonthlyReviewJobHttp(
       `--ai=${opts.aiMode}`,
       `--mine=${opts.mineMode}`,
       `--max-cert-candidates=${opts.maxCertCandidates}`,
+      `--cert-concurrency=${opts.certificationMaxConcurrency}`,
       `--dispatcher=ws://127.0.0.1:${dispatcherPort}`,
       `--out=${artifactDir}`,
       '--no-timestamp-out',
@@ -2880,6 +2903,7 @@ async function handleMonthlyReviewJobHttp(
       artifactDir,
       aiMode: opts.aiMode,
       mineMode: opts.mineMode,
+      certificationMaxConcurrency: opts.certificationMaxConcurrency,
     });
     sendJson(res, 202, { job: await monthlyReviewJobPayload(job) });
   } catch (err) {
