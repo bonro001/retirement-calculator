@@ -25,7 +25,7 @@ import {
   loadClusterSessions,
   type ClusterSessionListing,
 } from '../src/policy-mining-cluster';
-import { runPolicyCertification } from '../src/policy-certification';
+import { runClusterCertification } from '../src/policy-certification-cluster';
 import {
   buildPolicyMinerRunEngineVersion,
   POLICY_MINER_ENGINE_VERSION,
@@ -60,6 +60,7 @@ interface CliOptions {
   strategyIds: MonthlyReviewStrategyId[] | undefined;
   dispatcherUrl: string;
   outDir: string;
+  timestampOutDir: boolean;
   mineTimeoutMs: number;
   maxCertCandidates: number;
 }
@@ -73,6 +74,7 @@ function parseArgs(argv: string[]): CliOptions {
     strategyIds: ['current_faithful'],
     dispatcherUrl: process.env.DISPATCHER_URL ?? 'ws://localhost:8765',
     outDir: 'artifacts/monthly-review-loop',
+    timestampOutDir: true,
     mineTimeoutMs: 12 * 60 * 60 * 1_000,
     maxCertCandidates: 8,
   };
@@ -124,6 +126,9 @@ function parseArgs(argv: string[]): CliOptions {
       case 'out':
         opts.outDir = value;
         break;
+      case 'no-timestamp-out':
+        opts.timestampOutDir = false;
+        break;
       case 'help':
         printHelp();
         process.exit(0);
@@ -152,11 +157,8 @@ Options:
   --api-calls=N                hard cap for real OpenAI calls
   --dispatcher=ws://host:8765  dispatcher HTTP/WS root
   --out=DIR                    artifact root
+  --no-timestamp-out           write iteration artifacts directly under --out
 `);
-}
-
-function cloneSeed<T>(value: T): T {
-  return JSON.parse(JSON.stringify(value)) as T;
 }
 
 function timestampForPath(date = new Date()): string {
@@ -553,7 +555,9 @@ async function writeIterationArtifacts(input: {
 
 async function main(): Promise<void> {
   const opts = parseArgs(process.argv.slice(2));
-  const runRoot = resolve(opts.outDir, timestampForPath());
+  const runRoot = resolve(
+    opts.timestampOutDir ? resolve(opts.outDir, timestampForPath()) : opts.outDir,
+  );
   await mkdir(runRoot, { recursive: true });
 
   const baselineFingerprint = buildBaselineFingerprint();
@@ -650,7 +654,7 @@ async function main(): Promise<void> {
           console.log(
             `${strategy.label}: certifying ${evaluation.id} at $${evaluation.policy.annualSpendTodayDollars.toLocaleString()}/yr (${certAttemptCountByStrategy[strategy.id]}${opts.maxCertCandidates > 0 ? `/${opts.maxCertCandidates}` : ''})`,
           );
-          const pack = await runPolicyCertification({
+          const pack = await runClusterCertification(opts.dispatcherUrl, {
             policy: evaluation.policy,
             baseline: initialSeedData,
             assumptions: defaultAssumptions,
@@ -658,9 +662,7 @@ async function main(): Promise<void> {
             engineVersion: evaluation.engineVersion,
             legacyTargetTodayDollars:
               initialSeedData.goals?.legacyTargetTodayDollars ?? 1_000_000,
-            cloner: cloneSeed,
             spendingScheduleBasis: strategy.spendingScheduleBasis,
-            generatedAtIso,
           });
           certificationAttempts.push({
             strategyId: strategy.id,
@@ -689,12 +691,22 @@ async function main(): Promise<void> {
         },
         aiReview: async (packet) => {
           lastPacket = packet;
+          await writeJson(resolve(iterationDir, 'packet.json'), packet);
+          console.log(`AI co-review: ${opts.aiMode}`);
           if (opts.aiMode === 'off') {
             lastAiApproval = offAiApproval(packet, new Date().toISOString());
+            await writeJson(resolve(iterationDir, 'ai-response.json'), lastAiApproval);
+            console.log(
+              `AI co-review: ${lastAiApproval.verdict} (${lastAiApproval.confidence})`,
+            );
             return lastAiApproval;
           }
           if (opts.aiMode === 'mock') {
             lastAiApproval = mockAiApproval(packet, new Date().toISOString());
+            await writeJson(resolve(iterationDir, 'ai-response.json'), lastAiApproval);
+            console.log(
+              `AI co-review: ${lastAiApproval.verdict} (${lastAiApproval.confidence})`,
+            );
             return lastAiApproval;
           }
           if (realApiCalls >= opts.apiCalls) {
@@ -704,6 +716,10 @@ async function main(): Promise<void> {
           }
           realApiCalls += 1;
           lastAiApproval = await runMonthlyReviewAiApproval({ packet });
+          await writeJson(resolve(iterationDir, 'ai-response.json'), lastAiApproval);
+          console.log(
+            `AI co-review: ${lastAiApproval.verdict} (${lastAiApproval.confidence})`,
+          );
           return lastAiApproval;
         },
       },

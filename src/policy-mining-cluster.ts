@@ -361,3 +361,44 @@ export async function saveClusterMonthlyReviewAudit(
   }>(dispatcherUrl, '/monthly-review-audit', input);
   return body.auditTrail;
 }
+
+export interface ClusterMonthlyReviewJob {
+  id: string;
+  status: 'running' | 'complete' | 'failed';
+  startedAtIso: string;
+  endedAtIso: string | null;
+  artifactDir: string;
+  exitCode: number | null;
+  error: string | null;
+  logTail: string[];
+  run: MonthlyReviewRun | null;
+  packet: MonthlyReviewValidationPacket | null;
+  aiApproval: MonthlyReviewAiApproval | null;
+  summary: string | null;
+}
+
+export async function startClusterMonthlyReviewJob(
+  dispatcherUrl: string,
+  input: {
+    aiMode?: 'mock' | 'real' | 'off';
+    mineMode?: 'missing' | 'always' | 'never';
+    maxCertCandidates?: number;
+  } = {},
+): Promise<ClusterMonthlyReviewJob | null> {
+  const body = await postJson<{ job: ClusterMonthlyReviewJob | null }>(
+    dispatcherUrl,
+    '/monthly-review-job',
+    input,
+  );
+  return body.job;
+}
+
+export async function loadClusterMonthlyReviewJob(
+  dispatcherUrl: string,
+): Promise<ClusterMonthlyReviewJob | null> {
+  const body = await fetchJson<{ job: ClusterMonthlyReviewJob | null }>(
+    dispatcherUrl,
+    '/monthly-review-job',
+  );
+  return body.job;
+}

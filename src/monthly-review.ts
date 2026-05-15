@@ -552,15 +552,21 @@ export function rankMonthlyReviewCandidates(
   return rankPolicies([...evaluations]);
 }
 
+const MONTHLY_REVIEW_CERTIFICATION_REPRESENTATIVES_PER_SPEND = 2;
+
 export function selectCertificationCandidatesBySpend(
   rankedCandidates: PolicyEvaluation[],
+  maxRepresentativesPerSpend =
+    MONTHLY_REVIEW_CERTIFICATION_REPRESENTATIVES_PER_SPEND,
 ): PolicyEvaluation[] {
-  const seenSpendLevels = new Set<number>();
+  const limit = Math.max(1, Math.floor(maxRepresentativesPerSpend));
+  const seenBySpend = new Map<number, number>();
   const representatives: PolicyEvaluation[] = [];
   for (const candidate of rankedCandidates) {
     const spend = candidate.policy.annualSpendTodayDollars;
-    if (seenSpendLevels.has(spend)) continue;
-    seenSpendLevels.add(spend);
+    const seen = seenBySpend.get(spend) ?? 0;
+    if (seen >= limit) continue;
+    seenBySpend.set(spend, seen + 1);
     representatives.push(candidate);
   }
   return representatives;

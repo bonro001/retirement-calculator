@@ -298,10 +298,11 @@ describe('monthly review gates', () => {
     ]);
   });
 
-  it('certifies all spend-level representatives', async () => {
+  it('certifies the top two representatives per spend level', async () => {
     const candidates = [
       evalRow({ id: 'best-115', spend: 115_000, legacy: 0.9, solvency: 1 }),
       evalRow({ id: 'next-115', spend: 115_000, legacy: 0.89, solvency: 0.99 }),
+      evalRow({ id: 'third-115', spend: 115_000, legacy: 0.88, solvency: 0.98 }),
       evalRow({ id: 'best-114', spend: 114_000, legacy: 0.9, solvency: 1 }),
     ];
     const calls: string[] = [];
@@ -318,11 +319,15 @@ describe('monthly review gates', () => {
       },
     });
 
-    expect(calls).toEqual(expect.arrayContaining(['best-115', 'best-114']));
-    expect(calls).toHaveLength(2);
+    expect(calls).toEqual(
+      expect.arrayContaining(['best-115', 'next-115', 'best-114']),
+    );
+    expect(calls).not.toContain('third-115');
+    expect(calls).toHaveLength(3);
     // results sorted spend-desc regardless of completion order
     expect(certs.map((cert) => cert.evaluation.id)).toEqual([
       'best-115',
+      'next-115',
       'best-114',
     ]);
   });

@@ -1,10 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  buildMonthlyReviewMiningFingerprint,
-  MONTHLY_REVIEW_AI_DEFAULT_MODEL,
-  MONTHLY_REVIEW_AI_DEFAULT_REASONING_EFFORT,
-  runMonthlyReview,
-  type MonthlyReviewAiApproval,
   type MonthlyReviewAiFinding,
   type MonthlyReviewCertification,
   type MonthlyReviewModelTask,
@@ -18,21 +13,10 @@ import {
   MONTHLY_REVIEW_SKIP_REAL_CERTIFICATION,
 } from './monthly-review-flow-debug';
 import {
-  mineMonthlyReviewStrategy,
-  waitForMonthlyReviewClusterConnected,
-} from './monthly-review-cluster-miner';
-import { POLICY_MINING_TRIAL_COUNT } from './policy-mining-config';
-import {
-  runClusterMonthlyReviewAiApproval,
-  saveClusterMonthlyReviewAudit,
-  wakeClusterHosts,
+  loadClusterMonthlyReviewJob,
+  startClusterMonthlyReviewJob,
 } from './policy-mining-cluster';
 import { setBrowserHostMode } from './cluster-client';
-import {
-  ClusterCertifyError,
-  runClusterCertification,
-} from './policy-certification-cluster';
-import type { PolicyCertificationPack } from './policy-certification';
 import { PolicyAdoptionModal } from './PolicyAdoptionModal';
 import { useAppStore } from './store';
 import type { MarketAssumptions, SeedData } from './types';
@@ -88,7 +72,7 @@ interface CertificationSlot {
   completed: number;
   total: number;
   startedAtIso: string;
-  verdict: PolicyCertificationPack['verdict'] | null;
+  verdict: MonthlyReviewCertification['verdict'] | null;
   reasons: Array<{ code: string; message: string }>;
 }
 
@@ -109,6 +93,9 @@ interface AiReviewProgressStep {
 
 const LAST_AI_PACKET_KEY = 'monthly-review:last-ai-validation-packet';
 const LAST_AI_RESPONSE_KEY = 'monthly-review:last-ai-response';
+const LAST_RUN_KEY = 'monthly-review:last-run';
+const LAST_MINING_SNAPSHOT_KEY = 'monthly-review:last-mining-snapshot';
+const LAST_TRANSACTION_EVENTS_KEY = 'monthly-review:last-transaction-events';
 
 function initialAiReviewProgress(): AiReviewProgressStep[] {
   return [
@@ -938,95 +925,150 @@ function clearStoredJson(key: string): void {
   try { window.localStorage.removeItem(key); } catch { /* best-effort */ }
 }
 
-function buildDryRunCertificationPack(input: {
-  certification: MonthlyReviewCertification | null;
-  evaluation: MonthlyReviewCertification['evaluation'];
-  strategyId: string;
-  strategyLabel: string;
-  baselineFingerprint: string;
-  engineVersion: string;
-  assumptionsVersion?: string;
-}): PolicyCertificationPack {
-  const generatedAtIso = new Date().toISOString();
-  const outcome = input.evaluation.outcome;
+function compactRunForStorage(run: MonthlyReviewRun): MonthlyReviewRun {
   return {
-    verdict: input.certification?.verdict ?? 'green',
-    reasons: [{ level: input.certification?.verdict ?? 'green', code: 'flow_debug_certification_skipped', message: 'Flow-debug mode: real certification intentionally skipped.' }],
-    metadata: {
-      policyId: input.evaluation.id,
-      baselineFingerprint: input.baselineFingerprint,
-      engineVersion: input.engineVersion,
-      spendTarget: input.evaluation.policy.annualSpendTodayDollars,
-      selectedSpendingBasisId: input.strategyId,
-      selectedSpendingBasisLabel: input.strategyLabel,
-      spendingBasisFingerprint: input.strategyId,
-      baseSeed: 0,
-      auditSeeds: [],
-      trialCount: 0,
-      assumptionsVersion: input.assumptionsVersion,
-      generatedAtIso,
-    },
-    rows: [{
-      id: 'flow-debug-dry-run',
-      basisId: input.strategyId,
-      basisLabel: input.strategyLabel,
-      mode: 'forward_parametric',
-      modeLabel: 'Forward-looking',
-      scenarioId: 'flow_debug',
-      scenarioName: 'Flow debug',
-      scenarioKind: 'baseline',
-      seed: 0,
-      solvencyRate: outcome.solventSuccessRate,
-      legacyAttainmentRate: outcome.bequestAttainmentRate,
-      first10YearFailureRisk: 0,
-      spendingCutRate: 0,
-      p10EndingWealthTodayDollars: outcome.p10EndingWealthTodayDollars,
-      p50EndingWealthTodayDollars: outcome.p50EndingWealthTodayDollars,
-      worstFailureYear: null,
-      mostLikelyFailureYear: null,
-      failureConcentrationRate: 0,
-      appliedStressors: [],
-      durationMs: 0,
-    }],
-    seedAudits: [],
-    guardrail: {
-      authorizedAnnualSpend: input.evaluation.policy.annualSpendTodayDollars,
-      discretionaryThrottleAnnual: 0,
-      yellowTrigger: 'Flow-debug only',
-      redTrigger: 'Flow-debug only',
-      yellowResponse: 'Run real certification before relying on this plan.',
-      redResponse: 'Run real certification before relying on this plan.',
-      modeledAssetPath: [],
-      inferredAssumptions: ['Real certification intentionally skipped.'],
-    },
-    selectedPathEvidence: null,
+    ...run,
+    strategies: run.strategies.map((strategy) => ({
+      ...strategy,
+      rankedCandidates: [],
+      evidenceCandidates: [],
+    })),
   };
+}
+
+function readStoredRunForBaseline(
+  baselineFingerprint: string | null,
+  engineVersion: string,
+): MonthlyReviewRun | null {
+  if (!baselineFingerprint) return null;
+  const run = readStoredJson<MonthlyReviewRun>(LAST_RUN_KEY);
+  if (!run) return null;
+  if (run.baselineFingerprint !== baselineFingerprint) return null;
+  if (run.engineVersion !== engineVersion) return null;
+  return run;
+}
+
+function miningSnapshotFromRun(run: MonthlyReviewRun | null): MiningSnapshot | null {
+  if (!run) return null;
+  const evaluationCount = run.strategies.reduce(
+    (total, strategy) => total + strategy.corpusEvaluationCount,
+    0,
+  );
+  const spendMax =
+    run.strategies
+      .map((strategy) => strategy.spendBoundary.highestSpendTestedTodayDollars)
+      .filter((value): value is number => typeof value === 'number' && Number.isFinite(value))
+      .sort((a, b) => b - a)[0] ?? null;
+  const greenSpends = run.strategies
+    .map((strategy) => strategy.spendBoundary.highestGreenSpendTodayDollars)
+    .filter((value): value is number => typeof value === 'number' && Number.isFinite(value));
+  return {
+    evaluationCount,
+    spendMin: greenSpends.length > 0 ? Math.min(...greenSpends) : null,
+    spendMax,
+    feasibleCount: run.strategies.reduce(
+      (total, strategy) =>
+        total +
+        strategy.certifications.filter((cert) => cert.verdict === 'green').length,
+      0,
+    ),
+  };
+}
+
+function certificationSlotsFromRun(run: MonthlyReviewRun | null): CertificationSlot[] {
+  if (!run) return [];
+  return run.strategies
+    .flatMap((strategy) =>
+      strategy.certifications.map((cert) => ({
+        candidateId: cert.evaluation.id,
+        annualSpendTodayDollars: cert.evaluation.policy.annualSpendTodayDollars,
+        status: 'done' as const,
+        mode: 'node_host' as const,
+        completed: 1,
+        total: 1,
+        startedAtIso: cert.certifiedAtIso,
+        verdict: cert.verdict,
+        reasons: cert.pack.reasons.map((reason) => ({
+          code: reason.code,
+          message: reason.message,
+        })),
+      })),
+    )
+    .sort((a, b) => b.annualSpendTodayDollars - a.annualSpendTodayDollars);
+}
+
+function aiProgressFromRun(run: MonthlyReviewRun | null): AiReviewProgressStep[] {
+  if (!run?.aiApproval) return initialAiReviewProgress();
+  const atIso = run.aiApproval.generatedAtIso;
+  return [
+    {
+      id: 'packet_prepared',
+      title: 'Validation packet prepared',
+      detail: `${run.strategies.length} strategy row${run.strategies.length === 1 ? '' : 's'} · ${run.strategies.flatMap((strategy) => strategy.certifications).length} certification row${run.strategies.flatMap((strategy) => strategy.certifications).length === 1 ? '' : 's'}`,
+      status: 'done',
+      atIso,
+    },
+    {
+      id: 'sent_to_model',
+      title: 'Reviewing the validation packet',
+      detail: `Packet sent to ${run.aiApproval.model}.`,
+      status: 'done',
+      atIso,
+    },
+    {
+      id: 'model_response',
+      title: 'Model response received',
+      detail: `${run.aiApproval.verdict} response received with ${run.aiApproval.confidence} confidence.`,
+      status: 'done',
+      atIso,
+    },
+    {
+      id: 'checklist_merged',
+      title: 'Checklist merged',
+      detail: `${run.aiApproval.findings.length} AI finding${run.aiApproval.findings.length === 1 ? '' : 's'} merged with packet signals.`,
+      status: 'done',
+      atIso,
+    },
+    {
+      id: 'verdict_ready',
+      title: 'Verdict ready',
+      detail: `Final AI co-review verdict: ${run.aiApproval.verdict}.`,
+      status: 'done',
+      atIso,
+    },
+  ];
 }
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export function MonthlyReviewPanel({
-  baseline,
-  assumptions,
   baselineFingerprint,
   engineVersion,
   dispatcherUrl,
-  legacyTargetTodayDollars,
-  selectedStrategyId,
   onProgressStageChange,
 }: Props): JSX.Element | null {
   const cluster = useClusterSession();
   const clusterRef = useRef(cluster);
+  const [restoredRun] = useState<MonthlyReviewRun | null>(() =>
+    readStoredRunForBaseline(baselineFingerprint, engineVersion),
+  );
   const [runState, setRunState] = useState<
     | { kind: 'idle' }
     | { kind: 'running'; message: string }
     | { kind: 'complete'; run: MonthlyReviewRun }
     | { kind: 'failed'; reason: string }
-  >({ kind: 'idle' });
-  const [reviewStage, setReviewStage] = useState<MonthlyReviewStage>('idle');
-  const reviewStageRef = useRef<MonthlyReviewStage>('idle');
+  >(() => (restoredRun ? { kind: 'complete', run: restoredRun } : { kind: 'idle' }));
+  const [reviewStage, setReviewStage] = useState<MonthlyReviewStage>(() =>
+    restoredRun ? 'complete' : 'idle',
+  );
+  const reviewStageRef = useRef<MonthlyReviewStage>(
+    restoredRun ? 'complete' : 'idle',
+  );
   const [failedStep, setFailedStep] = useState<FailedReviewStep>(null);
-  const [miningSnapshot, setMiningSnapshot] = useState<MiningSnapshot | null>(null);
+  const [miningSnapshot, setMiningSnapshot] = useState<MiningSnapshot | null>(() =>
+    readStoredJson<MiningSnapshot>(LAST_MINING_SNAPSHOT_KEY) ??
+    miningSnapshotFromRun(restoredRun),
+  );
   // Sticky live mine progress for the Step 1 card. Mirrors cluster.session
   // while a mining session is active, BUT holds its last value when the
   // dispatcher transitions sessions (e.g. pass 1 → pass 2). Without the
@@ -1043,9 +1085,11 @@ export function MonthlyReviewPanel({
   const minePanelAutoCollapsedRef = useRef(false);
   const [adoptingCertification, setAdoptingCertification] =
     useState<MonthlyReviewCertification | null>(null);
-  const [certificationSlots, setCertificationSlots] = useState<CertificationSlot[]>([]);
+  const [certificationSlots, setCertificationSlots] = useState<CertificationSlot[]>(
+    () => certificationSlotsFromRun(restoredRun),
+  );
   const [aiReviewProgress, setAiReviewProgress] = useState<AiReviewProgressStep[]>(
-    () => initialAiReviewProgress(),
+    () => aiProgressFromRun(restoredRun),
   );
   const aiReviewStartedAtRef = useRef<number | null>(null);
   const [showRawAiResponse, setShowRawAiResponse] = useState(false);
@@ -1055,11 +1099,15 @@ export function MonthlyReviewPanel({
       readStoredJson<MonthlyReviewValidationPacket>(LAST_AI_PACKET_KEY),
     );
   const [lastAiResponse, setLastAiResponse] = useState<MonthlyReviewRun['aiApproval'] | null>(
-    () => readStoredJson<MonthlyReviewRun['aiApproval']>(LAST_AI_RESPONSE_KEY),
+    () => readStoredJson<MonthlyReviewRun['aiApproval']>(LAST_AI_RESPONSE_KEY) ?? restoredRun?.aiApproval ?? null,
   );
-  const [transactionEvents, setTransactionEvents] = useState<ReviewTransactionEvent[]>([]);
-  const transactionEventsRef = useRef<ReviewTransactionEvent[]>([]);
-  const nextTransactionEventIdRef = useRef(1);
+  const [transactionEvents, setTransactionEvents] = useState<ReviewTransactionEvent[]>(
+    () => readStoredJson<ReviewTransactionEvent[]>(LAST_TRANSACTION_EVENTS_KEY) ?? [],
+  );
+  const transactionEventsRef = useRef<ReviewTransactionEvent[]>(transactionEvents);
+  const nextTransactionEventIdRef = useRef(
+    transactionEvents.reduce((maxId, event) => Math.max(maxId, event.id), 0) + 1,
+  );
   const currentData = useAppStore((state) => state.appliedData);
   const adoptMinedPolicy = useAppStore((state) => state.adoptMinedPolicy);
   const undoLastPolicyAdoption = useAppStore((state) => state.undoLastPolicyAdoption);
@@ -1154,16 +1202,13 @@ export function MonthlyReviewPanel({
   }, [minePanelShouldAutoCollapse]);
 
   const canRun = !!baselineFingerprint;
-  const runId = useMemo(() => `monthly-review-${new Date().toISOString().slice(0, 10)}`, []);
-
   const appendTransactionEvent = useCallback((message: string) => {
     const id = nextTransactionEventIdRef.current++;
     const event = { id, atIso: new Date().toISOString(), message };
-    setTransactionEvents((events) => {
-      const nextEvents = [...events, event].slice(-80);
-      transactionEventsRef.current = nextEvents;
-      return nextEvents;
-    });
+    const nextEvents = [...transactionEventsRef.current, event].slice(-80);
+    transactionEventsRef.current = nextEvents;
+    setTransactionEvents(nextEvents);
+    writeStoredJson(LAST_TRANSACTION_EVENTS_KEY, nextEvents);
   }, []);
 
   const setStage = useCallback(
@@ -1195,6 +1240,81 @@ export function MonthlyReviewPanel({
     );
   }, []);
 
+  const runServerOwnedReview = useCallback(async () => {
+    if (!dispatcherUrl) {
+      throw new Error('Monthly review needs the dispatcher for mining and AI review.');
+    }
+    setStage('connecting');
+    setRunState({ kind: 'running', message: 'Starting server-side Monthly Review…' });
+    appendTransactionEvent('server-side review requested');
+    const started = await startClusterMonthlyReviewJob(dispatcherUrl, {
+      mineMode: 'missing',
+      maxCertCandidates: 8,
+    });
+    if (!started) {
+      throw new Error('Dispatcher did not return a Monthly Review job.');
+    }
+    appendTransactionEvent(`server job ${started.id} started`);
+    let lastLogLine = '';
+    for (;;) {
+      const job = await loadClusterMonthlyReviewJob(dispatcherUrl);
+      if (!job) {
+        throw new Error('Dispatcher lost the Monthly Review job status.');
+      }
+      const latestLogLine = job.logTail.at(-1) ?? '';
+      if (latestLogLine && latestLogLine !== lastLogLine) {
+        lastLogLine = latestLogLine;
+        appendTransactionEvent(latestLogLine);
+        setRunState({ kind: 'running', message: latestLogLine });
+        if (latestLogLine.toLowerCase().includes('certifying')) {
+          setStage('certifying');
+        }
+      }
+      if (job.packet) {
+        setStage('ai_review');
+        setLastValidationPacket(job.packet);
+        writeStoredJson(LAST_AI_PACKET_KEY, job.packet);
+      }
+      if (job.aiApproval) {
+        setLastAiResponse(job.aiApproval);
+        writeStoredJson(LAST_AI_RESPONSE_KEY, job.aiApproval);
+      }
+      if (job.run) {
+        const nextMiningSnapshot = miningSnapshotFromRun(job.run);
+        setMiningSnapshot(nextMiningSnapshot);
+        if (nextMiningSnapshot) {
+          writeStoredJson(LAST_MINING_SNAPSHOT_KEY, nextMiningSnapshot);
+        }
+        setCertificationSlots(certificationSlotsFromRun(job.run));
+        setAiReviewProgress(aiProgressFromRun(job.run));
+      }
+      if (clusterRef.current.session) {
+        setStage('mining');
+      } else if (job.run?.aiApproval) {
+        setStage('ai_review');
+      }
+      if (job.status === 'complete') {
+        if (!job.run) {
+          throw new Error('Monthly Review completed, but no run artifact was written.');
+        }
+        const finalRun = job.run;
+        if (job.aiApproval) {
+          finalRun.aiApproval = job.aiApproval;
+        }
+        setStage('complete');
+        appendTransactionEvent(`server job complete: ${finalRun.recommendation.status}`);
+        writeStoredJson(LAST_RUN_KEY, compactRunForStorage(finalRun));
+        writeStoredJson(LAST_TRANSACTION_EVENTS_KEY, transactionEventsRef.current);
+        setRunState({ kind: 'complete', run: finalRun });
+        return;
+      }
+      if (job.status === 'failed') {
+        throw new Error(job.error ?? 'Server-side Monthly Review failed.');
+      }
+      await waitMs(1_000);
+    }
+  }, [appendTransactionEvent, dispatcherUrl, setStage]);
+
   const start = async () => {
     if (!baselineFingerprint) return;
     setBrowserHostMode('off');
@@ -1209,375 +1329,27 @@ export function MonthlyReviewPanel({
     setLastAiResponse(null);
     setAiReviewProgress(initialAiReviewProgress());
     aiReviewStartedAtRef.current = null;
+    clearStoredJson(LAST_RUN_KEY);
+    clearStoredJson(LAST_MINING_SNAPSHOT_KEY);
     clearStoredJson(LAST_AI_PACKET_KEY);
     clearStoredJson(LAST_AI_RESPONSE_KEY);
+    clearStoredJson(LAST_TRANSACTION_EVENTS_KEY);
     setCertificationSlots([]);
     nextTransactionEventIdRef.current = 1;
     transactionEventsRef.current = [];
     setTransactionEvents([]);
     appendTransactionEvent('review started');
     setStage('connecting');
-    setRunState({ kind: 'running', message: 'Connecting…' });
+    setRunState({ kind: 'running', message: 'Starting server-side Monthly Review...' });
     try {
-      if (!dispatcherUrl) {
-        throw new Error('Monthly review needs the dispatcher for mining and AI review.');
-      }
-      setRunState({ kind: 'running', message: 'Waking worker hosts…' });
-      try {
-        const wake = await wakeClusterHosts(dispatcherUrl);
-        const configuredWakeCount = wake.targets.length + wake.pokes.length;
-        if (configuredWakeCount > 0) {
-          const pokeSummary =
-            wake.pokes.length > 0
-              ? `; pokes ${wake.pokes.map((poke) => `${poke.host}:${poke.port} ${poke.status}`).join(', ')}`
-              : '';
-          appendTransactionEvent(
-            `wake request: ${wake.targets.length} target${wake.targets.length === 1 ? '' : 's'}, ${wake.magicPacketsSent} packet${wake.magicPacketsSent === 1 ? '' : 's'}${pokeSummary}`,
-          );
-          const hasAwakePoke = wake.pokes.some((poke) => poke.status === 'connected');
-          if (!hasAwakePoke && wake.targets.length > 0) {
-            setRunState({ kind: 'running', message: 'Waiting for worker hosts to wake…' });
-            await waitMs(12_000);
-            clusterRef.current.reconnect();
-          }
-        } else {
-          appendTransactionEvent('wake skipped: no configured worker targets');
-        }
-        if (wake.errors.length > 0) {
-          appendTransactionEvent(`wake warnings: ${wake.errors.slice(0, 2).join(' | ')}`);
-        }
-      } catch (wakeError) {
-        appendTransactionEvent(`wake failed: ${wakeError instanceof Error ? wakeError.message : String(wakeError)}`);
-      }
-      setRunState({ kind: 'running', message: 'Connecting…' });
-      await waitForMonthlyReviewClusterConnected({ clusterRef, timeoutMs: 30_000 });
-      appendTransactionEvent(`cluster connected (${clusterRef.current.peers.length} peers)`);
-      const activeSession = clusterRef.current.session;
-      if (activeSession) {
-        const { stats } = activeSession;
-        const progress =
-          stats.totalPolicies > 0
-            ? `${stats.policiesEvaluated.toLocaleString()} / ${stats.totalPolicies.toLocaleString()} policies`
-            : `${stats.policiesEvaluated.toLocaleString()} policies`;
-        const eta =
-          stats.estimatedRemainingMs > 0
-            ? `, about ${formatDuration(stats.estimatedRemainingMs)} remaining`
-            : '';
-        appendTransactionEvent(`blocked by active mine: ${progress}${eta}`);
-        throw new Error(
-          `A mining session is already running (${progress}${eta}). Let it finish or cancel it, then run Monthly Review.`,
-        );
-      }
-      const hostPeers = clusterRef.current.peers.filter((peer) =>
-        peer.roles.includes('host'),
-      );
-      const hostCertifyCapacity = hostPeers.reduce((total, peer) => {
-        const advertised = peer.capabilities?.certifyWorkerCount;
-        if (typeof advertised === 'number' && Number.isFinite(advertised)) {
-          return total + Math.max(0, Math.floor(advertised));
-        }
-        return total;
-      }, 0);
-      if (hostCertifyCapacity <= 0) {
-        throw new Error('No Node worker host is registered for certification.');
-      }
-      const certificationMaxConcurrency = Math.max(
-        1,
-        Math.min(8, hostCertifyCapacity),
-      );
-      appendTransactionEvent(
-        `certification capacity: ${certificationMaxConcurrency} worker slot${
-          certificationMaxConcurrency === 1 ? '' : 's'
-        } across host computers`,
-      );
-      const run = await runMonthlyReview({
-        id: runId,
-        baselineFingerprint,
-        engineVersion,
-        legacyTargetTodayDollars,
-        data: baseline,
-        assumptions,
-        strategyIds: selectedStrategyId ? [selectedStrategyId] : undefined,
-        certificationMaxConcurrency,
-        ports: {
-          mineStrategy: async (strategy) => {
-            setStage('mining');
-            const strategyFingerprint = buildMonthlyReviewMiningFingerprint({
-              baselineFingerprint,
-              trialCount: POLICY_MINING_TRIAL_COUNT,
-              strategy,
-            });
-            appendTransactionEvent(`${strategy.label}: mining fingerprint ready`);
-            const evaluations = await mineMonthlyReviewStrategy({
-              strategy,
-              strategyFingerprint,
-              baseline,
-              assumptions,
-              legacyTargetTodayDollars,
-              dispatcherUrl,
-              clusterRef,
-              setMessage: (message) => setRunState({ kind: 'running', message }),
-              logEvent: appendTransactionEvent,
-            });
-            appendTransactionEvent(`${strategy.label}: ${evaluations.length.toLocaleString()} evaluations returned`);
-
-            // Capture mining snapshot for Step 1 display
-            const spends = evaluations.map((e) => e.policy.annualSpendTodayDollars);
-            setMiningSnapshot({
-              evaluationCount: evaluations.length,
-              spendMin: spends.length > 0 ? Math.min(...spends) : null,
-              spendMax: spends.length > 0 ? Math.max(...spends) : null,
-              feasibleCount: evaluations.filter(
-                (e) => e.outcome.solventSuccessRate >= 0.85,
-              ).length,
-            });
-
-            return { evaluations };
-          },
-          certifyCandidate: async (strategy, evaluation) => {
-            setStage('certifying');
-            const startedAtIso = new Date().toISOString();
-            const candidateId = evaluation.id;
-            const spend = evaluation.policy.annualSpendTodayDollars;
-            const mode: CertificationSlot['mode'] =
-              MONTHLY_REVIEW_SKIP_REAL_CERTIFICATION ? 'dry_run' : 'node_host';
-            setCertificationSlots((slots) => {
-              if (slots.some((s) => s.candidateId === candidateId)) return slots;
-              return [
-                ...slots,
-                {
-                  candidateId,
-                  annualSpendTodayDollars: spend,
-                  status: 'running' as const,
-                  mode,
-                  completed: 0,
-                  total: 0,
-                  startedAtIso,
-                  verdict: null,
-                  reasons: [],
-                },
-              ].sort((a, b) => b.annualSpendTodayDollars - a.annualSpendTodayDollars);
-            });
-            setRunState({
-              kind: 'running',
-              message:
-                mode === 'node_host'
-                  ? `Certifying ${formatCurrency(spend)}/yr on local Node host…`
-                  : `Dry-run certifying ${formatCurrency(spend)}/yr…`,
-            });
-            appendTransactionEvent(
-              `${strategy.label}: certifying ${formatCurrency(spend)}/yr via ${
-                mode === 'node_host' ? 'Node host' : 'dry-run'
-              }`,
-            );
-            let pack: PolicyCertificationPack;
-            if (MONTHLY_REVIEW_SKIP_REAL_CERTIFICATION) {
-              pack = buildDryRunCertificationPack({
-                certification: null,
-                evaluation,
-                strategyId: strategy.id,
-                strategyLabel: strategy.label,
-                baselineFingerprint: evaluation.baselineFingerprint,
-                engineVersion: evaluation.engineVersion,
-                assumptionsVersion: assumptions.assumptionsVersion,
-              });
-            } else {
-              if (!dispatcherUrl) {
-                throw new Error('Certification requires a dispatcher and a registered Node host.');
-              }
-              try {
-                pack = await runClusterCertification(dispatcherUrl, {
-                  policy: evaluation.policy,
-                  baseline,
-                  assumptions,
-                  baselineFingerprint: evaluation.baselineFingerprint,
-                  engineVersion: evaluation.engineVersion,
-                  legacyTargetTodayDollars,
-                  spendingScheduleBasis: strategy.spendingScheduleBasis,
-                }, {
-                  onAssigned: (host) => {
-                    setCertificationSlots((slots) =>
-                      slots.map((s) =>
-                        s.candidateId === candidateId
-                          ? {
-                            ...s,
-                            hostPeerId: host.peerId,
-                            hostDisplayName: host.displayName,
-                          }
-                          : s,
-                      ),
-                    );
-                  },
-                  onProgress: (completed, total) => {
-                    setCertificationSlots((slots) =>
-                      slots.map((s) =>
-                        s.candidateId === candidateId ? { ...s, completed, total } : s,
-                      ),
-                    );
-                  },
-                });
-              } catch (err) {
-                const detail =
-                  err instanceof ClusterCertifyError && err.code === 'no_host'
-                    ? 'no Node host is registered for certification'
-                    : err instanceof Error
-                      ? err.message
-                      : String(err);
-                appendTransactionEvent(
-                  `${strategy.label}: certify FAILED for ${formatCurrency(spend)}/yr — ${detail}`,
-                );
-                throw err;
-              }
-            }
-            const completedAtIso = new Date().toISOString();
-            const reasons = pack.reasons.map((r) => ({ code: r.code, message: r.message }));
-            setCertificationSlots((slots) =>
-              slots.map((s) =>
-                s.candidateId === candidateId
-                  ? {
-                    ...s,
-                    status: 'done',
-                    completed: Math.max(s.completed, s.total || 1),
-                    total: s.total || 1,
-                    verdict: pack.verdict,
-                    reasons,
-                  }
-                  : s,
-              ),
-            );
-            appendTransactionEvent(`${formatCurrency(spend)}/yr → ${pack.verdict}`);
-            return { strategyId: strategy.id, evaluation, pack, verdict: pack.verdict, certifiedAtIso: completedAtIso };
-          },
-          aiReview: async (packet) => {
-            setStage('ai_review');
-            aiReviewStartedAtRef.current = Date.now();
-            setLastValidationPacket(packet);
-            writeStoredJson(LAST_AI_PACKET_KEY, packet);
-            const householdSignals = packet.householdSignals ?? [];
-            const checklistCount =
-              11 + Math.max(0, householdSignals.filter((signal) => signal.status !== 'ok').length);
-            setAiReviewProgress([
-              {
-                id: 'packet_prepared',
-                title: 'Validation packet prepared',
-                detail: `${packet.strategies.length} strategy row${packet.strategies.length === 1 ? '' : 's'} · ${packet.certificationSummary.length} certification row${packet.certificationSummary.length === 1 ? '' : 's'} · ${householdSignals.length} household signal${householdSignals.length === 1 ? '' : 's'}`,
-                status: 'done',
-                atIso: new Date().toISOString(),
-              },
-              {
-                id: 'sent_to_model',
-                title: 'Reviewing the validation packet',
-                detail: `${MONTHLY_REVIEW_AI_DEFAULT_MODEL} is checking ${checklistCount} required review item${checklistCount === 1 ? '' : 's'}.`,
-                status: 'active',
-                atIso: new Date().toISOString(),
-              },
-              {
-                id: 'model_response',
-                title: 'Model response received',
-                detail: 'Waiting for the reviewer response.',
-                status: 'waiting',
-                atIso: null,
-              },
-              {
-                id: 'checklist_merged',
-                title: 'Checklist merged',
-                detail: 'Waiting to merge AI findings with household signals.',
-                status: 'waiting',
-                atIso: null,
-              },
-              {
-                id: 'verdict_ready',
-                title: 'Verdict ready',
-                detail: 'Waiting for final co-review verdict.',
-                status: 'waiting',
-                atIso: null,
-              },
-            ]);
-            appendTransactionEvent(`AI co-review: ${MONTHLY_REVIEW_AI_DEFAULT_MODEL} (${MONTHLY_REVIEW_AI_DEFAULT_REASONING_EFFORT})`);
-            setRunState({ kind: 'running', message: 'Reviewing the validation packet…' });
-            if (!dispatcherUrl) {
-              updateAiReviewProgressStep(
-                'sent_to_model',
-                'failed',
-                'Dispatcher is not connected, so the packet could not be sent.',
-              );
-              return {
-                verdict: 'insufficient_data', confidence: 'low',
-                summary: 'Dispatcher not connected — AI co-review could not run.',
-                findings: [{ id: 'dispatcher_missing', status: 'fail', title: 'No dispatcher', detail: 'Start the dispatcher and rerun.', evidence: ['dispatcherUrl=null'] }],
-                actionItems: ['Start the dispatcher and rerun monthly review.'],
-                modelImprovementTodos: [],
-                model: MONTHLY_REVIEW_AI_DEFAULT_MODEL,
-                generatedAtIso: new Date().toISOString(),
-              };
-            }
-            let approval: MonthlyReviewAiApproval;
-            try {
-              approval = await runClusterMonthlyReviewAiApproval(dispatcherUrl, packet);
-            } catch (err) {
-              updateAiReviewProgressStep(
-                'model_response',
-                'failed',
-                err instanceof Error ? err.message : 'Model review request failed.',
-              );
-              throw err;
-            }
-            updateAiReviewProgressStep(
-              'sent_to_model',
-              'done',
-              `Packet sent to ${MONTHLY_REVIEW_AI_DEFAULT_MODEL}.`,
-            );
-            updateAiReviewProgressStep(
-              'model_response',
-              'done',
-              `${approval.verdict} response received with ${approval.confidence} confidence.`,
-            );
-            updateAiReviewProgressStep(
-              'checklist_merged',
-              'active',
-              'Merging fixed checklist findings with household signals.',
-            );
-            setLastAiResponse(approval);
-            writeStoredJson(LAST_AI_RESPONSE_KEY, approval);
-            updateAiReviewProgressStep(
-              'checklist_merged',
-              'done',
-              `${approval.findings.length} AI finding${approval.findings.length === 1 ? '' : 's'} merged with packet signals.`,
-            );
-            updateAiReviewProgressStep(
-              'verdict_ready',
-              'done',
-              `Final AI co-review verdict: ${approval.verdict}.`,
-            );
-            appendTransactionEvent(`AI co-review: ${approval.verdict} (${approval.confidence})`);
-            return approval;
-          },
-        },
-      });
-      setStage('complete');
-      if (dispatcherUrl && run.aiApproval?.auditTrail?.auditId) {
-        try {
-          const auditTrail = await saveClusterMonthlyReviewAudit(dispatcherUrl, {
-            auditId: run.aiApproval.auditTrail.auditId,
-            run,
-            transactionEvents: transactionEventsRef.current,
-          });
-          run.aiApproval.auditTrail = auditTrail;
-          setLastAiResponse(run.aiApproval);
-          writeStoredJson(LAST_AI_RESPONSE_KEY, run.aiApproval);
-          appendTransactionEvent(`audit saved: ${auditTrail?.auditDir ?? 'unknown'}`);
-        } catch (auditError) {
-          appendTransactionEvent(`audit save failed: ${auditError instanceof Error ? auditError.message : String(auditError)}`);
-        }
-      }
-      appendTransactionEvent(`complete: ${run.recommendation.status}`);
-      setRunState({ kind: 'complete', run });
-    } catch (error) {
+      await runServerOwnedReview();
+    } catch (serverError) {
       const failedAt = failedStepForStage(reviewStageRef.current);
+      const reason = serverError instanceof Error ? serverError.message : String(serverError);
       setFailedStep(failedAt);
       setStage('failed');
-      appendTransactionEvent(`failed: ${error instanceof Error ? error.message : String(error)}`);
-      setRunState({ kind: 'failed', reason: error instanceof Error ? error.message : String(error) });
+      appendTransactionEvent(`server-side review failed: ${reason}`);
+      setRunState({ kind: 'failed', reason });
     }
   };
 

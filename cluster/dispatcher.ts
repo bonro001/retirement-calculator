@@ -43,8 +43,9 @@
 import { config as loadDotenv } from 'dotenv';
 import { createServer, type IncomingMessage } from 'node:http';
 import { createHash } from 'node:crypto';
+import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import dgram from 'node:dgram';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import net from 'node:net';
 import { hostname, networkInterfaces } from 'node:os';
 import { resolve } from 'node:path';
@@ -2680,6 +2681,201 @@ async function completeMonthlyReviewAudit(input: {
   };
 }
 
+type MonthlyReviewJobStatus = 'running' | 'complete' | 'failed';
+
+interface MonthlyReviewServerJob {
+  id: string;
+  status: MonthlyReviewJobStatus;
+  startedAtIso: string;
+  endedAtIso: string | null;
+  artifactDir: string;
+  child: ChildProcessWithoutNullStreams | null;
+  exitCode: number | null;
+  error: string | null;
+  logTail: string[];
+}
+
+const MONTHLY_REVIEW_JOB_ROOT =
+  process.env.MONTHLY_REVIEW_JOB_DIR &&
+  process.env.MONTHLY_REVIEW_JOB_DIR.length > 0
+    ? process.env.MONTHLY_REVIEW_JOB_DIR
+    : 'artifacts/monthly-review-server';
+
+let monthlyReviewJob: MonthlyReviewServerJob | null = null;
+
+function appendMonthlyReviewJobLog(job: MonthlyReviewServerJob, text: string): void {
+  const lines = text
+    .split(/\r?\n/)
+    .map((line) => line.trimEnd())
+    .filter((line) => line.length > 0);
+  if (lines.length === 0) return;
+  job.logTail = [...job.logTail, ...lines].slice(-80);
+}
+
+async function readJsonFileIfExists<T>(path: string): Promise<T | null> {
+  try {
+    return JSON.parse(await readFile(path, 'utf8')) as T;
+  } catch {
+    return null;
+  }
+}
+
+async function monthlyReviewJobPayload(job: MonthlyReviewServerJob) {
+  const iterationDir = resolve(job.artifactDir, 'iteration-01');
+  const [run, packet, aiApproval, summary] = await Promise.all([
+    readJsonFileIfExists<MonthlyReviewRun>(resolve(iterationDir, 'run.json')),
+    readJsonFileIfExists<MonthlyReviewValidationPacket>(
+      resolve(iterationDir, 'packet.json'),
+    ),
+    readJsonFileIfExists<MonthlyReviewAiApproval>(
+      resolve(iterationDir, 'ai-response.json'),
+    ),
+    readFile(resolve(iterationDir, 'summary.md'), 'utf8').catch(() => null),
+  ]);
+  return {
+    id: job.id,
+    status: job.status,
+    startedAtIso: job.startedAtIso,
+    endedAtIso: job.endedAtIso,
+    artifactDir: job.artifactDir,
+    exitCode: job.exitCode,
+    error: job.error,
+    logTail: job.logTail,
+    run,
+    packet,
+    aiApproval,
+    summary,
+  };
+}
+
+function parseMonthlyReviewJobRequest(body: unknown): {
+  aiMode: 'mock' | 'real' | 'off';
+  mineMode: 'missing' | 'always' | 'never';
+  maxCertCandidates: number;
+} {
+  const record =
+    body && typeof body === 'object' && !Array.isArray(body)
+      ? (body as Record<string, unknown>)
+      : {};
+  const aiRaw = record.aiMode;
+  const mineRaw = record.mineMode;
+  const maxCertRaw = record.maxCertCandidates;
+  const aiMode =
+    aiRaw === 'mock' || aiRaw === 'real' || aiRaw === 'off'
+      ? aiRaw
+      : process.env.OPENAI_API_KEY
+        ? 'real'
+        : 'mock';
+  const mineMode =
+    mineRaw === 'missing' || mineRaw === 'always' || mineRaw === 'never'
+      ? mineRaw
+      : 'missing';
+  const maxCertCandidates =
+    typeof maxCertRaw === 'number' && Number.isFinite(maxCertRaw)
+      ? Math.max(0, Math.floor(maxCertRaw))
+      : 8;
+  return { aiMode, mineMode, maxCertCandidates };
+}
+
+async function handleMonthlyReviewJobHttp(
+  req: IncomingMessage,
+  res: import('node:http').ServerResponse,
+  dispatcherPort: number,
+): Promise<void> {
+  if (req.method === 'GET') {
+    if (!monthlyReviewJob) {
+      sendJson(res, 200, { job: null });
+      return;
+    }
+    sendJson(res, 200, { job: await monthlyReviewJobPayload(monthlyReviewJob) });
+    return;
+  }
+  if (req.method !== 'POST') {
+    res.writeHead(405, { 'Content-Type': 'text/plain' });
+    res.end('method not allowed');
+    return;
+  }
+  if (monthlyReviewJob?.status === 'running') {
+    sendJson(res, 409, {
+      error: 'monthly review job already running',
+      job: await monthlyReviewJobPayload(monthlyReviewJob),
+    });
+    return;
+  }
+  try {
+    const body = await readJsonBody(req);
+    const opts = parseMonthlyReviewJobRequest(body);
+    const startedAtIso = new Date().toISOString();
+    const id = timestampForAuditPath(new Date());
+    const artifactDir = resolve(MONTHLY_REVIEW_JOB_ROOT, id);
+    await mkdir(artifactDir, { recursive: true });
+    const args = [
+      '--import',
+      'tsx',
+      'scripts/monthly-review-loop.ts',
+      '--iterations=1',
+      '--api-calls=1',
+      `--ai=${opts.aiMode}`,
+      `--mine=${opts.mineMode}`,
+      `--max-cert-candidates=${opts.maxCertCandidates}`,
+      `--dispatcher=ws://127.0.0.1:${dispatcherPort}`,
+      `--out=${artifactDir}`,
+      '--no-timestamp-out',
+    ];
+    const child = spawn(process.execPath, args, {
+      cwd: process.cwd(),
+      env: {
+        ...process.env,
+        DISPATCHER_URL: `ws://127.0.0.1:${dispatcherPort}`,
+      },
+    });
+    const job: MonthlyReviewServerJob = {
+      id,
+      status: 'running',
+      startedAtIso,
+      endedAtIso: null,
+      artifactDir,
+      child,
+      exitCode: null,
+      error: null,
+      logTail: [],
+    };
+    monthlyReviewJob = job;
+    child.stdout.on('data', (chunk) => appendMonthlyReviewJobLog(job, String(chunk)));
+    child.stderr.on('data', (chunk) => appendMonthlyReviewJobLog(job, String(chunk)));
+    child.on('error', (err) => {
+      job.status = 'failed';
+      job.endedAtIso = new Date().toISOString();
+      job.error = err.message;
+      job.child = null;
+      appendMonthlyReviewJobLog(job, `process error: ${err.message}`);
+    });
+    child.on('exit', (code, signal) => {
+      job.status = code === 0 ? 'complete' : 'failed';
+      job.endedAtIso = new Date().toISOString();
+      job.exitCode = code;
+      job.child = null;
+      if (code !== 0) {
+        job.error = `monthly-review-loop exited with code ${code ?? 'null'}${
+          signal ? ` signal ${signal}` : ''
+        }`;
+      }
+      appendMonthlyReviewJobLog(job, `process exited: code=${code ?? 'null'} signal=${signal ?? 'none'}`);
+    });
+    log('info', 'monthly review server job started', {
+      id,
+      artifactDir,
+      aiMode: opts.aiMode,
+      mineMode: opts.mineMode,
+    });
+    sendJson(res, 202, { job: await monthlyReviewJobPayload(job) });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    log('warn', 'POST /monthly-review-job failed', { err: message });
+    sendJson(res, 500, { error: 'monthly review job failed to start', detail: message });
+  }
+}
+
 function finitePositiveNumber(value: unknown): number | undefined {
   const n = typeof value === 'number' ? value : Number(value);
   return Number.isFinite(n) && n > 0 ? n : undefined;
@@ -2922,6 +3118,11 @@ function startDispatcher(port: number, host?: string): void {
     }
 
     const url = req.url ?? '/';
+
+    if (url === '/monthly-review-job') {
+      void handleMonthlyReviewJobHttp(req, res, port);
+      return;
+    }
 
     if (url === '/monthly-review-ai-check') {
       if (req.method !== 'POST') {
