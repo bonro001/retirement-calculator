@@ -1577,6 +1577,8 @@ export function MonthlyReviewPanel({
   const reviewStageRef = useRef<MonthlyReviewStage>(
     restoredRun ? 'complete' : 'idle',
   );
+  const serverReviewStartingRef = useRef(false);
+  const serverReviewWatcherRef = useRef(false);
   const [failedStep, setFailedStep] = useState<FailedReviewStep>(null);
   const [miningSnapshot, setMiningSnapshot] = useState<MiningSnapshot | null>(() =>
     readStoredJson<MiningSnapshot>(LAST_MINING_SNAPSHOT_KEY) ??
@@ -1757,79 +1759,85 @@ export function MonthlyReviewPanel({
     if (!dispatcherUrl) {
       throw new Error('Monthly review needs the dispatcher for mining and AI review.');
     }
-    let lastLogLine = '';
-    for (;;) {
-      if (shouldStop?.()) return;
-      const job = await loadClusterMonthlyReviewJob(dispatcherUrl);
-      if (!job) {
-        throw new Error('Dispatcher lost the Monthly Review job status.');
-      }
-      const latestLogLine = job.logTail.at(-1) ?? '';
-      if (latestLogLine && latestLogLine !== lastLogLine) {
-        lastLogLine = latestLogLine;
-        appendTransactionEvent(latestLogLine);
-        setRunState({ kind: 'running', message: latestLogLine });
-        if (latestLogLine.toLowerCase().includes('certifying')) {
-          setStage('certifying');
+    if (serverReviewWatcherRef.current) return;
+    serverReviewWatcherRef.current = true;
+    try {
+      let lastLogLine = '';
+      for (;;) {
+        if (shouldStop?.()) return;
+        const job = await loadClusterMonthlyReviewJob(dispatcherUrl);
+        if (!job) {
+          throw new Error('Monthly Review server job is no longer running. Start a fresh run.');
         }
-      }
-      const logMiningSnapshot = miningSnapshotFromJobLogs(job);
-      if (logMiningSnapshot && !job.run) {
-        setMiningSnapshot(logMiningSnapshot);
-        writeStoredJson(LAST_MINING_SNAPSHOT_KEY, logMiningSnapshot);
-      }
-      const jobCertificationSlots = certificationSlotsFromJob(job);
-      if (jobCertificationSlots.length > 0 && !job.run) {
-        setCertificationSlots(jobCertificationSlots);
-        if (
-          !job.packet &&
-          jobCertificationSlots.some((slot) => slot.status === 'running')
-        ) {
-          setStage('certifying');
+        const latestLogLine = job.logTail.at(-1) ?? '';
+        if (latestLogLine && latestLogLine !== lastLogLine) {
+          lastLogLine = latestLogLine;
+          appendTransactionEvent(latestLogLine);
+          setRunState({ kind: 'running', message: latestLogLine });
+          if (latestLogLine.toLowerCase().includes('certifying')) {
+            setStage('certifying');
+          }
         }
-      }
-      if (job.packet) {
-        setStage('ai_review');
-        setLastValidationPacket(job.packet);
-        writeStoredJson(LAST_AI_PACKET_KEY, job.packet);
-      }
-      if (job.aiApproval) {
-        setLastAiResponse(job.aiApproval);
-        writeStoredJson(LAST_AI_RESPONSE_KEY, job.aiApproval);
-      }
-      if (job.run) {
-        const nextMiningSnapshot = miningSnapshotFromRun(job.run);
-        setMiningSnapshot(nextMiningSnapshot);
-        if (nextMiningSnapshot) {
-          writeStoredJson(LAST_MINING_SNAPSHOT_KEY, nextMiningSnapshot);
+        const logMiningSnapshot = miningSnapshotFromJobLogs(job);
+        if (logMiningSnapshot && !job.run) {
+          setMiningSnapshot(logMiningSnapshot);
+          writeStoredJson(LAST_MINING_SNAPSHOT_KEY, logMiningSnapshot);
         }
-        setCertificationSlots(certificationSlotsFromRun(job.run));
-        setAiReviewProgress(aiProgressFromRun(job.run));
-      }
-      if (clusterRef.current.session) {
-        setStage('mining');
-      } else if (job.run?.aiApproval) {
-        setStage('ai_review');
-      }
-      if (job.status === 'complete') {
-        if (!job.run) {
-          throw new Error('Monthly Review completed, but no run artifact was written.');
+        const jobCertificationSlots = certificationSlotsFromJob(job);
+        if (jobCertificationSlots.length > 0 && !job.run) {
+          setCertificationSlots(jobCertificationSlots);
+          if (
+            !job.packet &&
+            jobCertificationSlots.some((slot) => slot.status === 'running')
+          ) {
+            setStage('certifying');
+          }
         }
-        const finalRun = job.run;
+        if (job.packet) {
+          setStage('ai_review');
+          setLastValidationPacket(job.packet);
+          writeStoredJson(LAST_AI_PACKET_KEY, job.packet);
+        }
         if (job.aiApproval) {
-          finalRun.aiApproval = job.aiApproval;
+          setLastAiResponse(job.aiApproval);
+          writeStoredJson(LAST_AI_RESPONSE_KEY, job.aiApproval);
         }
-        setStage('complete');
-        appendTransactionEvent(`server job complete: ${finalRun.recommendation.status}`);
-        writeStoredJson(LAST_RUN_KEY, compactRunForStorage(finalRun));
-        writeStoredJson(LAST_TRANSACTION_EVENTS_KEY, transactionEventsRef.current);
-        setRunState({ kind: 'complete', run: finalRun });
-        return;
+        if (job.run) {
+          const nextMiningSnapshot = miningSnapshotFromRun(job.run);
+          setMiningSnapshot(nextMiningSnapshot);
+          if (nextMiningSnapshot) {
+            writeStoredJson(LAST_MINING_SNAPSHOT_KEY, nextMiningSnapshot);
+          }
+          setCertificationSlots(certificationSlotsFromRun(job.run));
+          setAiReviewProgress(aiProgressFromRun(job.run));
+        }
+        if (clusterRef.current.session) {
+          setStage('mining');
+        } else if (job.run?.aiApproval) {
+          setStage('ai_review');
+        }
+        if (job.status === 'complete') {
+          if (!job.run) {
+            throw new Error('Monthly Review completed, but no run artifact was written.');
+          }
+          const finalRun = job.run;
+          if (job.aiApproval) {
+            finalRun.aiApproval = job.aiApproval;
+          }
+          setStage('complete');
+          appendTransactionEvent(`server job complete: ${finalRun.recommendation.status}`);
+          writeStoredJson(LAST_RUN_KEY, compactRunForStorage(finalRun));
+          writeStoredJson(LAST_TRANSACTION_EVENTS_KEY, transactionEventsRef.current);
+          setRunState({ kind: 'complete', run: finalRun });
+          return;
+        }
+        if (job.status === 'failed') {
+          throw new Error(job.error ?? 'Server-side Monthly Review failed.');
+        }
+        await waitMs(1_000);
       }
-      if (job.status === 'failed') {
-        throw new Error(job.error ?? 'Server-side Monthly Review failed.');
-      }
-      await waitMs(1_000);
+    } finally {
+      serverReviewWatcherRef.current = false;
     }
   }, [appendTransactionEvent, dispatcherUrl, setStage]);
 
@@ -1837,27 +1845,55 @@ export function MonthlyReviewPanel({
     if (!dispatcherUrl) {
       throw new Error('Monthly review needs the dispatcher for mining and AI review.');
     }
-    setStage('connecting');
-    setRunState({ kind: 'running', message: 'Starting server-side Monthly Review…' });
-    appendTransactionEvent('server-side review requested');
-    const started = await startClusterMonthlyReviewJob(dispatcherUrl, {
-      mineMode: 'missing',
-      maxCertCandidates: 8,
-      certificationMaxConcurrency: 4,
-    });
-    if (!started) {
-      throw new Error('Dispatcher did not return a Monthly Review job.');
+    serverReviewStartingRef.current = true;
+    try {
+      setStage('connecting');
+      setRunState({ kind: 'running', message: 'Starting server-side Monthly Review…' });
+      appendTransactionEvent('server-side review requested');
+      const started = await startClusterMonthlyReviewJob(dispatcherUrl, {
+        mineMode: 'missing',
+        maxCertCandidates: 8,
+        certificationMaxConcurrency: 4,
+      });
+      if (!started) {
+        throw new Error('Dispatcher did not return a Monthly Review job.');
+      }
+      appendTransactionEvent(`server job ${started.id} started`);
+      await watchServerOwnedReviewJob();
+    } finally {
+      serverReviewStartingRef.current = false;
     }
-    appendTransactionEvent(`server job ${started.id} started`);
-    await watchServerOwnedReviewJob();
   }, [appendTransactionEvent, dispatcherUrl, setStage, watchServerOwnedReviewJob]);
 
   useEffect(() => {
-    if (!dispatcherUrl || !baselineFingerprint || runState.kind !== 'idle') return;
+    if (
+      !dispatcherUrl ||
+      !baselineFingerprint ||
+      (runState.kind !== 'idle' && runState.kind !== 'running')
+    ) {
+      return;
+    }
     let cancelled = false;
     void (async () => {
+      if (runState.kind === 'running') {
+        await waitMs(1_500);
+        if (
+          cancelled ||
+          serverReviewStartingRef.current ||
+          serverReviewWatcherRef.current
+        ) {
+          return;
+        }
+      }
       const job = await loadClusterMonthlyReviewJob(dispatcherUrl);
-      if (cancelled || !job || job.status !== 'running') return;
+      if (cancelled) return;
+      if (!job) {
+        if (runState.kind === 'running') {
+          throw new Error('Monthly Review server job is no longer running. Start a fresh run.');
+        }
+        return;
+      }
+      if (runState.kind === 'idle' && job.status !== 'running') return;
       setBrowserHostMode('off');
       setStage('connecting');
       appendTransactionEvent(`reattached to server job ${job.id}`);
