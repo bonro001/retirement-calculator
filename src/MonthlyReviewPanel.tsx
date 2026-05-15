@@ -521,14 +521,38 @@ function ClusterStatusRail({
               const miningCapacity = peer.capabilities?.workerCount ?? 0;
               const certifyCapacity = hostCertifyCapacity(peer);
               const certifyInFlight = hostCertifyInFlight(peer);
+              const miningReservedSlots = Math.min(
+                miningCapacity,
+                Math.max(
+                  0,
+                  Math.floor(
+                    peer.metrics?.reservedWorkerSlots ?? peer.inFlightBatchCount,
+                  ),
+                ),
+              );
+              const miningUtilization =
+                session && typeof peer.metrics?.utilizationRate === 'number'
+                  ? Math.max(0, Math.min(1, peer.metrics.utilizationRate))
+                  : null;
               const certifyPct =
                 certifyCapacity > 0
                   ? Math.min(100, (certifyInFlight / certifyCapacity) * 100)
                   : 0;
               const miningPct =
                 miningCapacity > 0
-                  ? Math.min(100, (peer.inFlightBatchCount / miningCapacity) * 100)
+                  ? miningUtilization !== null
+                    ? miningUtilization * 100
+                    : Math.min(100, (miningReservedSlots / miningCapacity) * 100)
                   : 0;
+              const targetBatches = peer.metrics?.targetInFlightBatches ?? null;
+              const miningLabel = session
+                ? miningUtilization !== null
+                  ? `${Math.round(miningUtilization * 100)}% util`
+                  : `${miningReservedSlots}/${miningCapacity} slots`
+                : 'idle';
+              const miningTitle = session
+                ? `${peer.inFlightBatchCount} dispatcher batch${peer.inFlightBatchCount === 1 ? '' : 'es'} in flight${targetBatches ? ` of ${targetBatches} target` : ''}; ${miningReservedSlots}/${miningCapacity} reserved worker slots. Host batches can fan out across all workers.`
+                : 'No mining batch in flight.';
               const lastHeartbeatLabel = formatShortTime(peer.lastHeartbeatTs);
               return (
                 <div key={peer.peerId} className="rounded border border-stone-200 bg-white px-2 py-2">
@@ -560,7 +584,7 @@ function ClusterStatusRail({
                     <div>
                       <div className="flex justify-between text-[10px] tabular-nums text-stone-500">
                         <span>mine</span>
-                        <span>{peer.inFlightBatchCount}/{miningCapacity}</span>
+                        <span title={miningTitle}>{miningLabel}</span>
                       </div>
                       <div className="mt-0.5 h-1.5 overflow-hidden rounded-full bg-stone-100">
                         <div className="h-full rounded-full bg-cyan-500" style={{ width: `${miningPct}%` }} />
