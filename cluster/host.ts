@@ -81,6 +81,7 @@ import type {
   Policy,
   PolicyEvaluation,
   PolicyMinerShadowStats,
+  PolicySpendingScheduleBasis,
 } from '../src/policy-miner-types';
 import type {
   PolicyMinerWorkerRequest,
@@ -593,6 +594,7 @@ function primeAllSlotsForSession(
   engineVersion: string,
   evaluatedByNodeId: string,
   legacyTargetTodayDollars: number,
+  spendingScheduleBasis?: PolicySpendingScheduleBasis,
 ): void {
   const prime: PolicyMinerWorkerRequest = {
     type: 'prime',
@@ -604,6 +606,7 @@ function primeAllSlotsForSession(
       engineVersion,
       evaluatedByNodeId,
       legacyTargetTodayDollars,
+      spendingScheduleBasis,
     },
   };
   for (const slot of slots) {
@@ -1022,6 +1025,7 @@ interface ActiveSession {
   data: SeedData;
   assumptions: MarketAssumptions;
   legacyTargetTodayDollars: number;
+  spendingScheduleBasis?: PolicySpendingScheduleBasis;
 }
 
 let activeSession: ActiveSession | null = null;
@@ -1435,6 +1439,7 @@ function handleStartSession(message: StartSessionMessage): void {
     data: message.seedDataPayload as SeedData,
     assumptions: message.marketAssumptionsPayload as MarketAssumptions,
     legacyTargetTodayDollars: message.legacyTargetTodayDollars,
+    spendingScheduleBasis: message.config.spendingScheduleBasis ?? undefined,
   };
   sessionBatchesCompleted = 0;
   sessionPoliciesCompleted = 0;
@@ -1442,6 +1447,7 @@ function handleStartSession(message: StartSessionMessage): void {
     baseline: message.config.baselineFingerprint,
     engine: message.config.engineVersion,
     trials: message.trialCount,
+    basis: message.config.spendingScheduleBasis?.id ?? null,
   });
 }
 
@@ -1526,6 +1532,7 @@ async function handleBatchAssign(
     activeSession.engineVersion,
     myPeerId ?? 'unknown',
     activeSession.legacyTargetTodayDollars,
+    activeSession.spendingScheduleBasis,
   );
 
   const startedAt = Date.now();
