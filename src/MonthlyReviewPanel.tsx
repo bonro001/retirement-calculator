@@ -1552,6 +1552,36 @@ function aiProgressFromRun(run: MonthlyReviewRun | null): AiReviewProgressStep[]
   ];
 }
 
+function aiProgressFromPacket(
+  packet: MonthlyReviewValidationPacket,
+  aiReviewRequested: boolean,
+): AiReviewProgressStep[] {
+  const atIso = packet.generatedAtIso;
+  const strategyCount = packet.strategies.length;
+  const certificationCount = packet.certificationSummary.length;
+  return initialAiReviewProgress().map((step) => {
+    if (step.id === 'packet_prepared') {
+      return {
+        ...step,
+        status: 'done',
+        detail: `${strategyCount} strategy row${strategyCount === 1 ? '' : 's'} · ${certificationCount} certification row${certificationCount === 1 ? '' : 's'}`,
+        atIso,
+      };
+    }
+    if (step.id === 'sent_to_model') {
+      return {
+        ...step,
+        status: aiReviewRequested ? 'active' : 'waiting',
+        detail: aiReviewRequested
+          ? 'Packet sent to AI reviewer; waiting for response.'
+          : 'Preparing reviewer request.',
+        atIso: aiReviewRequested ? atIso : null,
+      };
+    }
+    return step;
+  });
+}
+
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export function MonthlyReviewPanel({
@@ -1793,10 +1823,19 @@ export function MonthlyReviewPanel({
             setStage('certifying');
           }
         }
+        const aiReviewRequested = job.logTail.some((line) =>
+          line.startsWith('AI co-review:'),
+        );
         if (job.packet) {
           setStage('ai_review');
           setLastValidationPacket(job.packet);
           writeStoredJson(LAST_AI_PACKET_KEY, job.packet);
+          if (!job.aiApproval) {
+            if (aiReviewRequested && aiReviewStartedAtRef.current === null) {
+              aiReviewStartedAtRef.current = Date.now();
+            }
+            setAiReviewProgress(aiProgressFromPacket(job.packet, aiReviewRequested));
+          }
         }
         if (job.aiApproval) {
           setLastAiResponse(job.aiApproval);
@@ -1874,45 +1913,86 @@ export function MonthlyReviewPanel({
       return;
     }
     let cancelled = false;
-    void (async () => {
-      if (runState.kind === 'running') {
-        await waitMs(1_500);
-        if (
-          cancelled ||
-          serverReviewStartingRef.current ||
-          serverReviewWatcherRef.current
-        ) {
-          return;
-        }
-      }
-      const job = await loadClusterMonthlyReviewJob(dispatcherUrl);
-      if (cancelled) return;
-      if (!job) {
-        if (runState.kind === 'running') {
-          throw new Error('Monthly Review server job is no longer running. Start a fresh run.');
-        }
-        return;
-      }
-      if (runState.kind === 'idle' && job.status !== 'running') return;
-      setBrowserHostMode('off');
-      setStage('connecting');
-      appendTransactionEvent(`reattached to server job ${job.id}`);
-      setRunState({
-        kind: 'running',
-        message: 'Reattached to server-side Monthly Review...',
-      });
-      await watchServerOwnedReviewJob(() => cancelled);
-    })().catch((error) => {
-      if (cancelled) return;
-      const reason = error instanceof Error ? error.message : String(error);
+    let checking = false;
+    const failFromProbe = (reason: string) => {
       const failedAt = failedStepForStage(reviewStageRef.current);
       setFailedStep(failedAt);
       setStage('failed');
       appendTransactionEvent(`server-side review failed: ${reason}`);
       setRunState({ kind: 'failed', reason });
-    });
+    };
+    const probeServerJob = async () => {
+      if (
+        cancelled ||
+        checking ||
+        serverReviewStartingRef.current ||
+        serverReviewWatcherRef.current
+      ) {
+        return;
+      }
+      checking = true;
+      try {
+        const job = await loadClusterMonthlyReviewJob(dispatcherUrl);
+        if (cancelled) return;
+        if (!job) {
+          if (runState.kind === 'running') {
+            failFromProbe('Monthly Review server job is no longer running. Start a fresh run.');
+          }
+          return;
+        }
+        if (job.status === 'complete' && job.run) {
+          const finalRun = job.run;
+          if (job.aiApproval) {
+            finalRun.aiApproval = job.aiApproval;
+            setLastAiResponse(job.aiApproval);
+            writeStoredJson(LAST_AI_RESPONSE_KEY, job.aiApproval);
+          }
+          if (job.packet) {
+            setLastValidationPacket(job.packet);
+            writeStoredJson(LAST_AI_PACKET_KEY, job.packet);
+          }
+          const nextMiningSnapshot = miningSnapshotFromRun(finalRun);
+          setMiningSnapshot(nextMiningSnapshot);
+          if (nextMiningSnapshot) {
+            writeStoredJson(LAST_MINING_SNAPSHOT_KEY, nextMiningSnapshot);
+          }
+          setCertificationSlots(certificationSlotsFromRun(finalRun));
+          setAiReviewProgress(aiProgressFromRun(finalRun));
+          setStage('complete');
+          writeStoredJson(LAST_RUN_KEY, compactRunForStorage(finalRun));
+          setRunState({ kind: 'complete', run: finalRun });
+          return;
+        }
+        if (job.status === 'failed') {
+          failFromProbe(job.error ?? 'Server-side Monthly Review failed.');
+          return;
+        }
+        if (job.status !== 'running') return;
+        setBrowserHostMode('off');
+        setStage('connecting');
+        appendTransactionEvent(`reattached to server job ${job.id}`);
+        setRunState({
+          kind: 'running',
+          message: 'Reattached to server-side Monthly Review...',
+        });
+        await watchServerOwnedReviewJob(() => cancelled);
+      } catch (error) {
+        if (cancelled) return;
+        if (runState.kind === 'running') {
+          const reason = error instanceof Error ? error.message : String(error);
+          failFromProbe(reason);
+        }
+      } finally {
+        checking = false;
+      }
+    };
+    void probeServerJob();
+    const id = window.setInterval(() => {
+      void probeServerJob();
+    }, 2_000);
     return () => {
       cancelled = true;
+      window.clearInterval(id);
     };
   }, [
     appendTransactionEvent,
