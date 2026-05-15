@@ -93,6 +93,10 @@ function maxPoliciesForTrialBudget(trialCount: number, strategyCount = 1): numbe
 
 const MONTHLY_REVIEW_MIN_PASS2_POLICIES_WHEN_CAPPED = 10;
 
+export function shouldApplyMonthlyReviewPass2TrialBudget(): boolean {
+  return MONTHLY_REVIEW_SKIP_REAL_CERTIFICATION;
+}
+
 function chooseCappedMonthlyReviewPass2TrialCount(input: {
   baseTrialCount: number;
   hasCliff: boolean;
@@ -400,7 +404,11 @@ export async function mineMonthlyReviewStrategy(
     strategy: input.strategy,
     axesOverride: recommendation.axes,
     maxPoliciesPerSession: recommendation.estimatedPass2Candidates,
-    applyTrialBudget: true,
+    // The trial-budget cap exists for flow-debug runs where real
+    // certification is intentionally skipped. In production review, pass 2
+    // is the actual refinement/rule-sweep pass; capping a 20k-trial pass to
+    // one or two policies silently starves the candidate set.
+    applyTrialBudget: shouldApplyMonthlyReviewPass2TrialBudget(),
     setMessage: input.setMessage,
     logEvent: input.logEvent,
   });

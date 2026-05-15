@@ -21,6 +21,7 @@ import {
   chooseMonthlyReviewPass2TrialCount,
   makeMonthlyReviewMiningSeed,
   mergeMonthlyReviewMiningPasses,
+  shouldApplyMonthlyReviewPass2TrialBudget,
 } from './monthly-review-cluster-miner';
 import { initialSeedData } from './data';
 import { defaultAssumptions } from './default-assumptions';
@@ -225,6 +226,10 @@ describe('monthly review gates', () => {
         141_000,
       ]),
     ).toBe(2_000);
+  });
+
+  it('does not trial-budget cap real pass-2 refinement runs', () => {
+    expect(shouldApplyMonthlyReviewPass2TrialBudget()).toBe(false);
   });
 
   it('keeps pass-1 corpus evidence when pass 2 only refines a small capped slice', () => {
