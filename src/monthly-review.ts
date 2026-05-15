@@ -2,6 +2,7 @@ import {
   buildSpendingModelSchedule,
   type SpendingModelPresetId,
 } from './jpmorgan-spending-surprises';
+import { calculateProratedSalary } from './contribution-engine';
 import {
   buildLifeModelAudit,
   type LifeModelAudit,
@@ -1178,7 +1179,9 @@ function buildAcaBridgeSignal(input: {
 
   const firstEvidenceYear = yearlyRows[0]?.year ?? new Date().getUTCFullYear();
   const salaryEndYear = new Date(input.data.income.salaryEndDate).getUTCFullYear();
-  const bridgeRows = yearlyRows
+  const salaryProrationRule =
+    input.data.rules.payrollModel?.salaryProrationRule ?? 'month_fraction';
+  const acaRows = yearlyRows
     .map((row) => {
       const robAge = ageInCalendarYear(input.data.household.robBirthDate, row.year);
       const debbieAge = ageInCalendarYear(
@@ -1192,6 +1195,12 @@ function buildAcaBridgeSignal(input: {
         year: row.year,
         inflation: input.assumptions.inflation ?? 0.028,
       });
+      const modeledSalaryThisYear = calculateProratedSalary({
+        salaryAnnual: input.data.income.salaryAnnual,
+        retirementDate: input.data.income.salaryEndDate,
+        projectionYear: row.year,
+        rule: salaryProrationRule,
+      });
       const headroom = ceiling - row.medianMagi;
       return {
         row,
@@ -1201,6 +1210,8 @@ function buildAcaBridgeSignal(input: {
         headroom,
         overage: Math.max(0, -headroom),
         hasNonMedicareMember,
+        modeledSalaryThisYear,
+        hasModeledPayrollIncome: modeledSalaryThisYear > 1,
       };
     })
     .filter(
@@ -1208,8 +1219,59 @@ function buildAcaBridgeSignal(input: {
         row.hasNonMedicareMember &&
         (!Number.isFinite(salaryEndYear) || row.row.year >= salaryEndYear),
     );
+  const payrollTransitionRows = acaRows.filter((row) => row.hasModeledPayrollIncome);
+  const bridgeRows = acaRows.filter((row) => !row.hasModeledPayrollIncome);
 
   if (bridgeRows.length === 0) {
+    const transitionRow = payrollTransitionRows.reduce<
+      (typeof payrollTransitionRows)[number] | null
+    >((best, row) => (!best || row.headroom < best.headroom ? row : best), null);
+    if (transitionRow) {
+      const knownDecision = monthlyReviewKnownDecision({
+        data: input.data,
+        signalId: 'aca_bridge_breach',
+        year: transitionRow.row.year,
+      });
+      return {
+        id: 'aca_bridge_breach',
+        status: 'ok',
+        title: 'ACA bridge breach',
+        headline: `${transitionRow.row.year}: payroll transition year, not ACA bridge`,
+        detail: `Modeled MAGI is ${moneyLabel(
+          transitionRow.row.medianMagi,
+        )}, but ${moneyLabel(
+          transitionRow.modeledSalaryThisYear,
+        )} of modeled salary remains in that year. ACA subsidy preservation is not treated as an actionable bridge-year constraint until salary income has ended.`,
+        evidence: [
+          `year=${transitionRow.row.year}`,
+          `medianMagi=${Math.round(transitionRow.row.medianMagi)}`,
+          `acaFriendlyMagiCeiling=${Math.round(transitionRow.ceiling)}`,
+          `headroom=${Math.round(transitionRow.headroom)}`,
+          `modeledSalaryThisYear=${Math.round(transitionRow.modeledSalaryThisYear)}`,
+          `salaryEndDate=${input.data.income.salaryEndDate}`,
+          `payrollTransitionYear=true`,
+          ...knownDecisionEvidence(knownDecision),
+        ],
+        recommendation:
+          knownDecision?.disposition === 'intentional_tradeoff'
+            ? `Known planning decision: ${knownDecision.decision}`
+            : 'Do not treat the payroll transition year as act-now ACA work; verify the first full post-payroll pre-Medicare year instead.',
+        ...(knownDecision ? { knownDecision } : {}),
+        clarity: {
+          disposition: knownDecisionDisposition(knownDecision) ?? 'monitor',
+          whyItMatters:
+            'ACA subsidy planning is meaningful in years when the household can control MAGI after salary income has ended.',
+          whyItMayBeOk:
+            knownDecision
+              ? `This is already labeled in the model: ${knownDecision.rationale}`
+              : 'Payroll income makes subsidy preservation structurally unavailable in the transition year, so the breach is not a failure to act.',
+          modelBugCheck:
+            'Check for a bug if this row is supposed to be post-payroll but modeledSalaryThisYear is still positive, or if the first full post-payroll pre-Medicare year is missing from selected evidence.',
+          decisionPrompt:
+            'Review the first full post-payroll ACA bridge row before making a subsidy-preservation decision.',
+        },
+      };
+    }
     return {
       id: 'aca_bridge_breach',
       status: 'ok',
@@ -1248,10 +1310,13 @@ function buildAcaBridgeSignal(input: {
     signalId: 'aca_bridge_breach',
     year: mostConstrained.row.year,
   });
+  const disposition = knownDecisionDisposition(knownDecision);
+  const signalStatus: MonthlyReviewQaSignalStatus =
+    status === 'act_now' && disposition ? 'watch' : status;
 
   return {
     id: 'aca_bridge_breach',
-    status,
+    status: signalStatus,
     title: 'ACA bridge breach',
     headline:
       mostConstrained.overage > 0
@@ -1278,6 +1343,8 @@ function buildAcaBridgeSignal(input: {
       `medianMagi=${Math.round(mostConstrained.row.medianMagi)}`,
       `acaFriendlyMagiCeiling=${Math.round(mostConstrained.ceiling)}`,
       `headroom=${Math.round(mostConstrained.headroom)}`,
+      `modeledSalaryThisYear=${Math.round(mostConstrained.modeledSalaryThisYear)}`,
+      `payrollTransitionYear=false`,
       `medianAcaPremiumEstimate=${Math.round(
         mostConstrained.row.medianAcaPremiumEstimate,
       )}`,
@@ -1296,10 +1363,7 @@ function buildAcaBridgeSignal(input: {
     ...(knownDecision ? { knownDecision } : {}),
     clarity: {
       disposition:
-        knownDecisionDisposition(knownDecision) ??
-        (mostConstrained.overage > 0
-          ? 'needs_action'
-          : 'monitor'),
+        disposition ?? (mostConstrained.overage > 0 ? 'needs_action' : 'monitor'),
       whyItMatters:
         'Crossing the ACA-friendly MAGI ceiling can reduce or eliminate premium subsidies in the bridge year.',
       whyItMayBeOk:

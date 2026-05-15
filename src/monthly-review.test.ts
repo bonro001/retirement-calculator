@@ -551,8 +551,9 @@ describe('monthly review strategy and orchestration', () => {
       'legacy_headroom',
     ]);
     expect(signals.find((signal) => signal.id === 'aca_bridge_breach')).toMatchObject({
-      status: 'act_now',
+      status: 'ok',
       title: 'ACA bridge breach',
+      headline: '2027: payroll transition year, not ACA bridge',
       knownDecision: {
         disposition: 'intentional_tradeoff',
       },
@@ -571,6 +572,53 @@ describe('monthly review strategy and orchestration', () => {
     expect(signals.find((signal) => signal.id === 'legacy_headroom')).toMatchObject({
       status: 'watch',
     });
+  });
+
+  it('flags post-payroll ACA bridge MAGI breaches as actionable', () => {
+    const evaluation = evalRow({ id: 'green', spend: 145_000, legacy: 0.99 });
+    const selected = certification('current_faithful', evaluation, 'green');
+    selected.pack.selectedPathEvidence = {
+      basisId: 'current_faithful',
+      basisLabel: 'Current Faithful',
+      mode: 'forward_parametric',
+      modeLabel: 'Forward-looking',
+      seed: 20260416,
+      outcome: evaluation.outcome,
+      annualFederalTaxEstimate: 20_000,
+      medianLifetimeSpendTodayDollars: 4_350_000,
+      medianLifetimeFederalTaxTodayDollars: 250_000,
+      yearlyRows: [
+        {
+          year: 2028,
+          medianSpending: 145_000,
+          medianFederalTax: 20_000,
+          medianMagi: 135_850,
+          medianAcaPremiumEstimate: 18_000,
+          medianAcaSubsidyEstimate: 0,
+          medianNetAcaCost: 18_000,
+          medianAssets: 1_000_000,
+          tenthPercentileAssets: 850_000,
+        },
+      ],
+    };
+
+    const signals = buildMonthlyReviewQaSignals({
+      data: initialSeedData,
+      assumptions: defaultAssumptions,
+      legacyTargetTodayDollars: 1_000_000,
+      strategies: [strategyResult({ id: 'current_faithful', selected })],
+    });
+
+    const acaSignal = signals.find((signal) => signal.id === 'aca_bridge_breach');
+    expect(acaSignal).toMatchObject({
+      status: 'act_now',
+      title: 'ACA bridge breach',
+      clarity: {
+        disposition: 'needs_action',
+      },
+    });
+    expect(acaSignal?.evidence).toContain('modeledSalaryThisYear=0');
+    expect(acaSignal?.evidence).toContain('payrollTransitionYear=false');
   });
 
   it('runs every strategy and picks the highest green approved candidate', async () => {
