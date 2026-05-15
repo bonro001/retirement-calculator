@@ -47,13 +47,13 @@ export function buildDefaultPolicyAxes(seedData: SeedData): PolicyAxes {
     65, 65.5, 66, 66.5, 67, 67.5, 68, 68.5, 69, 69.5, 70,
   ];
   return {
-    // V2.2 (2026-05-15): Narrowed to $90k–$130k for the Bonner household
-    // — the realistic ceiling given the current portfolio and the floor
-    // below which essentials don't fit. $5k resolution stays. This is the
-    // COARSE pass.
+    // V2.3 (2026-05-15): $90k–$145k for the Bonner household. V2.2's
+    // $130k ceiling was too tight after front-loaded spending entered the
+    // model; this keeps the realistic floor while giving pass 1 a modest
+    // upside scout. $5k resolution stays. This is the COARSE pass.
     //
-    // Widen the top if $130k starts winning consistently (i.e. the
-    // miner picks $130k as the green ceiling); widen the bottom only
+    // Widen the top again if $145k starts winning consistently (i.e. the
+    // miner picks $145k as the green ceiling); widen the bottom only
     // if essentials drop below $90k somehow.
     //
     // After this pass completes, `cliff-refinement-analyzer.ts` inspects
@@ -64,7 +64,7 @@ export function buildDefaultPolicyAxes(seedData: SeedData): PolicyAxes {
     // ids stay distinct because spend changes.
     annualSpendTodayDollars: [
       90_000, 95_000, 100_000, 105_000, 110_000, 115_000, 120_000, 125_000,
-      130_000,
+      130_000, 135_000, 140_000, 145_000,
     ],
     primarySocialSecurityClaimAge: ssAges,
     spouseSocialSecurityClaimAge: hasSpouseSs ? ssAges : null,

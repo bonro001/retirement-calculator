@@ -1,19 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  buildMonthlyReviewRecommendation,
   buildMonthlyReviewMiningFingerprint,
-  buildMonthlyReviewValidationPacket,
-  classifyMonthlyReviewModelTasks,
   MONTHLY_REVIEW_AI_DEFAULT_MODEL,
   MONTHLY_REVIEW_AI_DEFAULT_REASONING_EFFORT,
-  rankMonthlyReviewCandidates,
   runMonthlyReview,
   type MonthlyReviewAiFinding,
   type MonthlyReviewCertification,
   type MonthlyReviewModelTask,
   type MonthlyReviewQaSignal,
   type MonthlyReviewRun,
-  type MonthlyReviewStrategyResult,
   type MonthlyReviewStrategyId,
   type MonthlyReviewValidationPacket,
 } from './monthly-review';
@@ -37,7 +32,6 @@ import {
   runClusterCertification,
 } from './policy-certification-cluster';
 import type { PolicyCertificationPack } from './policy-certification';
-import type { PolicyEvaluation } from './policy-miner-types';
 import { PolicyAdoptionModal } from './PolicyAdoptionModal';
 import { useAppStore } from './store';
 import type { MarketAssumptions, SeedData } from './types';
@@ -522,83 +516,112 @@ function ClusterStatusRail({
   );
 }
 
-// ─── Finding chips ────────────────────────────────────────────────────────────
+// ─── AI review checklist ─────────────────────────────────────────────────────
 
-type ChipStatus = 'fail' | 'watch' | 'pass' | 'act_now' | 'ok';
+type ChecklistStatus = MonthlyReviewAiFinding['status'] | MonthlyReviewQaSignal['status'];
 
-interface ChipItem {
+interface ReviewChecklistItem {
   id: string;
-  status: ChipStatus;
+  status: ChecklistStatus;
   title: string;
   detail: string;
   evidence?: string[];
   recommendation?: string;
+  source: 'AI' | 'Household';
 }
 
-function chipStyle(status: ChipStatus): { chip: string; panel: string } {
+function checklistStatusMeta(status: ChecklistStatus): {
+  label: string;
+  mark: string;
+  statusClass: string;
+  rowClass: string;
+} {
   if (status === 'fail' || status === 'act_now') {
     return {
-      chip: 'bg-rose-100 text-rose-800 ring-rose-200 hover:bg-rose-200',
-      panel: 'border-rose-200 bg-rose-50',
+      label: status === 'act_now' ? 'Act now' : 'Block',
+      mark: '!',
+      statusClass: 'border-rose-300 bg-rose-50 text-rose-800',
+      rowClass: 'border-rose-200 bg-rose-50/70',
     };
   }
   if (status === 'watch') {
     return {
-      chip: 'bg-amber-100 text-amber-800 ring-amber-200 hover:bg-amber-200',
-      panel: 'border-amber-200 bg-amber-50',
+      label: 'Watch',
+      mark: '?',
+      statusClass: 'border-amber-300 bg-amber-50 text-amber-800',
+      rowClass: 'border-amber-200 bg-amber-50/60',
     };
   }
   return {
-    chip: 'bg-emerald-100 text-emerald-800 ring-emerald-200 hover:bg-emerald-200',
-    panel: 'border-emerald-200 bg-emerald-50',
+    label: 'Pass',
+    mark: '✓',
+    statusClass: 'border-emerald-300 bg-emerald-50 text-emerald-800',
+    rowClass: 'border-stone-200 bg-white',
   };
 }
 
-function chipIcon(status: ChipStatus): string {
-  if (status === 'fail' || status === 'act_now') return '!';
-  if (status === 'watch') return '⚠';
-  return '✓';
+function checklistRank(status: ChecklistStatus): number {
+  if (status === 'fail' || status === 'act_now') return 0;
+  if (status === 'watch') return 1;
+  return 2;
 }
 
-function FindingChips({ items }: { items: ChipItem[] }): JSX.Element | null {
-  const [expandedId, setExpandedId] = useState<string | null>(null);
+function ReviewChecklist({ items }: { items: ReviewChecklistItem[] }): JSX.Element | null {
   if (items.length === 0) return null;
 
-  const expanded = items.find((x) => x.id === expandedId) ?? null;
+  const sorted = [...items].sort((a, b) => {
+    const rankDiff = checklistRank(a.status) - checklistRank(b.status);
+    if (rankDiff !== 0) return rankDiff;
+    return a.title.localeCompare(b.title);
+  });
 
   return (
-    <div className="space-y-2">
-      <div className="flex flex-wrap gap-2">
-        {items.map((item) => {
-          const { chip } = chipStyle(item.status);
-          const isExpanded = expandedId === item.id;
+    <div className="overflow-hidden rounded-xl border border-stone-200 bg-stone-50">
+      <div className="hidden grid-cols-[5.75rem_minmax(9rem,0.9fr)_minmax(14rem,1.4fr)_minmax(10rem,1fr)] gap-3 border-b border-stone-200 px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-stone-500 md:grid">
+        <span>Status</span>
+        <span>Check</span>
+        <span>Evidence</span>
+        <span>Next action</span>
+      </div>
+      <div className="divide-y divide-stone-200">
+        {sorted.map((item) => {
+          const meta = checklistStatusMeta(item.status);
           return (
-            <button
-              key={item.id}
-              type="button"
-              onClick={() => setExpandedId(isExpanded ? null : item.id)}
-              className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[11px] font-semibold ring-1 transition ${chip} ${isExpanded ? 'ring-2' : ''}`}
+            <div
+              key={`${item.source}:${item.id}`}
+              className={`grid gap-2 px-3 py-3 text-[12px] md:grid-cols-[5.75rem_minmax(9rem,0.9fr)_minmax(14rem,1.4fr)_minmax(10rem,1fr)] md:gap-3 ${meta.rowClass}`}
             >
-              <span>{chipIcon(item.status)}</span>
-              <span>{item.title}</span>
-            </button>
+              <div>
+                <span
+                  className={`inline-flex min-w-[4.7rem] items-center gap-1.5 rounded-md border px-2 py-1 text-[11px] font-semibold ${meta.statusClass}`}
+                >
+                  <span className="inline-flex size-3 items-center justify-center rounded-sm border border-current text-[9px] leading-none">
+                    {meta.mark}
+                  </span>
+                  {meta.label}
+                </span>
+              </div>
+              <div className="min-w-0">
+                <p className="font-semibold text-stone-900">{item.title}</p>
+                <p className="mt-0.5 text-[10px] uppercase tracking-[0.14em] text-stone-400">
+                  {item.source}
+                </p>
+              </div>
+              <div className="min-w-0 text-stone-700">
+                <p className="break-words">{item.detail}</p>
+                {item.evidence && item.evidence.length > 0 && (
+                  <p className="mt-1 break-words font-mono text-[10px] leading-snug text-stone-500">
+                    {item.evidence.slice(0, 2).join(' · ')}
+                  </p>
+                )}
+              </div>
+              <p className="min-w-0 break-words text-stone-700">
+                {item.recommendation || 'No action needed.'}
+              </p>
+            </div>
           );
         })}
       </div>
-      {expanded && (
-        <div className={`rounded-xl border px-4 py-3 text-[12px] ${chipStyle(expanded.status).panel}`}>
-          <p className="font-semibold text-stone-900">{expanded.title}</p>
-          <p className="mt-1 text-stone-700">{expanded.detail}</p>
-          {expanded.recommendation && (
-            <p className="mt-2 font-medium text-stone-800">{expanded.recommendation}</p>
-          )}
-          {expanded.evidence && expanded.evidence.length > 0 && (
-            <p className="mt-2 break-words font-mono text-[10px] text-stone-500">
-              {expanded.evidence.slice(0, 3).join(' · ')}
-            </p>
-          )}
-        </div>
-      )}
     </div>
   );
 }
@@ -706,6 +729,11 @@ function writeStoredJson(key: string, value: unknown): void {
   try { window.localStorage.setItem(key, JSON.stringify(value)); } catch { /* best-effort */ }
 }
 
+function clearStoredJson(key: string): void {
+  if (typeof window === 'undefined') return;
+  try { window.localStorage.removeItem(key); } catch { /* best-effort */ }
+}
+
 function buildDryRunCertificationPack(input: {
   certification: MonthlyReviewCertification | null;
   evaluation: MonthlyReviewCertification['evaluation'];
@@ -771,77 +799,6 @@ function buildDryRunCertificationPack(input: {
   };
 }
 
-function buildPreCertificationAiPacket(input: {
-  strategy: MonthlyReviewStrategyResult['strategy'];
-  evaluations: PolicyEvaluation[];
-  baseline: SeedData;
-  assumptions: MarketAssumptions;
-  baselineFingerprint: string;
-  engineVersion: string;
-  legacyTargetTodayDollars: number;
-  generatedAtIso: string;
-}): MonthlyReviewValidationPacket | null {
-  const rankedCandidates = rankMonthlyReviewCandidates(input.evaluations);
-  const selectedEvaluation = rankedCandidates[0] ?? null;
-  if (!selectedEvaluation) return null;
-  const pack = buildDryRunCertificationPack({
-    certification: null,
-    evaluation: selectedEvaluation,
-    strategyId: input.strategy.id,
-    strategyLabel: input.strategy.label,
-    baselineFingerprint: selectedEvaluation.baselineFingerprint,
-    engineVersion: selectedEvaluation.engineVersion,
-    assumptionsVersion: input.assumptions.assumptionsVersion,
-  });
-  const selectedCertification: MonthlyReviewCertification = {
-    strategyId: input.strategy.id,
-    evaluation: selectedEvaluation,
-    pack,
-    verdict: pack.verdict,
-    certifiedAtIso: input.generatedAtIso,
-  };
-  const spendLevels = Array.from(
-    new Set(input.evaluations.map((e) => e.policy.annualSpendTodayDollars)),
-  ).sort((a, b) => a - b);
-  const selectedSpend = selectedEvaluation.policy.annualSpendTodayDollars;
-  const higherSpendLevels = spendLevels.filter((s) => s > selectedSpend);
-  const strategyResult: MonthlyReviewStrategyResult = {
-    strategy: input.strategy,
-    corpusEvaluationCount: input.evaluations.length,
-    spendBoundary: {
-      highestSpendTestedTodayDollars: spendLevels.at(-1) ?? null,
-      highestGreenSpendTodayDollars: selectedSpend,
-      higherSpendLevelsTested: higherSpendLevels,
-      boundaryProven: higherSpendLevels.length > 0,
-    },
-    rankedCandidates,
-    evidenceCandidates: [...input.evaluations].sort((a, b) => {
-      const spendDiff = b.policy.annualSpendTodayDollars - a.policy.annualSpendTodayDollars;
-      if (spendDiff !== 0) return spendDiff;
-      const solvencyDiff = b.outcome.solventSuccessRate - a.outcome.solventSuccessRate;
-      if (solvencyDiff !== 0) return solvencyDiff;
-      return b.outcome.bequestAttainmentRate - a.outcome.bequestAttainmentRate || a.id.localeCompare(b.id);
-    }),
-    certifications: [selectedCertification],
-    selectedCertification,
-    errors: [],
-  };
-  const strategies = [strategyResult];
-  const tasks = classifyMonthlyReviewModelTasks({ strategies, aiApproval: null, generatedAtIso: input.generatedAtIso });
-  const recommendation = buildMonthlyReviewRecommendation({ strategies, tasks, aiApproval: null });
-  return buildMonthlyReviewValidationPacket({
-    data: input.baseline,
-    assumptions: input.assumptions,
-    baselineFingerprint: input.baselineFingerprint,
-    engineVersion: input.engineVersion,
-    generatedAtIso: input.generatedAtIso,
-    legacyTargetTodayDollars: input.legacyTargetTodayDollars,
-    recommendation,
-    strategies,
-    tasks,
-  });
-}
-
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export function MonthlyReviewPanel({
@@ -891,7 +848,6 @@ export function MonthlyReviewPanel({
   const [transactionEvents, setTransactionEvents] = useState<ReviewTransactionEvent[]>([]);
   const transactionEventsRef = useRef<ReviewTransactionEvent[]>([]);
   const nextTransactionEventIdRef = useRef(1);
-  const preCertificationAiStartedRef = useRef(false);
   const currentData = useAppStore((state) => state.appliedData);
   const adoptMinedPolicy = useAppStore((state) => state.adoptMinedPolicy);
   const undoLastPolicyAdoption = useAppStore((state) => state.undoLastPolicyAdoption);
@@ -919,12 +875,12 @@ export function MonthlyReviewPanel({
   // client may reuse the session object and mutate its `stats` field in place
   // when broadcasts arrive — if we depend on the object reference, React's
   // Object.is bail-out fires and the effect never re-runs past the first
-  // batch_result. (Symptom: UI stuck at "32 / 6,534" forever while the
+  // batch_result. (Symptom: UI stuck at the first small batch forever while the
   // dispatcher actually progresses to completion.)
   //
   // We also skip pass-2 sessions (cliff refinement, typically ≤50 policies)
-  // because they would flash a misleading "1/1" right after pass-1's 6,534
-  // finishes. Holding the pass-1 value through pass-2 keeps the card calm.
+  // because they would flash a misleading "1/1" right after pass 1's larger
+  // run finishes. Holding the pass-1 value through pass-2 keeps the card calm.
   const livePoliciesEvaluated = cluster.session?.stats?.policiesEvaluated ?? null;
   const liveTotalPolicies = cluster.session?.stats?.totalPolicies ?? null;
   const liveHostCount = cluster.peers.filter((p) => p.roles.includes('host')).length;
@@ -1002,10 +958,11 @@ export function MonthlyReviewPanel({
     setMiningSnapshot(null);
     setLastValidationPacket(null);
     setLastAiResponse(null);
+    clearStoredJson(LAST_AI_PACKET_KEY);
+    clearStoredJson(LAST_AI_RESPONSE_KEY);
     setCertificationSlots([]);
     nextTransactionEventIdRef.current = 1;
     transactionEventsRef.current = [];
-    preCertificationAiStartedRef.current = false;
     setTransactionEvents([]);
     appendTransactionEvent('review started');
     setStage('connecting');
@@ -1111,28 +1068,6 @@ export function MonthlyReviewPanel({
               ).length,
             });
 
-            if (!preCertificationAiStartedRef.current && dispatcherUrl && evaluations.length > 0) {
-              const generatedAtIso = new Date().toISOString();
-              const packet = buildPreCertificationAiPacket({
-                strategy, evaluations, baseline, assumptions, baselineFingerprint,
-                engineVersion, legacyTargetTodayDollars, generatedAtIso,
-              });
-              if (packet) {
-                preCertificationAiStartedRef.current = true;
-                setLastValidationPacket(packet);
-                writeStoredJson(LAST_AI_PACKET_KEY, packet);
-                appendTransactionEvent(`early AI co-review requested for ${strategy.label}`);
-                void runClusterMonthlyReviewAiApproval(dispatcherUrl, packet)
-                  .then((approval) => {
-                    setLastAiResponse(approval);
-                    writeStoredJson(LAST_AI_RESPONSE_KEY, approval);
-                    appendTransactionEvent(`early AI co-review: ${approval.verdict} (${approval.confidence})`);
-                  })
-                  .catch((error) => {
-                    appendTransactionEvent(`early AI co-review failed: ${error instanceof Error ? error.message : String(error)}`);
-                  });
-              }
-            }
             return { evaluations };
           },
           certifyCandidate: async (strategy, evaluation) => {
@@ -1318,22 +1253,24 @@ export function MonthlyReviewPanel({
     lastPolicyAdoption?.evaluation?.id === selectedCertification.evaluation.id;
 
   const aiApproval = run?.aiApproval ?? lastAiResponse;
-  const findingChips: ChipItem[] = [
+  const reviewChecklistItems: ReviewChecklistItem[] = [
     ...(aiApproval?.findings ?? []).map((f: MonthlyReviewAiFinding) => ({
       id: f.id,
-      status: f.status as ChipStatus,
+      status: f.status,
       title: f.title,
       detail: f.detail,
       evidence: f.evidence,
       recommendation: f.recommendation,
+      source: 'AI' as const,
     })),
     ...(lastValidationPacket?.householdSignals ?? []).map((s: MonthlyReviewQaSignal) => ({
       id: s.id,
-      status: s.status as ChipStatus,
+      status: s.status,
       title: s.title,
       detail: s.detail,
       evidence: s.evidence,
       recommendation: s.recommendation,
+      source: 'Household' as const,
     })),
   ];
 
@@ -1525,7 +1462,7 @@ export function MonthlyReviewPanel({
                 <p className="text-[12px] text-stone-600">{aiApproval.summary}</p>
               )}
             </div>
-            {findingChips.length > 0 && <FindingChips items={findingChips} />}
+            {reviewChecklistItems.length > 0 && <ReviewChecklist items={reviewChecklistItems} />}
             {aiApproval.actionItems && aiApproval.actionItems.length > 0 && (
               <ul className="space-y-1">
                 {aiApproval.actionItems.map((item) => (

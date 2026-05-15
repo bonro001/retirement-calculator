@@ -3,8 +3,8 @@
  * step 13's e2e check, narrowed to what we can verify without a
  * fresh cluster mine).
  *
- * Asserts the V2.1 axis grid produces the expected pass-1 candidate
- * count (12,342 = 17 × 11 × 11 × 6 × 1, single-rule pass-1) and that
+ * Asserts the current axis grid produces the expected pass-1 candidate
+ * count (8,712 = 12 × 11 × 11 × 6 × 1, single-rule pass-1) and that
  * 6-month SS resolution + withdrawal-rule plumbing are wired
  * end-to-end (Policy.withdrawalRule populated, fractional ages emitted,
  * ALL_WITHDRAWAL_RULES exported for the pass-2 sweep).
@@ -23,20 +23,20 @@ import type { SeedData } from './types';
 import seedFixture from '../seed-data.json';
 
 describe('policy axis V2.1 (single-rule pass-1)', () => {
-  it('default pass-1 axes produce expected candidate count: 9 × 11 × 11 × 6 × 1 = 6,534', () => {
+  it('default pass-1 axes produce expected candidate count: 12 × 11 × 11 × 6 × 1 = 8,712', () => {
     const axes = buildDefaultPolicyAxes(seedFixture as SeedData);
-    expect(axes.annualSpendTodayDollars).toHaveLength(9);
+    expect(axes.annualSpendTodayDollars).toHaveLength(12);
     expect(axes.primarySocialSecurityClaimAge).toHaveLength(11);
     expect(axes.spouseSocialSecurityClaimAge).toHaveLength(11);
     expect(axes.rothConversionAnnualCeiling).toHaveLength(6);
     expect(axes.withdrawalRule).toHaveLength(1);
-    expect(countPolicyCandidates(axes)).toBe(6_534);
+    expect(countPolicyCandidates(axes)).toBe(8_712);
   });
 
-  it('spend axis covers $90k-$130k in $5k steps (coarse pass, V2.2 household-narrowed)', () => {
+  it('spend axis covers $90k-$145k in $5k steps (coarse pass, V2.3 upside scout)', () => {
     const axes = buildDefaultPolicyAxes(seedFixture as SeedData);
     const expected = [];
-    for (let v = 90_000; v <= 130_000; v += 5_000) expected.push(v);
+    for (let v = 90_000; v <= 145_000; v += 5_000) expected.push(v);
     expect(axes.annualSpendTodayDollars).toEqual(expected);
   });
 
@@ -64,7 +64,7 @@ describe('policy axis V2.1 (single-rule pass-1)', () => {
   it('every enumerated pass-1 policy carries a withdrawalRule', () => {
     const axes = buildDefaultPolicyAxes(seedFixture as SeedData);
     const policies = enumeratePolicies(axes);
-    expect(policies).toHaveLength(6_534);
+    expect(policies).toHaveLength(8_712);
     expect(policies.every((p) => p.withdrawalRule === 'tax_bracket_waterfall')).toBe(true);
   });
 
