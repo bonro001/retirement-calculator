@@ -52,6 +52,8 @@ interface VerificationCheck {
   exitCode: number;
   passed: boolean;
   warnings: VerificationWarning[];
+  stdoutTail?: string;
+  stderrTail?: string;
 }
 
 interface VerificationWarning {
@@ -230,6 +232,24 @@ function badgeClasses(pass: boolean) {
     : 'bg-rose-100 text-rose-800';
 }
 
+function nextCommandForCheck(checkName: string): string {
+  if (checkName.includes('external')) {
+    return 'npx vitest run src/model-negative.test.ts src/external-model-benchmark-corpus.test.ts src/ficalc-source-parity.test.ts src/cfiresim-export-parity.test.ts src/model-replay-packets.test.ts';
+  }
+  if (checkName.includes('statutory') || checkName.includes('north-star')) {
+    return 'npx vitest run src/model-contract-propagation.test.ts src/north-star-budget.test.ts src/protected-reserve.test.ts';
+  }
+  if (checkName.includes('parity')) return 'npm run test:model:parity';
+  if (checkName.includes('golden')) return 'npx vitest run src/verification-harness.test.ts';
+  if (checkName.includes('build')) return 'npm run build';
+  return 'npm run verify:model:quick:strict';
+}
+
+function cleanOutput(value: string | undefined): string {
+  if (!value?.trim()) return '';
+  return value.trim().slice(-2400);
+}
+
 export function ModelHealthScreen() {
   const [state, setState] = useState<ReportLoadState>({
     status: 'loading',
@@ -316,6 +336,9 @@ export function ModelHealthScreen() {
   const strictFailureCount = report.strict?.failures.length ?? 0;
   const warningCount = report.warnings.length;
   const allChecksPassed = report.checks.every((check) => check.passed);
+  const failedChecks = report.checks.filter((check) => !check.passed);
+  const hasAttention =
+    failedChecks.length > 0 || strictFailureCount > 0 || warningCount > 0;
 
   return (
     <Panel
@@ -377,6 +400,60 @@ export function ModelHealthScreen() {
           pass
         />
       </div>
+
+      {hasAttention ? (
+        <section className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 p-5 text-amber-950">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.18em]">
+                What Needs Attention
+              </p>
+              <h3 className="mt-2 text-xl font-semibold">
+                {failedChecks.length > 0
+                  ? `${failedChecks.length} check(s) failed`
+                  : strictFailureCount > 0
+                    ? `${strictFailureCount} strict gate(s) failed`
+                    : `${warningCount} warning(s) to review`}
+              </h3>
+              <p className="mt-1 max-w-2xl text-sm leading-6">
+                Start with the first item below. The command is the smallest useful
+                rerun; the full verifier can wait until the focused check is green.
+              </p>
+            </div>
+            <span className="rounded-full bg-white/70 px-3 py-1 text-xs font-semibold">
+              latest report: {formatDate(report.generatedAt)}
+            </span>
+          </div>
+
+          <div className="mt-4 space-y-3">
+            {failedChecks.map((check) => (
+              <AttentionItem
+                key={check.name}
+                title={check.name}
+                detail={`Exited ${check.exitCode} after ${formatDuration(check.durationMs)}.`}
+                command={nextCommandForCheck(check.name)}
+                output={cleanOutput(check.stderrTail) || cleanOutput(check.stdoutTail)}
+              />
+            ))}
+            {(report.strict?.failures ?? []).map((failure) => (
+              <AttentionItem
+                key={failure.code}
+                title={failure.code}
+                detail={failure.message}
+                command="npm run verify:model:quick:strict"
+              />
+            ))}
+            {report.warnings.map((warning) => (
+              <AttentionItem
+                key={`${warning.check ?? 'report'}-${warning.code}`}
+                title={warning.check ? `${warning.check}: ${warning.code}` : warning.code}
+                detail={warning.message}
+                command="npm run verify:model:quick:strict"
+              />
+            ))}
+          </div>
+        </section>
+      ) : null}
 
       {northStar ? (
         <section className="mt-5 rounded-2xl border border-stone-200 bg-white p-5">
@@ -609,5 +686,38 @@ function HealthMetric({
         {detail}
       </p>
     </div>
+  );
+}
+
+function AttentionItem({
+  title,
+  detail,
+  command,
+  output,
+}: {
+  title: string;
+  detail: string;
+  command: string;
+  output?: string;
+}) {
+  return (
+    <details className="rounded-xl border border-amber-200 bg-white/80 p-4">
+      <summary className="cursor-pointer list-none">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <p className="font-semibold text-stone-900">{title}</p>
+            <p className="mt-1 text-sm leading-6 text-stone-600">{detail}</p>
+          </div>
+          <code className="rounded-lg bg-stone-900 px-3 py-2 text-xs text-white">
+            {command}
+          </code>
+        </div>
+      </summary>
+      {output ? (
+        <pre className="mt-3 max-h-72 overflow-auto whitespace-pre-wrap rounded-lg bg-stone-950 p-3 text-xs leading-5 text-stone-100">
+          {output}
+        </pre>
+      ) : null}
+    </details>
   );
 }
