@@ -1122,9 +1122,10 @@ impl SimulationConstants {
             spending_parts(data);
         let optional_annual = annual_spend_target
             .filter(|target| target.is_finite() && *target >= 0.0)
-            .map(|target| {
-                (target - essential_annual - taxes_insurance_annual - travel_annual).max(0.0)
-            })
+            // The policy scalar is core operating spend:
+            // essential + optional + taxes/insurance. Travel is a separate
+            // explicit yearly overlay, so do not subtract it here.
+            .map(|target| (target - essential_annual - taxes_insurance_annual).max(0.0))
             .unwrap_or(raw_optional_annual);
         let annual_spending =
             essential_annual + optional_annual + taxes_insurance_annual + travel_annual;
@@ -4465,4 +4466,41 @@ fn handle_request_with_replay_tape<'a>(
         response["path"] = path;
     }
     Ok(response)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn annual_spend_target_is_core_spend_before_travel_overlay() {
+        let data = json!({
+            "household": {
+                "robBirthDate": "1967-01-01",
+                "debbieBirthDate": "1968-01-01"
+            },
+            "income": {
+                "salaryEndDate": "2027-07-01"
+            },
+            "spending": {
+                "essentialMonthly": 4795.0,
+                "optionalMonthly": 4795.0,
+                "annualTaxesInsurance": 11507.0,
+                "travelEarlyRetirementAnnual": 14000.0,
+                "travelFloorAnnual": 5000.0
+            }
+        });
+        let assumptions = json!({
+            "travelPhaseYears": 12,
+            "travelFlatYears": 5
+        });
+
+        let constants = SimulationConstants::from(&data, &assumptions, false, Some(95_000.0));
+
+        assert_eq!(constants.essential_annual, 57_540.0);
+        assert_eq!(constants.taxes_insurance_annual, 11_507.0);
+        assert_eq!(constants.travel_annual, 14_000.0);
+        assert_eq!(constants.optional_annual, 25_953.0);
+        assert_eq!(constants.annual_spending, 109_000.0);
+    }
 }
