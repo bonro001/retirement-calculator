@@ -679,14 +679,14 @@ function SpendBoundaryStrip({
             : '';
         const slotSubLabel =
           group.status === 'running'
-            ? group.hostDisplayNames[0] ?? 'assigning'
+            ? 'checking'
             : group.verdict === 'green'
               ? 'certified'
               : group.reasons[0]
                 ? certificationReasonLabel(group.reasons[0].code)
                 : group.verdict ?? '-';
         const valueLabel =
-          budgetAnnualSpend === null ? 'pending' : formatCurrency(displayAnnualSpend);
+          budgetAnnualSpend === null ? (group.status === 'running' ? 'checking' : 'test') : formatCurrency(displayAnnualSpend);
         const testLevelLabel = `test ${formatCurrency(lifestyleAnnualSpend)}`;
         return (
           <div key={group.key} className="flex min-w-[112px] flex-col gap-0.5">
@@ -700,8 +700,8 @@ function SpendBoundaryStrip({
               style={{ height: `${height}px` }}
               title={
                 budgetAnnualSpend === null
-                  ? `Total budget pending until certification trace completes · ${testLevelLabel}/yr${travelDetail} · ${group.candidateCount} candidate${group.candidateCount === 1 ? '' : 's'} · ${group.hostDisplayNames.join(', ') || 'unassigned'} · ${group.verdict ?? (group.status === 'running' ? 'certifying...' : '-')}${progressLabel}`
-                  : `${formatCurrency(displayAnnualSpend)}/yr next-year total budget · ${testLevelLabel}/yr${travelDetail} · ${group.candidateCount} candidate${group.candidateCount === 1 ? '' : 's'} · ${group.hostDisplayNames.join(', ') || 'unassigned'} · ${group.verdict ?? '-'}${progressLabel}`
+                  ? `Full budget trace pending · ${testLevelLabel}/yr${travelDetail} · ${group.candidateCount} check${group.candidateCount === 1 ? '' : 's'} · ${group.verdict ?? (group.status === 'running' ? 'certifying...' : '-')}${progressLabel}`
+                  : `${formatCurrency(displayAnnualSpend)}/yr next-year total budget · ${testLevelLabel}/yr${travelDetail} · ${group.candidateCount} check${group.candidateCount === 1 ? '' : 's'} · ${group.verdict ?? '-'}${progressLabel}`
               }
             >
               <div
@@ -1083,12 +1083,12 @@ function ValidationTradeoffMap({
         <div className="flex items-center justify-between gap-3">
           <p className="text-stone-500">
             {selectedSpend !== null
-              ? `${higherGroups.length} higher validation level${higherGroups.length === 1 ? '' : 's'} tested above ${formatCurrency(displaySelectedSpend)}/yr; total budget pending (${higherSlots.length} candidate${higherSlots.length === 1 ? '' : 's'})`
-              : `${displayGroups.length} non-green spend level${displayGroups.length === 1 ? '' : 's'} tested (${displaySlots.length} candidate${displaySlots.length === 1 ? '' : 's'})`}
+              ? `${higherGroups.length} higher validation level${higherGroups.length === 1 ? '' : 's'} tested above ${formatCurrency(displaySelectedSpend)}/yr; full budget trace pending`
+              : `${displayGroups.length} non-green spend level${displayGroups.length === 1 ? '' : 's'} tested (${displaySlots.length} check${displaySlots.length === 1 ? '' : 's'})`}
           </p>
           {selectedSpend !== null && (
             <span className="shrink-0 rounded-full bg-emerald-100 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-emerald-800 ring-1 ring-emerald-200">
-              selected test {formatCurrency(displaySelectedSpend)}
+              selected level {formatCurrency(displaySelectedSpend)}
             </span>
           )}
         </div>
@@ -1123,7 +1123,7 @@ function ValidationTradeoffMap({
                     }
                   >
                     <p className="text-[11px] font-semibold tabular-nums text-stone-900">
-                      pending
+                      test
                     </p>
                     <p className="mt-0.5 text-[8px] font-semibold uppercase tracking-[0.06em] text-stone-400">
                       test {formatCurrency(displayAnnualSpend)}
@@ -1139,7 +1139,7 @@ function ValidationTradeoffMap({
                     </p>
                     {group.candidateCount > 1 && (
                       <p className="mt-1 text-[9px] font-semibold tabular-nums text-stone-500">
-                        {group.candidateCount} candidates
+                        {group.candidateCount} checks
                       </p>
                     )}
                   </div>
@@ -1177,7 +1177,7 @@ function ValidationTradeoffMap({
                       )}
                       {group.candidateCount > 1 && (
                         <span className="rounded-full bg-stone-100 px-2 py-0.5 text-[10px] font-semibold tabular-nums text-stone-600">
-                          {group.candidateCount} candidates
+                          {group.candidateCount} checks
                         </span>
                       )}
                       {annualDelta !== null && annualDelta > 0 && (
@@ -1212,7 +1212,7 @@ function ValidationTradeoffMap({
           </div>
         ) : (
           <p className="rounded-lg border border-stone-200 bg-white px-3 py-2 text-[12px] text-stone-500">
-            Waiting for certified candidates above the selected spend.
+            Waiting for completed checks above the selected level.
           </p>
         )}
       </div>
@@ -1290,8 +1290,8 @@ function ValidationTradeoffMap({
       <div className="flex items-center justify-between gap-3">
         <p className="text-stone-500">
           {selectedSpend !== null
-            ? `${higherGroups.length} higher spend level${higherGroups.length === 1 ? '' : 's'} tested above ${formatCurrency(displaySelectedSpend)}/yr total budget (${higherCandidateCount} candidate${higherCandidateCount === 1 ? '' : 's'})`
-            : `${displayGroups.length} non-green spend level${displayGroups.length === 1 ? '' : 's'} tested (${displayCandidateCount} candidate${displayCandidateCount === 1 ? '' : 's'})`}
+            ? `${higherGroups.length} higher spend level${higherGroups.length === 1 ? '' : 's'} tested above ${formatCurrency(displaySelectedSpend)}/yr total budget (${higherCandidateCount} check${higherCandidateCount === 1 ? '' : 's'})`
+            : `${displayGroups.length} non-green spend level${displayGroups.length === 1 ? '' : 's'} tested (${displayCandidateCount} check${displayCandidateCount === 1 ? '' : 's'})`}
         </p>
         {selectedSpend !== null && (
           <span className="shrink-0 rounded-full bg-emerald-100 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-emerald-800 ring-1 ring-emerald-200">
@@ -1345,7 +1345,7 @@ function ValidationTradeoffMap({
               </p>
               {group.candidateCount > 1 && (
                 <p className="mt-1 text-[9px] font-semibold tabular-nums text-stone-500">
-                  {group.candidateCount} candidates
+                  {group.candidateCount} checks
                 </p>
               )}
             </div>
@@ -1407,7 +1407,7 @@ function ValidationTradeoffMap({
                       </span>
                       {group.candidateCount > 1 && (
                         <span className="rounded-full bg-stone-100 px-2 py-0.5 text-[10px] font-semibold tabular-nums text-stone-600">
-                          {group.candidateCount} candidates
+                          {group.candidateCount} checks
                         </span>
                       )}
                       {monthlyDelta !== null && monthlyDelta > 0 && (
@@ -1472,7 +1472,7 @@ function ValidationTradeoffMap({
         </div>
       ) : (
         <p className="rounded-lg border border-stone-200 bg-white px-3 py-2 text-[12px] text-stone-500">
-          No higher certified candidate failed above the selected spend.
+          No higher tested level failed above the selected spend.
         </p>
       )}
     </div>
@@ -1559,7 +1559,7 @@ function ClusterStatusRail({
                 Mining idle
               </p>
               <p className="mt-0.5 text-[11px] text-stone-500">
-                Certify can still use the worker hosts.
+                Validation can still run in the background.
               </p>
             </div>
           )}
@@ -1665,7 +1665,7 @@ function ClusterStatusRail({
       {assignedSlots.length > 0 && (
         <div className="rounded-lg border border-stone-200 bg-white p-3">
           <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-stone-400">
-            Assigned candidates
+            Active checks
           </p>
           <div className="mt-2 space-y-1.5">
             {assignedSlots.slice(0, 8).map((slot) => (
@@ -3078,15 +3078,18 @@ export function MonthlyReviewPanel({
         .map((slot) => `${formatCurrency(displayAnnualSpendForCandidate(slot.annualSpendTodayDollars))}/yr`)
         .join(', ')
       : null;
-  const runningCertMode =
-    runningCertSlots.some((slot) => slot.mode === 'node_host')
-      ? 'worker host'
-      : runningCertSlots.some((slot) => slot.mode === 'dry_run')
-        ? 'dry-run'
-        : null;
   const criticalTasks = run?.modelTasks.filter((t) => t.blocksApproval && t.status === 'open') ?? [];
   const isGreen = run?.recommendation.status === 'green';
   const aiVerdict = aiApproval?.verdict ?? null;
+  const answerReviewMeta = aiVerdictMeta(aiVerdict);
+  const answerWatchItems = reviewChecklistItems
+    .filter((item) => item.status === 'fail' || item.status === 'act_now' || item.status === 'watch')
+    .sort((a, b) => {
+      const rankDiff = reviewItemRank(a) - reviewItemRank(b);
+      if (rankDiff !== 0) return rankDiff;
+      return a.title.localeCompare(b.title);
+    })
+    .slice(0, 3);
   const aiReviewElapsedMs =
     aiReviewStartedAtRef.current === null
       ? 0
@@ -3235,12 +3238,12 @@ export function MonthlyReviewPanel({
           <div className="space-y-3">
             <p className="text-stone-500">
               {certDone < certTotal
-                ? `${certDone} of ${certTotal} candidates certified`
-                : `All ${certTotal} candidates certified — pick = highest green`}
+                ? `${certDone} of ${certTotal} spend checks complete`
+                : `All ${certTotal} spend checks complete — highest green is the pick`}
             </p>
             {runningCertSpendLine && runningCertElapsedMs !== null && (
               <p className="text-[11px] tabular-nums text-stone-600">
-                {runningCertMode ?? 'certification'} active · testing spend levels {runningCertSpendLine} · total budget pending · elapsed{' '}
+                Checking spend levels {runningCertSpendLine} · full budget trace pending · elapsed{' '}
                 {formatDuration(runningCertElapsedMs)}
               </p>
             )}
@@ -3252,7 +3255,7 @@ export function MonthlyReviewPanel({
             />
           </div>
         ) : reviewStage === 'certifying' ? (
-          <p className="text-stone-500">Starting Node-host certification…</p>
+          <p className="text-stone-500">Starting model validation...</p>
         ) : null}
       </StepCard>
 
@@ -3420,6 +3423,84 @@ export function MonthlyReviewPanel({
                   </button>
                 )}
               </div>
+            </div>
+
+            <div
+              className={`rounded-lg border p-3 ${
+                isGreen
+                  ? aiVerdict === 'watch'
+                    ? 'border-amber-200 bg-amber-50/70'
+                    : 'border-emerald-200 bg-emerald-50/70'
+                  : 'border-rose-200 bg-rose-50/70'
+              }`}
+            >
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                <div>
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-stone-600">
+                    Plain English
+                  </p>
+                  <p className="mt-1 text-sm font-semibold text-stone-950">
+                    {isGreen
+                      ? `Use ${formatMonthly(northStarMonthlySpend)} as the next-year monthly budget.`
+                      : 'Do not use this answer yet.'}
+                  </p>
+                  <p className="mt-1 text-[12px] leading-5 text-stone-700">
+                    This is spendable budget, not income. It includes lifestyle,
+                    health/other spending, and federal tax while preserving the{' '}
+                    {formatCurrency(legacyTargetTodayDollars)} care/legacy reserve.
+                  </p>
+                </div>
+                <span
+                  className={`w-fit shrink-0 rounded-full px-3 py-1 text-[11px] font-semibold ring-1 ${answerReviewMeta.badgeClass}`}
+                >
+                  {answerReviewMeta.label}
+                </span>
+              </div>
+
+              <div className="mt-3 grid gap-2 sm:grid-cols-3">
+                <div>
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-stone-500">
+                    Budget
+                  </p>
+                  <p className="mt-1 text-lg font-semibold tabular-nums text-stone-950">
+                    {formatMonthly(northStarMonthlySpend)}
+                  </p>
+                  <p className="text-[11px] tabular-nums text-stone-600">
+                    {formatCurrency(northStarAnnualSpend)}/yr in {northStarYearLabel}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-stone-500">
+                    Legacy
+                  </p>
+                  <p className="mt-1 text-lg font-semibold tabular-nums text-stone-950">
+                    {formatCurrency(legacyTargetTodayDollars)}
+                  </p>
+                  <p className="text-[11px] tabular-nums text-stone-600">
+                    median ending wealth {formatCurrency(selectedNorthStarBudget?.medianEndingWealth ?? null)}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-stone-500">
+                    Review
+                  </p>
+                  <p className="mt-1 text-lg font-semibold text-stone-950">
+                    {isGreen ? 'Model green' : 'Model needs work'}
+                  </p>
+                  <p className="text-[11px] text-stone-600">
+                    {answerReviewMeta.meaning}
+                  </p>
+                </div>
+              </div>
+
+              {answerWatchItems.length > 0 && (
+                <p className="mt-3 text-[12px] leading-5 text-stone-700">
+                  Watch first:{' '}
+                  <span className="font-semibold">
+                    {answerWatchItems.map((item) => item.title).join(' · ')}
+                  </span>
+                </p>
+              )}
             </div>
 
             <div className="rounded-lg border border-amber-200 bg-amber-50/70 p-3">
