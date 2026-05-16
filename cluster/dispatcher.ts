@@ -1551,6 +1551,15 @@ function handleCancelSession(peer: Peer, message: CancelSessionMessage): void {
   endSession('cancelled', message.reason ?? 'controller cancel');
 }
 
+function cancelActiveSessionFromServerJob(reason: string): void {
+  if (!activeSession) return;
+  log('info', 'session cancelled by server job', {
+    sessionId: activeSession.sessionId,
+    reason,
+  });
+  endSession('cancelled', reason);
+}
+
 /** Tear down the active session: write summary, clear in-flight, broadcast.
  *  Safe to call multiple times; only the first call has an effect. */
 function endSession(state: 'completed' | 'cancelled' | 'error', reason?: string): void {
@@ -2681,7 +2690,7 @@ async function completeMonthlyReviewAudit(input: {
   };
 }
 
-type MonthlyReviewJobStatus = 'running' | 'complete' | 'failed';
+type MonthlyReviewJobStatus = 'running' | 'complete' | 'failed' | 'cancelled';
 type ModelHealthJobStatus = 'running' | 'complete' | 'failed';
 
 interface MonthlyReviewServerJob {
@@ -2980,6 +2989,39 @@ async function handleMonthlyReviewJobHttp(
     sendJson(res, 200, { job: await monthlyReviewJobPayload(monthlyReviewJob) });
     return;
   }
+  if (req.method === 'DELETE') {
+    if (!monthlyReviewJob) {
+      sendJson(res, 200, { cancelled: false, job: null });
+      return;
+    }
+    if (monthlyReviewJob.status !== 'running') {
+      sendJson(res, 200, {
+        cancelled: false,
+        job: await monthlyReviewJobPayload(monthlyReviewJob),
+      });
+      return;
+    }
+
+    monthlyReviewJob.status = 'cancelled';
+    monthlyReviewJob.endedAtIso = new Date().toISOString();
+    monthlyReviewJob.error = 'cancelled by user';
+    appendMonthlyReviewJobLog(monthlyReviewJob, 'cancel requested by user');
+    cancelActiveSessionFromServerJob('monthly review cancelled by user');
+    const child = monthlyReviewJob.child;
+    if (child) {
+      child.kill('SIGTERM');
+      setTimeout(() => {
+        if (child.exitCode === null && child.signalCode === null) {
+          child.kill('SIGKILL');
+        }
+      }, 5_000).unref();
+    }
+    sendJson(res, 202, {
+      cancelled: true,
+      job: await monthlyReviewJobPayload(monthlyReviewJob),
+    });
+    return;
+  }
   if (req.method !== 'POST') {
     res.writeHead(405, { 'Content-Type': 'text/plain' });
     res.end('method not allowed');
@@ -3035,6 +3077,7 @@ async function handleMonthlyReviewJobHttp(
     child.stdout.on('data', (chunk) => appendMonthlyReviewJobLog(job, String(chunk)));
     child.stderr.on('data', (chunk) => appendMonthlyReviewJobLog(job, String(chunk)));
     child.on('error', (err) => {
+      if (job.status === 'cancelled') return;
       job.status = 'failed';
       job.endedAtIso = new Date().toISOString();
       job.error = err.message;
@@ -3042,11 +3085,13 @@ async function handleMonthlyReviewJobHttp(
       appendMonthlyReviewJobLog(job, `process error: ${err.message}`);
     });
     child.on('exit', (code, signal) => {
-      job.status = code === 0 ? 'complete' : 'failed';
+      if (job.status !== 'cancelled') {
+        job.status = code === 0 ? 'complete' : 'failed';
+      }
       job.endedAtIso = new Date().toISOString();
       job.exitCode = code;
       job.child = null;
-      if (code !== 0) {
+      if (job.status !== 'cancelled' && code !== 0) {
         job.error = `monthly-review-loop exited with code ${code ?? 'null'}${
           signal ? ` signal ${signal}` : ''
         }`;

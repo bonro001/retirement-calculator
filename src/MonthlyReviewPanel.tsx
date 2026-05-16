@@ -13,6 +13,7 @@ import {
   MONTHLY_REVIEW_SKIP_REAL_CERTIFICATION,
 } from './monthly-review-flow-debug';
 import {
+  cancelClusterMonthlyReviewJob,
   loadClusterModelHealthJob,
   loadClusterMonthlyReviewJob,
   startClusterModelHealthJob,
@@ -2459,6 +2460,9 @@ export function MonthlyReviewPanel({
     | { kind: 'complete'; run: MonthlyReviewRun }
     | { kind: 'failed'; reason: string }
   >(() => (restoredRun ? { kind: 'complete', run: restoredRun } : { kind: 'idle' }));
+  const [cancelRequested, setCancelRequested] = useState(false);
+  const cancelRequestedRef = useRef(false);
+  const ignoredServerJobIdRef = useRef<string | null>(null);
   const [modelHealthPreflight, setModelHealthPreflight] =
     useState<ModelHealthPreflightState>({ kind: 'idle' });
   const [reviewStage, setReviewStage] = useState<MonthlyReviewStage>(() =>
@@ -2658,6 +2662,9 @@ export function MonthlyReviewPanel({
       for (;;) {
         if (shouldStop?.()) return;
         const job = await loadClusterMonthlyReviewJob(dispatcherUrl);
+        if (job && job.id === ignoredServerJobIdRef.current) {
+          return;
+        }
         if (!job) {
           throw new Error('Monthly Review server job is no longer running. Start a fresh run.');
         }
@@ -2730,6 +2737,14 @@ export function MonthlyReviewPanel({
         if (job.status === 'failed') {
           throw new Error(job.error ?? 'Server-side Monthly Review failed.');
         }
+        if (job.status === 'cancelled') {
+          appendTransactionEvent('server job cancelled');
+          cancelRequestedRef.current = false;
+          setCancelRequested(false);
+          setStage('idle');
+          setRunState({ kind: 'idle' });
+          return;
+        }
         await waitMs(1_000);
       }
     } finally {
@@ -2791,6 +2806,9 @@ export function MonthlyReviewPanel({
       try {
         const job = await loadClusterMonthlyReviewJob(dispatcherUrl);
         if (cancelled) return;
+        if (job && job.id === ignoredServerJobIdRef.current) {
+          return;
+        }
         if (!job) {
           if (runState.kind === 'running') {
             failFromProbe('Monthly Review server job is no longer running. Start a fresh run.');
@@ -2822,6 +2840,16 @@ export function MonthlyReviewPanel({
         }
         if (job.status === 'failed') {
           failFromProbe(job.error ?? 'Server-side Monthly Review failed.');
+          return;
+        }
+        if (job.status === 'cancelled') {
+          if (runState.kind === 'running' || cancelRequestedRef.current) {
+            appendTransactionEvent('server job cancelled');
+          }
+          cancelRequestedRef.current = false;
+          setCancelRequested(false);
+          setStage('idle');
+          setRunState({ kind: 'idle' });
           return;
         }
         if (job.status !== 'running') return;
@@ -2888,6 +2916,9 @@ export function MonthlyReviewPanel({
     }
 
     for (;;) {
+      if (cancelRequestedRef.current) {
+        return;
+      }
       const latest = await loadClusterModelHealthJob(dispatcherUrl);
       setModelHealthPreflight({
         kind: 'running',
@@ -2923,6 +2954,57 @@ export function MonthlyReviewPanel({
     }
   }, [appendTransactionEvent, dispatcherUrl]);
 
+  const cancelRun = async () => {
+    if (!dispatcherUrl || runState.kind !== 'running' || cancelRequested) return;
+    cancelRequestedRef.current = true;
+    setCancelRequested(true);
+    setRunState({ kind: 'running', message: 'Cancelling Monthly Review...' });
+    appendTransactionEvent('cancel requested');
+    const activeSessionId = clusterRef.current.session?.sessionId ?? null;
+    if (activeSessionId) {
+      clusterRef.current.cancelSession('monthly review cancelled by user');
+    }
+    let serverJobId: string | null = null;
+    try {
+      serverJobId = (await loadClusterMonthlyReviewJob(dispatcherUrl))?.id ?? null;
+      await cancelClusterMonthlyReviewJob(dispatcherUrl);
+      setModelHealthPreflight({ kind: 'idle' });
+      setLiveMineProgress(null);
+      setMiningSnapshot(null);
+      setCertificationSlots([]);
+      setAiReviewProgress(initialAiReviewProgress());
+      setLastValidationPacket(null);
+      setLastAiResponse(null);
+      aiReviewStartedAtRef.current = null;
+      setStage('idle');
+      setRunState({ kind: 'idle' });
+      appendTransactionEvent('run cancelled');
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      if (activeSessionId && reason.includes('405')) {
+        ignoredServerJobIdRef.current = serverJobId;
+        setModelHealthPreflight({ kind: 'idle' });
+        setLiveMineProgress(null);
+        setMiningSnapshot(null);
+        setCertificationSlots([]);
+        setAiReviewProgress(initialAiReviewProgress());
+        setLastValidationPacket(null);
+        setLastAiResponse(null);
+        aiReviewStartedAtRef.current = null;
+        setStage('idle');
+        setRunState({ kind: 'idle' });
+        appendTransactionEvent('run cancelled; dispatcher restart needed for server-job cleanup');
+        return;
+      }
+      appendTransactionEvent(`cancel failed: ${reason}`);
+      setRunState({ kind: 'failed', reason });
+      setFailedStep(failedStepForStage(reviewStageRef.current));
+      setStage('failed');
+    } finally {
+      setCancelRequested(false);
+    }
+  };
+
   const start = async () => {
     if (!baselineFingerprint) return;
     const hasPreviousRunEvidence =
@@ -2934,6 +3016,9 @@ export function MonthlyReviewPanel({
       transactionEventsRef.current.length > 0;
     setBrowserHostMode('off');
     setFailedStep(null);
+    cancelRequestedRef.current = false;
+    ignoredServerJobIdRef.current = null;
+    setCancelRequested(false);
     setCleanupStepVisible(hasPreviousRunEvidence);
     if (hasPreviousRunEvidence) {
       setStage('cleanup');
@@ -2962,11 +3047,17 @@ export function MonthlyReviewPanel({
       setStage('connecting');
       setRunState({ kind: 'running', message: 'Checking Model Health before mining...' });
       await ensureFreshModelHealth();
+      if (cancelRequestedRef.current) {
+        return;
+      }
       if (!clusterRef.current.session) {
         clusterRef.current.reconnect();
       }
       appendTransactionEvent('review started');
       setRunState({ kind: 'running', message: 'Starting server-side Monthly Review...' });
+      if (cancelRequestedRef.current) {
+        return;
+      }
       await runServerOwnedReview();
     } catch (serverError) {
       const failedAt = failedStepForStage(reviewStageRef.current);
@@ -3154,14 +3245,25 @@ export function MonthlyReviewPanel({
             Maximize next-year spending, favor early travel, protect a {formatCurrency(legacyTargetTodayDollars)} care/legacy reserve.
           </p>
         </div>
-        <button
-          type="button"
-          disabled={!canRun || isRunning}
-          onClick={() => void start()}
-          className="shrink-0 rounded-full bg-blue-700 px-5 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-800 disabled:cursor-not-allowed disabled:bg-stone-300"
-        >
-          {isRunning ? 'Running…' : run ? 'Re-run' : 'Run monthly review'}
-        </button>
+        {isRunning ? (
+          <button
+            type="button"
+            disabled={cancelRequested}
+            onClick={() => void cancelRun()}
+            className="shrink-0 rounded-full bg-rose-700 px-5 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-rose-800 disabled:cursor-not-allowed disabled:bg-stone-300"
+          >
+            {cancelRequested ? 'Cancelling…' : 'Cancel run'}
+          </button>
+        ) : (
+          <button
+            type="button"
+            disabled={!canRun}
+            onClick={() => void start()}
+            className="shrink-0 rounded-full bg-blue-700 px-5 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-800 disabled:cursor-not-allowed disabled:bg-stone-300"
+          >
+            {run ? 'Re-run' : 'Run monthly review'}
+          </button>
+        )}
       </div>
 
       {modelHealthPreflight.kind !== 'idle' && (

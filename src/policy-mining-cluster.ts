@@ -365,7 +365,7 @@ export async function saveClusterMonthlyReviewAudit(
 
 export interface ClusterMonthlyReviewJob {
   id: string;
-  status: 'running' | 'complete' | 'failed';
+  status: 'running' | 'complete' | 'failed' | 'cancelled';
   startedAtIso: string;
   endedAtIso: string | null;
   artifactDir: string;
@@ -477,4 +477,41 @@ export async function loadClusterMonthlyReviewJob(
     '/monthly-review-job',
   );
   return body.job;
+}
+
+export async function cancelClusterMonthlyReviewJob(
+  dispatcherUrl: string,
+): Promise<ClusterMonthlyReviewJob | null> {
+  const origin = clusterUrlToHttp(dispatcherUrl);
+  const path = '/monthly-review-job';
+  const url = `${origin}${path}`;
+  let res: Response;
+  try {
+    res = await fetch(url, { method: 'DELETE', credentials: 'omit' });
+  } catch (err) {
+    throw new ClusterFetchError(
+      `cannot reach dispatcher at ${origin} — is it running?`,
+      'unreachable',
+      { cause: err },
+    );
+  }
+  if (res.status === 404) {
+    throw new ClusterFetchError(`not found: ${path}`, 'not_found');
+  }
+  if (!res.ok) {
+    throw new ClusterFetchError(
+      `dispatcher returned ${res.status} for ${path}`,
+      'http_error',
+    );
+  }
+  try {
+    const body = (await res.json()) as { job: ClusterMonthlyReviewJob | null };
+    return body.job;
+  } catch (err) {
+    throw new ClusterFetchError(
+      `dispatcher returned non-JSON body for ${path}`,
+      'bad_payload',
+      { cause: err },
+    );
+  }
 }
