@@ -3189,12 +3189,7 @@ export function MonthlyReviewPanel({
         ),
       )
       : null;
-  const runningCertSpendLine =
-    runningCertSlots.length > 0
-      ? runningCertSlots
-        .map((slot) => `${formatCurrency(slot.annualSpendTodayDollars)}/yr`)
-        .join(', ')
-      : null;
+  const runningCertCount = runningCertSlots.length;
   const criticalTasks = run?.modelTasks.filter((t) => t.blocksApproval && t.status === 'open') ?? [];
   const isGreen = run?.recommendation.status === 'green';
   const aiVerdict = aiApproval?.verdict ?? null;
@@ -3383,9 +3378,9 @@ export function MonthlyReviewPanel({
                 ? `${certDone} of ${certTotal} spend checks complete`
                 : `All ${certTotal} spend checks complete — highest green is the pick`}
             </p>
-            {runningCertSpendLine && runningCertElapsedMs !== null && (
+            {runningCertCount > 0 && runningCertElapsedMs !== null && (
               <p className="text-[11px] tabular-nums text-stone-600">
-                Checking spend levels {runningCertSpendLine} · full budget trace pending · elapsed{' '}
+                {runningCertCount} check{runningCertCount === 1 ? '' : 's'} running · full budget trace pending · elapsed{' '}
                 {formatDuration(runningCertElapsedMs)}
               </p>
             )}
