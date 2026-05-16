@@ -67,8 +67,30 @@ interface ExternalBenchmark {
   kind: string;
   modelName: string;
   modelCompleteness: 'faithful' | 'reconstructed';
+  comparisonMode?:
+    | 'source_native_replay'
+    | 'generic_local_fixture'
+    | 'faithful_tax_snapshot';
   externalSuccessRate?: number;
+  localSuccessRate?: number;
+  localLabel?: string;
+  localCohortCount?: number;
   expectedLocalSuccessRate?: number;
+  genericLocal?: {
+    successRate: number;
+    cohortCount: number;
+    successfulCohorts: number;
+    failedCohorts: number;
+    label: string;
+  };
+  sourceNative?: {
+    successRate: number;
+    cohortCount?: number;
+    successfulCohorts?: number;
+    failedCohorts?: number;
+    label: string;
+    evidence: string;
+  } | null;
   successRateTolerance?: number;
   toleranceDollars?: number;
 }
@@ -248,6 +270,28 @@ function nextCommandForCheck(checkName: string): string {
 function cleanOutput(value: string | undefined): string {
   if (!value?.trim()) return '';
   return value.trim().slice(-2400);
+}
+
+function externalAnchorText(benchmark: ExternalBenchmark): string {
+  if (typeof benchmark.externalSuccessRate === 'number') {
+    return `${formatPercent(benchmark.localSuccessRate)} ${benchmark.localLabel ?? 'local'} vs ${formatPercent(
+      benchmark.externalSuccessRate,
+    )} external`;
+  }
+  return `tax tolerance ${formatCurrency(benchmark.toleranceDollars ?? 0)}`;
+}
+
+function externalAnchorDetail(benchmark: ExternalBenchmark): string {
+  if (benchmark.comparisonMode === 'source_native_replay') {
+    const generic = benchmark.genericLocal;
+    return generic
+      ? `generic local fixture: ${formatPercent(generic.successRate)}`
+      : 'source-native replay';
+  }
+  if (benchmark.comparisonMode === 'generic_local_fixture') {
+    return 'source data unavailable; using generic local fixture';
+  }
+  return 'faithful external tax snapshot';
 }
 
 export function ModelHealthScreen() {
@@ -606,17 +650,15 @@ export function ModelHealthScreen() {
             {report.externalBenchmarks.map((benchmark) => (
               <div
                 key={benchmark.id}
-                className="grid gap-2 rounded-xl bg-stone-50 p-3 text-sm text-stone-700 sm:grid-cols-[1fr_auto_auto]"
+                className="grid gap-2 rounded-xl bg-stone-50 p-3 text-sm text-stone-700 sm:grid-cols-[1fr_auto]"
               >
-                <span className="font-medium text-stone-900">{benchmark.modelName}</span>
-                <span>{benchmark.modelCompleteness}</span>
-                <span className="tabular-nums">
-                  {typeof benchmark.externalSuccessRate === 'number'
-                    ? `${formatPercent(benchmark.expectedLocalSuccessRate)} local vs ${formatPercent(
-                        benchmark.externalSuccessRate,
-                      )} external`
-                    : `tolerance ${formatCurrency(benchmark.toleranceDollars ?? 0)}`}
-                </span>
+                <div>
+                  <p className="font-medium text-stone-900">{benchmark.modelName}</p>
+                  <p className="mt-1 text-xs text-stone-500">
+                    {benchmark.modelCompleteness} · {externalAnchorDetail(benchmark)}
+                  </p>
+                </div>
+                <span className="tabular-nums">{externalAnchorText(benchmark)}</span>
               </div>
             ))}
           </div>

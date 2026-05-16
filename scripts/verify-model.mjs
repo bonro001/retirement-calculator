@@ -185,15 +185,55 @@ function summarizeCompleteness() {
 
 function summarizeExternalBenchmarks() {
   const corpus = readJson('fixtures/external_model_benchmarks.json');
+  const cfiresim = readJson(
+    'fixtures/cfiresim_400k_20k_30yr_60_40_export.json',
+  );
   return (corpus.benchmarks ?? []).map((benchmark) => {
     if (benchmark.kind === 'historical_rolling_window_survival') {
+      const genericLocal = {
+        successRate: benchmark.expectedLocal.successRate,
+        cohortCount: benchmark.expectedLocal.cohortCount,
+        successfulCohorts: benchmark.expectedLocal.successfulCohorts,
+        failedCohorts: benchmark.expectedLocal.failedCohorts,
+        label: 'generic 1926+ local fixture',
+      };
+      const sourceNative =
+        benchmark.id === 'ficalc_live_400k_20k_30yr_60_40'
+          ? {
+              successRate: benchmark.externalObservation.successRate,
+              cohortCount: benchmark.externalObservation.cohortCount,
+              successfulCohorts:
+                benchmark.externalObservation.successfulCohorts,
+              failedCohorts: benchmark.externalObservation.failedCohorts,
+              label: 'FI Calc source replay',
+              evidence: 'src/ficalc-source-parity.test.ts',
+            }
+          : benchmark.id === 'cfiresim_live_400k_20k_30yr_60_40'
+            ? {
+                successRate: cfiresim.externalSummary.successRate,
+                cohortCount: cfiresim.externalSummary.cohortCount,
+                successfulCohorts: cfiresim.externalSummary.successfulCohorts,
+                failedCohorts: cfiresim.externalSummary.failedCohorts,
+                label: 'cFIREsim export replay',
+                evidence: 'src/cfiresim-export-parity.test.ts',
+              }
+            : null;
       return {
         id: benchmark.id,
         kind: benchmark.kind,
         modelName: benchmark.source.modelName,
         modelCompleteness: benchmark.modelCompleteness,
+        comparisonMode: sourceNative
+          ? 'source_native_replay'
+          : 'generic_local_fixture',
         externalSuccessRate: benchmark.externalObservation.successRate,
-        expectedLocalSuccessRate: benchmark.expectedLocal.successRate,
+        localSuccessRate: sourceNative?.successRate ?? genericLocal.successRate,
+        localLabel: sourceNative?.label ?? genericLocal.label,
+        localCohortCount:
+          sourceNative?.cohortCount ?? genericLocal.cohortCount,
+        genericLocal,
+        sourceNative,
+        expectedLocalSuccessRate: genericLocal.successRate,
         successRateTolerance: benchmark.tolerance.successRateAbs,
       };
     }
@@ -202,6 +242,7 @@ function summarizeExternalBenchmarks() {
       kind: benchmark.kind,
       modelName: benchmark.source.modelName,
       modelCompleteness: benchmark.modelCompleteness,
+      comparisonMode: 'faithful_tax_snapshot',
       toleranceDollars: benchmark.tolerance.dollarsAbs,
     };
   });
