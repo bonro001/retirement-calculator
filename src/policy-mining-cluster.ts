@@ -403,6 +403,55 @@ export interface ClusterMonthlyReviewCertificationAttempt {
   error?: string | null;
 }
 
+export interface ClusterModelHealthReport {
+  mode?: 'quick' | 'full';
+  generatedAt?: string;
+  durationMs?: number;
+  status?: 'passed' | 'failed';
+  strict?: {
+    enabled?: boolean;
+    failures?: Array<{ code: string; message: string }>;
+  };
+  warnings?: Array<{ code: string; message: string; check?: string }>;
+}
+
+export interface ClusterModelHealthJob {
+  id: string;
+  status: 'running' | 'complete' | 'failed';
+  startedAtIso: string;
+  endedAtIso: string | null;
+  exitCode: number | null;
+  error: string | null;
+  logTail: string[];
+}
+
+export interface ClusterModelHealthJobPayload {
+  job: ClusterModelHealthJob | null;
+  report: ClusterModelHealthReport | null;
+  skipped?: boolean;
+  reason?: string;
+}
+
+export async function startClusterModelHealthJob(
+  dispatcherUrl: string,
+  input: { maxAgeHours?: number } = {},
+): Promise<ClusterModelHealthJobPayload> {
+  return postJson<ClusterModelHealthJobPayload>(
+    dispatcherUrl,
+    '/model-health-job',
+    input,
+  );
+}
+
+export async function loadClusterModelHealthJob(
+  dispatcherUrl: string,
+): Promise<ClusterModelHealthJobPayload> {
+  return fetchJson<ClusterModelHealthJobPayload>(
+    dispatcherUrl,
+    '/model-health-job',
+  );
+}
+
 export async function startClusterMonthlyReviewJob(
   dispatcherUrl: string,
   input: {

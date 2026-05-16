@@ -2682,6 +2682,7 @@ async function completeMonthlyReviewAudit(input: {
 }
 
 type MonthlyReviewJobStatus = 'running' | 'complete' | 'failed';
+type ModelHealthJobStatus = 'running' | 'complete' | 'failed';
 
 interface MonthlyReviewServerJob {
   id: string;
@@ -2727,7 +2728,33 @@ const MONTHLY_REVIEW_JOB_ROOT =
 
 let monthlyReviewJob: MonthlyReviewServerJob | null = null;
 
+interface ModelHealthServerJob {
+  id: string;
+  status: ModelHealthJobStatus;
+  startedAtIso: string;
+  endedAtIso: string | null;
+  child: ChildProcessWithoutNullStreams | null;
+  exitCode: number | null;
+  error: string | null;
+  logTail: string[];
+}
+
+const MODEL_HEALTH_REPORT_PATH = resolve(
+  'public/local/model-verification-quick-report.json',
+);
+const MODEL_HEALTH_DEFAULT_MAX_AGE_HOURS = 72;
+let modelHealthJob: ModelHealthServerJob | null = null;
+
 function appendMonthlyReviewJobLog(job: MonthlyReviewServerJob, text: string): void {
+  const lines = text
+    .split(/\r?\n/)
+    .map((line) => line.trimEnd())
+    .filter((line) => line.length > 0);
+  if (lines.length === 0) return;
+  job.logTail = [...job.logTail, ...lines].slice(-80);
+}
+
+function appendModelHealthJobLog(job: ModelHealthServerJob, text: string): void {
   const lines = text
     .split(/\r?\n/)
     .map((line) => line.trimEnd())
@@ -2741,6 +2768,135 @@ async function readJsonFileIfExists<T>(path: string): Promise<T | null> {
     return JSON.parse(await readFile(path, 'utf8')) as T;
   } catch {
     return null;
+  }
+}
+
+async function readModelHealthReport(): Promise<Record<string, unknown> | null> {
+  return readJsonFileIfExists<Record<string, unknown>>(MODEL_HEALTH_REPORT_PATH);
+}
+
+function modelHealthReportFresh(
+  report: Record<string, unknown> | null,
+  maxAgeHours: number,
+): boolean {
+  if (!report) return false;
+  if (report.status !== 'passed') return false;
+  const generatedAt =
+    typeof report.generatedAt === 'string' ? Date.parse(report.generatedAt) : NaN;
+  if (!Number.isFinite(generatedAt)) return false;
+  return Date.now() - generatedAt <= maxAgeHours * 60 * 60 * 1_000;
+}
+
+async function modelHealthJobPayload(job: ModelHealthServerJob | null) {
+  return {
+    job: job
+      ? {
+          id: job.id,
+          status: job.status,
+          startedAtIso: job.startedAtIso,
+          endedAtIso: job.endedAtIso,
+          exitCode: job.exitCode,
+          error: job.error,
+          logTail: job.logTail,
+        }
+      : null,
+    report: await readModelHealthReport(),
+  };
+}
+
+function parseModelHealthJobRequest(body: unknown): {
+  maxAgeHours: number;
+} {
+  const record =
+    body && typeof body === 'object' && !Array.isArray(body)
+      ? (body as Record<string, unknown>)
+      : {};
+  const rawMaxAgeHours = record.maxAgeHours;
+  const maxAgeHours =
+    typeof rawMaxAgeHours === 'number' && Number.isFinite(rawMaxAgeHours)
+      ? Math.max(1, Math.floor(rawMaxAgeHours))
+      : MODEL_HEALTH_DEFAULT_MAX_AGE_HOURS;
+  return { maxAgeHours };
+}
+
+async function handleModelHealthJobHttp(
+  req: IncomingMessage,
+  res: import('node:http').ServerResponse,
+): Promise<void> {
+  if (req.method === 'GET') {
+    sendJson(res, 200, await modelHealthJobPayload(modelHealthJob));
+    return;
+  }
+  if (req.method !== 'POST') {
+    res.writeHead(405, { 'Content-Type': 'text/plain' });
+    res.end('method not allowed');
+    return;
+  }
+  try {
+    const body = await readJsonBody(req);
+    const opts = parseModelHealthJobRequest(body);
+    const report = await readModelHealthReport();
+    if (modelHealthReportFresh(report, opts.maxAgeHours)) {
+      sendJson(res, 200, {
+        ...(await modelHealthJobPayload(null)),
+        skipped: true,
+        reason: 'fresh_passed_report',
+      });
+      return;
+    }
+    if (modelHealthJob?.status === 'running') {
+      sendJson(res, 202, await modelHealthJobPayload(modelHealthJob));
+      return;
+    }
+
+    const startedAtIso = new Date().toISOString();
+    const id = timestampForAuditPath(new Date());
+    const child = spawn(process.execPath, [
+      'scripts/verify-model.mjs',
+      '--quick',
+      '--strict',
+    ], {
+      cwd: process.cwd(),
+      env: process.env,
+    });
+    const job: ModelHealthServerJob = {
+      id,
+      status: 'running',
+      startedAtIso,
+      endedAtIso: null,
+      child,
+      exitCode: null,
+      error: null,
+      logTail: [],
+    };
+    modelHealthJob = job;
+    child.stdout.on('data', (chunk) => appendModelHealthJobLog(job, String(chunk)));
+    child.stderr.on('data', (chunk) => appendModelHealthJobLog(job, String(chunk)));
+    child.on('error', (err) => {
+      job.status = 'failed';
+      job.endedAtIso = new Date().toISOString();
+      job.error = err.message;
+      job.child = null;
+      appendModelHealthJobLog(job, `process error: ${err.message}`);
+    });
+    child.on('exit', (code, signal) => {
+      job.status = code === 0 ? 'complete' : 'failed';
+      job.endedAtIso = new Date().toISOString();
+      job.exitCode = code;
+      job.child = null;
+      if (code !== 0) {
+        job.error = `verify:model:quick:strict exited with code ${code ?? 'null'}${
+          signal ? ` signal ${signal}` : ''
+        }`;
+      }
+      appendModelHealthJobLog(job, `process exited: code=${code ?? 'null'} signal=${signal ?? 'none'}`);
+    });
+    log('info', 'model health job started', { id });
+    sendJson(res, 202, await modelHealthJobPayload(job));
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    log('warn', 'POST /model-health-job failed', { err: message });
+    sendJson(res, 500, { error: 'model health job failed to start', detail: message });
   }
 }
 
@@ -3152,6 +3308,11 @@ function startDispatcher(port: number, host?: string): void {
     }
 
     const url = req.url ?? '/';
+
+    if (url === '/model-health-job') {
+      void handleModelHealthJobHttp(req, res);
+      return;
+    }
 
     if (url === '/monthly-review-job') {
       void handleMonthlyReviewJobHttp(req, res, port);

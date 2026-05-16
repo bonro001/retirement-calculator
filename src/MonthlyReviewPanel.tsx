@@ -13,8 +13,11 @@ import {
   MONTHLY_REVIEW_SKIP_REAL_CERTIFICATION,
 } from './monthly-review-flow-debug';
 import {
+  loadClusterModelHealthJob,
   loadClusterMonthlyReviewJob,
+  startClusterModelHealthJob,
   startClusterMonthlyReviewJob,
+  type ClusterModelHealthJobPayload,
   type ClusterMonthlyReviewJob,
 } from './policy-mining-cluster';
 import { setBrowserHostMode } from './cluster-client';
@@ -42,6 +45,10 @@ type MonthlyReviewStage =
 
 type StepStatus = 'waiting' | 'active' | 'done' | 'failed';
 type FailedReviewStep = 'mine' | 'certify' | 'ai' | null;
+type ModelHealthPreflightState =
+  | { kind: 'idle' }
+  | { kind: 'running'; message: string }
+  | { kind: 'failed'; reason: string; command: string };
 type AiReviewProgressStatus = 'waiting' | 'active' | 'done' | 'failed';
 type AiReviewProgressStepId =
   | 'packet_prepared'
@@ -111,6 +118,7 @@ const LAST_AI_RESPONSE_KEY = `${MONTHLY_REVIEW_STORAGE_PREFIX}:last-ai-response`
 const LAST_RUN_KEY = `${MONTHLY_REVIEW_STORAGE_PREFIX}:last-run`;
 const LAST_MINING_SNAPSHOT_KEY = `${MONTHLY_REVIEW_STORAGE_PREFIX}:last-mining-snapshot`;
 const LAST_TRANSACTION_EVENTS_KEY = `${MONTHLY_REVIEW_STORAGE_PREFIX}:last-transaction-events`;
+const MODEL_HEALTH_MAX_AGE_HOURS = 72;
 let legacyMonthlyReviewStorageCleared = false;
 
 function initialAiReviewProgress(): AiReviewProgressStep[] {
@@ -213,6 +221,25 @@ function formatShortTime(value: number | string | null | undefined): string {
 
 function waitMs(ms: number): Promise<void> {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
+function modelHealthReportNeedsRefresh(
+  payload: ClusterModelHealthJobPayload | null,
+): boolean {
+  const report = payload?.report ?? null;
+  if (!report) return true;
+  if (report.status !== 'passed') return true;
+  const generatedAt = report.generatedAt ? Date.parse(report.generatedAt) : NaN;
+  if (!Number.isFinite(generatedAt)) return true;
+  return Date.now() - generatedAt > MODEL_HEALTH_MAX_AGE_HOURS * 60 * 60 * 1_000;
+}
+
+function modelHealthPuckMessage(payload: ClusterModelHealthJobPayload | null): string {
+  const jobLine = payload?.job?.logTail.at(-1);
+  if (jobLine) return jobLine;
+  const report = payload?.report;
+  if (report?.status === 'failed') return 'Latest Model Health report failed; rerunning before mining.';
+  return 'Validating Model Health before mining.';
 }
 
 function parseYearFromIso(value: string | null | undefined): number | null {
@@ -549,6 +576,47 @@ function SpendingComparisonStat({
       <p className="mt-0.5 text-[11px] leading-4 text-stone-500">
         {detail}
       </p>
+    </div>
+  );
+}
+
+function ModelHealthPreflightPuck({
+  state,
+}: {
+  state: Exclude<ModelHealthPreflightState, { kind: 'idle' }>;
+}): JSX.Element {
+  const failed = state.kind === 'failed';
+  return (
+    <div
+      className={`rounded-full border px-3 py-2 text-[12px] shadow-sm ${
+        failed
+          ? 'border-rose-200 bg-rose-50 text-rose-900'
+          : 'border-blue-200 bg-blue-50 text-blue-900'
+      }`}
+    >
+      <div className="flex flex-wrap items-center gap-2">
+        <span
+          className={`h-2 w-2 rounded-full ${
+            failed ? 'bg-rose-500' : 'animate-pulse bg-blue-500'
+          }`}
+        />
+        <span className="font-semibold">
+          {failed ? 'Model validation needs attention' : 'Validating model before mining'}
+        </span>
+        <span className="min-w-0 flex-1 truncate text-stone-600">
+          {failed ? state.reason : state.message}
+        </span>
+        {failed && (
+          <code className="rounded-full bg-white/80 px-2 py-1 text-[11px] text-rose-900">
+            {state.command}
+          </code>
+        )}
+      </div>
+      {!failed && (
+        <div className="mt-2 h-1 overflow-hidden rounded-full bg-white">
+          <div className="h-full w-1/2 animate-pulse rounded-full bg-blue-500" />
+        </div>
+      )}
     </div>
   );
 }
@@ -2205,6 +2273,8 @@ export function MonthlyReviewPanel({
     | { kind: 'complete'; run: MonthlyReviewRun }
     | { kind: 'failed'; reason: string }
   >(() => (restoredRun ? { kind: 'complete', run: restoredRun } : { kind: 'idle' }));
+  const [modelHealthPreflight, setModelHealthPreflight] =
+    useState<ModelHealthPreflightState>({ kind: 'idle' });
   const [reviewStage, setReviewStage] = useState<MonthlyReviewStage>(() =>
     restoredRun ? 'complete' : 'idle',
   );
@@ -2602,12 +2672,72 @@ export function MonthlyReviewPanel({
     watchServerOwnedReviewJob,
   ]);
 
+  const ensureFreshModelHealth = useCallback(async () => {
+    if (!dispatcherUrl) {
+      throw new Error('Model Health preflight needs the dispatcher.');
+    }
+    const existing = await loadClusterModelHealthJob(dispatcherUrl);
+    if (!modelHealthReportNeedsRefresh(existing) && existing.job?.status !== 'running') {
+      setModelHealthPreflight({ kind: 'idle' });
+      return;
+    }
+
+    setModelHealthPreflight({
+      kind: 'running',
+      message: modelHealthPuckMessage(existing),
+    });
+    appendTransactionEvent('model health preflight started');
+    const started =
+      existing.job?.status === 'running'
+        ? existing
+        : await startClusterModelHealthJob(dispatcherUrl, {
+            maxAgeHours: MODEL_HEALTH_MAX_AGE_HOURS,
+          });
+    if (started.skipped || !modelHealthReportNeedsRefresh(started)) {
+      setModelHealthPreflight({ kind: 'idle' });
+      appendTransactionEvent('model health preflight skipped: fresh passed report');
+      return;
+    }
+
+    for (;;) {
+      const latest = await loadClusterModelHealthJob(dispatcherUrl);
+      setModelHealthPreflight({
+        kind: 'running',
+        message: modelHealthPuckMessage(latest),
+      });
+      if (latest.job?.status === 'complete') {
+        if (latest.report?.status === 'passed') {
+          setModelHealthPreflight({ kind: 'idle' });
+          appendTransactionEvent('model health preflight passed');
+          return;
+        }
+        const reason = 'Model Health completed but did not produce a passing report.';
+        setModelHealthPreflight({
+          kind: 'failed',
+          reason,
+          command: 'npm run verify:model:quick:strict',
+        });
+        throw new Error(reason);
+      }
+      if (latest.job?.status === 'failed') {
+        const reason =
+          latest.job.error ??
+          latest.report?.strict?.failures?.[0]?.message ??
+          'Model Health preflight failed.';
+        setModelHealthPreflight({
+          kind: 'failed',
+          reason,
+          command: 'npm run verify:model:quick:strict',
+        });
+        throw new Error(reason);
+      }
+      await waitMs(1_000);
+    }
+  }, [appendTransactionEvent, dispatcherUrl]);
+
   const start = async () => {
     if (!baselineFingerprint) return;
     setBrowserHostMode('off');
-    if (!clusterRef.current.session) {
-      clusterRef.current.reconnect();
-    }
     setFailedStep(null);
     setMiningSnapshot(null);
     setMinePanelCollapsed(false);
@@ -2625,10 +2755,15 @@ export function MonthlyReviewPanel({
     nextTransactionEventIdRef.current = 1;
     transactionEventsRef.current = [];
     setTransactionEvents([]);
-    appendTransactionEvent('review started');
     setStage('connecting');
-    setRunState({ kind: 'running', message: 'Starting server-side Monthly Review...' });
+    setRunState({ kind: 'running', message: 'Checking Model Health before mining...' });
     try {
+      await ensureFreshModelHealth();
+      if (!clusterRef.current.session) {
+        clusterRef.current.reconnect();
+      }
+      appendTransactionEvent('review started');
+      setRunState({ kind: 'running', message: 'Starting server-side Monthly Review...' });
       await runServerOwnedReview();
     } catch (serverError) {
       const failedAt = failedStepForStage(reviewStageRef.current);
@@ -2822,6 +2957,10 @@ export function MonthlyReviewPanel({
           {isRunning ? 'Running…' : run ? 'Re-run' : 'Run monthly review'}
         </button>
       </div>
+
+      {modelHealthPreflight.kind !== 'idle' && (
+        <ModelHealthPreflightPuck state={modelHealthPreflight} />
+      )}
 
       {MONTHLY_REVIEW_SKIP_REAL_CERTIFICATION && (
         <p className="rounded-lg bg-amber-50 px-3 py-2 text-[12px] text-amber-900">
