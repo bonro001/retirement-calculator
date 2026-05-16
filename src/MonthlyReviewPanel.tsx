@@ -686,14 +686,18 @@ function SpendBoundaryStrip({
             : '';
         const slotSubLabel =
           group.status === 'running'
-            ? 'checking'
+            ? null
             : group.verdict === 'green'
               ? 'certified'
               : group.reasons[0]
                 ? certificationReasonLabel(group.reasons[0].code)
                 : group.verdict ?? '-';
         const valueLabel =
-          budgetAnnualSpend === null ? (group.status === 'running' ? 'checking' : 'test') : formatCurrency(displayAnnualSpend);
+          budgetAnnualSpend === null
+            ? group.status === 'running'
+              ? formatCurrency(lifestyleAnnualSpend)
+              : 'test'
+            : formatCurrency(displayAnnualSpend);
         const testLevelLabel = `test ${formatCurrency(lifestyleAnnualSpend)}`;
         return (
           <div key={group.key} className="flex min-w-[112px] flex-col gap-0.5">
@@ -721,7 +725,13 @@ function SpendBoundaryStrip({
                 <div className="absolute inset-0 animate-pulse bg-blue-100" />
               )}
               <div className="relative flex h-full items-center justify-between px-2 text-[10px] font-semibold tabular-nums text-stone-800">
-                <span className={budgetAnnualSpend === null ? 'uppercase tracking-[0.08em]' : ''}>
+                <span
+                  className={
+                    budgetAnnualSpend === null && group.status !== 'running'
+                      ? 'uppercase tracking-[0.08em]'
+                      : ''
+                  }
+                >
                   {valueLabel}
                 </span>
                 <span className="text-stone-600">
@@ -738,19 +748,21 @@ function SpendBoundaryStrip({
             >
               {testLevelLabel}
             </span>
-            <span
-              className={`truncate text-[8px] font-semibold uppercase ${
-                group.verdict === 'green'
-                  ? 'text-emerald-600'
-                  : group.verdict === 'yellow'
-                    ? 'text-amber-600'
-                    : group.verdict === 'red'
-                      ? 'text-rose-600'
-                      : 'text-stone-400'
-              }`}
-            >
-              {slotSubLabel}
-            </span>
+            {slotSubLabel && (
+              <span
+                className={`truncate text-[8px] font-semibold uppercase ${
+                  group.verdict === 'green'
+                    ? 'text-emerald-600'
+                    : group.verdict === 'yellow'
+                      ? 'text-amber-600'
+                      : group.verdict === 'red'
+                        ? 'text-rose-600'
+                        : 'text-stone-400'
+                }`}
+              >
+                {slotSubLabel}
+              </span>
+            )}
           </div>
         );
       })}
