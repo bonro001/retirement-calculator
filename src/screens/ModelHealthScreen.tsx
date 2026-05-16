@@ -247,17 +247,22 @@ function humanize(value: string | null | undefined): string {
   return value.replaceAll('_', ' ');
 }
 
-function driftLabel(report: VerificationReport): string {
-  const drift = report.drift;
-  if (!drift?.comparedToPrevious) return 'No prior report';
-  if (report.strict?.failures.length) return `${report.strict.failures.length} strict failure(s)`;
-  if (drift.statusChanged) return 'Status changed';
-  const northStarDelta = drift.northStarBudget?.totalMonthlyBudgetDelta ?? 0;
-  if (Math.abs(northStarDelta) >= 0.5) {
-    const sign = northStarDelta > 0 ? '+' : '';
-    return `${sign}${Math.round(northStarDelta)}/mo north-star drift`;
-  }
-  return 'No strict drift';
+function modelHealthSummary(report: VerificationReport, hasAttention: boolean): string {
+  if (report.status === 'passed' && !hasAttention) return 'Ready for mining.';
+  if (report.status === 'passed') return 'Passed with items to review.';
+  return 'Fix before mining.';
+}
+
+function firstIssueLabel(
+  report: VerificationReport,
+  failedChecks: VerificationCheck[],
+): string {
+  if (failedChecks.length > 0) return failedChecks[0]?.name ?? 'failed check';
+  const strictFailure = report.strict?.failures[0];
+  if (strictFailure) return strictFailure.code;
+  const warning = report.warnings[0];
+  if (warning) return warning.check ? `${warning.check}: ${warning.code}` : warning.code;
+  return 'none';
 }
 
 function statusClasses(status: VerificationReport['status']) {
@@ -481,7 +486,7 @@ export function ModelHealthScreen() {
   return (
     <Panel
       title="Model Health"
-      subtitle="Last background verifier output; the browser only reports what the CLI produced."
+      subtitle="Current verifier status and audit evidence."
     >
       <RerunControl
         dispatcherUrl={dispatcherUrl}
@@ -501,6 +506,9 @@ export function ModelHealthScreen() {
             <p className="mt-1 text-sm">
               {formatDate(report.generatedAt)} · {formatDuration(report.durationMs)}
             </p>
+            <p className="mt-2 text-sm font-semibold">
+              {modelHealthSummary(report, hasAttention)}
+            </p>
           </div>
           <div className="grid gap-2 text-sm sm:grid-cols-2 lg:min-w-[420px]">
             <Fact label="Branch" value={report.repository.branch} />
@@ -513,7 +521,7 @@ export function ModelHealthScreen() {
                   : 'clean'
               }
             />
-            <Fact label="Drift" value={driftLabel(report)} />
+            <Fact label="What failed" value={firstIssueLabel(report, failedChecks)} />
           </div>
         </div>
       </div>
@@ -831,7 +839,7 @@ function RerunControl({
         >
           {rerunState.message ??
             (dispatcherUrl
-              ? 'Runs the quick strict verifier through the dispatcher.'
+              ? 'Quick strict verifier.'
               : 'Start the dispatcher to rerun from the UI.')}
         </p>
       </div>
