@@ -647,7 +647,7 @@ export function PolicyMiningResultsTable({
     ? `Monthly spend for the first ${planChoiceSpendingBasis.label} schedule year at average household age 65${
         age65ScheduleYear ? ` (${age65ScheduleYear})` : ''
       }.`
-    : 'Monthly spend from the flat annual spend target.';
+    : 'Monthly core spend before separately modeled travel.';
 
   const clusterEnabled = !!dispatcherUrl;
   const selectedSession = clusterSessions.find(

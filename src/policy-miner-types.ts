@@ -29,7 +29,7 @@
  * Format: `policy-miner-vN-engineYYYY-MM` so a glance tells you when a
  * given record's lineage was minted.
  */
-export const POLICY_MINER_ENGINE_VERSION = 'policy-miner-v2.2-2026-05-15';
+export const POLICY_MINER_ENGINE_VERSION = 'policy-miner-v2.3-2026-05-15';
 
 /**
  * Mining records are keyed by engineVersion as well as baseline. For
@@ -55,7 +55,8 @@ export function buildPolicyMinerRunEngineVersion(
  *
  * Why these four? They're the levers a household can actually pull and
  * that meaningfully change long-run outcomes:
- *  - annualSpendTodayDollars: the dial households re-touch every year
+ *  - annualSpendTodayDollars: the core/monthly operating dial households
+ *    re-touch every year; explicit travel remains a separate yearly goal
  *  - primarySocialSecurityClaimAge: one-shot, irreversible after age 70
  *  - spouseSocialSecurityClaimAge: same, second earner
  *  - rothConversionAnnualCeiling: the bracket-fill knob during the
@@ -66,7 +67,7 @@ export function buildPolicyMinerRunEngineVersion(
  * size tractable (~7,776 policies fits in <500MB IndexedDB).
  */
 export interface Policy {
-  /** Constant-real annual spend the engine should hold in retirement. */
+  /** Constant-real core operating annual spend before separately modeled travel. */
   annualSpendTodayDollars: number;
   /** Age the primary earner files for SS (62..70). Supports 6-month
    *  resolution (e.g., 67.5) — engine pays partial-year benefit at the

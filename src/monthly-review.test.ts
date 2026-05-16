@@ -504,7 +504,7 @@ describe('monthly review strategy and orchestration', () => {
     expect(new Set(fingerprints).size).toBe(1);
     expect(strategies[0]?.spendingScheduleBasis).toBeNull();
     expect(strategies[0]?.modelCompleteness).toBe('faithful');
-    expect(fingerprints[0]).toContain('basis=current_faithful|fpv3');
+    expect(fingerprints[0]).toContain('basis=current_faithful|fpv4');
   });
 
   it('builds compact QA signals for ACA, runway, concentration, and legacy headroom', () => {
@@ -655,9 +655,10 @@ describe('monthly review strategy and orchestration', () => {
         annualSpendTodayDollars: 140_000,
         certificationVerdict: 'green',
         spendingPath: expect.objectContaining({
-          scalarMeaning: 'flat_annual_spend',
+          scalarMeaning: 'core_annual_spend',
           policySpendScalarTodayDollars: 140_000,
-          firstRetirementYearAnnualSpendTodayDollars: expect.any(Number),
+          firstRetirementYearAnnualSpendTodayDollars:
+            140_000 + initialSeedData.spending.travelEarlyRetirementAnnual,
           peakGoGoAnnualSpendTodayDollars: expect.any(Number),
           age80AnnualSpendTodayDollars: expect.any(Number),
           lifetimeAverageAnnualSpendTodayDollars: expect.any(Number),

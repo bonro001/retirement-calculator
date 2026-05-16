@@ -240,9 +240,11 @@ function buildRequiredFindings(
         : `The selected candidate is ${money(selected.annualSpendTodayDollars)}/yr (${money(
             selected.monthlySpendTodayDollars,
           )}/mo) as a ${
-            spendingPath?.scalarMeaning === 'curve_anchor'
-              ? 'curve anchor'
-              : 'flat annual spend'
+            spendingPath?.scalarMeaning === 'core_annual_spend'
+              ? 'core operating spend target before the separate travel overlay'
+              : spendingPath?.scalarMeaning === 'curve_anchor'
+                ? 'curve anchor'
+                : 'flat annual spend'
           }, with ${percent(outcome.solventSuccessRate)} solvency, ${percent(
             outcome.bequestAttainmentRate,
           )} legacy attainment, and p10/p25/p50/p75/p90 ending wealth of ${money(
@@ -269,6 +271,8 @@ function buildRequiredFindings(
             `spendingPath.peakGoGoAnnualSpendTodayDollars=${spendingPath?.peakGoGoAnnualSpendTodayDollars ?? 'missing'}`,
             `spendingPath.age80AnnualSpendTodayDollars=${spendingPath?.age80AnnualSpendTodayDollars ?? 'missing'}`,
             `spendingPath.lifetimeAverageAnnualSpendTodayDollars=${spendingPath?.lifetimeAverageAnnualSpendTodayDollars ?? 'missing'}`,
+            `spendingPath.firstRow.coreAnnualSpendTodayDollars=${spendingPath?.annualSpendRows[0]?.coreAnnualSpendTodayDollars ?? 'missing'}`,
+            `spendingPath.firstRow.travelAnnualSpendTodayDollars=${spendingPath?.annualSpendRows[0]?.travelAnnualSpendTodayDollars ?? 'missing'}`,
           ]
         : ['selectedPolicy=null'],
       recommendation: p10BelowTarget
@@ -790,7 +794,7 @@ For the ACA bridge signal specifically, distinguish "subsidy loss is an intentio
 
 Excess legacy headroom means the household may be leaving too much on the table; do not describe it as depletion or homelessness risk.
 
-For shaped spending strategies such as J.P. Morgan, do not compare the policy scalar directly to a flat-spend strategy as if both numbers meant annual household spending. Use rawExportEvidence.selectedPolicy.spendingPath: report scalarMeaning, first-retirement-year spend, peak go-go spend, age-75/80/85 spend, and lifetime average spend. Treat the scalar as a curve anchor when scalarMeaning is "curve_anchor"; judge whether the actual early-retirement spend path supports the north-star objective.
+For shaped or layered spending strategies, do not compare the policy scalar directly to all-in annual household spending. Use rawExportEvidence.selectedPolicy.spendingPath: report scalarMeaning, first-retirement-year spend, peak go-go spend, age-75/80/85 spend, and lifetime average spend. Treat the scalar as a curve anchor when scalarMeaning is "curve_anchor". Treat it as the monthly operating/core budget before the separate travel overlay when scalarMeaning is "core_annual_spend"; in that case use annualSpendRows[].coreAnnualSpendTodayDollars plus annualSpendRows[].travelAnnualSpendTodayDollars to describe the actual go-go total. Judge whether the actual early-retirement spend path supports the north-star objective.
 
 After judging approval, add a separate nonblocking model-improvement list. Ask yourself: "What would make the next review packet, model, search, certification, or UI more trustworthy or easier to audit?" Include only improvements grounded in packet evidence. Do not put household decisions here; those belong in actionItems. Do not let these suggestions change the verdict unless they are already represented as fail/watch findings.
 

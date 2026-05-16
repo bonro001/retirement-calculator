@@ -1430,7 +1430,7 @@ function YearColumn({
   /** When true, divide annual values by 12 so the tile reads as
    *  per-month. Caption notes the simplification. */
   monthly?: boolean;
-  /** Adopted policy's annual spend target in today's dollars. Shown
+  /** Adopted policy's core annual spend target in today's dollars. Shown
    *  alongside the engine's projected median so the household can see
    *  both the plan intent and the engine's realized number — and any
    *  gap (pre-retirement transition, cash-flow constraint) is

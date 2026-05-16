@@ -204,8 +204,8 @@ export function PolicyAdoptionModal({
                 ))}
               </ul>
               <p className="mt-2 text-[11px] text-stone-500">
-                Categories scaled proportionally so the new total matches the
-                policy. You can rebalance later from the Spending screen.
+                Optional spending is adjusted so core annual spend matches the
+                policy. Travel stays as a separate yearly goal.
               </p>
             </details>
           )}

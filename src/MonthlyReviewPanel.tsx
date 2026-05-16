@@ -2045,6 +2045,16 @@ export function MonthlyReviewPanel({
 
   const run = runState.kind === 'complete' ? runState.run : null;
   const isRunning = runState.kind === 'running';
+  const selectedSpendingPath =
+    lastValidationPacket?.rawExportEvidence.selectedPolicy?.spendingPath ?? null;
+  const firstRetirementAnnualSpend =
+    selectedSpendingPath?.firstRetirementYearAnnualSpendTodayDollars ?? null;
+  const firstTravelAnnualSpend =
+    selectedSpendingPath?.annualSpendRows.find((row) =>
+      row.year === selectedSpendingPath.retirementYear,
+    )?.travelAnnualSpendTodayDollars ??
+    selectedSpendingPath?.annualSpendRows[0]?.travelAnnualSpendTodayDollars ??
+    null;
 
   const selectedCertification =
     run?.strategies
@@ -2382,7 +2392,7 @@ export function MonthlyReviewPanel({
             <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-stone-500">
-                  Spend up to this month
+                  Core monthly budget
                 </p>
                 <p
                   className={`mt-1 text-5xl font-bold tabular-nums tracking-tight ${
@@ -2392,8 +2402,16 @@ export function MonthlyReviewPanel({
                   {formatMonthly(run.recommendation.monthlySpendTodayDollars)}
                 </p>
                 <p className="mt-0.5 text-[12px] text-stone-500">
-                  {formatCurrency(run.recommendation.annualSpendTodayDollars)}/yr today's dollars
+                  {formatCurrency(run.recommendation.annualSpendTodayDollars)}/yr before separately modeled travel
                 </p>
+                {firstRetirementAnnualSpend !== null && (
+                  <p className="mt-1 text-[12px] font-medium text-stone-700">
+                    Go-go total: {formatCurrency(firstRetirementAnnualSpend)}/yr
+                    {firstTravelAnnualSpend !== null
+                      ? ` including ${formatCurrency(firstTravelAnnualSpend)}/yr travel`
+                      : ''}
+                  </p>
+                )}
               </div>
               <div className="flex flex-col items-start gap-2 sm:items-end">
                 <div className="flex flex-wrap gap-2">

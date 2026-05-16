@@ -19,13 +19,13 @@
  *     `annualSpendTarget` directly to the engine each call. Adoption
  *     DOES need to write them, because the user's next interactive
  *     run reads the four `SpendingData` categories to compute total
- *     spend (no `annualSpendTarget` override is in play).
+ *     operating/core spend (no `annualSpendTarget` override is in play).
  *
  *   - Spending target mapping needs a deliberate policy choice. The
  *     current household rule is that required spending is not a tuning
- *     knob. The miner's annual spend axis adjusts flexible/optional
- *     spending only; essential monthly, annual taxes/insurance, and
- *     early-retirement travel stay fixed unless edited directly.
+ *     knob. The miner's annual spend axis answers the monthly operating
+ *     question: essential + optional + annual taxes/insurance. Early-
+ *     retirement travel stays a separate yearly goal layered on top.
  */
 
 import type { Policy } from './policy-miner-types';
@@ -88,10 +88,25 @@ export function totalAnnualSpendFromCategories(spending: SpendingData): number {
 }
 
 /**
- * Apply a mined annual spend target by changing only flexible spending.
- * Required monthly, annual taxes/insurance, and travel stay as explicit
- * model inputs. If the target is below those fixed buckets, optional is
- * clamped to zero rather than inventing a required-spend cut.
+ * Sum the operating/core spending target controlled by the mined policy.
+ * Travel is intentionally outside this number because Monthly Review
+ * answers "what can I spend this month?" while travel remains a separately
+ * modeled yearly goal.
+ */
+export function operatingAnnualSpendFromCategories(spending: SpendingData): number {
+  return (
+    (spending.essentialMonthly ?? 0) * 12 +
+    (spending.optionalMonthly ?? 0) * 12 +
+    (spending.annualTaxesInsurance ?? 0)
+  );
+}
+
+/**
+ * Apply a mined operating annual spend target by changing only flexible
+ * spending. Required monthly and annual taxes/insurance stay fixed, and
+ * travel stays as a separate explicit model input. If the target is below
+ * those fixed operating buckets, optional is clamped to zero rather than
+ * inventing a required-spend cut.
  */
 export function applyAnnualSpendTargetToOptionalSpending(
   spending: SpendingData,
@@ -100,8 +115,7 @@ export function applyAnnualSpendTargetToOptionalSpending(
   if (!Number.isFinite(targetAnnual) || targetAnnual < 0) return spending;
   const fixedAnnual =
     (spending.essentialMonthly ?? 0) * 12 +
-    (spending.annualTaxesInsurance ?? 0) +
-    (spending.travelEarlyRetirementAnnual ?? 0);
+    (spending.annualTaxesInsurance ?? 0);
   const optionalAnnual = Math.max(0, targetAnnual - fixedAnnual);
   return {
     ...spending,
@@ -117,8 +131,8 @@ export function applyAnnualSpendTargetToOptionalSpending(
  * shallow-equality check (zustand, useMemo) can short-circuit.
  *
  * What gets written:
- *   - `spending.optionalMonthly`: adjusted so total annual spend matches
- *      `policy.annualSpendTodayDollars` when fixed spending allows.
+ *   - `spending.optionalMonthly`: adjusted so operating annual spend
+ *      matches `policy.annualSpendTodayDollars` when fixed spending allows.
  *   - `income.socialSecurity[0].claimAge`: primary's claim age.
  *   - `income.socialSecurity[1].claimAge`: spouse's claim age (if
  *      household has a spouse and the policy specifies one).
@@ -129,7 +143,7 @@ export function applyAnnualSpendTargetToOptionalSpending(
 export function buildAdoptedSeedData(seed: SeedData, policy: Policy): SeedData {
   const next: SeedData = { ...seed };
 
-  // Spending: keep required/travel fixed; optional absorbs the mined target.
+  // Spending: keep required/travel fixed; optional absorbs the mined operating target.
   next.spending = applyAnnualSpendTargetToOptionalSpending(
     seed.spending,
     policy.annualSpendTodayDollars,
@@ -204,12 +218,12 @@ function formatDollars(amount: number): string {
  * from current SeedData + policy — no React, no DOM.
  */
 export function diffAdoption(seed: SeedData, policy: Policy): AdoptionDiff {
-  const currentAnnualSpend = totalAnnualSpendFromCategories(seed.spending);
+  const currentAnnualSpend = operatingAnnualSpendFromCategories(seed.spending);
   const scaled = applyAnnualSpendTargetToOptionalSpending(
     seed.spending,
     policy.annualSpendTodayDollars,
   );
-  const proposedAnnualSpend = totalAnnualSpendFromCategories(scaled);
+  const proposedAnnualSpend = operatingAnnualSpendFromCategories(scaled);
 
   const currentPrimarySs = seed.income?.socialSecurity?.[0]?.claimAge ?? null;
   const currentSpouseSs = seed.income?.socialSecurity?.[1]?.claimAge ?? null;
@@ -223,7 +237,7 @@ export function diffAdoption(seed: SeedData, policy: Policy): AdoptionDiff {
   const rows: AdoptionDiffEntry[] = [
     {
       key: 'spend',
-      label: 'Annual spend (today $)',
+      label: 'Core annual spend (travel separate)',
       currentLabel: formatCurrency(currentAnnualSpend),
       proposedLabel: formatCurrency(proposedAnnualSpend),
       changed:
@@ -265,7 +279,8 @@ export function diffAdoption(seed: SeedData, policy: Policy): AdoptionDiff {
       Math.round(policy.rothConversionAnnualCeiling),
   });
 
-  // Spending breakdown: fixed required/travel values plus optional plug.
+  // Spending breakdown: fixed required values plus optional plug; travel is
+  // shown for context but remains outside the mined operating target.
   const spendingBreakdown: SpendingBreakdownEntry[] = [
     {
       key: 'essentialMonthly',
@@ -397,11 +412,11 @@ export function explainAdoption(
     // Within rounding of the current spend — the adoption preserved
     // spend and only moved structural levers. Frame it accordingly so
     // the user doesn't expect a different chart in dollar terms.
-    headline = `Holds annual spend at ${formatCurrency(diff.proposedAnnualSpend)} while restructuring claim ages and conversions.`;
+    headline = `Holds core annual spend at ${formatCurrency(diff.proposedAnnualSpend)} while restructuring claim ages and conversions.`;
   } else if (spendDelta > 0) {
-    headline = `Lifts annual spend from ${formatCurrency(diff.currentAnnualSpend)} to ${formatCurrency(diff.proposedAnnualSpend)} (+${formatCurrency(spendDelta)}/yr in today's dollars).`;
+    headline = `Lifts core annual spend from ${formatCurrency(diff.currentAnnualSpend)} to ${formatCurrency(diff.proposedAnnualSpend)} (+${formatCurrency(spendDelta)}/yr in today's dollars).`;
   } else {
-    headline = `Trims annual spend from ${formatCurrency(diff.currentAnnualSpend)} to ${formatCurrency(diff.proposedAnnualSpend)} (${formatCurrency(spendDelta)}/yr) to restore feasibility.`;
+    headline = `Trims core annual spend from ${formatCurrency(diff.currentAnnualSpend)} to ${formatCurrency(diff.proposedAnnualSpend)} (${formatCurrency(spendDelta)}/yr) to restore feasibility.`;
   }
 
   // ---- Detail: pick the heaviest changed lever --------------------------

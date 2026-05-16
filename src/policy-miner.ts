@@ -74,12 +74,12 @@ export function isBetterFeasibleCandidate(
  *     MiningJobResult shapes already exist for that day; the dispatcher
  *     interface goes here when we add it.
  *
- * Why bypass the solver: the solver inverts annual spend to hit a
- * success target. The miner does the opposite — it varies annual spend
+ * Why bypass the solver: the solver inverts core annual spend to hit a
+ * success target. The miner does the opposite — it varies core annual spend
  * (and other axes) and OBSERVES the success outcomes. Running both
  * would mean the solver re-derives spend on every policy, defeating the
  * purpose. Passing `annualSpendTarget` to `buildPathResults` skips the
- * solve and runs the engine with that pinned spend.
+ * solve and runs the engine with that pinned operating spend.
  */
 
 // `applyPolicyToSeed`, `evaluatePolicy`, and `SeedDataCloner` are

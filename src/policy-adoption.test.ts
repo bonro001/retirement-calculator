@@ -7,6 +7,7 @@ import {
   buildAdoptedSeedData,
   diffAdoption,
   explainAdoption,
+  operatingAnnualSpendFromCategories,
   totalAnnualSpendFromCategories,
 } from './policy-adoption';
 
@@ -30,11 +31,15 @@ function makePolicy(overrides: Partial<Policy> = {}): Policy {
 }
 
 describe('buildAdoptedSeedData', () => {
-  it('keeps required and travel spending fixed while optional hits the policy target', () => {
+  it('keeps required and travel spending fixed while optional hits the core policy target', () => {
     const policy = makePolicy({ annualSpendTodayDollars: 130_000 });
     const adopted = buildAdoptedSeedData(initialSeedData, policy);
-    const newTotal = totalAnnualSpendFromCategories(adopted.spending);
-    expect(Math.abs(newTotal - 130_000)).toBeLessThanOrEqual(0.01);
+    const newOperating = operatingAnnualSpendFromCategories(adopted.spending);
+    expect(Math.abs(newOperating - 130_000)).toBeLessThanOrEqual(0.01);
+    expect(totalAnnualSpendFromCategories(adopted.spending)).toBeCloseTo(
+      130_000 + initialSeedData.spending.travelEarlyRetirementAnnual,
+      2,
+    );
     expect(adopted.spending.essentialMonthly).toBe(
       initialSeedData.spending.essentialMonthly,
     );
@@ -46,7 +51,7 @@ describe('buildAdoptedSeedData', () => {
     );
   });
 
-  it('uses optional monthly as the exact annual target plug', () => {
+  it('uses optional monthly as the exact core annual target plug', () => {
     const seed: SeedData = {
       ...initialSeedData,
       spending: {
@@ -59,8 +64,8 @@ describe('buildAdoptedSeedData', () => {
     };
     const policy = makePolicy({ annualSpendTodayDollars: 110_000 });
     const adopted = buildAdoptedSeedData(seed, policy);
-    const newTotal = totalAnnualSpendFromCategories(adopted.spending);
-    expect(Math.abs(newTotal - 110_000)).toBeLessThanOrEqual(0.01);
+    const newOperating = operatingAnnualSpendFromCategories(adopted.spending);
+    expect(Math.abs(newOperating - 110_000)).toBeLessThanOrEqual(0.01);
     expect(adopted.spending.essentialMonthly).toBe(4_333);
     expect(adopted.spending.annualTaxesInsurance).toBe(8_888);
     expect(adopted.spending.travelEarlyRetirementAnnual).toBe(6_666);
@@ -69,8 +74,7 @@ describe('buildAdoptedSeedData', () => {
   it('does not cut required spending if the policy target is below fixed spend', () => {
     const fixedAnnual =
       initialSeedData.spending.essentialMonthly * 12 +
-      initialSeedData.spending.annualTaxesInsurance +
-      initialSeedData.spending.travelEarlyRetirementAnnual;
+      initialSeedData.spending.annualTaxesInsurance;
     const adopted = buildAdoptedSeedData(
       initialSeedData,
       makePolicy({ annualSpendTodayDollars: fixedAnnual - 10_000 }),
@@ -79,7 +83,9 @@ describe('buildAdoptedSeedData', () => {
     expect(adopted.spending.essentialMonthly).toBe(
       initialSeedData.spending.essentialMonthly,
     );
-    expect(totalAnnualSpendFromCategories(adopted.spending)).toBe(fixedAnnual);
+    expect(totalAnnualSpendFromCategories(adopted.spending)).toBe(
+      fixedAnnual + initialSeedData.spending.travelEarlyRetirementAnnual,
+    );
   });
 
   it('does not mutate the input seed', () => {
@@ -156,7 +162,7 @@ describe('diffAdoption', () => {
   });
 
   it('marks the spend row unchanged when the target equals current', () => {
-    const currentTotal = totalAnnualSpendFromCategories(
+    const currentTotal = operatingAnnualSpendFromCategories(
       initialSeedData.spending,
     );
     const diff = diffAdoption(
@@ -173,7 +179,7 @@ describe('diffAdoption', () => {
     expect(diff.summary).toContain('Roth');
   });
 
-  it('breakdown sums match the new annual target within rounding tolerance', () => {
+  it('core breakdown sums match the new annual target within rounding tolerance', () => {
     const diff = diffAdoption(
       initialSeedData,
       makePolicy({ annualSpendTodayDollars: 130_000 }),
@@ -182,7 +188,7 @@ describe('diffAdoption', () => {
       .filter((b) => b.unit === '$/mo')
       .reduce((s, b) => s + b.proposed * 12, 0);
     const annual = diff.spendingBreakdown
-      .filter((b) => b.unit === '$/yr')
+      .filter((b) => b.unit === '$/yr' && b.key !== 'travelEarlyRetirementAnnual')
       .reduce((s, b) => s + b.proposed, 0);
     expect(Math.abs(monthly + annual - 130_000)).toBeLessThanOrEqual(0.01);
   });
@@ -225,7 +231,7 @@ function seedWith(opts: {
 describe('explainAdoption', () => {
   it('headline reports the spend lift in absolute and delta terms', () => {
     const seed = seedWith({ primarySsAge: 67, spouseSsAge: 67, rothCeiling: 0 });
-    const before = totalAnnualSpendFromCategories(seed.spending);
+    const before = operatingAnnualSpendFromCategories(seed.spending);
     const result = explainAdoption(
       seed,
       makePolicy({
@@ -241,7 +247,7 @@ describe('explainAdoption', () => {
 
   it('headline trims spend down when the policy lowers it', () => {
     const seed = seedWith({ primarySsAge: 67, spouseSsAge: 67, rothCeiling: 0 });
-    const before = totalAnnualSpendFromCategories(seed.spending);
+    const before = operatingAnnualSpendFromCategories(seed.spending);
     const result = explainAdoption(
       seed,
       makePolicy({
@@ -256,7 +262,7 @@ describe('explainAdoption', () => {
 
   it('headline holds spend constant when the delta is within rounding', () => {
     const seed = seedWith({ primarySsAge: 67, spouseSsAge: 67, rothCeiling: 0 });
-    const before = totalAnnualSpendFromCategories(seed.spending);
+    const before = operatingAnnualSpendFromCategories(seed.spending);
     const result = explainAdoption(
       seed,
       makePolicy({

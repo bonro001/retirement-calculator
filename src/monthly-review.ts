@@ -192,12 +192,18 @@ export interface MonthlyReviewSpendingPathRow {
   year: number;
   householdAge: number | null;
   multiplier: number;
+  coreAnnualSpendTodayDollars?: number;
+  travelAnnualSpendTodayDollars?: number;
   annualSpendTodayDollars: number;
 }
 
 export interface MonthlyReviewSpendingPathMetrics {
   valueBasis: 'today_dollars';
-  scalarMeaning: 'flat_annual_spend' | 'curve_anchor' | 'spending_path_anchor';
+  scalarMeaning:
+    | 'core_annual_spend'
+    | 'flat_annual_spend'
+    | 'curve_anchor'
+    | 'spending_path_anchor';
   policySpendScalarTodayDollars: number;
   firstScheduleYear: number | null;
   retirementYear: number | null;
@@ -480,13 +486,13 @@ export function buildMonthlyReviewMiningFingerprint(input: {
 }): string {
   return `${input.baselineFingerprint}|trials=${input.trialCount}|basis=${spendingBasisFingerprint(
     input.strategy.spendingScheduleBasis,
-  )}|fpv3`;
+  )}|fpv4`;
 }
 
 function scalarMeaningForBasis(
   basis: PolicySpendingScheduleBasis | null,
 ): MonthlyReviewSpendingPathMetrics['scalarMeaning'] {
-  if (!basis) return 'flat_annual_spend';
+  if (!basis) return 'core_annual_spend';
   return basis.id.startsWith('jpmorgan') || basis.id === 'magic_average'
     ? 'curve_anchor'
     : 'spending_path_anchor';
@@ -839,7 +845,7 @@ export function buildMonthlyReviewRecommendation(input: {
       certificationVerdict: null,
       aiVerdict: input.aiApproval?.verdict ?? null,
       blockingTaskIds: blockingTasks.map((task) => task.id),
-      summary: 'No green certified monthly spend candidate is available.',
+      summary: 'No green certified core monthly spend candidate is available.',
     };
   }
 
@@ -855,7 +861,7 @@ export function buildMonthlyReviewRecommendation(input: {
       aiVerdict: input.aiApproval?.verdict ?? null,
       blockingTaskIds: blockingTasks.map((task) => task.id),
       summary:
-        'A green deterministic candidate exists, but monthly approval is blocked by model-quality tasks or AI co-review.',
+        'A green deterministic core spend candidate exists, but monthly approval is blocked by model-quality tasks or AI co-review.',
     };
   }
 
@@ -871,7 +877,7 @@ export function buildMonthlyReviewRecommendation(input: {
       aiVerdict: null,
       blockingTaskIds: [],
       summary:
-        'A green deterministic candidate exists; AI co-review is pending.',
+        'A green deterministic core spend candidate exists; AI co-review is pending.',
     };
   }
 
@@ -887,7 +893,7 @@ export function buildMonthlyReviewRecommendation(input: {
       aiVerdict: input.aiApproval.verdict,
       blockingTaskIds: blockingTasks.map((task) => task.id),
       summary:
-        'A green deterministic candidate exists, but monthly approval is blocked by AI co-review.',
+        'A green deterministic core spend candidate exists, but monthly approval is blocked by AI co-review.',
     };
   }
 
@@ -900,7 +906,8 @@ export function buildMonthlyReviewRecommendation(input: {
     certificationVerdict: best.verdict,
     aiVerdict: input.aiApproval?.verdict ?? null,
     blockingTaskIds: [],
-    summary: 'Monthly review approved a green sleep-at-night spend target.',
+    summary:
+      'Monthly review approved a green sleep-at-night core spend target before separately modeled travel.',
   };
 }
 
@@ -943,8 +950,35 @@ function nearestSpendAtOrAfterAge(
     ?.annualSpendTodayDollars ?? null;
 }
 
+function taperedMonthlyReviewTravel(input: {
+  yearsIntoRetirement: number;
+  data: SeedData;
+  assumptions: MarketAssumptions;
+}): number {
+  const travelAnnual = Math.max(
+    0,
+    input.data.spending.travelEarlyRetirementAnnual,
+  );
+  const travelFloorAnnual = Math.max(
+    0,
+    input.data.spending.travelFloorAnnual ?? 0,
+  );
+  const flatYears = Math.max(
+    0,
+    input.assumptions.travelFlatYears ?? input.assumptions.travelPhaseYears,
+  );
+  const phaseYears = Math.max(0, input.assumptions.travelPhaseYears);
+  if (input.yearsIntoRetirement < flatYears) return travelAnnual;
+  if (input.yearsIntoRetirement >= phaseYears || flatYears >= phaseYears) {
+    return travelFloorAnnual;
+  }
+  const progress = (input.yearsIntoRetirement - flatYears) / (phaseYears - flatYears);
+  return travelAnnual + (travelFloorAnnual - travelAnnual) * progress;
+}
+
 function buildMonthlyReviewSpendingPathMetrics(input: {
   data: SeedData;
+  assumptions: MarketAssumptions;
   strategy: MonthlyReviewStrategyDefinition;
   evaluation: PolicyEvaluation;
   medianLifetimeSpendTodayDollars?: number | null;
@@ -962,6 +996,7 @@ function buildMonthlyReviewSpendingPathMetrics(input: {
     years[years.length - 1] ??
     (firstScheduleYear === null ? null : firstScheduleYear + 34);
   const averageAge = averageHouseholdAge(input.data);
+  const retirementYear = parseYearFromIso(input.data.income.salaryEndDate);
   const annualSpendRows: MonthlyReviewSpendingPathRow[] =
     firstScheduleYear === null || lastScheduleYear === null
       ? []
@@ -970,16 +1005,27 @@ function buildMonthlyReviewSpendingPathMetrics(input: {
           (_, index) => {
             const year = firstScheduleYear + index;
             const multiplier = basis?.multipliersByYear[year] ?? 1;
+            const coreAnnualSpendTodayDollars = scalar * multiplier;
+            const travelAnnualSpendTodayDollars = basis
+              ? 0
+              : taperedMonthlyReviewTravel({
+                  yearsIntoRetirement:
+                    retirementYear === null ? index : year - retirementYear,
+                  data: input.data,
+                  assumptions: input.assumptions,
+                });
             return {
               year,
               householdAge:
                 averageAge === null ? null : averageAge + (year - firstScheduleYear),
               multiplier,
-              annualSpendTodayDollars: scalar * multiplier,
+              coreAnnualSpendTodayDollars,
+              travelAnnualSpendTodayDollars,
+              annualSpendTodayDollars:
+                coreAnnualSpendTodayDollars + travelAnnualSpendTodayDollars,
             };
           },
         );
-  const retirementYear = parseYearFromIso(input.data.income.salaryEndDate);
   const firstModeledYearAnnualSpendTodayDollars =
     annualSpendRows[0]?.annualSpendTodayDollars ?? null;
   const firstRetirementYearAnnualSpendTodayDollars =
@@ -1799,6 +1845,7 @@ export function buildMonthlyReviewRawExportEvidence(input: {
     selected && selectedStrategy
       ? buildMonthlyReviewSpendingPathMetrics({
           data: input.data,
+          assumptions: input.assumptions,
           strategy: selectedStrategy.strategy,
           evaluation: selected.evaluation,
           medianLifetimeSpendTodayDollars:
