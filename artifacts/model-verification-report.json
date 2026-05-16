@@ -2,27 +2,66 @@
   "$schemaVersion": 1,
   "kind": "model-verification-report",
   "mode": "full",
-  "generatedAt": "2026-05-16T18:50:19.796Z",
-  "durationMs": 3816,
-  "status": "failed",
+  "generatedAt": "2026-05-16T20:11:41.420Z",
+  "durationMs": 145179,
+  "status": "passed",
   "repository": {
     "branch": "codex/jpmorgan-spending-models",
-    "commit": "0cbe42191bb5eda69ccf5b4cea652552b91df0d3",
+    "commit": "01c963e0a8dcfde7bfb3ef3688c8813764f8e008",
     "dirty": true,
-    "dirtyEntryCount": 13
+    "dirtyEntryCount": 4
   },
   "checks": [
     {
       "name": "external anchors",
       "command": "npx vitest run src/model-negative.test.ts src/external-model-benchmark-corpus.test.ts src/ficalc-source-parity.test.ts src/cfiresim-export-parity.test.ts src/model-replay-packets.test.ts",
-      "startedAt": "2026-05-16T18:50:16.027Z",
-      "durationMs": 3768,
-      "exitCode": 1,
+      "startedAt": "2026-05-16T20:09:16.286Z",
+      "durationMs": 3846,
+      "exitCode": 0,
       "signal": null,
-      "passed": false,
+      "passed": true,
       "warnings": [],
-      "stdoutTail": "\n RUN  v3.2.4 /Users/robbonner/retirement-calculator\n\n ❯ src/model-replay-packets.test.ts (2 tests | 1 failed) 165ms\n   ✓ model replay packets > keeps replay packet assumptions explicit and faithful 2ms\n   × model replay packets > replays frozen packets exactly, including compact yearly ledgers 163ms\n     → expected [ false, false, false ] to deeply equal [ true, true, true ]\n ✓ src/model-negative.test.ts (4 tests) 2029ms\n   ✓ negative model guardrails > refuses to replay a corrupted export snapshot instead of defaulting missing fields  1997ms\n ✓ src/ficalc-source-parity.test.ts (2 tests) 10ms\n ✓ src/external-model-benchmark-corpus.test.ts (5 tests) 5ms\n ✓ src/cfiresim-export-parity.test.ts (3 tests) 2ms\n\n Test Files  1 failed | 4 passed (5)\n      Tests  1 failed | 15 passed (16)\n   Start at  13:50:16\n   Duration  3.24s (transform 357ms, setup 0ms, collect 559ms, tests 2.21s, environment 0ms, prepare 120ms)\n\n",
-      "stderrTail": "\n⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯\n\n FAIL  src/model-replay-packets.test.ts > model replay packets > replays frozen packets exactly, including compact yearly ledgers\nAssertionError: expected [ false, false, false ] to deeply equal [ true, true, true ]\n\n\u001b[32m- Expected\u001b[39m\n\u001b[31m+ Received\u001b[39m\n\n\u001b[2m  [\u001b[22m\n\u001b[32m-   true,\u001b[39m\n\u001b[32m-   true,\u001b[39m\n\u001b[32m-   true,\u001b[39m\n\u001b[31m+   false,\u001b[39m\n\u001b[31m+   false,\u001b[39m\n\u001b[31m+   false,\u001b[39m\n\u001b[2m  ]\u001b[22m\n\n ❯ src/model-replay-packets.test.ts:54:52\n     52|     const results = replayModelPacketFixture();\n     53| \n     54|     expect(results.map((result) => result.passed)).toEqual(\n       |                                                    ^\n     55|       results.map(() => true),\n     56|     );\n\n⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯\n\n",
+      "stdoutTail": "\n RUN  v3.2.4 /Users/robbonner/retirement-calculator\n\n ✓ src/model-negative.test.ts (4 tests) 2200ms\n   ✓ negative model guardrails > refuses to replay a corrupted export snapshot instead of defaulting missing fields  2170ms\n ✓ src/model-replay-packets.test.ts (2 tests) 176ms\n ✓ src/ficalc-source-parity.test.ts (2 tests) 12ms\n ✓ src/external-model-benchmark-corpus.test.ts (5 tests) 5ms\n ✓ src/cfiresim-export-parity.test.ts (3 tests) 2ms\n\n Test Files  5 passed (5)\n      Tests  16 passed (16)\n   Start at  15:09:16\n   Duration  3.33s (transform 309ms, setup 0ms, collect 455ms, tests 2.39s, environment 0ms, prepare 125ms)\n\n",
+      "stderrTail": "",
+      "error": null
+    },
+    {
+      "name": "statutory and north-star contracts",
+      "command": "npx vitest run src/tax-engine.test.ts src/retirement-rules.test.ts src/irmaa-tier-boundaries.test.ts src/aca-subsidy-boundaries.test.ts src/model-contract-propagation.test.ts src/north-star-budget.test.ts src/north-star-golden.test.ts src/north-star-metamorphic.test.ts src/protected-reserve-scenarios.test.ts src/protected-reserve.test.ts",
+      "startedAt": "2026-05-16T20:09:20.133Z",
+      "durationMs": 6639,
+      "exitCode": 0,
+      "signal": null,
+      "passed": true,
+      "warnings": [],
+      "stdoutTail": "\n RUN  v3.2.4 /Users/robbonner/retirement-calculator\n\n ✓ src/model-contract-propagation.test.ts (2 tests) 3899ms\n   ✓ household model contract propagation > carries the 88/91 horizon and care-first reserve into export evidence  2104ms\n   ✓ household model contract propagation > keeps reserve and horizon aligned across north-star, monthly review, and export  1794ms\n ✓ src/protected-reserve-scenarios.test.ts (5 tests) 719ms\n ✓ src/north-star-golden.test.ts (2 tests) 213ms\n ✓ src/irmaa-tier-boundaries.test.ts (29 tests) 3ms\n ✓ src/tax-engine.test.ts (7 tests) 2ms\n ✓ src/north-star-budget.test.ts (5 tests) 7ms\n ✓ src/protected-reserve.test.ts (7 tests) 2ms\n ✓ src/aca-subsidy-boundaries.test.ts (13 tests) 3ms\n ✓ src/retirement-rules.test.ts (6 tests) 2ms\n ✓ src/north-star-metamorphic.test.ts (4 tests) 1ms\n\n Test Files  10 passed (10)\n      Tests  80 passed (80)\n   Start at  15:09:20\n   Duration  6.27s (transform 311ms, setup 0ms, collect 491ms, tests 4.85s, environment 1ms, prepare 233ms)\n\n",
+      "stderrTail": "",
+      "error": null
+    },
+    {
+      "name": "model parity tier",
+      "command": "node scripts/run-model-tests.mjs parity",
+      "startedAt": "2026-05-16T20:09:26.773Z",
+      "durationMs": 124701,
+      "exitCode": 0,
+      "signal": null,
+      "passed": true,
+      "warnings": [],
+      "stdoutTail": "nts (documents convergence behavior)\n[bond investigation] run-count convergence:\n  runs=30 delta=61956 (base=1959443 bump=2021400)\n  runs=100 delta=145595 (base=2636292 bump=2781887)\n  runs=300 delta=133816 (base=2636292 bump=2770108)\n\n ✓ src/bond-perturbation-investigation.test.ts (2 tests) 5979ms\n   ✓ bond perturbation anomaly investigation > +2pp bond-mean perturbation trends toward higher wealth as MC run count rises  3219ms\n   ✓ bond perturbation anomaly investigation > delta is monotone-ish across run counts (documents convergence behavior)  2760ms\n ✓ src/verification-harness.test.ts (3 tests) 3733ms\n   ✓ verification-harness > passes parity checks for golden scenarios within tolerance thresholds  2872ms\n   ✓ verification-harness > produces deterministic full-model results for identical seed and assumptions  662ms\n\n Test Files  5 passed (5)\n      Tests  24 passed (24)\n   Start at  15:10:31\n   Duration  49.62s (transform 313ms, setup 0ms, collect 549ms, tests 48.51s, environment 0ms, prepare 142ms)\n\n\n=== model tests: parity 4/4 (17 files) ===\n\n RUN  v3.2.4 /Users/robbonner/retirement-calculator\n\nstdout | src/boldin-parity.test.ts > Boldin \"Lower Returns\" parity smoke test (home removed) > compares raw translation vs. all-levers against the fresh no-home Boldin scenario\n\n================================================================\nBoldin \"Lower Returns\" — parity smoke report\n  Fresh Boldin state: home REMOVED, equity-side accounts at\n  Conservative preset (5.92% mean, 11.05% stdev).\n  Current Boldin result: 48% success, $42,624 NW at longevity,\n  $156k lifetime taxes. Near-depletion stress case.\n  This is a SAFETY CHECK, not a parity gate.\n================================================================\n\nMetric                               Boldin            Raw        Levered    Raw Δ%    Lev Δ%\n---------------------------------------------------------------------------------------------\nchance of success                     48.0%          91.6%          69.4%     90.8%     44.6%\nstarting balance                   $921,173       $921,173       $921,173      0.0%      0.0%\nnet worth at longevity              $42,624     $3,550,063       $789,238   8228.8%   1751.6%\nlifetime income taxes              $156,032        $67,969       $220,998    -56.4%     41.6%\n\nPeak years   — Boldin: ~undefined  Raw: 2058  Levered: 2028\n\n--- Spend-path diagnostic -------------------------------------\n  Boldin impl. = inflated $9k/mo + travel bolus + pre-65 med +\n  Medicare (approx from published lifetime totals).\n\nYear      Boldin impl.             Raw         Levered    Raw Δ%    Lev Δ%\n--------------------------------------------------------------------------\n2026          $115,448        $116,566        $116,566      1.0%      1.0%\n2030          $159,256        $133,755        $145,688    -16.0%     -8.5%\n2035          $155,408        $130,375        $143,538    -16.1%     -7.6%\n2040          $177,096        $152,437        $165,117    -13.9%     -6.8%\n2045          $201,849        $176,684        $189,107    -12.5%     -6.3%\n2050          $230,105        $216,075        $233,865     -6.1%      1.6%\n2055          $262,368        $229,629        $247,766    -12.5%     -5.6%\n2058          $283,885        $248,422        $267,399    -12.5%     -5.8%\n--------------------------------------------------------------------------\nTOTAL       $6,488,508      $5,650,966      $6,054,839    -12.9%     -6.7%\n\n--- Money-flow diagnostic (Levered only) ----------------------\n  Boldin inc. = inflated salary + $500k windfall 2028 + SS (both\n  claim dates, 2.54% COLA).\n\nYear     Boldin inc.    Our income   Our withdr.     Our tax    Our assets\n--------------------------------------------------------------------------\n2026        $168,000      $168,000            $0     $19,300    $1,006,223\n2030          $6,300            $0      $145,688          $0    $1,323,902\n2035         $82,668       $92,881       $50,152          $0    $1,330,848\n2040         $93,714      $131,358       $70,662     $12,987    $1,392,379\n2045        $106,235      $137,024       $87,807     $21,119    $1,415,978\n2050        $120,430      $140,431       $77,735          $0    $1,213,081\n2055        $136,522      $154,931       $89,255          $0    $1,155,673\n2058        $147,191      $165,563       $97,388        $349    $1,215,325\n--------------------------------------------------------------------------\nTOTAL     $3,713,760    $3,760,077    $2,651,498                          \n\nLifetime income delta (Ours vs Boldin): 1.2%\n\n--- Per-bucket withdrawal trajectory (Levered) ----------------\n  Shows which bucket the engine prefers. Taxable near-zero =\n  taxable bucket compounds unchecked — would confirm the\n  yield-tax-leakage hypothesis.\n\nYear          Cash     Taxable      Pretax        Roth       Total\n------------------------------------------------------------------\n2026            $0          $0          $0          $0          $0\n2030            $0    $145,688          $0          $0    $145,688\n2035            $0     $50,152          $0          $0     $50,152\n2040            $0          $0     $70,066        $596     $70,662\n2045            $0          $0     $86,681      $1,126     $87,807\n2050            $0          $0          $0     $77,735     $77,735\n2055            $0          $0          $0     $89,255     $89,255\n2058            $0          $0          $0     $97,388     $97,388\n------------------------------------------------------------------\nTOTAL     $212,999    $665,940    $893,315    $879,244  $2,651,498\nMIX %         8.0%       25.1%       33.7%       33.2%            \n\n--- Windfall spot-check (Levered, 2028 expected) --------------\n  Boldin expected: $500,000 inflow Dec 2028, non-taxable.\n\nYear       Cash inflow     Ord. income            LTCG\n------------------------------------------------------\n2028          $500,000              $0              $0\n\nRaw translation notes:\n  [info] household.spouseBirthDate: Derived from spouse longevity age and year; month defaulted to June.\n  [info] accounts.targetAllocation: Using single-symbol allocations (VTI / BND / CASH) per bucket so the weighted return matches the Boldin rate when combined with overridden MarketAssumptions.\n  [warn] windfalls.home_sale_net: Home sale modeled as cash_non_taxable windfall in the sale year. Ignores primary-home-sale tax treatment — may over-state liquidity slightly.\n  [warn] spending.split: Boldin shows one recurring number; split 55/45 essential/optional as a placeholder.\n  [warn] assumptions.volatility: Boldin projects deterministically; we keep MC volatility, so success-rate deltas include MC noise.\n  [info] income.windfalls.home_sale_net: Home sale excluded — comparing liquid-only on both sides against Boldin taxAllocationAllAssetsAt94.\n\nLevered translation notes:\n  [info] household.spouseBirthDate: Derived from spouse longevity age and year; month defaulted to June.\n  [info] accounts.targetAllocation: Using single-symbol allocations (VTI / BND / CASH) per bucket so the weighted return matches the Boldin rate when combined with overridden MarketAssumptions.\n  [warn] windfalls.home_sale_net: Home sale modeled as cash_non_taxable windfall in the sale year. Ignores primary-home-sale tax treatment — may over-state liquidity slightly.\n  [warn] spending.split: Boldin shows one recurring number; split 55/45 essential/optional as a placeholder.\n  [warn] assumptions.volatility: Boldin projects deterministically; we keep MC volatility, so success-rate deltas include MC noise.\n  [info] rules.healthcarePremiums: Overridden from Boldin lifetime totals (~$14482/yr aggregate, medicare ~$7448/person-yr).\n  [info] rules.rothConversionPolicy: Disabled to isolate tax-saving contribution (Boldin does not auto-convert).\n  [info] income.windfalls.home_sale_net: Home sale excluded — comparing liquid-only on both sides against Boldin taxAllocationAllAssetsAt94.\n  [info] assumptions.distribution: Overridden to match Boldin Conservative preset: 5.92% mean / 11.05% stdev on equity + bond buckets.\n\n================================================================\n\n\n ✓ src/boldin-parity.test.ts (1 test) 3267ms\n   ✓ Boldin \"Lower Returns\" parity smoke test (home removed) > compares raw translation vs. all-levers against the fresh no-home Boldin scenario  3267ms\nstdout | src/fidelity-parity.test.ts > Fidelity parity — historical-methodology triangulation > reports Fidelity target, Boldin target, and our engine result side-by-side\n\n================================================================\nTriangulation: Fidelity vs Boldin vs our engine\n  Same household, same 8 accounts, ~$921-924k portfolio.\n  Fidelity: 250 MC sims, historical asset-class sampling.\n  Boldin: Conservative preset, 5.92%/11.05% stdev override.\n  Ours: 500 MC sims, historical-approximation defaults\n        (equity 9.8%, intl 8.5%, bonds 5.3%, cash 3.0%).\n  SAFETY CHECK — not a parity gate.\n================================================================\n\nMetric                                  Fidelity            Boldin              Ours\n------------------------------------------------------------------------------------\nchance of success                          95.0%             48.0%             93.0%\nstarting balance                        $924,122          $921,173          $933,149\nending wealth (p50 median)                   n/a           $42,624       $12,513,895\nending wealth (p10)                     $436,224               n/a          $517,045\nlifetime federal taxes                       n/a          $156,032          $152,325\n\nTranslation notes:\n  [info] accounts: Reusing per-account balances from initialSeedData (seed-data.json). Fidelity does not publish per-account balances.\n  [info] assumptions.returns: Using historical-approximation means (equity 9.8%, intl 8.5%, bonds 5.3%, cash 3.0%). Fidelity does not publish exact values; these match common SBBI long-run points and the regime under which our historical-cohorts tests pass.\n  [warn] assumptions.assetMix: Fidelity reports portfolio asset mix at domestic 65.0% / foreign 9.1% / bonds 17.4% / short-term 6.7%. Our engine's bucket-level allocations from initialSeedData should aggregate near those numbers; drift between the two would be worth a dedicated allocation audit (see BACKLOG.md \"Allocation check\").\n\nInterpretation hints:\n  - Success rate expected to land much closer to Fidelity than\n    Boldin. Boldin is running a stress preset; Fidelity and ours\n    are both using historical-style returns.\n  - If our success rate is > Fidelity by > 5pp, investigate\n    yield-as-income accounting, withdrawal smoothing, or Roth\n    conversion aggressiveness (same residuals as the Boldin\n    investigation).\n\n================================================================\n\n\n ✓ src/fidelity-parity.test.ts (1 test) 1897ms\n   ✓ Fidelity parity — historical-methodology triangulation > reports Fidelity target, Boldin target, and our engine result side-by-side  1896ms\n ✓ src/property-dominance.test.ts (7 tests) 784ms\n ✓ src/property-monotonicity.test.ts (6 tests) 705ms\n ✓ src/model-replay-packets.test.ts (2 tests) 174ms\n ✓ src/engine-compare.test.ts (3 tests) 165ms\n ✓ src/rust-engine-client-node-boundary.test.ts (3 tests) 111ms\n ✓ src/compact-random-tape.test.ts (1 test) 27ms\n ✓ src/ficalc-source-parity.test.ts (2 tests) 11ms\n ✓ src/trinity-rolling-windows.test.ts (6 tests) 5ms\n ✓ src/external-model-benchmark-corpus.test.ts (5 tests) 4ms\n ✓ src/historical-data-plausibility.test.ts (12 tests) 2ms\n ✓ src/cfiresim-export-parity.test.ts (3 tests) 2ms\n ✓ src/model-fidelity.test.ts (1 test) 2ms\n ✓ src/engine-runtime-config.test.ts (5 tests) 1ms\n ✓ src/binding-guardrail.test.ts (3 tests) 1ms\n ↓ src/shard-parity.test.ts (5 tests | 5 skipped)\n\n Test Files  16 passed | 1 skipped (17)\n      Tests  61 passed | 5 skipped (66)\n   Start at  15:11:21\n   Duration  9.41s (transform 300ms, setup 0ms, collect 679ms, tests 7.16s, environment 1ms, prepare 396ms)\n\n",
+      "stderrTail": "",
+      "error": null
+    },
+    {
+      "name": "production build",
+      "command": "npm run build",
+      "startedAt": "2026-05-16T20:11:31.476Z",
+      "durationMs": 9943,
+      "exitCode": 0,
+      "signal": null,
+      "passed": true,
+      "warnings": [],
+      "stdoutTail": "\n> retirement-path-comparison-app@0.1.0 build\n> tsc -b && vite build\n\nvite v6.4.2 building for production...\ntransforming...\n✓ 813 modules transformed.\nrendering chunks...\ncomputing gzip size...\ndist/index.html                                          0.41 kB │ gzip:   0.27 kB\ndist/assets/sweep.worker-NJg_1QPS.js                   130.41 kB\ndist/assets/suggestion-ranker.worker-B0GHYNiu.js       131.45 kB\ndist/assets/policy-miner.worker-BeSD2HWU.js            136.90 kB\ndist/assets/policy-certification.worker-DCj35sjh.js    145.06 kB\ndist/assets/decision-engine.worker-BLqcmiwT.js         160.52 kB\ndist/assets/simulation.worker-jr1rBcnO.js              172.96 kB\ndist/assets/plan-analysis.worker-bbz3E9nM.js           271.37 kB\ndist/assets/planning-export.worker-01T6v1vk.js         487.11 kB\ndist/assets/index-CojprgNi.css                          79.01 kB │ gzip:  13.60 kB\ndist/assets/baseline-path-cache-CksjtLi1.js              1.30 kB │ gzip:   0.61 kB\ndist/assets/history-store-BiJOi4NW.js                    7.05 kB │ gzip:   2.47 kB\ndist/assets/HistoryScreen-BFo51pta.js                   16.01 kB │ gzip:   4.66 kB\ndist/assets/ExportScreen-D821VPgD.js                    23.52 kB │ gzip:   7.31 kB\ndist/assets/ExploreScreen-CxVzZH7g.js                   31.75 kB │ gzip:   8.47 kB\ndist/assets/MiningScreen-C2yNgXYT.js                    74.32 kB │ gzip:  19.20 kB\ndist/assets/Plan20Screen-BjlX9pti.js                   103.88 kB │ gzip:  30.01 kB\ndist/assets/CockpitScreen-POlcbvYZ.js                  106.72 kB │ gzip:  28.91 kB\ndist/assets/index-DXJKMs6v.js                          198.69 kB │ gzip:  62.36 kB\ndist/assets/App-BC2UIE1k.js                          1,492.31 kB │ gzip: 395.36 kB\n✓ built in 4.52s\n",
+      "stderrTail": "",
       "error": null
     }
   ],
@@ -75,7 +114,19 @@
       "kind": "historical_rolling_window_survival",
       "modelName": "FIRECalc",
       "modelCompleteness": "reconstructed",
+      "comparisonMode": "generic_local_fixture",
       "externalSuccessRate": 0.815,
+      "localSuccessRate": 0.7681159420289855,
+      "localLabel": "generic 1926+ local fixture",
+      "localCohortCount": 69,
+      "genericLocal": {
+        "successRate": 0.7681159420289855,
+        "cohortCount": 69,
+        "successfulCohorts": 53,
+        "failedCohorts": 16,
+        "label": "generic 1926+ local fixture"
+      },
+      "sourceNative": null,
       "expectedLocalSuccessRate": 0.7681159420289855,
       "successRateTolerance": 0.08
     },
@@ -84,7 +135,26 @@
       "kind": "historical_rolling_window_survival",
       "modelName": "cFIREsim",
       "modelCompleteness": "reconstructed",
+      "comparisonMode": "source_native_replay",
       "externalSuccessRate": 0.736,
+      "localSuccessRate": 0.736,
+      "localLabel": "cFIREsim export replay",
+      "localCohortCount": 125,
+      "genericLocal": {
+        "successRate": 0.7681159420289855,
+        "cohortCount": 69,
+        "successfulCohorts": 53,
+        "failedCohorts": 16,
+        "label": "generic 1926+ local fixture"
+      },
+      "sourceNative": {
+        "successRate": 0.736,
+        "cohortCount": 125,
+        "successfulCohorts": 92,
+        "failedCohorts": 33,
+        "label": "cFIREsim export replay",
+        "evidence": "src/cfiresim-export-parity.test.ts"
+      },
       "expectedLocalSuccessRate": 0.7681159420289855,
       "successRateTolerance": 0.06
     },
@@ -93,7 +163,26 @@
       "kind": "historical_rolling_window_survival",
       "modelName": "FI Calc",
       "modelCompleteness": "reconstructed",
+      "comparisonMode": "source_native_replay",
       "externalSuccessRate": 0.752,
+      "localSuccessRate": 0.752,
+      "localLabel": "FI Calc source replay",
+      "localCohortCount": 125,
+      "genericLocal": {
+        "successRate": 0.7681159420289855,
+        "cohortCount": 69,
+        "successfulCohorts": 53,
+        "failedCohorts": 16,
+        "label": "generic 1926+ local fixture"
+      },
+      "sourceNative": {
+        "successRate": 0.752,
+        "cohortCount": 125,
+        "successfulCohorts": 94,
+        "failedCohorts": 31,
+        "label": "FI Calc source replay",
+        "evidence": "src/ficalc-source-parity.test.ts"
+      },
       "expectedLocalSuccessRate": 0.7681159420289855,
       "successRateTolerance": 0.06
     },
@@ -102,6 +191,7 @@
       "kind": "policyengine_tax_snapshot",
       "modelName": "PolicyEngine US",
       "modelCompleteness": "faithful",
+      "comparisonMode": "faithful_tax_snapshot",
       "toleranceDollars": 1
     }
   ],
@@ -113,14 +203,14 @@
         "pass": true,
         "summary": {
           "successRate": 0.885,
-          "medianEndingWealth": 2916252.339408625,
+          "medianEndingWealth": 2911471.1605613427,
           "tenthPercentileEndingWealth": 160253.22309257626,
           "medianFailureYear": 2051,
-          "annualTaxEstimate": 3014.4,
+          "annualTaxEstimate": 3048.6666666666665,
           "maxIrmaaTier": 1,
           "averageHealthcarePremiumCost": 11973.466666666667,
           "firstYearTotalCashOutflow": 148694,
-          "medianLegacySurplus": 1916252.339408625
+          "medianLegacySurplus": 1911471.1605613427
         },
         "comparisons": [
           {
@@ -134,8 +224,8 @@
           {
             "metric": "median_ending_wealth",
             "expected": 2911471.1605613427,
-            "actual": 2916252.339408625,
-            "delta": 4781.178847282194,
+            "actual": 2911471.1605613427,
+            "delta": 0,
             "tolerance": 300000,
             "pass": true
           },
@@ -150,8 +240,8 @@
           {
             "metric": "annual_tax_estimate",
             "expected": 3048.6666666666665,
-            "actual": 3014.4,
-            "delta": -34.266666666666424,
+            "actual": 3048.6666666666665,
+            "delta": 0,
             "tolerance": 750,
             "pass": true
           },
@@ -166,8 +256,8 @@
           {
             "metric": "median_legacy_surplus",
             "expected": 1911471.1605613427,
-            "actual": 1916252.339408625,
-            "delta": 4781.178847282194,
+            "actual": 1911471.1605613427,
+            "delta": 0,
             "tolerance": 300000,
             "pass": true
           }
@@ -186,7 +276,7 @@
           "medianEndingWealth": 146949.4279747689,
           "tenthPercentileEndingWealth": -0.0007530907323996991,
           "medianFailureYear": 2049,
-          "annualTaxEstimate": 737.3333333333334,
+          "annualTaxEstimate": 746.2333333333333,
           "maxIrmaaTier": 1,
           "averageHealthcarePremiumCost": 12637.433333333332,
           "firstYearTotalCashOutflow": 164425,
@@ -220,8 +310,8 @@
           {
             "metric": "annual_tax_estimate",
             "expected": 746.2333333333333,
-            "actual": 737.3333333333334,
-            "delta": -8.899999999999977,
+            "actual": 746.2333333333333,
+            "delta": 0,
             "tolerance": 750,
             "pass": true
           },
@@ -254,14 +344,14 @@
         "pass": true,
         "summary": {
           "successRate": 0.99,
-          "medianEndingWealth": 5146011.6235596305,
-          "tenthPercentileEndingWealth": 1213411.4761299067,
+          "medianEndingWealth": 5121509.101647649,
+          "tenthPercentileEndingWealth": 1208754.7052229885,
           "medianFailureYear": 2053,
-          "annualTaxEstimate": 3671.5666666666666,
+          "annualTaxEstimate": 3868.9666666666667,
           "maxIrmaaTier": 1,
           "averageHealthcarePremiumCost": 11973.466666666667,
           "firstYearTotalCashOutflow": 131462,
-          "medianLegacySurplus": 4146011.6235596305
+          "medianLegacySurplus": 4121509.101647649
         },
         "comparisons": [
           {
@@ -275,24 +365,24 @@
           {
             "metric": "median_ending_wealth",
             "expected": 5121509.101647649,
-            "actual": 5146011.6235596305,
-            "delta": 24502.521911981516,
+            "actual": 5121509.101647649,
+            "delta": 0,
             "tolerance": 300000,
             "pass": true
           },
           {
             "metric": "tenth_percentile_ending_wealth",
             "expected": 1208754.7052229885,
-            "actual": 1213411.4761299067,
-            "delta": 4656.7709069182165,
+            "actual": 1208754.7052229885,
+            "delta": 0,
             "tolerance": 200000,
             "pass": true
           },
           {
             "metric": "annual_tax_estimate",
             "expected": 3868.9666666666667,
-            "actual": 3671.5666666666666,
-            "delta": -197.4000000000001,
+            "actual": 3868.9666666666667,
+            "delta": 0,
             "tolerance": 750,
             "pass": true
           },
@@ -307,8 +397,8 @@
           {
             "metric": "median_legacy_surplus",
             "expected": 4121509.101647649,
-            "actual": 4146011.6235596305,
-            "delta": 24502.521911981516,
+            "actual": 4121509.101647649,
+            "delta": 0,
             "tolerance": 300000,
             "pass": true
           }
@@ -324,14 +414,14 @@
         "pass": true,
         "summary": {
           "successRate": 0.735,
-          "medianEndingWealth": 1571600.766697246,
+          "medianEndingWealth": 1568851.0330301477,
           "tenthPercentileEndingWealth": 0,
           "medianFailureYear": 2050,
-          "annualTaxEstimate": 1187.9666666666667,
+          "annualTaxEstimate": 1190.5,
           "maxIrmaaTier": 1,
           "averageHealthcarePremiumCost": 11475.5,
           "firstYearTotalCashOutflow": 135026,
-          "medianLegacySurplus": 571600.7666972461
+          "medianLegacySurplus": 568851.0330301477
         },
         "comparisons": [
           {
@@ -345,8 +435,8 @@
           {
             "metric": "median_ending_wealth",
             "expected": 1568851.0330301477,
-            "actual": 1571600.766697246,
-            "delta": 2749.7336670984514,
+            "actual": 1568851.0330301477,
+            "delta": 0,
             "tolerance": 300000,
             "pass": true
           },
@@ -361,8 +451,8 @@
           {
             "metric": "annual_tax_estimate",
             "expected": 1190.5,
-            "actual": 1187.9666666666667,
-            "delta": -2.533333333333303,
+            "actual": 1190.5,
+            "delta": 0,
             "tolerance": 750,
             "pass": true
           },
@@ -377,8 +467,8 @@
           {
             "metric": "median_legacy_surplus",
             "expected": 568851.0330301477,
-            "actual": 571600.7666972461,
-            "delta": 2749.7336670984514,
+            "actual": 568851.0330301477,
+            "delta": 0,
             "tolerance": 300000,
             "pass": true
           }
@@ -395,14 +485,14 @@
         "pass": true,
         "summary": {
           "successRate": 0.995,
-          "medianEndingWealth": 9264298.889623009,
-          "tenthPercentileEndingWealth": 2246182.4632370016,
+          "medianEndingWealth": 9261556.659192218,
+          "tenthPercentileEndingWealth": 2245934.714339214,
           "medianFailureYear": 2055,
-          "annualTaxEstimate": 44604.76666666667,
+          "annualTaxEstimate": 44660.066666666666,
           "maxIrmaaTier": 5,
           "averageHealthcarePremiumCost": 16246.466666666667,
           "firstYearTotalCashOutflow": 163002,
-          "medianLegacySurplus": 8264298.889623009
+          "medianLegacySurplus": 8261556.6591922175
         },
         "comparisons": [
           {
@@ -416,24 +506,24 @@
           {
             "metric": "median_ending_wealth",
             "expected": 9261556.659192218,
-            "actual": 9264298.889623009,
-            "delta": 2742.2304307911545,
+            "actual": 9261556.659192218,
+            "delta": 0,
             "tolerance": 400000,
             "pass": true
           },
           {
             "metric": "tenth_percentile_ending_wealth",
             "expected": 2245934.714339214,
-            "actual": 2246182.4632370016,
-            "delta": 247.74889778764918,
+            "actual": 2245934.714339214,
+            "delta": 0,
             "tolerance": 300000,
             "pass": true
           },
           {
             "metric": "annual_tax_estimate",
             "expected": 44660.066666666666,
-            "actual": 44604.76666666667,
-            "delta": -55.299999999995634,
+            "actual": 44660.066666666666,
+            "delta": 0,
             "tolerance": 1000,
             "pass": true
           },
@@ -448,8 +538,8 @@
           {
             "metric": "median_legacy_surplus",
             "expected": 8261556.6591922175,
-            "actual": 8264298.889623009,
-            "delta": 2742.2304307911545,
+            "actual": 8261556.6591922175,
+            "delta": 0,
             "tolerance": 400000,
             "pass": true
           }
@@ -477,7 +567,7 @@
         "assumptionSource": "user_confirmed_2026_05_16_care_first_legacy_if_unused",
         "legacyAliasTodayDollars": 1000000
       },
-      "medianEndingWealth": 2144997.1607679236
+      "medianEndingWealth": 2134368.7114177025
     },
     "replayFixture": {
       "packetCount": 3,
@@ -670,11 +760,14 @@
   },
   "drift": {
     "comparedToPrevious": true,
-    "previousGeneratedAt": "2026-05-16T17:01:46.021Z",
-    "statusChanged": true,
+    "previousGeneratedAt": "2026-05-16T20:02:38.917Z",
+    "statusChanged": false,
     "warningCountDelta": 0,
     "checkDurationDeltasMs": {
-      "external anchors": 76
+      "external anchors": 38,
+      "statutory and north-star contracts": 278,
+      "model parity tier": 1726,
+      "production build": 226
     },
     "modelCompletenessDelta": {
       "faithful": 0,
@@ -689,18 +782,18 @@
         "rmd-heavy": 0
       },
       "medianEndingWealth": {
-        "baseline-near-retirement": 4781.178847282194,
+        "baseline-near-retirement": 0,
         "early-retirement-stress": 0,
-        "lower-spending": 24502.521911981516,
-        "aca-bridge": 2749.7336670984514,
-        "rmd-heavy": 2742.2304307911545
+        "lower-spending": 0,
+        "aca-bridge": 0,
+        "rmd-heavy": 0
       },
       "tenthPercentileEndingWealth": {
         "baseline-near-retirement": 0,
         "early-retirement-stress": 0,
-        "lower-spending": 4656.7709069182165,
+        "lower-spending": 0,
         "aca-bridge": 0,
-        "rmd-heavy": 247.74889778764918
+        "rmd-heavy": 0
       },
       "firstYearTotalCashOutflow": {
         "baseline-near-retirement": 0,

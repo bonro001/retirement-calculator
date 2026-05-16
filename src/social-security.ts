@@ -5,9 +5,8 @@
  * What's modeled:
  *   1. **Own-claim adjustment** — applies the actual SSA formulas for
  *      claiming early (5/9 of 1% per month for first 36 months, 5/12
- *      of 1% per month thereafter — capped at 36 months early which
- *      stops at 25% reduction for FRA 67) or late (8% per year up to
- *      age 70).
+ *      of 1% per month thereafter, down to age 62) or late (8% per
+ *      year up to age 70).
  *   2. **Spousal benefit floor** — lower-earner spouse can claim up
  *      to 50% of higher earner's PIA (FRA monthly), reduced if the
  *      LOWER earner claims early. Engine reports

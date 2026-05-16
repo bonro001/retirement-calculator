@@ -27,6 +27,10 @@ changes:
 - [x] Add quick strict verification gate.
 - [x] Run `npm run verify:model:quick:strict`.
 - [x] Run `npm run verify:model`.
+- [x] Confirm `npm run verify:model:strict` passes with zero warnings.
+- [x] Add Social Security statutory anchors for early, fractional, and delayed
+  claiming.
+- [x] Add explicit protocol for intentional break / fault-injection runs.
 
 ## Remaining Work
 
@@ -182,6 +186,24 @@ Acceptance:
 Artifact:
 
 - `docs/protected-reserve-model.md`
+
+### 11. Intentional Break / Fault-Injection Protocol
+
+- [x] Treat user-injected model breaks as test probes first, not automatic
+  repair requests.
+- [x] Label the run in notes or chat as `FAULT-INJECTION` before changing model
+  code.
+- [x] Record which invariant should fail before running the suite.
+- [x] Confirm the expected test fails for the expected reason.
+- [x] Restore model code only after the failure is proven, unless the user asks
+  to leave the break in place.
+- [x] Commit restored code and refreshed reports only after the relevant strict
+  gate returns green.
+
+Acceptance:
+
+- [x] Chaos testing remains useful: injected failures prove tests catch bad
+  model behavior, while ordinary regressions still get fixed.
 
 ## Final Proof Target
 

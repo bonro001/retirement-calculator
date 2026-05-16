@@ -40,6 +40,14 @@ describe('ownClaimAdjustmentFactor', () => {
     // → 30% reduction, factor 0.70.
     expect(ownClaimAdjustmentFactor(67, 62)).toBeCloseTo(0.7, 4);
   });
+  it('returns 0.8667 at age 65 with FRA 67 (24 months early — 13.33% reduction)', () => {
+    // SSA: 24 months × 5/9 of 1% = 13.333...% reduction.
+    expect(ownClaimAdjustmentFactor(67, 65)).toBeCloseTo(0.8666667, 4);
+  });
+  it('credits fractional delayed claiming smoothly', () => {
+    // Half a year after FRA earns half of the annual 8% delayed credit.
+    expect(ownClaimAdjustmentFactor(67, 67.5)).toBeCloseTo(1.04, 4);
+  });
   it('returns 1.24 at age 70 with FRA 67 (3 years × 8% DRC)', () => {
     expect(ownClaimAdjustmentFactor(67, 70)).toBeCloseTo(1.24, 4);
   });
