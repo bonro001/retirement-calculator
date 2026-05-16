@@ -11,6 +11,22 @@ node --import tsx scripts/import-chase-spending.ts \
   /path/to/Chase4582_Activity.csv
 ```
 
+## Model Verification Reports
+
+The Model Health screen reads the latest local verifier output from:
+
+```txt
+public/local/model-verification-report.json
+public/local/model-verification-quick-report.json
+```
+
+Refresh those files by running:
+
+```sh
+npm run verify:model:quick:strict
+npm run verify:model:strict
+```
+
 Generate the Amex travel-card backfill with:
 
 ```sh

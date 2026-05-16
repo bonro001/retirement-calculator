@@ -2,6 +2,7 @@ export type ScreenId =
   | 'six_pack'
   | 'cockpit'
   | 'income_curve'
+  | 'model_health'
   | 'mining'
   | 'history'
   | 'plan2'

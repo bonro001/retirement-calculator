@@ -13,6 +13,12 @@ const reportPath = resolve(
     ? 'artifacts/model-verification-quick-report.json'
     : 'artifacts/model-verification-report.json',
 );
+const uiReportPath = resolve(
+  repoRoot,
+  mode === 'quick'
+    ? 'public/local/model-verification-quick-report.json'
+    : 'public/local/model-verification-report.json',
+);
 
 const fullChecks = [
   {
@@ -543,11 +549,15 @@ function main() {
   }
 
   mkdirSync(dirname(reportPath), { recursive: true });
-  writeFileSync(reportPath, `${JSON.stringify(report, null, 2)}\n`);
+  const reportJson = `${JSON.stringify(report, null, 2)}\n`;
+  writeFileSync(reportPath, reportJson);
+  mkdirSync(dirname(uiReportPath), { recursive: true });
+  writeFileSync(uiReportPath, reportJson);
 
   console.log(`\n=== verify:model ${mode} summary ===`);
   console.log(`status: ${report.status}`);
   console.log(`report: ${reportPath}`);
+  console.log(`ui-report: ${uiReportPath}`);
   console.log(`warnings: ${warnings.length}`);
   if (strict) {
     console.log(`strict-failures: ${report.strict.failures.length}`);

@@ -29,6 +29,7 @@ import {
 import { TaxesScreen } from './screens/TaxesScreen';
 import { IncomeScreen } from './screens/IncomeScreen';
 import { IncomeCurveScreen } from './screens/IncomeCurveScreen';
+import { ModelHealthScreen } from './screens/ModelHealthScreen';
 import { SocialSecurityScreen } from './screens/SocialSecurityScreen';
 import { SpendingScreen } from './screens/SpendingScreen';
 import { SixPackScreen } from './screens/SixPackScreen';
@@ -224,6 +225,15 @@ const navigation: {
     section: 'analyze',
     // Lightning bolt — "compute / generate"
     iconPath: 'M13 2 4.09 12.97a.5.5 0 0 0 .39.81H11l-1 8.22 8.91-10.97a.5.5 0 0 0-.39-.81H13l0-7.22Z',
+  },
+  {
+    id: 'model_health',
+    label: 'Model Health',
+    shortLabel: 'Health',
+    section: 'analyze',
+    // Pulse line — verifier status and drift.
+    iconPath:
+      'M3.5 12h3l2-5 4 10 2.5-6h5.5M5 20h14a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2Z',
   },
   {
     id: 'simulation',
@@ -758,6 +768,7 @@ export function App() {
     'six_pack',
     'cockpit',
     'income_curve',
+    'model_health',
     'plan2',
     'mining',
     'simulation',
@@ -1825,6 +1836,7 @@ export function App() {
                 />
               )}
               {currentScreen === 'income_curve' && <IncomeCurveScreen />}
+              {currentScreen === 'model_health' && <ModelHealthScreen />}
               {currentScreen === 'income' && <IncomeScreen />}
               {currentScreen === 'social_security' && <SocialSecurityScreen />}
               {currentScreen === 'taxes' && <TaxesScreen />}
