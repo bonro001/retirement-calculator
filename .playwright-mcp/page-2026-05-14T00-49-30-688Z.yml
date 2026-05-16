@@ -1,0 +1,253 @@
+- generic [ref=e4]:
+  - complementary [ref=e5]:
+    - generic [ref=e7]:
+      - paragraph [ref=e8]: Welcome to Flight Path
+      - heading "Compare futures, not just scenarios." [level=1] [ref=e9]
+    - navigation [ref=e10]:
+      - generic [ref=e11]:
+        - paragraph [ref=e12]: Today
+        - generic [ref=e13]:
+          - button "6 Pack" [ref=e14]:
+            - img [ref=e15]
+            - generic [ref=e17]: 6 Pack
+          - button "Cockpit" [ref=e18]:
+            - img [ref=e19]
+            - generic [ref=e21]: Cockpit
+          - button "Plan 2.0" [ref=e22]:
+            - img [ref=e23]
+            - generic [ref=e25]: Plan 2.0
+          - button "Spending" [ref=e26]:
+            - img [ref=e27]
+            - generic [ref=e29]: Spending
+      - generic [ref=e30]:
+        - paragraph [ref=e31]: Analyze
+        - generic [ref=e32]:
+          - button "Re-run Model" [ref=e33]:
+            - img [ref=e34]
+            - generic [ref=e36]: Re-run Model
+          - button "Stress Test" [ref=e37]:
+            - img [ref=e38]
+            - generic [ref=e40]: Stress Test
+          - button "History" [ref=e41]:
+            - img [ref=e42]
+            - generic [ref=e44]: History
+      - generic [ref=e45]:
+        - paragraph [ref=e46]: Configure
+        - generic [ref=e47]:
+          - button "Accounts" [ref=e48]:
+            - img [ref=e49]
+            - generic [ref=e51]: Accounts
+          - button "Social Security" [ref=e52]:
+            - img [ref=e53]
+            - generic [ref=e55]: Social Security
+          - button "Income" [ref=e56]:
+            - img [ref=e57]
+            - generic [ref=e59]: Income
+          - button "Taxes" [ref=e60]:
+            - img [ref=e61]
+            - generic [ref=e63]: Taxes
+          - button "Export" [ref=e64]:
+            - img [ref=e65]
+            - generic [ref=e67]: Export
+  - main [ref=e68]:
+    - generic [ref=e71]:
+      - generic [ref=e72]:
+        - heading "Monthly review" [level=1] [ref=e73]
+        - paragraph [ref=e74]: "One workflow for the sleep-at-night process: compare strategy models, mine the policy space, review the winner, then move to adoption only after approval."
+      - generic [ref=e75]:
+        - generic [ref=e76]:
+          - generic [ref=e77]:
+            - paragraph [ref=e78]: Monthly Review Workspace
+            - heading "Run the whole process from here" [level=2] [ref=e79]
+            - paragraph [ref=e80]: Settings collapse forward as the review progresses, so the next relevant step stays closest to the surface.
+          - generic [ref=e81]:
+            - generic [ref=e82]:
+              - paragraph [ref=e83]: 1. Models
+              - paragraph [ref=e84]: Choose basis
+            - generic [ref=e85]:
+              - paragraph [ref=e86]: 2. Mine
+              - paragraph [ref=e87]: Running
+            - generic [ref=e88]:
+              - paragraph [ref=e89]: 3. Review
+              - paragraph [ref=e90]: Gates
+            - generic [ref=e91]:
+              - paragraph [ref=e92]: 4. Adopt
+              - paragraph [ref=e93]: After review
+        - group [ref=e94]:
+          - generic "Strategy models and review settings" [ref=e95] [cursor=pointer]
+          - generic [ref=e96]:
+            - generic [ref=e97]:
+              - generic [ref=e98]:
+                - paragraph [ref=e99]: Run spending models
+                - button "Show J.P. Morgan spending curve" [ref=e100]: i
+              - paragraph [ref=e101]: Compare the current faithful plan against J.P. Morgan-style retirement spending curves. Each selected row runs both the forward-looking engine and the historical-precedent engine.
+              - paragraph [ref=e102]: "Interactive read: 120 seeded trials per mode. Current travel reference: $13,425/yr."
+            - button "Run models" [ref=e103]
+          - generic [ref=e104]:
+            - generic [ref=e105]:
+              - paragraph [ref=e106]: Baseline rows
+              - generic [ref=e107]:
+                - checkbox "Current faithful" [checked] [ref=e108]
+                - text: Current faithful
+              - generic [ref=e109]:
+                - checkbox "J.P. Morgan curve, travel included" [checked] [ref=e110]
+                - text: J.P. Morgan curve, travel included
+            - generic [ref=e111]:
+              - paragraph [ref=e112]: Extra travel modifier
+              - generic [ref=e113]:
+                - generic [ref=e114]:
+                  - text: $/yr
+                  - spinbutton "$/yr" [ref=e115]: "0"
+                - generic [ref=e116]:
+                  - text: Years
+                  - spinbutton "Years" [ref=e117]: "0"
+              - generic [ref=e118]:
+                - checkbox "Run J.P. Morgan plus explicit extra travel" [disabled] [ref=e119]
+                - text: Run J.P. Morgan plus explicit extra travel
+            - generic [ref=e120]:
+              - paragraph [ref=e121]: Stress rows
+              - generic [ref=e122]:
+                - checkbox "Early spending surge" [ref=e123]
+                - text: Early spending surge
+              - generic [ref=e124]:
+                - checkbox "Early volatility shock" [checked] [ref=e125]
+                - text: Early volatility shock
+              - generic [ref=e126]:
+                - checkbox "Age-75 volatility shock" [checked] [ref=e127]
+                - text: Age-75 volatility shock
+              - generic [ref=e128]:
+                - checkbox "Partial-retirement transition applies" [ref=e129]
+                - text: Partial-retirement transition applies
+          - paragraph [ref=e130]: Run the comparison when you want a quick side-by-side read before launching a larger mine.
+        - group [ref=e131]:
+          - generic "Mining engine and corpus" [ref=e132] [cursor=pointer]
+          - paragraph [ref=e208]: Monthly Review runs these mines automatically. The manual controls stay here for reruns, diagnostics, and narrowed follow-up searches.
+          - generic [ref=e210]:
+            - generic [ref=e211]:
+              - paragraph [ref=e212]: Policy Mining
+              - generic [ref=e213]: running
+            - generic [ref=e214]:
+              - generic [ref=e215]: connected
+              - generic [ref=e216]: ws://localhost:8765
+              - button "edit" [ref=e217]
+              - button "disconnect" [ref=e218]
+            - generic [ref=e219]:
+              - generic [ref=e220]:
+                - paragraph [ref=e221]: Evaluated
+                - paragraph [ref=e222]: 3M / 12M
+                - paragraph [ref=e223]: policy-trials · 3,296 / 12,342 policies · 27% complete
+              - generic [ref=e224]:
+                - paragraph [ref=e225]: Throughput
+                - paragraph [ref=e226]: 98M/min
+                - paragraph [ref=e227]: 3M / 12M policy-trials
+              - generic [ref=e228]:
+                - paragraph [ref=e229]: Elapsed
+                - paragraph [ref=e230]: 0s
+                - paragraph [ref=e231]: ~0 min remaining
+              - generic [ref=e232]:
+                - paragraph [ref=e233]: Best so far
+                - paragraph [ref=e234]: 100%
+                - paragraph [ref=e235]: solvency · legacy 87% · spend $110k/yr, bequest $2.5M
+            - generic [ref=e237]:
+              - button "Start mine" [disabled] [ref=e238]
+              - generic [ref=e239]: "Basis: Current faithful"
+              - button "Cancel" [ref=e240]
+              - generic [ref=e241]: "floor: $80k/yr"
+            - generic [ref=e242]:
+              - generic [ref=e243]:
+                - paragraph [ref=e244]: Performance
+                - generic [ref=e245]: engine compute and tape cache are likely the next limit
+              - generic [ref=e246]:
+                - generic [ref=e247]:
+                  - paragraph [ref=e248]: Utilization
+                  - paragraph [ref=e249]: 99%
+                  - paragraph [ref=e250]: idle debt 0s
+                - generic [ref=e251]:
+                  - paragraph [ref=e252]: Batching
+                  - paragraph [ref=e253]: 77.7 pol/batch
+                  - paragraph [ref=e254]: 8,534 pending · 8 in flight · 1.1/pump
+                - generic [ref=e255]:
+                  - paragraph [ref=e256]: Backpressure
+                  - paragraph [ref=e257]: 0 capacity nacks
+                  - paragraph [ref=e258]: 0 requeued · 0 dropped
+                - generic [ref=e259]:
+                  - paragraph [ref=e260]: Latency
+                  - paragraph [ref=e261]: 319ms
+                  - paragraph [ref=e262]: queue 212ms · write 1ms
+                - generic [ref=e263]:
+                  - paragraph [ref=e264]: Runtime Mix
+                  - paragraph [ref=e265]: 2/2 Rust compact
+                  - paragraph [ref=e266]: all live hosts on compiled path
+            - generic [ref=e267]:
+              - generic [ref=e268]:
+                - paragraph [ref=e269]: Compute hosts
+                - generic [ref=e270]: 2 live · 0 stale · 0 offline
+              - generic [ref=e271]:
+                - generic [ref=e272]:
+                  - generic [ref=e273]:
+                    - generic [ref=e277]: live
+                    - text: ath-mac-host
+                  - generic [ref=e278]: 8w · M-series · Rust compact
+                  - generic [ref=e279]: 54.5k pol/min
+                  - generic [ref=e284]: 8/8
+                  - generic [ref=e285]: just now
+                - generic [ref=e286]:
+                  - generic [ref=e287]:
+                    - generic [ref=e291]: live
+                    - text: node-host-Mac-Mini-Upstairs.local
+                  - generic [ref=e292]: 8w · M-series · Rust compact
+                  - generic [ref=e293]: 38.3k pol/min
+                  - generic [ref=e298]: 8/8
+                  - generic [ref=e299]: just now
+          - generic [ref=e300]:
+            - generic [ref=e301]:
+              - generic [ref=e302]:
+                - paragraph [ref=e303]: Mined Plan Candidates
+                - paragraph [ref=e304]: 0 candidates clear gates of 20k evaluated · sorted by highest annual spend
+              - generic [ref=e305]:
+                - generic [ref=e306]:
+                  - generic [ref=e307]: Spend
+                  - combobox [ref=e308]:
+                    - option "All" [selected]
+                    - option "$115k"
+                    - option "$116k"
+                    - option "$117k"
+                    - option "$118k"
+                    - option "$119k"
+                    - option "$120k"
+                    - option "$155k"
+                    - option "$156k"
+                    - option "$157k"
+                    - option "$158k"
+                    - option "$159k"
+                    - option "$160k"
+                  - generic [ref=e309]: $115k-$120k/yr + $155k-$160k/yr · $1k steps
+                - generic [ref=e310]:
+                  - generic [ref=e311]: Min solvency
+                  - slider [ref=e312] [cursor=pointer]: "0.8"
+                  - generic [ref=e313]: 80%
+                  - generic [ref=e314]: Legacy floor 85%
+            - paragraph [ref=e315]: No candidates clear the 80% solvency floor and 85% legacy floor. Lower the solvency threshold or wait for more policies to be mined.
+        - group [ref=e133]:
+          - generic "Certification, AI co-review, and approval" [ref=e134] [cursor=pointer]
+          - generic [ref=e135]:
+            - generic [ref=e136]: Run spending models first; after the mine completes, this section will ask which model basis to certify.
+            - generic [ref=e137]:
+              - generic [ref=e138]:
+                - generic [ref=e139]:
+                  - paragraph [ref=e140]: Monthly Review
+                  - heading "Sleep-at-night max spend" [level=2] [ref=e141]
+                  - paragraph [ref=e142]: "Runs the structured monthly review over Current Faithful and J.P. Morgan travel-included corpora, certifies candidates, sends the validation packet to the dispatcher for AI co-review, and reports green approval or blockers. Selected model basis: Current Faithful."
+                - button "Running..." [disabled] [ref=e316]
+              - paragraph [ref=e317]: "Current Faithful pass 1: 2,656 / 12,342 policies"
+              - generic [ref=e318]:
+                - generic [ref=e319]:
+                  - paragraph [ref=e320]: Review transaction log
+                  - paragraph [ref=e321]: Last 6 events
+                - generic [ref=e322]:
+                  - generic [ref=e323]: 7:49:28 PM review button pressed
+                  - generic [ref=e324]: 7:49:28 PM connecting to dispatcher/cluster controller
+                  - generic [ref=e325]: 7:49:28 PM cluster connected (5 peers)
+                  - generic [ref=e326]: "7:49:28 PM Current Faithful: mining fingerprint ready"
+                  - generic [ref=e327]: "7:49:28 PM Current Faithful: deterministic mining seed 1884315824"
+                  - generic [ref=e328]: "7:49:28 PM Current Faithful pass 1: start requested (full corpus, 1,000 trials each)"

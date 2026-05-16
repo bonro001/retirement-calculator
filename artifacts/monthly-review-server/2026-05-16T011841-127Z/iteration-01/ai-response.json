@@ -1,0 +1,425 @@
+{
+  "verdict": "insufficient_data",
+  "confidence": "high",
+  "summary": "This packet is not approval-ready: the recommendation is blocked, no selected policy is attached, no green deterministic certification exists, and the spend boundary is not proven. The mined corpus is present and includes candidate outcome rows, but those rows cannot substitute for a selected, green-certified spending recommendation with yearly path evidence. The household also has two act-now operational issues: a cash-runway shortfall and a 28% FCNTX concentration.",
+  "findings": [
+    {
+      "id": "selected_candidate_metrics",
+      "status": "fail",
+      "title": "No selected candidate metrics are attached",
+      "detail": "There is no selected spending candidate to approve. The recommendation is explicitly blocked, with strategyId, policyId, annualSpendTodayDollars, monthlySpendTodayDollars, and certificationVerdict all null. The corpus does include top-candidate rows at $110,000 annual spend, and those rows report ending-wealth percentiles, but they are not a selected household recommendation. Across the displayed $110,000 top candidates, p10 ending wealth ranges from about $387,950 to $962,803, which is below the $1,000,000 legacy target; p25 ranges from about $846,705 to $1,472,152; p50 ranges from about $1,717,757 to $2,482,130, which is above the legacy target; p75 ranges from about $3,207,182 to $4,136,714; and p90 ranges from about $5,368,890 to $6,433,800. A p10 below the legacy target would normally be a watch item if deterministic certification passed, but here there is no selected green-certified candidate at all.",
+      "evidence": [
+        "selectedPolicy=null",
+        "recommendation.status=blocked",
+        "recommendation.summary=No green certified core monthly spend candidate is available.",
+        "recommendation.policyId=null",
+        "rawExportEvidence.selectedPolicy=null",
+        "proofRows.topCandidates annualSpendTodayDollars=110000",
+        "topCandidate p10 range approximately 387950 to 962803",
+        "topCandidate p25 range approximately 846705 to 1472152",
+        "topCandidate p50 range approximately 1717757 to 2482130",
+        "topCandidate p75 range approximately 3207182 to 4136714",
+        "topCandidate p90 range approximately 5368890 to 6433800",
+        "northStar.legacyTargetTodayDollars=1000000"
+      ],
+      "recommendation": "Do not treat any top-candidate row as the household recommendation until a selected policy with full outcome metrics and certification is emitted."
+    },
+    {
+      "id": "north_star_legacy_alignment",
+      "status": "fail",
+      "title": "North Star alignment is not proven",
+      "detail": "The stated objective is to maximize monthly spend subject to sleep-at-night gates with a $1,000,000 legacy target and a green-only approval standard. The available deterministic certification rows are all yellow, with forward-looking North Star legacy attainment ranging from 71% to 84%, below the 85% watch threshold cited by the certification engine. Some displayed corpus rows show median ending wealth above $1,000,000, but without a selected policy and green certification they do not prove the household can spend that amount while satisfying the stated gates. This is a real approval problem, not merely a preference issue.",
+      "evidence": [
+        "legacyTargetTodayDollars=1000000",
+        "legacyGate=0.85",
+        "solvencyGate=0.8",
+        "bequestAttainmentRate=missing",
+        "solventSuccessRate=missing",
+        "p10EndingWealthTodayDollars=missing",
+        "p50EndingWealthTodayDollars=missing",
+        "northStar.objective=maximize_monthly_spend_subject_to_sleep_at_night_gates",
+        "northStar.legacyTargetTodayDollars=1000000",
+        "northStar.approvalStandard=green_only",
+        "certificationSummary verdicts=yellow only",
+        "legacy attainment examples: 71%, 75%, 80%, 84%",
+        "certification reason: Forward-looking North Star legacy attainment is below the 85% watch threshold"
+      ],
+      "recommendation": "Mine and certify lower or otherwise adjusted spend policies until one clears the deterministic green gates without changing the household thresholds."
+    },
+    {
+      "id": "corpus_search_evidence",
+      "status": "pass",
+      "title": "Mined corpus evidence is present",
+      "detail": "The packet does include a mined search corpus for the Current Faithful strategy, with 8,712 evaluated policies and top-candidate rows. That makes the packet partially reviewable: there is evidence of search activity and candidate outcome metrics. However, corpus presence is not the same as approval; the search did not produce a selected green-certified policy, and the top rows are not attached as the selected spending recommendation.",
+      "evidence": [
+        "strategyId=current_faithful",
+        "corpusEvaluationCount=8712",
+        "selectedPolicyId=none",
+        "strategies[0].id=current_faithful",
+        "strategies[0].corpusEvaluationCount=8712",
+        "proofRows.topCandidates count=8",
+        "rawExportEvidence.evidenceLimits.topCandidateRows=8",
+        "recommendation.status=blocked"
+      ],
+      "recommendation": "Keep the corpus evidence, but rerun selection/certification so the review packet identifies the actual candidate, if any, that is being proposed."
+    },
+    {
+      "id": "spend_boundary_evidence",
+      "status": "fail",
+      "title": "Spend boundary is not proven",
+      "detail": "The spend boundary is explicitly unproven. The strategy reports a highest tested spend of $145,000, but no highest green spend and no higher-spend comparison rows. Because the north star is to maximize monthly spend subject to gates, the review needs proof that the selected spend is the highest or appropriate green level under the search design. That proof is absent.",
+      "evidence": [
+        "boundaryProven=false",
+        "highestGreenSpendTodayDollars=missing",
+        "highestSpendTestedTodayDollars=145000",
+        "higherSpendLevelsTested=none",
+        "spendBoundary.highestSpendTestedTodayDollars=145000",
+        "spendBoundary.highestGreenSpendTodayDollars=null",
+        "spendBoundary.higherSpendLevelsTested=[]",
+        "spendBoundary.boundaryProven=false",
+        "proofRows.higherSpendRowsTested=[]"
+      ],
+      "recommendation": "Rebuild the spend-boundary evidence after a green candidate exists, including lower and higher tested spend levels around the candidate."
+    },
+    {
+      "id": "certification_evidence",
+      "status": "fail",
+      "title": "Deterministic certification does not approve any candidate",
+      "detail": "Real certification evidence is present, but it is not favorable: every listed certification row is yellow, and the recommendation has no selected certification verdict. The reasons are material, including weak legacy attainment in the forward-looking case and non-green results under bad early markets, high inflation, layoff, late inheritance, and perfect-storm stress cases. This blocks approval under the household's green-only standard.",
+      "evidence": [
+        "certificationSummary=missing",
+        "certificationSummary rows=8",
+        "all certificationSummary.verdict=yellow",
+        "rawExportEvidence.proofRows.certificationRows all verdict=yellow",
+        "recommendation.certificationVerdict=null",
+        "reason example: Perfect storm legacy 44% to 69% depending on row",
+        "reason example: Forward-looking North Star legacy attainment 71% to 84%"
+      ],
+      "recommendation": "Use the failed certification reasons to drive the next search iteration rather than approving any current row."
+    },
+    {
+      "id": "assumption_provenance",
+      "status": "watch",
+      "title": "Several assumptions are explicit but still provisional",
+      "detail": "The packet has useful provenance for many assumptions, including user-confirmed windfall deployment and home-sale reinvestment policy. But several material assumptions remain estimated or pending verification: employer plan features are pending plan-document verification, 2027 contribution limits are planning estimates, the home sale is estimated with timing and amount uncertainty, and the inheritance has a modeled year but missing certainty. This is not necessarily a code bug; it is an assumption-quality watch item that should stay visible because these assumptions affect salary transition, contributions, taxes, liquidity, and legacy outcomes.",
+      "evidence": [
+        "assumptionProvenanceTasks=0",
+        "planFeatureAssumptionSource=estimated_pending_plan_document",
+        "employerMatch.verificationStatus=user_confirmed_pending_document",
+        "contributionLimits.assumptionSource=planning_estimate_for_2027_final_paycheck_window",
+        "inheritance year=2028, certainty=missing",
+        "home_sale certainty=estimated",
+        "home_sale timingUncertaintyYears=2",
+        "home_sale amountUncertaintyPercent=0.3",
+        "windfallDeploymentPolicy.assumptionSource=user_confirmed_invest_unspent_windfall_and_home_sale_cash_in_current_portfolio_mix"
+      ],
+      "recommendation": "Before relying on a future green recommendation, verify the employer plan document and confirm whether the inheritance and home-sale timing assumptions remain the household's best estimate."
+    },
+    {
+      "id": "life_model_trace",
+      "status": "watch",
+      "title": "Life-to-model trace is mostly coherent, with two material watch gaps",
+      "detail": "The life-model audit reconstructs the major money flows. Salary of $210,000 runs until 2027-07-01, is taxed as ordinary wage income, funds annual cashflow, and sends modeled contributions to retirement and HSA accounts. Social Security is modeled for Rob and Debbie at age 67, enters annual cashflow, and is taxed through the federal provisional-income logic. The 2028 $500,000 inheritance is modeled as non-taxable cash; same-year spending can use it first, and any remainder is swept to a taxable shadow sleeve invested in the current portfolio mix with taxable market returns. The 2037 home sale is modeled as a primary-home-sale event with $1,000,000 gross value, $500,000 liquidity, replacement-home and transaction-cost assumptions, same-year spending use, and taxable shadow-sleeve reinvestment of unspent proceeds using the current portfolio mix. Spending is modeled as $126,587 annual core plus $14,000 early-retirement travel, but there is no selectedPolicy.spendingPath, so the actual selected retirement spending curve cannot be audited. This is internally coherent, but materialUnresolvedEventCount=2 remains because the inheritance timing certainty is missing and the home sale is estimated; that makes this a life-model gap rather than a pure code bug.",
+      "evidence": [
+        "modelCompleteness=reconstructed",
+        "unresolvedEventCount=2",
+        "materialUnresolvedEventCount=2",
+        "cash_in_inheritance:watch:timing=inferred",
+        "cash_in_home_sale:watch:timing=inferred",
+        "lifeModelAudit.modelCompleteness=reconstructed",
+        "lifeModelAudit.unresolvedEventCount=2",
+        "lifeModelAudit.materialUnresolvedEventCount=2",
+        "salaryAnnual=210000",
+        "salaryEndDate=2027-07-01",
+        "employee401kPreTaxPercent=0.1499",
+        "hsaPercent=0.0159",
+        "rob:fraMonthly=4100:claimAge=67",
+        "debbie:fraMonthly=1444:claimAge=67",
+        "inheritance amount=500000, year=2028, taxTreatment=cash_non_taxable",
+        "inheritance certainty=missing",
+        "home_sale amount=1000000, liquidityAmount=500000, replacementHomeCost=500000",
+        "home_sale certainty=estimated, timingUncertaintyYears=2, amountUncertaintyPercent=0.3",
+        "windfallDeploymentPolicy.destinationAccount=taxable",
+        "windfallDeploymentPolicy.trackingMode=taxable_shadow_sleeve",
+        "windfallDeploymentPolicy.spendBeforeDeploy=true",
+        "windfallDeploymentPolicy.investmentPolicy=current_portfolio_mix",
+        "futureReturns=taxable_market_returns",
+        "annualCoreSpend=126587",
+        "travelEarlyRetirementAnnual=14000",
+        "annualWithTravelSpend=140587",
+        "rawExportEvidence.selectedPolicy=null"
+      ],
+      "recommendation": "Keep the windfall and home-sale deployment policy, but do not approve a spending recommendation until selected spending-path rows are attached and the unresolved event assumptions are reviewed."
+    },
+    {
+      "id": "yearly_path_evidence",
+      "status": "fail",
+      "title": "Selected yearly path evidence is absent",
+      "detail": "There are no selected yearly rows. That prevents review of the retirement transition year, cashflows, MAGI, taxes, ACA premiums and subsidies, IRMAA exposure, withdrawals, Roth conversions, and whether the spending path is actually funded year by year. This is especially important because the packet contains an ACA bridge signal and a known 2027 transition-year issue.",
+      "evidence": [
+        "yearlyPathRows=0",
+        "rawExportEvidence.yearlyPathEvidence=[]",
+        "householdSignals.aca_bridge_breach evidence: selectedPathEvidence.yearlyRows=0",
+        "rawExportEvidence.evidenceLimits.yearlyPathRows=12"
+      ],
+      "recommendation": "Rerun real certification or export the selected-policy yearly path rows before asking for approval."
+    },
+    {
+      "id": "withdrawal_tax_healthcare_evidence",
+      "status": "fail",
+      "title": "Withdrawal, tax, and healthcare design exists but selected-path proof is missing",
+      "detail": "The model has the right kinds of mechanisms turned on: guardrail withdrawals, tax-aware withdrawal rows in the corpus, Roth conversion policy, ACA and Medicare premium assumptions, IRMAA awareness, HSA/LTC strategy, and long-term-care stress assumptions. But without selected yearly path evidence, the review cannot verify how these mechanisms actually interact in the selected retirement path. There is also a model/data bug risk in the top-candidate table: several rows show medianLifetimeFederalTaxTodayDollars=0 despite salary, pretax balances, Social Security, and taxable events existing elsewhere in the packet; that may be explainable, but it should not be accepted silently.",
+      "evidence": [
+        "selectedPolicy=null",
+        "rules.withdrawalStyle=guardrails",
+        "proofRows.topCandidates withdrawalRule=tax_bracket_waterfall",
+        "rules.rothConversionPolicy.enabled=true",
+        "rules.rothConversionPolicy.strategy=aca_then_irmaa_headroom",
+        "healthcarePremiums.baselineAcaPremiumAnnual=14400",
+        "healthcarePremiums.baselineMedicarePremiumAnnual=2220",
+        "healthcarePremiums.medicalInflationAnnual=0.055",
+        "rules.irmaaAware=true",
+        "rules.hsaStrategy.withdrawalMode=ltc_reserve",
+        "rules.ltcAssumptions.enabled=true",
+        "proofRows.topCandidates include medianLifetimeFederalTaxTodayDollars=0 for several policies",
+        "rawExportEvidence.yearlyPathEvidence=[]"
+      ],
+      "recommendation": "Attach selected yearly tax, MAGI, withdrawal, Roth conversion, ACA, Medicare, IRMAA, and HSA/LTC rows; investigate zero-tax candidate rows before relying on them."
+    },
+    {
+      "id": "household_signal_checklist",
+      "status": "watch",
+      "title": "Household signals include two act-now items and two evidence watch items",
+      "detail": "Signal roll-up: aca_bridge_breach is watch because selected-policy MAGI, ACA premium, subsidy, and net-cost rows are absent; cash_runway_gap is act_now because direct cash is $53,571 below the 18-month target; holding_concentration is act_now because FCNTX is 28% of the total portfolio and 100% of the Authorized Roth IRA; legacy_headroom is watch because selected-policy ending-wealth percentiles are missing. These signals are not all automatic plan failures, but the act-now items need household decisions and the evidence watch items block approval until the missing proof is attached.",
+      "evidence": [
+        "aca_bridge_breach:watch:No selected yearly MAGI path attached:knownDecision=none:disposition=possible_model_bug; okContext=A missing row can be acceptable only during a dry run or when certification has not produced healthcare evidence yet.; bugCheck=Treat this as a model evidence bug if real certification ran but selectedPathEvidence.yearlyRows is still empty.; decision=Rerun real certification and confirm the 2027 bridge-year MAGI row is present before judging the ACA tradeoff.",
+        "cash_runway_gap:act_now:$53,571 short of 18-month target:knownDecision=none:disposition=needs_action; okContext=This is a problem until a funding source, transfer plan, or explicit waiver is recorded.; bugCheck=Check for a bug if bank/cash balances are stale, cash held inside brokerage accounts is double-counted or excluded, or the essential-plus-fixed monthly target is not tied to current seed spending.; decision=Choose whether to fill the cash bucket, document the source of backup liquidity, or intentionally waive the 18-month target.",
+        "holding_concentration:act_now:FCNTX is 28% of portfolio:knownDecision=none:disposition=needs_action; okContext=This is a problem until the household records a rebalance plan, staged rebalance, or explicit acceptance of concentration risk.; bugCheck=Check for a bug if duplicate holdings were merged incorrectly, account balances do not match holding totals, or fund tickers were imported into the wrong source account.; decision=Decide whether to rebalance, stage the rebalance, or explicitly accept the single-holding exposure until the next review.",
+        "legacy_headroom:watch:Median legacy ratio unavailable:knownDecision=none:disposition=possible_model_bug; okContext=Missing ending-wealth data is acceptable only in an incomplete diagnostic packet.; bugCheck=Treat as a model evidence bug if the selected policy has certification but no p50 ending wealth outcome.; decision=Attach selected outcome percentiles and rerun before interpreting legacy headroom.",
+        "signal aca_bridge_breach status=watch",
+        "signal cash_runway_gap status=act_now",
+        "signal holding_concentration status=act_now",
+        "signal legacy_headroom status=watch",
+        "cashGap=53571",
+        "largestHoldingPortfolioShare=0.2763",
+        "p50EndingWealthTodayDollars=missing"
+      ],
+      "recommendation": "Address the act-now operational items separately from the model-evidence gaps so portfolio/cash decisions do not get confused with certification approval."
+    },
+    {
+      "id": "model_tasks",
+      "status": "fail",
+      "title": "Critical model task blocks approval",
+      "detail": "A critical structural task is open: the review could not find a strategy with green deterministic certification. This directly blocks approval and matches the recommendation status. The next step is not an AI override; it is to inspect the failed certification rows and mine or certify adjusted candidates under the existing thresholds.",
+      "evidence": [
+        "uncertified-strategy-gap:critical:true",
+        "structuralTasks[0].id=uncertified-strategy-gap",
+        "structuralTasks[0].severity=critical",
+        "structuralTasks[0].status=open",
+        "structuralTasks[0].blocksApproval=true",
+        "structuralTasks[0].detail=The monthly review could not find a strategy with a green deterministic certification.",
+        "recommendation.blockingTaskIds includes uncertified-strategy-gap"
+      ],
+      "recommendation": "Resolve the critical task by generating a green-certified candidate or clearly documenting that no approval recommendation is available this month."
+    },
+    {
+      "id": "signal_aca_bridge_breach",
+      "status": "watch",
+      "title": "ACA bridge evidence is missing even though the 2027 subsidy loss appears to be a known tradeoff",
+      "detail": "Category: model/data bug risk with a known household tradeoff noted in rules. The backstory is that 2027 is the retirement transition year: salary runs until 2027-07-01, and the packet says the 2027 ACA subsidy loss is expected from final payroll/taxable income and the selected spend path. The Roth low-income bracket-fill policy starts in 2028, after the wage-income transition year, which supports the idea that 2027 higher MAGI may be intentional rather than a modeling surprise. This connects directly to the selected spending level because ACA bridge affordability depends on the actual yearly MAGI, premium, subsidy, and net ACA cost after salary, withdrawals, Roth conversions, and taxable income are modeled. The problem is that no selected yearly MAGI rows are attached, so the review cannot confirm that the net ACA cost is actually included in the selected path. The rules include a user-confirmed decision to accept the 2027 subsidy loss unless a MAGI-constrained alternative is requested; that decision would become wrong or surprising if the selected path omits net ACA cost, if MAGI components are missing or double-counted, if ACA/FPL thresholds are stale, if ages or salary-end dates are wrong, or if a subsidy-preserving alternative can achieve the same certified spending with better after-tax results. What resolves this is a real certification export with the 2027 bridge-year MAGI, ACA premium, subsidy, and net-cost row. This would look like a model/data bug rather than a real household tradeoff if real certification ran but selectedPathEvidence.yearlyRows remains empty, or if the 2027 MAGI path contradicts the salary end date and Roth conversion policy.",
+      "evidence": [
+        "signal.id=aca_bridge_breach",
+        "signal.status=watch",
+        "signal.headline=No selected yearly MAGI path attached",
+        "selectedPathEvidence.yearlyRows=0",
+        "salaryEndDate=2027-07-01",
+        "rules.monthlyReviewIssueAnnotations[0].disposition=intentional_tradeoff",
+        "rules.monthlyReviewIssueAnnotations[0].decision=Accept the 2027 subsidy loss in the current review unless a MAGI-constrained alternative is explicitly requested to price the subsidy-preserving path.",
+        "Roth low-income bracket fill starts in 2028",
+        "healthcarePremiums.baselineAcaPremiumAnnual=14400"
+      ],
+      "recommendation": "Rerun certification and require the 2027 MAGI, ACA premium, subsidy, and net ACA cost row before judging whether the ACA bridge tradeoff is acceptable."
+    },
+    {
+      "id": "signal_cash_runway_gap",
+      "status": "fail",
+      "title": "Cash runway shortfall needs a household liquidity decision",
+      "detail": "Category: real problem needing a decision. The household has $50,000 of direct cash against an 18-month target of $103,571, leaving a $53,571 gap. The backstory is operational rather than Monte Carlo-based: with essential-plus-fixed spending of $5,754 per month, current cash covers about 8.7 months, and direct cash is only 0.39 years of core spending. This connects to the spending and portfolio plan because the seed spending level is $126,587 annual core, or $140,587 with early-retirement travel, and a thin cash buffer may force taxable sales, payroll-deferral changes, or portfolio withdrawals at inconvenient times. The household has not yet stated its intent in the packet. Likely resolution paths are: fill the cash bucket from taxable or other liquid assets, document a specific backup liquidity source instead of holding the full target in bank cash, or intentionally waive the 18-month target for this review. It would indicate a model/data bug rather than a real liquidity issue if bank balances are stale, brokerage cash is excluded or double-counted, or the essential-plus-fixed monthly target is not tied to current seed spending.",
+      "evidence": [
+        "signal.id=cash_runway_gap",
+        "signal.status=act_now",
+        "directCashBalance=50000",
+        "essentialWithFixedMonthly=5754",
+        "targetCashRunway=103571",
+        "cashGap=53571",
+        "runwayGapMonths=9.31",
+        "directCashYearsOfCoreSpend=0.39",
+        "annualCoreSpend=126587",
+        "annualWithTravelSpend=140587"
+      ],
+      "recommendation": "Choose and record one liquidity policy before the next Fidelity refresh: fill the gap, identify backup liquidity, or explicitly waive the 18-month cash target."
+    },
+    {
+      "id": "signal_holding_concentration",
+      "status": "fail",
+      "title": "FCNTX concentration is large enough to require an explicit decision",
+      "detail": "Category: real problem needing a decision, with model-risk implications. The backstory is that Fidelity Contrafund is $257,816, equal to 28% of the total $933,149 portfolio, and it represents 100% of the Authorized Roth IRA. A broad asset-class Monte Carlo can miss single-manager, single-fund, or style concentration risk, so the modeled plan may look more diversified than the actual holdings. This connects to the selected spending and portfolio decisions because portfolio returns support retirement spending, and the windfall/home-sale deployment policy invests unspent proceeds using the current portfolio mix; if the current mix embeds this concentration, future cash-in deployment could perpetuate the same exposure. The household has not yet stated its intent in the packet. Likely resolution paths are: rebalance inside tax-advantaged accounts where tax cost is low, stage the rebalance over time, or explicitly accept the concentration until a future review. It would look like a model/data bug if duplicate holdings were merged incorrectly, account balances do not reconcile to holding totals, or FCNTX was imported into the wrong source account.",
+      "evidence": [
+        "signal.id=holding_concentration",
+        "signal.status=act_now",
+        "largestHoldingSymbol=FCNTX",
+        "largestHoldingValue=257816",
+        "largestHoldingPortfolioShare=0.2763",
+        "largestHoldingAccountShare=1.0000",
+        "largestAccountName=Authorized ROTH IRA",
+        "totalPortfolio=933149",
+        "windfallDeploymentPolicy.investmentPolicy=current_portfolio_mix"
+      ],
+      "recommendation": "Decide whether to rebalance, stage a rebalance, or explicitly accept the FCNTX concentration through the next review period."
+    },
+    {
+      "id": "signal_legacy_headroom",
+      "status": "watch",
+      "title": "Legacy headroom cannot be interpreted without selected outcome percentiles",
+      "detail": "Category: model/data bug risk. The backstory is that the household has a $1,000,000 legacy target and a maximize-spend objective, so ending-wealth percentiles are needed to judge whether a candidate is too risky, appropriately balanced, or leaving too much on the table. The packet does include corpus rows where median ending wealth is above $1,000,000, but there is no selected policy and the signal reports selected p50 ending wealth as missing. This connects directly to the spending decision: if a green-certified selected path had very high median wealth, that could suggest excess legacy headroom and possibly unspent capacity; if p10 were below target while deterministic legacy attainment still passed, that would be a watch item rather than proof of failure. Here, deterministic certification has not passed and selected percentiles are absent, so the household cannot yet interpret headroom. What resolves this is attaching selected-policy p10, p25, p50, p75, and p90 ending wealth and comparing p10 and p50 to the $1,000,000 target. It would indicate a model/data bug if a selected certified policy exists internally but the review packet still reports p50EndingWealthTodayDollars=missing.",
+      "evidence": [
+        "signal.id=legacy_headroom",
+        "signal.status=watch",
+        "legacyTargetTodayDollars=1000000",
+        "p50EndingWealthTodayDollars=missing",
+        "rawExportEvidence.selectedPolicy=null",
+        "topCandidate p10 range approximately 387950 to 962803",
+        "topCandidate p50 range approximately 1717757 to 2482130",
+        "certificationSummary verdicts=yellow only"
+      ],
+      "recommendation": "Attach selected ending-wealth percentiles before interpreting whether legacy headroom is excessive, insufficient, or appropriate."
+    }
+  ],
+  "actionItems": [
+    "Rerun search and deterministic certification for Current Faithful or adjusted policy artifacts until a green candidate exists, or document that no spend recommendation is available this month.",
+    "Export selected-policy yearly rows, including MAGI, ACA premium, subsidy, net ACA cost, taxes, withdrawals, Roth conversions, and account balances.",
+    "Choose a cash-runway response: fill the $53,571 gap, document backup liquidity, or explicitly waive the 18-month target.",
+    "Decide whether to rebalance, stage a rebalance, or intentionally accept the FCNTX concentration through the next review.",
+    "Verify the 2027 employer plan features and contribution-limit assumptions against plan documents when available.",
+    "Confirm whether the 2028 inheritance certainty and 2037 home-sale timing/amount assumptions remain the household's intended planning inputs."
+  ],
+  "modelImprovementTodos": [
+    {
+      "id": "emit_blocked_candidate_diagnostic",
+      "priority": "high",
+      "category": "model_evidence",
+      "title": "Emit a clear selected-candidate diagnostic when recommendation is blocked",
+      "detail": "The packet has top candidates and certification rows, but selectedPolicy is null. A blocked packet would be easier to audit if it explicitly identified the best failed candidate, why it was not selected, and whether no candidate or no green candidate caused the block.",
+      "evidence": [
+        "recommendation.status=blocked",
+        "rawExportEvidence.selectedPolicy=null",
+        "proofRows.topCandidates count=8",
+        "certificationSummary rows=8"
+      ],
+      "suggestedNextStep": "Add a blockedRecommendationDiagnostics object with bestFailedPolicyId, failureReasonSummary, and missingEvidenceFlags."
+    },
+    {
+      "id": "attach_yearly_path_even_when_not_green",
+      "priority": "high",
+      "category": "model_evidence",
+      "title": "Attach yearly path rows for the leading failed candidate",
+      "detail": "The ACA bridge and tax/withdrawal review cannot be performed because yearlyPathEvidence is empty. Even when no candidate is green, yearly rows for the leading failed or selected-for-review candidate would allow the reviewer to distinguish real household tradeoffs from missing evidence.",
+      "evidence": [
+        "rawExportEvidence.yearlyPathEvidence=[]",
+        "selectedPathEvidence.yearlyRows=0",
+        "signal.aca_bridge_breach headline=No selected yearly MAGI path attached"
+      ],
+      "suggestedNextStep": "Export at least the first 12 yearly rows for the best failed candidate, with MAGI, ACA, tax, withdrawal, conversion, spending, and account-balance columns."
+    },
+    {
+      "id": "explain_certification_coverage_mismatch",
+      "priority": "high",
+      "category": "search_or_certification",
+      "title": "Reconcile top-candidate rows with certification rows",
+      "detail": "Some top-candidate policyIds with strong-looking corpus metrics do not appear in the certification rows, while the certification rows list other policyIds. The reviewer needs to know whether those top candidates were uncertified, filtered out, invalid, or certified elsewhere.",
+      "evidence": [
+        "topCandidates include policyId=pol_86fd0aa2 with bequestAttainmentRate=0.8890457769558133",
+        "topCandidates include policyId=pol_b0acdc71",
+        "certificationRows include policyId=pol_127c726f, pol_1890081d, pol_07dbbee5, pol_0a1dd5cb, pol_566f8f04, pol_1dd3167c, pol_0100dae1, pol_162188df",
+        "certificationRows do not include pol_86fd0aa2"
+      ],
+      "suggestedNextStep": "Add certificationStatus and certificationReason fields directly to each topCandidate row."
+    },
+    {
+      "id": "investigate_zero_lifetime_tax_rows",
+      "priority": "high",
+      "category": "data_quality",
+      "title": "Investigate top-candidate rows with zero median lifetime federal tax",
+      "detail": "Several corpus rows show medianLifetimeFederalTaxTodayDollars=0 despite salary, pretax balances, Social Security, Roth conversions, and taxable cashflow mechanics existing in the packet. That may be an artifact, but it is important enough to label or correct before those rows influence selection.",
+      "evidence": [
+        "proofRows.topCandidates pol_86fd0aa2 medianLifetimeFederalTaxTodayDollars=0",
+        "proofRows.topCandidates pol_b0acdc71 medianLifetimeFederalTaxTodayDollars=0",
+        "salaryAnnual=210000",
+        "pretax balance=386656.11",
+        "socialSecurity benefits present",
+        "rothConversionPolicy.enabled=true"
+      ],
+      "suggestedNextStep": "Trace tax-engine output for the zero-tax policies and add an explanation flag if zero is expected; otherwise fix the export or tax calculation."
+    },
+    {
+      "id": "selected_spending_path_required",
+      "priority": "high",
+      "category": "model_evidence",
+      "title": "Require selected spendingPath in review exports",
+      "detail": "The packet includes raw annual core and travel spending, but no selectedPolicy.spendingPath. For shaped or layered spending strategies, the reviewer needs scalar meaning, first-retirement-year spend, peak go-go spend, age-75/80/85 spend, and lifetime average spend to avoid comparing the wrong scalar to household spending.",
+      "evidence": [
+        "rawExportEvidence.selectedPolicy=null",
+        "annualCoreSpend=126587",
+        "travelEarlyRetirementAnnual=14000",
+        "annualWithTravelSpend=140587"
+      ],
+      "suggestedNextStep": "Add selectedPolicy.spendingPath fields to every review packet, or add a missing_spending_path flag when recommendation is blocked."
+    },
+    {
+      "id": "cash_balance_freshness_and_location",
+      "priority": "medium",
+      "category": "data_quality",
+      "title": "Show cash balance freshness and account location",
+      "detail": "The cash-runway signal depends on whether $50,000 is true spendable cash and whether brokerage cash is included or excluded. Account-level cash freshness would make the signal easier to trust.",
+      "evidence": [
+        "directCashBalance=50000",
+        "cashGap=53571",
+        "modelBugCheck mentions stale bank/cash balances and brokerage cash double-count/exclusion"
+      ],
+      "suggestedNextStep": "Add cash account source, last refresh timestamp, and included/excluded brokerage settlement cash fields to the cash-runway evidence."
+    },
+    {
+      "id": "holding_concentration_reconciliation",
+      "priority": "medium",
+      "category": "data_quality",
+      "title": "Add holding-import reconciliation for concentration signals",
+      "detail": "The FCNTX concentration is material, and the signal itself identifies possible import bugs. Account-level reconciliation would help determine whether the concentration is real before the household makes a portfolio decision.",
+      "evidence": [
+        "largestHoldingSymbol=FCNTX",
+        "largestHoldingValue=257816",
+        "largestHoldingPortfolioShare=0.2763",
+        "largestHoldingAccountShare=1.0000",
+        "largestAccountName=Authorized ROTH IRA"
+      ],
+      "suggestedNextStep": "Include account total, holding subtotal, import source, and duplicate-detection status for the account that triggers a concentration signal."
+    },
+    {
+      "id": "assumption_verification_dashboard",
+      "priority": "medium",
+      "category": "assumption",
+      "title": "Summarize provisional assumptions in one dashboard",
+      "detail": "The packet contains several assumption-source fields, but they are distributed across income, rules, and lifeModelAudit. A consolidated dashboard would make it easier to see what is user-confirmed, estimated, pending document verification, or missing certainty.",
+      "evidence": [
+        "planFeatureAssumptionSource=estimated_pending_plan_document",
+        "employerMatch.verificationStatus=user_confirmed_pending_document",
+        "contributionLimits.assumptionSource=planning_estimate_for_2027_final_paycheck_window",
+        "inheritance certainty=missing",
+        "home_sale certainty=estimated"
+      ],
+      "suggestedNextStep": "Add an assumptionProvenanceSummary with materiality, source, verification status, and next verification step for each provisional input."
+    }
+  ],
+  "model": "gpt-5.5",
+  "generatedAtIso": "2026-05-16T01:22:56.247Z",
+  "rawResponseText": "{\n  \"verdict\": \"insufficient_data\",\n  \"confidence\": \"high\",\n  \"summary\": \"This packet is not approval-ready: the recommendation is blocked, no selected policy is attached, no green deterministic certification exists, and the spend boundary is not proven. The mined corpus is present and includes candidate outcome rows, but those rows cannot substitute for a selected, green-certified spending recommendation with yearly path evidence. The household also has two act-now operational issues: a cash-runway shortfall and a 28% FCNTX concentration.\",\n  \"findings\": [\n    {\n      \"id\": \"selected_candidate_metrics\",\n      \"status\": \"fail\",\n      \"title\": \"No selected candidate metrics are attached\",\n      \"detail\": \"There is no selected spending candidate to approve. The recommendation is explicitly blocked, with strategyId, policyId, annualSpendTodayDollars, monthlySpendTodayDollars, and certificationVerdict all null. The corpus does include top-candidate rows at $110,000 annual spend, and those rows report ending-wealth percentiles, but they are not a selected household recommendation. Across the displayed $110,000 top candidates, p10 ending wealth ranges from about $387,950 to $962,803, which is below the $1,000,000 legacy target; p25 ranges from about $846,705 to $1,472,152; p50 ranges from about $1,717,757 to $2,482,130, which is above the legacy target; p75 ranges from about $3,207,182 to $4,136,714; and p90 ranges from about $5,368,890 to $6,433,800. A p10 below the legacy target would normally be a watch item if deterministic certification passed, but here there is no selected green-certified candidate at all.\",\n      \"evidence\": [\n        \"recommendation.status=blocked\",\n        \"recommendation.summary=No green certified core monthly spend candidate is available.\",\n        \"recommendation.policyId=null\",\n        \"rawExportEvidence.selectedPolicy=null\",\n        \"proofRows.topCandidates annualSpendTodayDollars=110000\",\n        \"topCandidate p10 range approximately 387950 to 962803\",\n        \"topCandidate p25 range approximately 846705 to 1472152\",\n        \"topCandidate p50 range approximately 1717757 to 2482130\",\n        \"topCandidate p75 range approximately 3207182 to 4136714\",\n        \"topCandidate p90 range approximately 5368890 to 6433800\",\n        \"northStar.legacyTargetTodayDollars=1000000\"\n      ],\n      \"recommendation\": \"Do not treat any top-candidate row as the household recommendation until a selected policy with full outcome metrics and certification is emitted.\"\n    },\n    {\n      \"id\": \"north_star_legacy_alignment\",\n      \"status\": \"fail\",\n      \"title\": \"North Star alignment is not proven\",\n      \"detail\": \"The stated objective is to maximize monthly spend subject to sleep-at-night gates with a $1,000,000 legacy target and a green-only approval standard. The available deterministic certification rows are all yellow, with forward-looking North Star legacy attainment ranging from 71% to 84%, below the 85% watch threshold cited by the certification engine. Some displayed corpus rows show median ending wealth above $1,000,000, but without a selected policy and green certification they do not prove the household can spend that amount while satisfying the stated gates. This is a real approval problem, not merely a preference issue.\",\n      \"evidence\": [\n        \"northStar.objective=maximize_monthly_spend_subject_to_sleep_at_night_gates\",\n        \"northStar.legacyTargetTodayDollars=1000000\",\n        \"northStar.approvalStandard=green_only\",\n        \"certificationSummary verdicts=yellow only\",\n        \"legacy attainment examples: 71%, 75%, 80%, 84%\",\n        \"certification reason: Forward-looking North Star legacy attainment is below the 85% watch threshold\"\n      ],\n      \"recommendation\": \"Mine and certify lower or otherwise adjusted spend policies until one clears the deterministic green gates without changing the household thresholds.\"\n    },\n    {\n      \"id\": \"corpus_search_evidence\",\n      \"status\": \"pass\",\n      \"title\": \"Mined corpus evidence is present\",\n      \"detail\": \"The packet does include a mined search corpus for the Current Faithful strategy, with 8,712 evaluated policies and top-candidate rows. That makes the packet partially reviewable: there is evidence of search activity and candidate outcome metrics. However, corpus presence is not the same as approval; the search did not produce a selected green-certified policy, and the top rows are not attached as the selected spending recommendation.\",\n      \"evidence\": [\n        \"strategies[0].id=current_faithful\",\n        \"strategies[0].corpusEvaluationCount=8712\",\n        \"proofRows.topCandidates count=8\",\n        \"rawExportEvidence.evidenceLimits.topCandidateRows=8\",\n        \"recommendation.status=blocked\"\n      ],\n      \"recommendation\": \"Keep the corpus evidence, but rerun selection/certification so the review packet identifies the actual candidate, if any, that is being proposed.\"\n    },\n    {\n      \"id\": \"spend_boundary_evidence\",\n      \"status\": \"fail\",\n      \"title\": \"Spend boundary is not proven\",\n      \"detail\": \"The spend boundary is explicitly unproven. The strategy reports a highest tested spend of $145,000, but no highest green spend and no higher-spend comparison rows. Because the north star is to maximize monthly spend subject to gates, the review needs proof that the selected spend is the highest or appropriate green level under the search design. That proof is absent.\",\n      \"evidence\": [\n        \"spendBoundary.highestSpendTestedTodayDollars=145000\",\n        \"spendBoundary.highestGreenSpendTodayDollars=null\",\n        \"spendBoundary.higherSpendLevelsTested=[]\",\n        \"spendBoundary.boundaryProven=false\",\n        \"proofRows.higherSpendRowsTested=[]\"\n      ],\n      \"recommendation\": \"Rebuild the spend-boundary evidence after a green candidate exists, including lower and higher tested spend levels around the candidate.\"\n    },\n    {\n      \"id\": \"certification_evidence\",\n      \"status\": \"fail\",\n      \"title\": \"Deterministic certification does not approve any candidate\",\n      \"detail\": \"Real certification evidence is present, but it is not favorable: every listed certification row is yellow, and the recommendation has no selected certification verdict. The reasons are material, including weak legacy attainment in the forward-looking case and non-green results under bad early markets, high inflation, layoff, late inheritance, and perfect-storm stress cases. This blocks approval under the household's green-only standard.\",\n      \"evidence\": [\n        \"certificationSummary rows=8\",\n        \"all certificationSummary.verdict=yellow\",\n        \"rawExportEvidence.proofRows.certificationRows all verdict=yellow\",\n        \"recommendation.certificationVerdict=null\",\n        \"reason example: Perfect storm legacy 44% to 69% depending on row\",\n        \"reason example: Forward-looking North Star legacy attainment 71% to 84%\"\n      ],\n      \"recommendation\": \"Use the failed certification reasons to drive the next search iteration rather than approving any current row.\"\n    },\n    {\n      \"id\": \"assumption_provenance\",\n      \"status\": \"watch\",\n      \"title\": \"Several assumptions are explicit but still provisional\",\n      \"detail\": \"The packet has useful provenance for many assumptions, including user-confirmed windfall deployment and home-sale reinvestment policy. But several material assumptions remain estimated or pending verification: employer plan features are pending plan-document verification, 2027 contribution limits are planning estimates, the home sale is estimated with timing and amount uncertainty, and the inheritance has a modeled year but missing certainty. This is not necessarily a code bug; it is an assumption-quality watch item that should stay visible because these assumptions affect salary transition, contributions, taxes, liquidity, and legacy outcomes.\",\n      \"evidence\": [\n        \"planFeatureAssumptionSource=estimated_pending_plan_document\",\n        \"employerMatch.verificationStatus=user_confirmed_pending_document\",\n        \"contributionLimits.assumptionSource=planning_estimate_for_2027_final_paycheck_window\",\n        \"inheritance year=2028, certainty=missing\",\n        \"home_sale certainty=estimated\",\n        \"home_sale timingUncertaintyYears=2\",\n        \"home_sale amountUncertaintyPercent=0.3\",\n        \"windfallDeploymentPolicy.assumptionSource=user_confirmed_invest_unspent_windfall_and_home_sale_cash_in_current_portfolio_mix\"\n      ],\n      \"recommendation\": \"Before relying on a future green recommendation, verify the employer plan document and confirm whether the inheritance and home-sale timing assumptions remain the household's best estimate.\"\n    },\n    {\n      \"id\": \"life_model_trace\",\n      \"status\": \"watch\",\n      \"title\": \"Life-to-model trace is mostly coherent, with two material watch gaps\",\n      \"detail\": \"The life-model audit reconstructs the major money flows. Salary of $210,000 runs until 2027-07-01, is taxed as ordinary wage income, funds annual cashflow, and sends modeled contributions to retirement and HSA accounts. Social Security is modeled for Rob and Debbie at age 67, enters annual cashflow, and is taxed through the federal provisional-income logic. The 2028 $500,000 inheritance is modeled as non-taxable cash; same-year spending can use it first, and any remainder is swept to a taxable shadow sleeve invested in the current portfolio mix with taxable market returns. The 2037 home sale is modeled as a primary-home-sale event with $1,000,000 gross value, $500,000 liquidity, replacement-home and transaction-cost assumptions, same-year spending use, and taxable shadow-sleeve reinvestment of unspent proceeds using the current portfolio mix. Spending is modeled as $126,587 annual core plus $14,000 early-retirement travel, but there is no selectedPolicy.spendingPath, so the actual selected retirement spending curve cannot be audited. This is internally coherent, but materialUnresolvedEventCount=2 remains because the inheritance timing certainty is missing and the home sale is estimated; that makes this a life-model gap rather than a pure code bug.\",\n      \"evidence\": [\n        \"lifeModelAudit.modelCompleteness=reconstructed\",\n        \"lifeModelAudit.unresolvedEventCount=2\",\n        \"lifeModelAudit.materialUnresolvedEventCount=2\",\n        \"salaryAnnual=210000\",\n        \"salaryEndDate=2027-07-01\",\n        \"employee401kPreTaxPercent=0.1499\",\n        \"hsaPercent=0.0159\",\n        \"rob:fraMonthly=4100:claimAge=67\",\n        \"debbie:fraMonthly=1444:claimAge=67\",\n        \"inheritance amount=500000, year=2028, taxTreatment=cash_non_taxable\",\n        \"inheritance certainty=missing\",\n        \"home_sale amount=1000000, liquidityAmount=500000, replacementHomeCost=500000\",\n        \"home_sale certainty=estimated, timingUncertaintyYears=2, amountUncertaintyPercent=0.3\",\n        \"windfallDeploymentPolicy.destinationAccount=taxable\",\n        \"windfallDeploymentPolicy.trackingMode=taxable_shadow_sleeve\",\n        \"windfallDeploymentPolicy.spendBeforeDeploy=true\",\n        \"windfallDeploymentPolicy.investmentPolicy=current_portfolio_mix\",\n        \"futureReturns=taxable_market_returns\",\n        \"annualCoreSpend=126587\",\n        \"travelEarlyRetirementAnnual=14000\",\n        \"annualWithTravelSpend=140587\",\n        \"rawExportEvidence.selectedPolicy=null\"\n      ],\n      \"recommendation\": \"Keep the windfall and home-sale deployment policy, but do not approve a spending recommendation until selected spending-path rows are attached and the unresolved event assumptions are reviewed.\"\n    },\n    {\n      \"id\": \"yearly_path_evidence\",\n      \"status\": \"fail\",\n      \"title\": \"Selected yearly path evidence is absent\",\n      \"detail\": \"There are no selected yearly rows. That prevents review of the retirement transition year, cashflows, MAGI, taxes, ACA premiums and subsidies, IRMAA exposure, withdrawals, Roth conversions, and whether the spending path is actually funded year by year. This is especially important because the packet contains an ACA bridge signal and a known 2027 transition-year issue.\",\n      \"evidence\": [\n        \"rawExportEvidence.yearlyPathEvidence=[]\",\n        \"householdSignals.aca_bridge_breach evidence: selectedPathEvidence.yearlyRows=0\",\n        \"rawExportEvidence.evidenceLimits.yearlyPathRows=12\"\n      ],\n      \"recommendation\": \"Rerun real certification or export the selected-policy yearly path rows before asking for approval.\"\n    },\n    {\n      \"id\": \"withdrawal_tax_healthcare_evidence\",\n      \"status\": \"fail\",\n      \"title\": \"Withdrawal, tax, and healthcare design exists but selected-path proof is missing\",\n      \"detail\": \"The model has the right kinds of mechanisms turned on: guardrail withdrawals, tax-aware withdrawal rows in the corpus, Roth conversion policy, ACA and Medicare premium assumptions, IRMAA awareness, HSA/LTC strategy, and long-term-care stress assumptions. But without selected yearly path evidence, the review cannot verify how these mechanisms actually interact in the selected retirement path. There is also a model/data bug risk in the top-candidate table: several rows show medianLifetimeFederalTaxTodayDollars=0 despite salary, pretax balances, Social Security, and taxable events existing elsewhere in the packet; that may be explainable, but it should not be accepted silently.\",\n      \"evidence\": [\n        \"rules.withdrawalStyle=guardrails\",\n        \"proofRows.topCandidates withdrawalRule=tax_bracket_waterfall\",\n        \"rules.rothConversionPolicy.enabled=true\",\n        \"rules.rothConversionPolicy.strategy=aca_then_irmaa_headroom\",\n        \"healthcarePremiums.baselineAcaPremiumAnnual=14400\",\n        \"healthcarePremiums.baselineMedicarePremiumAnnual=2220\",\n        \"healthcarePremiums.medicalInflationAnnual=0.055\",\n        \"rules.irmaaAware=true\",\n        \"rules.hsaStrategy.withdrawalMode=ltc_reserve\",\n        \"rules.ltcAssumptions.enabled=true\",\n        \"proofRows.topCandidates include medianLifetimeFederalTaxTodayDollars=0 for several policies\",\n        \"rawExportEvidence.yearlyPathEvidence=[]\"\n      ],\n      \"recommendation\": \"Attach selected yearly tax, MAGI, withdrawal, Roth conversion, ACA, Medicare, IRMAA, and HSA/LTC rows; investigate zero-tax candidate rows before relying on them.\"\n    },\n    {\n      \"id\": \"household_signal_checklist\",\n      \"status\": \"watch\",\n      \"title\": \"Household signals include two act-now items and two evidence watch items\",\n      \"detail\": \"Signal roll-up: aca_bridge_breach is watch because selected-policy MAGI, ACA premium, subsidy, and net-cost rows are absent; cash_runway_gap is act_now because direct cash is $53,571 below the 18-month target; holding_concentration is act_now because FCNTX is 28% of the total portfolio and 100% of the Authorized Roth IRA; legacy_headroom is watch because selected-policy ending-wealth percentiles are missing. These signals are not all automatic plan failures, but the act-now items need household decisions and the evidence watch items block approval until the missing proof is attached.\",\n      \"evidence\": [\n        \"signal aca_bridge_breach status=watch\",\n        \"signal cash_runway_gap status=act_now\",\n        \"signal holding_concentration status=act_now\",\n        \"signal legacy_headroom status=watch\",\n        \"cashGap=53571\",\n        \"largestHoldingPortfolioShare=0.2763\",\n        \"p50EndingWealthTodayDollars=missing\"\n      ],\n      \"recommendation\": \"Address the act-now operational items separately from the model-evidence gaps so portfolio/cash decisions do not get confused with certification approval.\"\n    },\n    {\n      \"id\": \"model_tasks\",\n      \"status\": \"fail\",\n      \"title\": \"Critical model task blocks approval\",\n      \"detail\": \"A critical structural task is open: the review could not find a strategy with green deterministic certification. This directly blocks approval and matches the recommendation status. The next step is not an AI override; it is to inspect the failed certification rows and mine or certify adjusted candidates under the existing thresholds.\",\n      \"evidence\": [\n        \"structuralTasks[0].id=uncertified-strategy-gap\",\n        \"structuralTasks[0].severity=critical\",\n        \"structuralTasks[0].status=open\",\n        \"structuralTasks[0].blocksApproval=true\",\n        \"structuralTasks[0].detail=The monthly review could not find a strategy with a green deterministic certification.\",\n        \"recommendation.blockingTaskIds includes uncertified-strategy-gap\"\n      ],\n      \"recommendation\": \"Resolve the critical task by generating a green-certified candidate or clearly documenting that no approval recommendation is available this month.\"\n    },\n    {\n      \"id\": \"signal_aca_bridge_breach\",\n      \"status\": \"watch\",\n      \"title\": \"ACA bridge evidence is missing even though the 2027 subsidy loss appears to be a known tradeoff\",\n      \"detail\": \"Category: model/data bug risk with a known household tradeoff noted in rules. The backstory is that 2027 is the retirement transition year: salary runs until 2027-07-01, and the packet says the 2027 ACA subsidy loss is expected from final payroll/taxable income and the selected spend path. The Roth low-income bracket-fill policy starts in 2028, after the wage-income transition year, which supports the idea that 2027 higher MAGI may be intentional rather than a modeling surprise. This connects directly to the selected spending level because ACA bridge affordability depends on the actual yearly MAGI, premium, subsidy, and net ACA cost after salary, withdrawals, Roth conversions, and taxable income are modeled. The problem is that no selected yearly MAGI rows are attached, so the review cannot confirm that the net ACA cost is actually included in the selected path. The rules include a user-confirmed decision to accept the 2027 subsidy loss unless a MAGI-constrained alternative is requested; that decision would become wrong or surprising if the selected path omits net ACA cost, if MAGI components are missing or double-counted, if ACA/FPL thresholds are stale, if ages or salary-end dates are wrong, or if a subsidy-preserving alternative can achieve the same certified spending with better after-tax results. What resolves this is a real certification export with the 2027 bridge-year MAGI, ACA premium, subsidy, and net-cost row. This would look like a model/data bug rather than a real household tradeoff if real certification ran but selectedPathEvidence.yearlyRows remains empty, or if the 2027 MAGI path contradicts the salary end date and Roth conversion policy.\",\n      \"evidence\": [\n        \"signal.id=aca_bridge_breach\",\n        \"signal.status=watch\",\n        \"signal.headline=No selected yearly MAGI path attached\",\n        \"selectedPathEvidence.yearlyRows=0\",\n        \"salaryEndDate=2027-07-01\",\n        \"rules.monthlyReviewIssueAnnotations[0].disposition=intentional_tradeoff\",\n        \"rules.monthlyReviewIssueAnnotations[0].decision=Accept the 2027 subsidy loss in the current review unless a MAGI-constrained alternative is explicitly requested to price the subsidy-preserving path.\",\n        \"Roth low-income bracket fill starts in 2028\",\n        \"healthcarePremiums.baselineAcaPremiumAnnual=14400\"\n      ],\n      \"recommendation\": \"Rerun certification and require the 2027 MAGI, ACA premium, subsidy, and net ACA cost row before judging whether the ACA bridge tradeoff is acceptable.\"\n    },\n    {\n      \"id\": \"signal_cash_runway_gap\",\n      \"status\": \"fail\",\n      \"title\": \"Cash runway shortfall needs a household liquidity decision\",\n      \"detail\": \"Category: real problem needing a decision. The household has $50,000 of direct cash against an 18-month target of $103,571, leaving a $53,571 gap. The backstory is operational rather than Monte Carlo-based: with essential-plus-fixed spending of $5,754 per month, current cash covers about 8.7 months, and direct cash is only 0.39 years of core spending. This connects to the spending and portfolio plan because the seed spending level is $126,587 annual core, or $140,587 with early-retirement travel, and a thin cash buffer may force taxable sales, payroll-deferral changes, or portfolio withdrawals at inconvenient times. The household has not yet stated its intent in the packet. Likely resolution paths are: fill the cash bucket from taxable or other liquid assets, document a specific backup liquidity source instead of holding the full target in bank cash, or intentionally waive the 18-month target for this review. It would indicate a model/data bug rather than a real liquidity issue if bank balances are stale, brokerage cash is excluded or double-counted, or the essential-plus-fixed monthly target is not tied to current seed spending.\",\n      \"evidence\": [\n        \"signal.id=cash_runway_gap\",\n        \"signal.status=act_now\",\n        \"directCashBalance=50000\",\n        \"essentialWithFixedMonthly=5754\",\n        \"targetCashRunway=103571\",\n        \"cashGap=53571\",\n        \"runwayGapMonths=9.31\",\n        \"directCashYearsOfCoreSpend=0.39\",\n        \"annualCoreSpend=126587\",\n        \"annualWithTravelSpend=140587\"\n      ],\n      \"recommendation\": \"Choose and record one liquidity policy before the next Fidelity refresh: fill the gap, identify backup liquidity, or explicitly waive the 18-month cash target.\"\n    },\n    {\n      \"id\": \"signal_holding_concentration\",\n      \"status\": \"fail\",\n      \"title\": \"FCNTX concentration is large enough to require an explicit decision\",\n      \"detail\": \"Category: real problem needing a decision, with model-risk implications. The backstory is that Fidelity Contrafund is $257,816, equal to 28% of the total $933,149 portfolio, and it represents 100% of the Authorized Roth IRA. A broad asset-class Monte Carlo can miss single-manager, single-fund, or style concentration risk, so the modeled plan may look more diversified than the actual holdings. This connects to the selected spending and portfolio decisions because portfolio returns support retirement spending, and the windfall/home-sale deployment policy invests unspent proceeds using the current portfolio mix; if the current mix embeds this concentration, future cash-in deployment could perpetuate the same exposure. The household has not yet stated its intent in the packet. Likely resolution paths are: rebalance inside tax-advantaged accounts where tax cost is low, stage the rebalance over time, or explicitly accept the concentration until a future review. It would look like a model/data bug if duplicate holdings were merged incorrectly, account balances do not reconcile to holding totals, or FCNTX was imported into the wrong source account.\",\n      \"evidence\": [\n        \"signal.id=holding_concentration\",\n        \"signal.status=act_now\",\n        \"largestHoldingSymbol=FCNTX\",\n        \"largestHoldingValue=257816\",\n        \"largestHoldingPortfolioShare=0.2763\",\n        \"largestHoldingAccountShare=1.0000\",\n        \"largestAccountName=Authorized ROTH IRA\",\n        \"totalPortfolio=933149\",\n        \"windfallDeploymentPolicy.investmentPolicy=current_portfolio_mix\"\n      ],\n      \"recommendation\": \"Decide whether to rebalance, stage a rebalance, or explicitly accept the FCNTX concentration through the next review period.\"\n    },\n    {\n      \"id\": \"signal_legacy_headroom\",\n      \"status\": \"watch\",\n      \"title\": \"Legacy headroom cannot be interpreted without selected outcome percentiles\",\n      \"detail\": \"Category: model/data bug risk. The backstory is that the household has a $1,000,000 legacy target and a maximize-spend objective, so ending-wealth percentiles are needed to judge whether a candidate is too risky, appropriately balanced, or leaving too much on the table. The packet does include corpus rows where median ending wealth is above $1,000,000, but there is no selected policy and the signal reports selected p50 ending wealth as missing. This connects directly to the spending decision: if a green-certified selected path had very high median wealth, that could suggest excess legacy headroom and possibly unspent capacity; if p10 were below target while deterministic legacy attainment still passed, that would be a watch item rather than proof of failure. Here, deterministic certification has not passed and selected percentiles are absent, so the household cannot yet interpret headroom. What resolves this is attaching selected-policy p10, p25, p50, p75, and p90 ending wealth and comparing p10 and p50 to the $1,000,000 target. It would indicate a model/data bug if a selected certified policy exists internally but the review packet still reports p50EndingWealthTodayDollars=missing.\",\n      \"evidence\": [\n        \"signal.id=legacy_headroom\",\n        \"signal.status=watch\",\n        \"legacyTargetTodayDollars=1000000\",\n        \"p50EndingWealthTodayDollars=missing\",\n        \"rawExportEvidence.selectedPolicy=null\",\n        \"topCandidate p10 range approximately 387950 to 962803\",\n        \"topCandidate p50 range approximately 1717757 to 2482130\",\n        \"certificationSummary verdicts=yellow only\"\n      ],\n      \"recommendation\": \"Attach selected ending-wealth percentiles before interpreting whether legacy headroom is excessive, insufficient, or appropriate.\"\n    }\n  ],\n  \"actionItems\": [\n    \"Rerun search and deterministic certification for Current Faithful or adjusted policy artifacts until a green candidate exists, or document that no spend recommendation is available this month.\",\n    \"Export selected-policy yearly rows, including MAGI, ACA premium, subsidy, net ACA cost, taxes, withdrawals, Roth conversions, and account balances.\",\n    \"Choose a cash-runway response: fill the $53,571 gap, document backup liquidity, or explicitly waive the 18-month target.\",\n    \"Decide whether to rebalance, stage a rebalance, or intentionally accept the FCNTX concentration through the next review.\",\n    \"Verify the 2027 employer plan features and contribution-limit assumptions against plan documents when available.\",\n    \"Confirm whether the 2028 inheritance certainty and 2037 home-sale timing/amount assumptions remain the household's intended planning inputs.\"\n  ],\n  \"modelImprovementTodos\": [\n    {\n      \"id\": \"emit_blocked_candidate_diagnostic\",\n      \"priority\": \"high\",\n      \"category\": \"model_evidence\",\n      \"title\": \"Emit a clear selected-candidate diagnostic when recommendation is blocked\",\n      \"detail\": \"The packet has top candidates and certification rows, but selectedPolicy is null. A blocked packet would be easier to audit if it explicitly identified the best failed candidate, why it was not selected, and whether no candidate or no green candidate caused the block.\",\n      \"evidence\": [\n        \"recommendation.status=blocked\",\n        \"rawExportEvidence.selectedPolicy=null\",\n        \"proofRows.topCandidates count=8\",\n        \"certificationSummary rows=8\"\n      ],\n      \"suggestedNextStep\": \"Add a blockedRecommendationDiagnostics object with bestFailedPolicyId, failureReasonSummary, and missingEvidenceFlags.\"\n    },\n    {\n      \"id\": \"attach_yearly_path_even_when_not_green\",\n      \"priority\": \"high\",\n      \"category\": \"model_evidence\",\n      \"title\": \"Attach yearly path rows for the leading failed candidate\",\n      \"detail\": \"The ACA bridge and tax/withdrawal review cannot be performed because yearlyPathEvidence is empty. Even when no candidate is green, yearly rows for the leading failed or selected-for-review candidate would allow the reviewer to distinguish real household tradeoffs from missing evidence.\",\n      \"evidence\": [\n        \"rawExportEvidence.yearlyPathEvidence=[]\",\n        \"selectedPathEvidence.yearlyRows=0\",\n        \"signal.aca_bridge_breach headline=No selected yearly MAGI path attached\"\n      ],\n      \"suggestedNextStep\": \"Export at least the first 12 yearly rows for the best failed candidate, with MAGI, ACA, tax, withdrawal, conversion, spending, and account-balance columns.\"\n    },\n    {\n      \"id\": \"explain_certification_coverage_mismatch\",\n      \"priority\": \"high\",\n      \"category\": \"search_or_certification\",\n      \"title\": \"Reconcile top-candidate rows with certification rows\",\n      \"detail\": \"Some top-candidate policyIds with strong-looking corpus metrics do not appear in the certification rows, while the certification rows list other policyIds. The reviewer needs to know whether those top candidates were uncertified, filtered out, invalid, or certified elsewhere.\",\n      \"evidence\": [\n        \"topCandidates include policyId=pol_86fd0aa2 with bequestAttainmentRate=0.8890457769558133\",\n        \"topCandidates include policyId=pol_b0acdc71\",\n        \"certificationRows include policyId=pol_127c726f, pol_1890081d, pol_07dbbee5, pol_0a1dd5cb, pol_566f8f04, pol_1dd3167c, pol_0100dae1, pol_162188df\",\n        \"certificationRows do not include pol_86fd0aa2\"\n      ],\n      \"suggestedNextStep\": \"Add certificationStatus and certificationReason fields directly to each topCandidate row.\"\n    },\n    {\n      \"id\": \"investigate_zero_lifetime_tax_rows\",\n      \"priority\": \"high\",\n      \"category\": \"data_quality\",\n      \"title\": \"Investigate top-candidate rows with zero median lifetime federal tax\",\n      \"detail\": \"Several corpus rows show medianLifetimeFederalTaxTodayDollars=0 despite salary, pretax balances, Social Security, Roth conversions, and taxable cashflow mechanics existing in the packet. That may be an artifact, but it is important enough to label or correct before those rows influence selection.\",\n      \"evidence\": [\n        \"proofRows.topCandidates pol_86fd0aa2 medianLifetimeFederalTaxTodayDollars=0\",\n        \"proofRows.topCandidates pol_b0acdc71 medianLifetimeFederalTaxTodayDollars=0\",\n        \"salaryAnnual=210000\",\n        \"pretax balance=386656.11\",\n        \"socialSecurity benefits present\",\n        \"rothConversionPolicy.enabled=true\"\n      ],\n      \"suggestedNextStep\": \"Trace tax-engine output for the zero-tax policies and add an explanation flag if zero is expected; otherwise fix the export or tax calculation.\"\n    },\n    {\n      \"id\": \"selected_spending_path_required\",\n      \"priority\": \"high\",\n      \"category\": \"model_evidence\",\n      \"title\": \"Require selected spendingPath in review exports\",\n      \"detail\": \"The packet includes raw annual core and travel spending, but no selectedPolicy.spendingPath. For shaped or layered spending strategies, the reviewer needs scalar meaning, first-retirement-year spend, peak go-go spend, age-75/80/85 spend, and lifetime average spend to avoid comparing the wrong scalar to household spending.\",\n      \"evidence\": [\n        \"rawExportEvidence.selectedPolicy=null\",\n        \"annualCoreSpend=126587\",\n        \"travelEarlyRetirementAnnual=14000\",\n        \"annualWithTravelSpend=140587\"\n      ],\n      \"suggestedNextStep\": \"Add selectedPolicy.spendingPath fields to every review packet, or add a missing_spending_path flag when recommendation is blocked.\"\n    },\n    {\n      \"id\": \"cash_balance_freshness_and_location\",\n      \"priority\": \"medium\",\n      \"category\": \"data_quality\",\n      \"title\": \"Show cash balance freshness and account location\",\n      \"detail\": \"The cash-runway signal depends on whether $50,000 is true spendable cash and whether brokerage cash is included or excluded. Account-level cash freshness would make the signal easier to trust.\",\n      \"evidence\": [\n        \"directCashBalance=50000\",\n        \"cashGap=53571\",\n        \"modelBugCheck mentions stale bank/cash balances and brokerage cash double-count/exclusion\"\n      ],\n      \"suggestedNextStep\": \"Add cash account source, last refresh timestamp, and included/excluded brokerage settlement cash fields to the cash-runway evidence.\"\n    },\n    {\n      \"id\": \"holding_concentration_reconciliation\",\n      \"priority\": \"medium\",\n      \"category\": \"data_quality\",\n      \"title\": \"Add holding-import reconciliation for concentration signals\",\n      \"detail\": \"The FCNTX concentration is material, and the signal itself identifies possible import bugs. Account-level reconciliation would help determine whether the concentration is real before the household makes a portfolio decision.\",\n      \"evidence\": [\n        \"largestHoldingSymbol=FCNTX\",\n        \"largestHoldingValue=257816\",\n        \"largestHoldingPortfolioShare=0.2763\",\n        \"largestHoldingAccountShare=1.0000\",\n        \"largestAccountName=Authorized ROTH IRA\"\n      ],\n      \"suggestedNextStep\": \"Include account total, holding subtotal, import source, and duplicate-detection status for the account that triggers a concentration signal.\"\n    },\n    {\n      \"id\": \"assumption_verification_dashboard\",\n      \"priority\": \"medium\",\n      \"category\": \"assumption\",\n      \"title\": \"Summarize provisional assumptions in one dashboard\",\n      \"detail\": \"The packet contains several assumption-source fields, but they are distributed across income, rules, and lifeModelAudit. A consolidated dashboard would make it easier to see what is user-confirmed, estimated, pending document verification, or missing certainty.\",\n      \"evidence\": [\n        \"planFeatureAssumptionSource=estimated_pending_plan_document\",\n        \"employerMatch.verificationStatus=user_confirmed_pending_document\",\n        \"contributionLimits.assumptionSource=planning_estimate_for_2027_final_paycheck_window\",\n        \"inheritance certainty=missing\",\n        \"home_sale certainty=estimated\"\n      ],\n      \"suggestedNextStep\": \"Add an assumptionProvenanceSummary with materiality, source, verification status, and next verification step for each provisional input.\"\n    }\n  ]\n}"
+}

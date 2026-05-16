@@ -1,0 +1,226 @@
+- generic [ref=e4]:
+  - complementary [ref=e5]:
+    - generic [ref=e7]:
+      - paragraph [ref=e8]: Welcome to Flight Path
+      - heading "Compare futures, not just scenarios." [level=1] [ref=e9]
+    - navigation [ref=e10]:
+      - generic [ref=e11]:
+        - paragraph [ref=e12]: Today
+        - generic [ref=e13]:
+          - button "6 Pack" [ref=e14]:
+            - img [ref=e15]
+            - generic [ref=e17]: 6 Pack
+          - button "Cockpit" [ref=e18]:
+            - img [ref=e19]
+            - generic [ref=e21]: Cockpit
+          - button "Plan 2.0" [ref=e22]:
+            - img [ref=e23]
+            - generic [ref=e25]: Plan 2.0
+          - button "Spending" [ref=e26]:
+            - img [ref=e27]
+            - generic [ref=e29]: Spending
+      - generic [ref=e30]:
+        - paragraph [ref=e31]: Analyze
+        - generic [ref=e32]:
+          - button "Re-run Model" [ref=e33]:
+            - img [ref=e34]
+            - generic [ref=e36]: Re-run Model
+          - button "Stress Test" [ref=e37]:
+            - img [ref=e38]
+            - generic [ref=e40]: Stress Test
+          - button "History" [ref=e41]:
+            - img [ref=e42]
+            - generic [ref=e44]: History
+      - generic [ref=e45]:
+        - paragraph [ref=e46]: Configure
+        - generic [ref=e47]:
+          - button "Accounts" [ref=e48]:
+            - img [ref=e49]
+            - generic [ref=e51]: Accounts
+          - button "Social Security" [ref=e52]:
+            - img [ref=e53]
+            - generic [ref=e55]: Social Security
+          - button "Income" [ref=e56]:
+            - img [ref=e57]
+            - generic [ref=e59]: Income
+          - button "Taxes" [ref=e60]:
+            - img [ref=e61]
+            - generic [ref=e63]: Taxes
+          - button "Export" [ref=e64]:
+            - img [ref=e65]
+            - generic [ref=e67]: Export
+  - main [ref=e68]:
+    - generic [ref=e71]:
+      - generic [ref=e72]:
+        - heading "Monthly review" [level=1] [ref=e73]
+        - paragraph [ref=e74]: "One workflow for the sleep-at-night process: compare strategy models, mine the policy space, review the winner, then move to adoption only after approval."
+      - generic [ref=e75]:
+        - generic [ref=e76]:
+          - generic [ref=e77]:
+            - paragraph [ref=e78]: Monthly Review Workspace
+            - heading "Run the whole process from here" [level=2] [ref=e79]
+            - paragraph [ref=e80]: Settings collapse forward as the review progresses, so the next relevant step stays closest to the surface.
+          - generic [ref=e81]:
+            - generic [ref=e82]:
+              - paragraph [ref=e83]: 1. Models
+              - paragraph [ref=e84]: Choose basis
+            - generic [ref=e85]:
+              - paragraph [ref=e86]: 2. Mine
+              - paragraph [ref=e87]: Search space
+            - generic [ref=e88]:
+              - paragraph [ref=e89]: 3. Review
+              - paragraph [ref=e90]: AI check
+            - generic [ref=e91]:
+              - paragraph [ref=e92]: 4. Adopt
+              - paragraph [ref=e93]: After review
+        - group [ref=e94]:
+          - generic "Strategy models and review settings" [ref=e95] [cursor=pointer]
+          - generic [ref=e96]:
+            - generic [ref=e97]:
+              - generic [ref=e98]:
+                - paragraph [ref=e99]: Run spending models
+                - button "Show J.P. Morgan spending curve" [ref=e100]: i
+              - paragraph [ref=e101]: Compare the current faithful plan against J.P. Morgan-style retirement spending curves. Each selected row runs both the forward-looking engine and the historical-precedent engine.
+              - paragraph [ref=e102]: "Interactive read: 120 seeded trials per mode. Current travel reference: $13,425/yr."
+            - button "Run models" [ref=e103]
+          - generic [ref=e104]:
+            - generic [ref=e105]:
+              - paragraph [ref=e106]: Baseline rows
+              - generic [ref=e107]:
+                - checkbox "Current faithful" [checked] [ref=e108]
+                - text: Current faithful
+              - generic [ref=e109]:
+                - checkbox "J.P. Morgan curve, travel included" [checked] [ref=e110]
+                - text: J.P. Morgan curve, travel included
+            - generic [ref=e111]:
+              - paragraph [ref=e112]: Extra travel modifier
+              - generic [ref=e113]:
+                - generic [ref=e114]:
+                  - text: $/yr
+                  - spinbutton "$/yr" [ref=e115]: "0"
+                - generic [ref=e116]:
+                  - text: Years
+                  - spinbutton "Years" [ref=e117]: "0"
+              - generic [ref=e118]:
+                - checkbox "Run J.P. Morgan plus explicit extra travel" [disabled] [ref=e119]
+                - text: Run J.P. Morgan plus explicit extra travel
+            - generic [ref=e120]:
+              - paragraph [ref=e121]: Stress rows
+              - generic [ref=e122]:
+                - checkbox "Early spending surge" [ref=e123]
+                - text: Early spending surge
+              - generic [ref=e124]:
+                - checkbox "Early volatility shock" [checked] [ref=e125]
+                - text: Early volatility shock
+              - generic [ref=e126]:
+                - checkbox "Age-75 volatility shock" [checked] [ref=e127]
+                - text: Age-75 volatility shock
+              - generic [ref=e128]:
+                - checkbox "Partial-retirement transition applies" [ref=e129]
+                - text: Partial-retirement transition applies
+          - paragraph [ref=e130]: Run the comparison when you want a quick side-by-side read before launching a larger mine.
+        - group [ref=e131]:
+          - generic "Mining engine and corpus" [ref=e132] [cursor=pointer]
+          - option "All" [selected]
+          - option "$115k"
+          - option "$116k"
+          - option "$117k"
+          - option "$118k"
+          - option "$119k"
+          - option "$120k"
+          - option "$155k"
+          - option "$156k"
+          - option "$157k"
+          - option "$158k"
+          - option "$159k"
+          - option "$160k"
+        - group [ref=e133]:
+          - generic "Certification, AI co-review, and approval" [ref=e134] [cursor=pointer]
+          - generic [ref=e135]:
+            - generic [ref=e136]: Run spending models first; after the mine completes, this section will ask which model basis to certify.
+            - generic [ref=e137]:
+              - generic [ref=e138]:
+                - generic [ref=e139]:
+                  - paragraph [ref=e140]: Monthly Review
+                  - heading "Sleep-at-night max spend" [level=2] [ref=e141]
+                  - paragraph [ref=e142]: "Runs the structured monthly review over Current Faithful and J.P. Morgan travel-included corpora, certifies candidates, sends the validation packet to the dispatcher for AI co-review, and reports green approval or blockers. Selected model basis: Current Faithful."
+                - button "Running..." [disabled] [ref=e311]
+              - paragraph [ref=e312]: Running AI co-review (gpt-5.5, high)...
+              - generic [ref=e313]:
+                - generic [ref=e314]:
+                  - paragraph [ref=e315]: Review transaction log
+                  - paragraph [ref=e316]: Last 18 events
+                - generic [ref=e317]:
+                  - generic [ref=e318]: 7:15:12 PM review button pressed
+                  - generic [ref=e319]: 7:15:12 PM connecting to dispatcher/cluster controller
+                  - generic [ref=e320]: 7:15:12 PM cluster connected (9 peers)
+                  - generic [ref=e321]: "7:15:12 PM Current Faithful: mining fingerprint ready"
+                  - generic [ref=e322]: "7:15:12 PM Current Faithful: deterministic mining seed 1884315824"
+                  - generic [ref=e323]: "7:15:12 PM Current Faithful pass 1: start requested (full corpus, 1,000 trials each)"
+                  - generic [ref=e324]: "7:15:18 PM Current Faithful pass 1: live session ended (s-b3e9475b9eb8-1778717712505)"
+                  - generic [ref=e325]: "7:15:18 PM Current Faithful pass 1: loading evaluations from s-b3e9475b9eb8-1778717712505"
+                  - generic [ref=e326]: "7:15:18 PM Current Faithful pass 1: loaded 12,342 evaluations"
+                  - generic [ref=e327]: "7:15:18 PM Current Faithful: pass 1 analyzer received 12,342 evaluations"
+                  - generic [ref=e328]: "7:15:18 PM Current Faithful pass 2: start requested (1 policies max, 20,000 trials each)"
+                  - generic [ref=e329]: "7:15:19 PM Current Faithful pass 2: live session ended (s-b3e9475b9eb8-1778717718770)"
+                  - generic [ref=e330]: "7:15:19 PM Current Faithful pass 2: loading evaluations from s-b3e9475b9eb8-1778717718770"
+                  - generic [ref=e331]: "7:15:19 PM Current Faithful pass 2: loaded 1 evaluations"
+                  - generic [ref=e332]: "7:15:19 PM Current Faithful: merged corpus has 12,343 evaluations"
+                  - generic [ref=e333]: "7:15:19 PM Current Faithful: mining returned 12,343 evaluations"
+                  - generic [ref=e334]: "7:15:19 PM Current Faithful: dry-run certification at $115k/yr"
+                  - generic [ref=e335]: "7:16:18 PM POST /monthly-review-ai-check (Current Faithful: 12,343 evals)"
+              - generic [ref=e336]:
+                - paragraph [ref=e337]: Last AI exchange
+                - paragraph [ref=e338]: Cached locally from the most recent Monthly Review API call.
+                - button "Show validation packet sent" [ref=e340]
+                - generic [ref=e342]:
+                  - paragraph [ref=e343]: QA signals
+                  - generic [ref=e344]:
+                    - group [ref=e345]:
+                      - 'generic "Act now ACA bridge breach · 2027: MAGI $52,096 over ACA-friendly ceiling i" [active] [ref=e346] [cursor=pointer]':
+                        - generic [ref=e347]: Act now
+                        - generic [ref=e348]:
+                          - text: ACA bridge breach
+                          - generic [ref=e349]: "· 2027: MAGI $52,096 over ACA-friendly ceiling"
+                        - generic [ref=e350]: i
+                      - generic [ref=e369]:
+                        - paragraph [ref=e370]: Modeled MAGI is $137,065 against an ACA-friendly ceiling near $84,969, so subsidy eligibility is breached in the bridge year.
+                        - paragraph [ref=e371]: "Treat this as act-now MAGI work: reduce bridge-year taxable income, payroll taxable income, or conversion pressure before relying on subsidy assumptions."
+                        - paragraph [ref=e372]: year=2027 · medianMagi=137065 · acaFriendlyMagiCeiling=84969 · headroom=-52096 · medianAcaPremiumEstimate=30384
+                        - generic [ref=e373]:
+                          - generic [ref=e374]:
+                            - term [ref=e375]: "Read:"
+                            - definition [ref=e376]: Possible intentional tradeoff
+                          - generic [ref=e377]:
+                            - term [ref=e378]: "Why it matters:"
+                            - definition [ref=e379]: Crossing the ACA-friendly MAGI ceiling can reduce or eliminate premium subsidies in the bridge year.
+                          - generic [ref=e380]:
+                            - term [ref=e381]: "Why it may be OK:"
+                            - definition [ref=e382]: This can be acceptable when the extra MAGI is a deliberate tradeoff for higher safe spending, Roth conversion, capital-gain harvesting, or simpler cash management, and the selected policy still passes certification after net ACA cost is included.
+                          - generic [ref=e383]:
+                            - term [ref=e384]: "Bug check:"
+                            - definition [ref=e385]: Check for a bug if MAGI excludes conversions, dividends, interest, realized gains, payroll income, or Social Security; if ACA FPL thresholds are stale; or if gross premiums, subsidies, and net ACA costs are not flowing into the selected path.
+                          - generic [ref=e386]:
+                            - term [ref=e387]: "Decision:"
+                            - definition [ref=e388]: Decide whether to accept the subsidy loss as an intentional 2027 tradeoff or rerun a MAGI-constrained variant to price the subsidy-preserving alternative.
+                    - group [ref=e351]:
+                      - generic "Act now Cash runway gap · $53,571 short of 18-month target i" [ref=e352] [cursor=pointer]:
+                        - generic [ref=e353]: Act now
+                        - generic [ref=e354]:
+                          - text: Cash runway gap
+                          - generic [ref=e355]: · $53,571 short of 18-month target
+                        - generic [ref=e356]: i
+                    - group [ref=e357]:
+                      - generic "Act now Holding concentration · FCNTX is 28% of portfolio i" [ref=e358] [cursor=pointer]:
+                        - generic [ref=e359]: Act now
+                        - generic [ref=e360]:
+                          - text: Holding concentration
+                          - generic [ref=e361]: · FCNTX is 28% of portfolio
+                        - generic [ref=e362]: i
+                    - group [ref=e363]:
+                      - generic "watch Legacy headroom · Median EW is 3.2x legacy target i" [ref=e364] [cursor=pointer]:
+                        - generic [ref=e365]: watch
+                        - generic [ref=e366]:
+                          - text: Legacy headroom
+                          - generic [ref=e367]: · Median EW is 3.2x legacy target
+                        - generic [ref=e368]: i

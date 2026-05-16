@@ -1,0 +1,475 @@
+[      82ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:5174/node_modules/.vite/deps/react-dom_client.js?v=552065b3:20100
+[     501ms] [LOG] [sim-cache] miss: nothing saved @ http://127.0.0.1:5174/src/simulation-result-cache.ts:46
+[     501ms] [LOG] [export-cache] summary hit: 1185 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:133
+[     502ms] [LOG] [export-cache] summary hit: 1185 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:133
+[     502ms] [LOG] [sim-cache] miss: nothing saved @ http://127.0.0.1:5174/src/simulation-result-cache.ts:46
+[     508ms] [LOG] [export-cache] hit: 1185 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:89
+[     510ms] [LOG] [export-cache] hit: 1185 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:89
+[     808ms] [WARNING] WebSocket connection to 'ws://localhost:8765/' failed: WebSocket is closed before the connection is established. @ http://127.0.0.1:5174/src/cluster-client.ts:431
+[     809ms] [WARNING] [cluster-client] socket error @ http://127.0.0.1:5174/src/cluster-client.ts:146
+[  680217ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:5174/node_modules/.vite/deps/react-dom_client.js?v=552065b3:20100
+[  680814ms] [LOG] [sim-cache] miss: nothing saved @ http://127.0.0.1:5174/src/simulation-result-cache.ts:46
+[  680814ms] [LOG] [export-cache] summary hit: 1197 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:133
+[  680815ms] [LOG] [export-cache] summary hit: 1197 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:133
+[  680817ms] [LOG] [sim-cache] miss: nothing saved @ http://127.0.0.1:5174/src/simulation-result-cache.ts:46
+[  680825ms] [LOG] [export-cache] hit: 1197 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:89
+[  680831ms] [LOG] [export-cache] hit: 1197 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:89
+[  681125ms] [WARNING] WebSocket connection to 'ws://localhost:8765/' failed: WebSocket is closed before the connection is established. @ http://127.0.0.1:5174/src/cluster-client.ts:431
+[  681126ms] [WARNING] [cluster-client] socket error @ http://127.0.0.1:5174/src/cluster-client.ts:146
+[  690508ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:5174/node_modules/.vite/deps/react-dom_client.js?v=552065b3:20100
+[  690894ms] [LOG] [export-cache] summary hit: 1197 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:133
+[  690895ms] [LOG] [sim-cache] miss: nothing saved @ http://127.0.0.1:5174/src/simulation-result-cache.ts:46
+[  690895ms] [LOG] [export-cache] summary hit: 1197 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:133
+[  690895ms] [LOG] [sim-cache] miss: nothing saved @ http://127.0.0.1:5174/src/simulation-result-cache.ts:46
+[  690906ms] [LOG] [export-cache] hit: 1197 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:89
+[  690911ms] [LOG] [export-cache] hit: 1197 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:89
+[  691206ms] [WARNING] WebSocket connection to 'ws://localhost:8765/' failed: WebSocket is closed before the connection is established. @ http://127.0.0.1:5174/src/cluster-client.ts:431
+[  691207ms] [WARNING] [cluster-client] socket error @ http://127.0.0.1:5174/src/cluster-client.ts:146
+[  703813ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:5174/node_modules/.vite/deps/react-dom_client.js?v=552065b3:20100
+[  704233ms] [LOG] [sim-cache] miss: nothing saved @ http://127.0.0.1:5174/src/simulation-result-cache.ts:46
+[  704233ms] [LOG] [export-cache] summary hit: 1197 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:133
+[  704234ms] [LOG] [export-cache] summary hit: 1197 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:133
+[  704237ms] [LOG] [sim-cache] miss: nothing saved @ http://127.0.0.1:5174/src/simulation-result-cache.ts:46
+[  704240ms] [LOG] [export-cache] hit: 1197 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:89
+[  704245ms] [LOG] [export-cache] hit: 1197 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:89
+[  704547ms] [WARNING] WebSocket connection to 'ws://localhost:8765/' failed: WebSocket is closed before the connection is established. @ http://127.0.0.1:5174/src/cluster-client.ts:431
+[  704548ms] [WARNING] [cluster-client] socket error @ http://127.0.0.1:5174/src/cluster-client.ts:146
+[  716820ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:5174/node_modules/.vite/deps/react-dom_client.js?v=552065b3:20100
+[  717181ms] [LOG] [export-cache] summary hit: 1197 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:133
+[  717181ms] [LOG] [sim-cache] miss: nothing saved @ http://127.0.0.1:5174/src/simulation-result-cache.ts:46
+[  717181ms] [LOG] [export-cache] summary hit: 1197 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:133
+[  717188ms] [LOG] [export-cache] hit: 1197 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:89
+[  717189ms] [LOG] [sim-cache] miss: nothing saved @ http://127.0.0.1:5174/src/simulation-result-cache.ts:46
+[  717193ms] [LOG] [export-cache] hit: 1197 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:89
+[  717500ms] [WARNING] WebSocket connection to 'ws://localhost:8765/' failed: WebSocket is closed before the connection is established. @ http://127.0.0.1:5174/src/cluster-client.ts:431
+[  717501ms] [WARNING] [cluster-client] socket error @ http://127.0.0.1:5174/src/cluster-client.ts:146
+[ 1150528ms] [INFO] [mining] deterministic replay check passed {seed: 1884315824, trialCount: 32, policyId: pol_f6540ca0} @ http://127.0.0.1:5174/src/cluster-client.ts:366
+[ 1156794ms] [INFO] [mining] deterministic replay check passed {seed: 1884315824, trialCount: 32, policyId: pol_a95e2d12} @ http://127.0.0.1:5174/src/cluster-client.ts:366
+[ 1292280ms] [ERROR] Failed to load resource: net::ERR_NETWORK_IO_SUSPENDED @ http://localhost:8765/monthly-review-ai-check:0
+[ 1292298ms] [LOG] [vite] server connection lost. Polling for restart... @ http://127.0.0.1:5174/@vite/client:963
+[ 1292452ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:5174/node_modules/.vite/deps/react-dom_client.js?v=552065b3:20100
+[ 1292606ms] [LOG] [sim-cache] miss: nothing saved @ http://127.0.0.1:5174/src/simulation-result-cache.ts:46
+[ 1292606ms] [LOG] [export-cache] summary hit: 1207 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:133
+[ 1292607ms] [LOG] [export-cache] summary hit: 1207 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:133
+[ 1292607ms] [LOG] [sim-cache] miss: nothing saved @ http://127.0.0.1:5174/src/simulation-result-cache.ts:46
+[ 1292613ms] [LOG] [export-cache] hit: 1207 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:89
+[ 1292617ms] [LOG] [export-cache] hit: 1207 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:89
+[ 1292915ms] [WARNING] WebSocket connection to 'ws://localhost:8765/' failed: WebSocket is closed before the connection is established. @ http://127.0.0.1:5174/src/cluster-client.ts:431
+[ 1292916ms] [WARNING] [cluster-client] socket error @ http://127.0.0.1:5174/src/cluster-client.ts:146
+[ 3206664ms] [INFO] [mining] deterministic replay check passed {seed: 1884315824, trialCount: 32, policyId: pol_f6540ca0} @ http://127.0.0.1:5174/src/cluster-client.ts:366
+[ 3215086ms] [INFO] [mining] deterministic replay check passed {seed: 1884315824, trialCount: 32, policyId: pol_a95e2d12} @ http://127.0.0.1:5174/src/cluster-client.ts:366
+[ 3419096ms] [ERROR] Failed to load resource: the server responded with a status of 500 (Internal Server Error) @ http://localhost:8765/monthly-review-audit:0
+[ 3491745ms] [ERROR] WebSocket connection to 'ws://localhost:8765/' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:5174/src/cluster-client.ts:115
+[ 3491757ms] [WARNING] [cluster-client] socket error @ http://127.0.0.1:5174/src/cluster-client.ts:146
+[ 3493116ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8765/sessions:0
+[ 3493766ms] [ERROR] WebSocket connection to 'ws://localhost:8765/' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:5174/src/cluster-client.ts:115
+[ 3493774ms] [WARNING] [cluster-client] socket error @ http://127.0.0.1:5174/src/cluster-client.ts:146
+[ 3497301ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8765/sessions:0
+[ 3497794ms] [ERROR] WebSocket connection to 'ws://localhost:8765/' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:5174/src/cluster-client.ts:115
+[ 3497807ms] [WARNING] [cluster-client] socket error @ http://127.0.0.1:5174/src/cluster-client.ts:146
+[ 3498115ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8765/sessions:0
+[ 7158692ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:5174/node_modules/.vite/deps/react-dom_client.js?v=552065b3:20100
+[ 7158920ms] [LOG] [sim-cache] miss: nothing saved @ http://127.0.0.1:5174/src/simulation-result-cache.ts:46
+[ 7158922ms] [LOG] [export-cache] summary hit: 1305 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:133
+[ 7158923ms] [LOG] [export-cache] summary hit: 1305 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:133
+[ 7158923ms] [LOG] [sim-cache] miss: nothing saved @ http://127.0.0.1:5174/src/simulation-result-cache.ts:46
+[ 7158931ms] [LOG] [export-cache] hit: 1305 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:89
+[ 7158934ms] [LOG] [export-cache] hit: 1305 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:89
+[ 7159233ms] [WARNING] WebSocket connection to 'ws://localhost:8765/' failed: WebSocket is closed before the connection is established. @ http://127.0.0.1:5174/src/cluster-client.ts:431
+[ 7159238ms] [WARNING] [cluster-client] socket error @ http://127.0.0.1:5174/src/cluster-client.ts:146
+[ 7220786ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:5174/node_modules/.vite/deps/react-dom_client.js?v=552065b3:20100
+[ 7221172ms] [LOG] [sim-cache] miss: nothing saved @ http://127.0.0.1:5174/src/simulation-result-cache.ts:46
+[ 7221172ms] [LOG] [export-cache] summary hit: 1306 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:133
+[ 7221172ms] [LOG] [export-cache] summary hit: 1306 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:133
+[ 7221172ms] [LOG] [sim-cache] miss: nothing saved @ http://127.0.0.1:5174/src/simulation-result-cache.ts:46
+[ 7221178ms] [LOG] [export-cache] hit: 1306 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:89
+[ 7221181ms] [LOG] [export-cache] hit: 1306 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:89
+[ 7221479ms] [WARNING] WebSocket connection to 'ws://localhost:8765/' failed: WebSocket is closed before the connection is established. @ http://127.0.0.1:5174/src/cluster-client.ts:431
+[ 7221480ms] [WARNING] [cluster-client] socket error @ http://127.0.0.1:5174/src/cluster-client.ts:146
+[ 7228064ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:5174/node_modules/.vite/deps/react-dom_client.js?v=552065b3:20100
+[ 7228271ms] [LOG] [sim-cache] miss: nothing saved @ http://127.0.0.1:5174/src/simulation-result-cache.ts:46
+[ 7228272ms] [LOG] [export-cache] summary hit: 1306 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:133
+[ 7228272ms] [LOG] [export-cache] summary hit: 1306 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:133
+[ 7228274ms] [LOG] [sim-cache] miss: nothing saved @ http://127.0.0.1:5174/src/simulation-result-cache.ts:46
+[ 7228277ms] [LOG] [export-cache] hit: 1306 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:89
+[ 7228283ms] [LOG] [export-cache] hit: 1306 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:89
+[ 7228583ms] [WARNING] WebSocket connection to 'ws://localhost:8765/' failed: WebSocket is closed before the connection is established. @ http://127.0.0.1:5174/src/cluster-client.ts:431
+[ 7228584ms] [WARNING] [cluster-client] socket error @ http://127.0.0.1:5174/src/cluster-client.ts:146
+[ 7237577ms] [LOG] [export-cache] miss: no entry for fingerprint @ http://127.0.0.1:5174/src/export-payload-cache.ts:69
+[ 7248485ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:5174/node_modules/.vite/deps/react-dom_client.js?v=552065b3:20100
+[ 7248796ms] [LOG] [export-cache] miss: no entry for fingerprint @ http://127.0.0.1:5174/src/export-payload-cache.ts:69
+[ 7248796ms] [LOG] [sim-cache] miss: nothing saved @ http://127.0.0.1:5174/src/simulation-result-cache.ts:46
+[ 7248796ms] [LOG] [export-cache] miss: no entry for fingerprint @ http://127.0.0.1:5174/src/export-payload-cache.ts:69
+[ 7248796ms] [LOG] [sim-cache] miss: nothing saved @ http://127.0.0.1:5174/src/simulation-result-cache.ts:46
+[ 7249105ms] [WARNING] WebSocket connection to 'ws://localhost:8765/' failed: WebSocket is closed before the connection is established. @ http://127.0.0.1:5174/src/cluster-client.ts:431
+[ 7249106ms] [WARNING] [cluster-client] socket error @ http://127.0.0.1:5174/src/cluster-client.ts:146
+[ 7259867ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:5174/node_modules/.vite/deps/react-dom_client.js?v=552065b3:20100
+[ 7260133ms] [LOG] [sim-cache] miss: nothing saved @ http://127.0.0.1:5174/src/simulation-result-cache.ts:46
+[ 7260133ms] [LOG] [export-cache] miss: no entry for fingerprint @ http://127.0.0.1:5174/src/export-payload-cache.ts:69
+[ 7260133ms] [LOG] [export-cache] miss: no entry for fingerprint @ http://127.0.0.1:5174/src/export-payload-cache.ts:69
+[ 7260134ms] [LOG] [sim-cache] miss: nothing saved @ http://127.0.0.1:5174/src/simulation-result-cache.ts:46
+[ 7260439ms] [WARNING] WebSocket connection to 'ws://localhost:8765/' failed: WebSocket is closed before the connection is established. @ http://127.0.0.1:5174/src/cluster-client.ts:431
+[ 7260439ms] [WARNING] [cluster-client] socket error @ http://127.0.0.1:5174/src/cluster-client.ts:146
+[ 7319885ms] [LOG] [export-cache] saved to IndexedDB @ http://127.0.0.1:5174/src/export-payload-cache.ts:53
+[ 7342352ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8765/sessions:0
+[ 7344514ms] [ERROR] WebSocket connection to 'ws://localhost:8765/' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:5174/src/cluster-client.ts:115
+[ 7344524ms] [WARNING] [cluster-client] socket error @ http://127.0.0.1:5174/src/cluster-client.ts:146
+[ 7345442ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8765/sessions:0
+[ 7346533ms] [ERROR] WebSocket connection to 'ws://localhost:8765/' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:5174/src/cluster-client.ts:115
+[ 7346539ms] [WARNING] [cluster-client] socket error @ http://127.0.0.1:5174/src/cluster-client.ts:146
+[ 7350445ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8765/sessions:0
+[ 7350553ms] [ERROR] WebSocket connection to 'ws://localhost:8765/' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:5174/src/cluster-client.ts:115
+[ 7350562ms] [WARNING] [cluster-client] socket error @ http://127.0.0.1:5174/src/cluster-client.ts:146
+[ 7352338ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8765/sessions:0
+[ 7352338ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8765/sessions/s-b3e9475b9eb8-1778719777061/evaluations?topN=100&minFeasibility=0.85&minSolvency=0.8:0
+[ 9347627ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:5174/node_modules/.vite/deps/react-dom_client.js?v=552065b3:20100
+[ 9347755ms] [LOG] [sim-cache] miss: nothing saved @ http://127.0.0.1:5174/src/simulation-result-cache.ts:46
+[ 9347755ms] [LOG] [export-cache] summary hit: 34 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:133
+[ 9347755ms] [LOG] [export-cache] summary hit: 34 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:133
+[ 9347755ms] [LOG] [sim-cache] miss: nothing saved @ http://127.0.0.1:5174/src/simulation-result-cache.ts:46
+[ 9347760ms] [LOG] [export-cache] hit: 34 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:89
+[ 9347763ms] [LOG] [export-cache] hit: 34 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:89
+[ 9348061ms] [WARNING] WebSocket connection to 'ws://localhost:8765/' failed: WebSocket is closed before the connection is established. @ http://127.0.0.1:5174/src/cluster-client.ts:431
+[ 9348062ms] [WARNING] [cluster-client] socket error @ http://127.0.0.1:5174/src/cluster-client.ts:146
+[ 9374772ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:5174/node_modules/.vite/deps/react-dom_client.js?v=552065b3:20100
+[ 9374955ms] [LOG] [sim-cache] miss: nothing saved @ http://127.0.0.1:5174/src/simulation-result-cache.ts:46
+[ 9374955ms] [LOG] [export-cache] summary hit: 34 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:133
+[ 9374955ms] [LOG] [export-cache] summary hit: 34 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:133
+[ 9374959ms] [LOG] [sim-cache] miss: nothing saved @ http://127.0.0.1:5174/src/simulation-result-cache.ts:46
+[ 9374961ms] [LOG] [export-cache] hit: 34 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:89
+[ 9374984ms] [LOG] [export-cache] hit: 34 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:89
+[ 9375266ms] [WARNING] WebSocket connection to 'ws://localhost:8765/' failed: WebSocket is closed before the connection is established. @ http://127.0.0.1:5174/src/cluster-client.ts:431
+[ 9375267ms] [WARNING] [cluster-client] socket error @ http://127.0.0.1:5174/src/cluster-client.ts:146
+[ 9406964ms] [ERROR] WebSocket connection to 'ws://localhost:8765/' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:5174/src/cluster-client.ts:115
+[ 9406974ms] [WARNING] [cluster-client] socket error @ http://127.0.0.1:5174/src/cluster-client.ts:146
+[ 9408985ms] [ERROR] WebSocket connection to 'ws://localhost:8765/' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:5174/src/cluster-client.ts:115
+[ 9408993ms] [WARNING] [cluster-client] socket error @ http://127.0.0.1:5174/src/cluster-client.ts:146
+[ 9410269ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8765/sessions:0
+[ 9413005ms] [ERROR] WebSocket connection to 'ws://localhost:8765/' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:5174/src/cluster-client.ts:115
+[ 9413013ms] [WARNING] [cluster-client] socket error @ http://127.0.0.1:5174/src/cluster-client.ts:146
+[ 9415269ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8765/sessions:0
+[ 9478728ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:5174/node_modules/.vite/deps/react-dom_client.js?v=552065b3:20100
+[ 9478847ms] [LOG] [sim-cache] miss: nothing saved @ http://127.0.0.1:5174/src/simulation-result-cache.ts:46
+[ 9478847ms] [LOG] [export-cache] summary hit: 36 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:133
+[ 9478847ms] [LOG] [export-cache] summary hit: 36 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:133
+[ 9478848ms] [LOG] [sim-cache] miss: nothing saved @ http://127.0.0.1:5174/src/simulation-result-cache.ts:46
+[ 9478852ms] [LOG] [export-cache] hit: 36 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:89
+[ 9478855ms] [LOG] [export-cache] hit: 36 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:89
+[ 9479154ms] [WARNING] WebSocket connection to 'ws://localhost:8765/' failed: WebSocket is closed before the connection is established. @ http://127.0.0.1:5174/src/cluster-client.ts:431
+[ 9479155ms] [WARNING] [cluster-client] socket error @ http://127.0.0.1:5174/src/cluster-client.ts:146
+[ 9487345ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:5174/node_modules/.vite/deps/react-dom_client.js?v=552065b3:20100
+[ 9487502ms] [LOG] [export-cache] summary hit: 36 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:133
+[ 9487502ms] [LOG] [export-cache] summary hit: 36 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:133
+[ 9487502ms] [LOG] [sim-cache] miss: nothing saved @ http://127.0.0.1:5174/src/simulation-result-cache.ts:46
+[ 9487506ms] [LOG] [export-cache] hit: 36 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:89
+[ 9487506ms] [LOG] [sim-cache] miss: nothing saved @ http://127.0.0.1:5174/src/simulation-result-cache.ts:46
+[ 9487508ms] [LOG] [export-cache] hit: 36 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:89
+[ 9487813ms] [WARNING] WebSocket connection to 'ws://localhost:8765/' failed: WebSocket is closed before the connection is established. @ http://127.0.0.1:5174/src/cluster-client.ts:431
+[ 9487818ms] [WARNING] [cluster-client] socket error @ http://127.0.0.1:5174/src/cluster-client.ts:146
+[ 9493471ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:5174/node_modules/.vite/deps/react-dom_client.js?v=552065b3:20100
+[ 9493596ms] [LOG] [sim-cache] miss: nothing saved @ http://127.0.0.1:5174/src/simulation-result-cache.ts:46
+[ 9493596ms] [LOG] [export-cache] summary hit: 36 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:133
+[ 9493597ms] [LOG] [export-cache] summary hit: 36 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:133
+[ 9493597ms] [LOG] [sim-cache] miss: nothing saved @ http://127.0.0.1:5174/src/simulation-result-cache.ts:46
+[ 9493612ms] [LOG] [export-cache] hit: 36 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:89
+[ 9493613ms] [LOG] [export-cache] hit: 36 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:89
+[ 9493902ms] [WARNING] WebSocket connection to 'ws://localhost:8765/' failed: WebSocket is closed before the connection is established. @ http://127.0.0.1:5174/src/cluster-client.ts:431
+[ 9493903ms] [WARNING] [cluster-client] socket error @ http://127.0.0.1:5174/src/cluster-client.ts:146
+[ 9503576ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:5174/node_modules/.vite/deps/react-dom_client.js?v=552065b3:20100
+[ 9503722ms] [LOG] [sim-cache] miss: nothing saved @ http://127.0.0.1:5174/src/simulation-result-cache.ts:46
+[ 9503722ms] [LOG] [export-cache] summary hit: 36 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:133
+[ 9503723ms] [LOG] [export-cache] summary hit: 36 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:133
+[ 9503723ms] [LOG] [sim-cache] miss: nothing saved @ http://127.0.0.1:5174/src/simulation-result-cache.ts:46
+[ 9503728ms] [LOG] [export-cache] hit: 36 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:89
+[ 9503729ms] [LOG] [export-cache] hit: 36 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:89
+[ 9504028ms] [WARNING] WebSocket connection to 'ws://localhost:8765/' failed: WebSocket is closed before the connection is established. @ http://127.0.0.1:5174/src/cluster-client.ts:431
+[ 9504029ms] [WARNING] [cluster-client] socket error @ http://127.0.0.1:5174/src/cluster-client.ts:146
+[ 9529031ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8765/sessions:0
+[ 9531131ms] [ERROR] WebSocket connection to 'ws://localhost:8765/' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:5174/src/cluster-client.ts:115
+[ 9531138ms] [WARNING] [cluster-client] socket error @ http://127.0.0.1:5174/src/cluster-client.ts:146
+[ 9533148ms] [ERROR] WebSocket connection to 'ws://localhost:8765/' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:5174/src/cluster-client.ts:115
+[ 9533156ms] [WARNING] [cluster-client] socket error @ http://127.0.0.1:5174/src/cluster-client.ts:146
+[ 9534032ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8765/sessions:0
+[ 9534399ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8765/sessions:0
+[ 9534399ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8765/sessions/s-b3e9475b9eb8-1778719777061/evaluations?topN=100&minFeasibility=0.85&minSolvency=0.8:0
+[ 9537165ms] [ERROR] WebSocket connection to 'ws://localhost:8765/' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://127.0.0.1:5174/src/cluster-client.ts:115
+[ 9537173ms] [WARNING] [cluster-client] socket error @ http://127.0.0.1:5174/src/cluster-client.ts:146
+[ 9539031ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8765/sessions:0
+[10491860ms] [LOG] [vite] server connection lost. Polling for restart... @ http://127.0.0.1:5174/@vite/client:963
+[10491968ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:5174/node_modules/.vite/deps/react-dom_client.js?v=552065b3:20100
+[10492062ms] [LOG] [sim-cache] miss: nothing saved @ http://127.0.0.1:5174/src/simulation-result-cache.ts:46
+[10492062ms] [LOG] [export-cache] summary hit: 53 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:133
+[10492062ms] [LOG] [export-cache] summary hit: 53 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:133
+[10492063ms] [LOG] [sim-cache] miss: nothing saved @ http://127.0.0.1:5174/src/simulation-result-cache.ts:46
+[10492069ms] [LOG] [export-cache] hit: 53 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:89
+[10492070ms] [LOG] [export-cache] hit: 53 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:89
+[10492369ms] [WARNING] WebSocket connection to 'ws://localhost:8765/' failed: WebSocket is closed before the connection is established. @ http://127.0.0.1:5174/src/cluster-client.ts:431
+[10492370ms] [WARNING] [cluster-client] socket error @ http://127.0.0.1:5174/src/cluster-client.ts:146
+[12018500ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:5174/node_modules/.vite/deps/react-dom_client.js?v=552065b3:20100
+[12018633ms] [LOG] [export-cache] summary hit: 78 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:133
+[12018634ms] [LOG] [export-cache] summary hit: 78 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:133
+[12018634ms] [LOG] [sim-cache] miss: nothing saved @ http://127.0.0.1:5174/src/simulation-result-cache.ts:46
+[12018634ms] [LOG] [sim-cache] miss: nothing saved @ http://127.0.0.1:5174/src/simulation-result-cache.ts:46
+[12018646ms] [LOG] [export-cache] hit: 78 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:89
+[12018647ms] [LOG] [export-cache] hit: 78 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:89
+[12018942ms] [WARNING] WebSocket connection to 'ws://localhost:8765/' failed: WebSocket is closed before the connection is established. @ http://127.0.0.1:5174/src/cluster-client.ts:431
+[12018944ms] [WARNING] [cluster-client] socket error @ http://127.0.0.1:5174/src/cluster-client.ts:146
+[12021513ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:5174/node_modules/.vite/deps/react-dom_client.js?v=552065b3:20100
+[12021816ms] [LOG] [export-cache] summary hit: 78 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:133
+[12021816ms] [LOG] [export-cache] summary hit: 78 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:133
+[12021816ms] [LOG] [sim-cache] miss: nothing saved @ http://127.0.0.1:5174/src/simulation-result-cache.ts:46
+[12021816ms] [LOG] [sim-cache] miss: nothing saved @ http://127.0.0.1:5174/src/simulation-result-cache.ts:46
+[12021821ms] [LOG] [export-cache] hit: 78 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:89
+[12021823ms] [LOG] [export-cache] hit: 78 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:89
+[12022123ms] [WARNING] WebSocket connection to 'ws://localhost:8765/' failed: WebSocket is closed before the connection is established. @ http://127.0.0.1:5174/src/cluster-client.ts?t=1778728583315:431
+[12022127ms] [WARNING] [cluster-client] socket error @ http://127.0.0.1:5174/src/cluster-client.ts?t=1778728583315:146
+[12026269ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:5174/node_modules/.vite/deps/react-dom_client.js?v=552065b3:20100
+[12026636ms] [LOG] [export-cache] summary hit: 78 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:133
+[12026637ms] [LOG] [export-cache] summary hit: 78 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:133
+[12026637ms] [LOG] [sim-cache] miss: nothing saved @ http://127.0.0.1:5174/src/simulation-result-cache.ts:46
+[12026637ms] [LOG] [sim-cache] miss: nothing saved @ http://127.0.0.1:5174/src/simulation-result-cache.ts:46
+[12026649ms] [LOG] [export-cache] hit: 78 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:89
+[12026650ms] [LOG] [export-cache] hit: 78 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:89
+[12026945ms] [WARNING] WebSocket connection to 'ws://localhost:8765/' failed: WebSocket is closed before the connection is established. @ http://127.0.0.1:5174/src/cluster-client.ts?t=1778728588073:431
+[12026946ms] [WARNING] [cluster-client] socket error @ http://127.0.0.1:5174/src/cluster-client.ts?t=1778728588073:146
+[12045013ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:5174/node_modules/.vite/deps/react-dom_client.js?v=552065b3:20100
+[12045505ms] [LOG] [export-cache] summary hit: 79 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:133
+[12045505ms] [LOG] [export-cache] summary hit: 79 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:133
+[12045505ms] [LOG] [sim-cache] miss: nothing saved @ http://127.0.0.1:5174/src/simulation-result-cache.ts:46
+[12045515ms] [LOG] [export-cache] hit: 79 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:89
+[12045515ms] [LOG] [sim-cache] miss: nothing saved @ http://127.0.0.1:5174/src/simulation-result-cache.ts:46
+[12045517ms] [LOG] [export-cache] hit: 79 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:89
+[12045824ms] [WARNING] WebSocket connection to 'ws://localhost:8765/' failed: WebSocket is closed before the connection is established. @ http://127.0.0.1:5174/src/cluster-client.ts?t=1778728606694:431
+[12045826ms] [WARNING] [cluster-client] socket error @ http://127.0.0.1:5174/src/cluster-client.ts?t=1778728606694:146
+[12053907ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:5174/node_modules/.vite/deps/react-dom_client.js?v=552065b3:20100
+[12054295ms] [LOG] [export-cache] summary hit: 79 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:133
+[12054298ms] [LOG] [export-cache] summary hit: 79 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:133
+[12054300ms] [LOG] [sim-cache] miss: nothing saved @ http://127.0.0.1:5174/src/simulation-result-cache.ts:46
+[12054300ms] [LOG] [sim-cache] miss: nothing saved @ http://127.0.0.1:5174/src/simulation-result-cache.ts:46
+[12054302ms] [LOG] [export-cache] hit: 79 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:89
+[12054308ms] [LOG] [export-cache] hit: 79 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:89
+[12054609ms] [WARNING] WebSocket connection to 'ws://localhost:8765/' failed: WebSocket is closed before the connection is established. @ http://127.0.0.1:5174/src/cluster-client.ts?t=1778728615666:431
+[12054610ms] [WARNING] [cluster-client] socket error @ http://127.0.0.1:5174/src/cluster-client.ts?t=1778728615666:146
+[12071947ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:5174/node_modules/.vite/deps/react-dom_client.js?v=552065b3:20100
+[12072244ms] [LOG] [sim-cache] miss: nothing saved @ http://127.0.0.1:5174/src/simulation-result-cache.ts:46
+[12072244ms] [LOG] [export-cache] summary hit: 79 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:133
+[12072245ms] [LOG] [export-cache] summary hit: 79 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:133
+[12072251ms] [LOG] [export-cache] hit: 79 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:89
+[12072251ms] [LOG] [sim-cache] miss: nothing saved @ http://127.0.0.1:5174/src/simulation-result-cache.ts:46
+[12072255ms] [LOG] [export-cache] hit: 79 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:89
+[12072560ms] [WARNING] WebSocket connection to 'ws://localhost:8765/' failed: WebSocket is closed before the connection is established. @ http://127.0.0.1:5174/src/cluster-client.ts?t=1778728633601:431
+[12072561ms] [WARNING] [cluster-client] socket error @ http://127.0.0.1:5174/src/cluster-client.ts?t=1778728633601:146
+[12080140ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:5174/node_modules/.vite/deps/react-dom_client.js?v=552065b3:20100
+[12080476ms] [LOG] [sim-cache] miss: nothing saved @ http://127.0.0.1:5174/src/simulation-result-cache.ts:46
+[12080476ms] [LOG] [export-cache] summary hit: 79 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:133
+[12080476ms] [LOG] [export-cache] summary hit: 79 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:133
+[12080477ms] [LOG] [sim-cache] miss: nothing saved @ http://127.0.0.1:5174/src/simulation-result-cache.ts:46
+[12080482ms] [LOG] [export-cache] hit: 79 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:89
+[12080484ms] [LOG] [export-cache] hit: 79 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:89
+[12080783ms] [WARNING] WebSocket connection to 'ws://localhost:8765/' failed: WebSocket is closed before the connection is established. @ http://127.0.0.1:5174/src/cluster-client.ts?t=1778728641940:431
+[12080784ms] [WARNING] [cluster-client] socket error @ http://127.0.0.1:5174/src/cluster-client.ts?t=1778728641940:146
+[12084685ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:5174/node_modules/.vite/deps/react-dom_client.js?v=552065b3:20100
+[12085087ms] [LOG] [sim-cache] miss: nothing saved @ http://127.0.0.1:5174/src/simulation-result-cache.ts:46
+[12085087ms] [LOG] [export-cache] summary hit: 79 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:133
+[12085087ms] [LOG] [export-cache] summary hit: 79 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:133
+[12085087ms] [LOG] [sim-cache] miss: nothing saved @ http://127.0.0.1:5174/src/simulation-result-cache.ts:46
+[12085093ms] [LOG] [export-cache] hit: 79 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:89
+[12085096ms] [LOG] [export-cache] hit: 79 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:89
+[12085393ms] [WARNING] WebSocket connection to 'ws://localhost:8765/' failed: WebSocket is closed before the connection is established. @ http://127.0.0.1:5174/src/cluster-client.ts?t=1778728646464:431
+[12085394ms] [WARNING] [cluster-client] socket error @ http://127.0.0.1:5174/src/cluster-client.ts?t=1778728646464:146
+[12094817ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:5174/node_modules/.vite/deps/react-dom_client.js?v=552065b3:20100
+[12095125ms] [LOG] [sim-cache] miss: nothing saved @ http://127.0.0.1:5174/src/simulation-result-cache.ts:46
+[12095125ms] [LOG] [export-cache] summary hit: 80 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:133
+[12095125ms] [LOG] [export-cache] summary hit: 80 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:133
+[12095128ms] [LOG] [sim-cache] miss: nothing saved @ http://127.0.0.1:5174/src/simulation-result-cache.ts:46
+[12095130ms] [LOG] [export-cache] hit: 80 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:89
+[12095136ms] [LOG] [export-cache] hit: 80 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:89
+[12095439ms] [WARNING] WebSocket connection to 'ws://localhost:8765/' failed: WebSocket is closed before the connection is established. @ http://127.0.0.1:5174/src/cluster-client.ts?t=1778728656578:431
+[12095443ms] [WARNING] [cluster-client] socket error @ http://127.0.0.1:5174/src/cluster-client.ts?t=1778728656578:146
+[12187671ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:5174/node_modules/.vite/deps/react-dom_client.js?v=552065b3:20100
+[12187789ms] [LOG] [sim-cache] miss: nothing saved @ http://127.0.0.1:5174/src/simulation-result-cache.ts:46
+[12187789ms] [LOG] [export-cache] summary hit: 81 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:133
+[12187789ms] [LOG] [export-cache] summary hit: 81 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:133
+[12187793ms] [LOG] [sim-cache] miss: nothing saved @ http://127.0.0.1:5174/src/simulation-result-cache.ts:46
+[12187796ms] [LOG] [export-cache] hit: 81 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:89
+[12187802ms] [LOG] [export-cache] hit: 81 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:89
+[12188104ms] [WARNING] WebSocket connection to 'ws://localhost:8765/' failed: WebSocket is closed before the connection is established. @ http://127.0.0.1:5174/src/cluster-client.ts?t=1778728656578:431
+[12188105ms] [WARNING] [cluster-client] socket error @ http://127.0.0.1:5174/src/cluster-client.ts?t=1778728656578:146
+[12221682ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:5174/node_modules/.vite/deps/react-dom_client.js?v=552065b3:20100
+[12222123ms] [LOG] [sim-cache] miss: nothing saved @ http://127.0.0.1:5174/src/simulation-result-cache.ts:46
+[12222124ms] [LOG] [export-cache] summary hit: 82 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:133
+[12222125ms] [LOG] [export-cache] summary hit: 82 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:133
+[12222128ms] [LOG] [sim-cache] miss: nothing saved @ http://127.0.0.1:5174/src/simulation-result-cache.ts:46
+[12222130ms] [LOG] [export-cache] hit: 82 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:89
+[12222134ms] [LOG] [export-cache] hit: 82 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:89
+[12222436ms] [WARNING] WebSocket connection to 'ws://localhost:8765/' failed: WebSocket is closed before the connection is established. @ http://127.0.0.1:5174/src/cluster-client.ts?t=1778728783354:431
+[12222438ms] [WARNING] [cluster-client] socket error @ http://127.0.0.1:5174/src/cluster-client.ts?t=1778728783354:146
+[12266971ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:5174/node_modules/.vite/deps/react-dom_client.js?v=552065b3:20100
+[12267138ms] [LOG] [sim-cache] miss: nothing saved @ http://127.0.0.1:5174/src/simulation-result-cache.ts:46
+[12267138ms] [LOG] [export-cache] summary hit: 82 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:133
+[12267138ms] [LOG] [export-cache] summary hit: 82 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:133
+[12267138ms] [LOG] [sim-cache] miss: nothing saved @ http://127.0.0.1:5174/src/simulation-result-cache.ts:46
+[12267147ms] [LOG] [export-cache] hit: 82 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:89
+[12267149ms] [LOG] [export-cache] hit: 82 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:89
+[12267447ms] [WARNING] WebSocket connection to 'ws://localhost:8765/' failed: WebSocket is closed before the connection is established. @ http://127.0.0.1:5174/src/cluster-client.ts?t=1778728783354:431
+[12267448ms] [WARNING] [cluster-client] socket error @ http://127.0.0.1:5174/src/cluster-client.ts?t=1778728783354:146
+[12387517ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:5174/node_modules/.vite/deps/react-dom_client.js?v=552065b3:20100
+[12387643ms] [LOG] [sim-cache] miss: nothing saved @ http://127.0.0.1:5174/src/simulation-result-cache.ts:46
+[12387643ms] [LOG] [export-cache] summary hit: 84 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:133
+[12387644ms] [LOG] [export-cache] summary hit: 84 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:133
+[12387644ms] [LOG] [sim-cache] miss: nothing saved @ http://127.0.0.1:5174/src/simulation-result-cache.ts:46
+[12387650ms] [LOG] [export-cache] hit: 84 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:89
+[12387652ms] [LOG] [export-cache] hit: 84 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:89
+[12387951ms] [WARNING] WebSocket connection to 'ws://localhost:8765/' failed: WebSocket is closed before the connection is established. @ http://127.0.0.1:5174/src/cluster-client.ts?t=1778728783354:431
+[12387952ms] [WARNING] [cluster-client] socket error @ http://127.0.0.1:5174/src/cluster-client.ts?t=1778728783354:146
+[12419743ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:5174/node_modules/.vite/deps/react-dom_client.js?v=552065b3:20100
+[12419967ms] [LOG] [sim-cache] miss: nothing saved @ http://127.0.0.1:5174/src/simulation-result-cache.ts:46
+[12419967ms] [LOG] [export-cache] summary hit: 85 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:133
+[12419968ms] [LOG] [export-cache] summary hit: 85 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:133
+[12419976ms] [LOG] [export-cache] hit: 85 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:89
+[12419976ms] [LOG] [sim-cache] miss: nothing saved @ http://127.0.0.1:5174/src/simulation-result-cache.ts:46
+[12419984ms] [LOG] [export-cache] hit: 85 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:89
+[12420283ms] [WARNING] WebSocket connection to 'ws://localhost:8765/' failed: WebSocket is closed before the connection is established. @ http://127.0.0.1:5174/src/cluster-client.ts?t=1778728783354:431
+[12420284ms] [WARNING] [cluster-client] socket error @ http://127.0.0.1:5174/src/cluster-client.ts?t=1778728783354:146
+[12427793ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:5174/node_modules/.vite/deps/react-dom_client.js?v=552065b3:20100
+[12428009ms] [LOG] [export-cache] summary hit: 85 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:133
+[12428009ms] [LOG] [sim-cache] miss: nothing saved @ http://127.0.0.1:5174/src/simulation-result-cache.ts:46
+[12428010ms] [LOG] [export-cache] summary hit: 85 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:133
+[12428017ms] [LOG] [sim-cache] miss: nothing saved @ http://127.0.0.1:5174/src/simulation-result-cache.ts:46
+[12428020ms] [LOG] [export-cache] hit: 85 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:89
+[12428038ms] [LOG] [export-cache] hit: 85 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:89
+[12428327ms] [WARNING] WebSocket connection to 'ws://localhost:8765/' failed: WebSocket is closed before the connection is established. @ http://127.0.0.1:5174/src/cluster-client.ts?t=1778728783354:431
+[12428328ms] [WARNING] [cluster-client] socket error @ http://127.0.0.1:5174/src/cluster-client.ts?t=1778728783354:146
+[12435764ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:5174/node_modules/.vite/deps/react-dom_client.js?v=552065b3:20100
+[12436021ms] [LOG] [sim-cache] miss: nothing saved @ http://127.0.0.1:5174/src/simulation-result-cache.ts:46
+[12436021ms] [LOG] [export-cache] summary hit: 85 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:133
+[12436021ms] [LOG] [export-cache] summary hit: 85 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:133
+[12436027ms] [LOG] [export-cache] hit: 85 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:89
+[12436038ms] [LOG] [sim-cache] miss: nothing saved @ http://127.0.0.1:5174/src/simulation-result-cache.ts:46
+[12436055ms] [LOG] [export-cache] hit: 85 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:89
+[12436356ms] [WARNING] WebSocket connection to 'ws://localhost:8765/' failed: WebSocket is closed before the connection is established. @ http://127.0.0.1:5174/src/cluster-client.ts?t=1778728783354:431
+[12436357ms] [WARNING] [cluster-client] socket error @ http://127.0.0.1:5174/src/cluster-client.ts?t=1778728783354:146
+[12632816ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:5174/node_modules/.vite/deps/react-dom_client.js?v=552065b3:20100
+[12632975ms] [LOG] [export-cache] summary hit: 89 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:133
+[12632975ms] [LOG] [sim-cache] miss: nothing saved @ http://127.0.0.1:5174/src/simulation-result-cache.ts:46
+[12632975ms] [LOG] [export-cache] summary hit: 89 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:133
+[12632975ms] [LOG] [sim-cache] miss: nothing saved @ http://127.0.0.1:5174/src/simulation-result-cache.ts:46
+[12632981ms] [LOG] [export-cache] hit: 89 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:89
+[12632984ms] [LOG] [export-cache] hit: 89 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:89
+[12633283ms] [WARNING] WebSocket connection to 'ws://localhost:8765/' failed: WebSocket is closed before the connection is established. @ http://127.0.0.1:5174/src/cluster-client.ts?t=1778728783354:431
+[12633284ms] [WARNING] [cluster-client] socket error @ http://127.0.0.1:5174/src/cluster-client.ts?t=1778728783354:146
+[12661374ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:5174/node_modules/.vite/deps/react-dom_client.js?v=552065b3:20100
+[12661553ms] [LOG] [sim-cache] miss: nothing saved @ http://127.0.0.1:5174/src/simulation-result-cache.ts:46
+[12661553ms] [LOG] [export-cache] summary hit: 89 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:133
+[12661554ms] [LOG] [export-cache] summary hit: 89 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:133
+[12661554ms] [LOG] [sim-cache] miss: nothing saved @ http://127.0.0.1:5174/src/simulation-result-cache.ts:46
+[12661559ms] [LOG] [export-cache] hit: 89 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:89
+[12661561ms] [LOG] [export-cache] hit: 89 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:89
+[12661860ms] [WARNING] WebSocket connection to 'ws://localhost:8765/' failed: WebSocket is closed before the connection is established. @ http://127.0.0.1:5174/src/cluster-client.ts?t=1778728783354:431
+[12661864ms] [WARNING] [cluster-client] socket error @ http://127.0.0.1:5174/src/cluster-client.ts?t=1778728783354:146
+[12667086ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:5174/node_modules/.vite/deps/react-dom_client.js?v=552065b3:20100
+[12667290ms] [LOG] [sim-cache] miss: nothing saved @ http://127.0.0.1:5174/src/simulation-result-cache.ts:46
+[12667291ms] [LOG] [export-cache] summary hit: 89 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:133
+[12667291ms] [LOG] [export-cache] summary hit: 89 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:133
+[12667294ms] [LOG] [sim-cache] miss: nothing saved @ http://127.0.0.1:5174/src/simulation-result-cache.ts:46
+[12667296ms] [LOG] [export-cache] hit: 89 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:89
+[12667301ms] [LOG] [export-cache] hit: 89 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:89
+[12667602ms] [WARNING] WebSocket connection to 'ws://localhost:8765/' failed: WebSocket is closed before the connection is established. @ http://127.0.0.1:5174/src/cluster-client.ts?t=1778728783354:431
+[12667603ms] [WARNING] [cluster-client] socket error @ http://127.0.0.1:5174/src/cluster-client.ts?t=1778728783354:146
+[12674492ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:5174/node_modules/.vite/deps/react-dom_client.js?v=552065b3:20100
+[12674728ms] [LOG] [sim-cache] miss: nothing saved @ http://127.0.0.1:5174/src/simulation-result-cache.ts:46
+[12674728ms] [LOG] [export-cache] summary hit: 89 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:133
+[12674728ms] [LOG] [export-cache] summary hit: 89 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:133
+[12674732ms] [LOG] [sim-cache] miss: nothing saved @ http://127.0.0.1:5174/src/simulation-result-cache.ts:46
+[12674734ms] [LOG] [export-cache] hit: 89 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:89
+[12674750ms] [LOG] [export-cache] hit: 89 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:89
+[12675041ms] [WARNING] WebSocket connection to 'ws://localhost:8765/' failed: WebSocket is closed before the connection is established. @ http://127.0.0.1:5174/src/cluster-client.ts?t=1778728783354:431
+[12675048ms] [WARNING] [cluster-client] socket error @ http://127.0.0.1:5174/src/cluster-client.ts?t=1778728783354:146
+[12682339ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:5174/node_modules/.vite/deps/react-dom_client.js?v=552065b3:20100
+[12682564ms] [LOG] [export-cache] summary hit: 89 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:133
+[12682564ms] [LOG] [sim-cache] miss: nothing saved @ http://127.0.0.1:5174/src/simulation-result-cache.ts:46
+[12682564ms] [LOG] [export-cache] summary hit: 89 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:133
+[12682564ms] [LOG] [sim-cache] miss: nothing saved @ http://127.0.0.1:5174/src/simulation-result-cache.ts:46
+[12682570ms] [LOG] [export-cache] hit: 89 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:89
+[12682572ms] [LOG] [export-cache] hit: 89 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:89
+[12682871ms] [WARNING] WebSocket connection to 'ws://localhost:8765/' failed: WebSocket is closed before the connection is established. @ http://127.0.0.1:5174/src/cluster-client.ts?t=1778728783354:431
+[12682872ms] [WARNING] [cluster-client] socket error @ http://127.0.0.1:5174/src/cluster-client.ts?t=1778728783354:146
+[12693155ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:5174/node_modules/.vite/deps/react-dom_client.js?v=552065b3:20100
+[12693349ms] [LOG] [sim-cache] miss: nothing saved @ http://127.0.0.1:5174/src/simulation-result-cache.ts:46
+[12693349ms] [LOG] [export-cache] summary hit: 90 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:133
+[12693350ms] [LOG] [export-cache] summary hit: 90 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:133
+[12693350ms] [LOG] [sim-cache] miss: nothing saved @ http://127.0.0.1:5174/src/simulation-result-cache.ts:46
+[12693356ms] [LOG] [export-cache] hit: 90 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:89
+[12693358ms] [LOG] [export-cache] hit: 90 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:89
+[12693656ms] [WARNING] WebSocket connection to 'ws://localhost:8765/' failed: WebSocket is closed before the connection is established. @ http://127.0.0.1:5174/src/cluster-client.ts?t=1778728783354:431
+[12693657ms] [WARNING] [cluster-client] socket error @ http://127.0.0.1:5174/src/cluster-client.ts?t=1778728783354:146
+[12720807ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:5174/node_modules/.vite/deps/react-dom_client.js?v=552065b3:20100
+[12720995ms] [LOG] [sim-cache] miss: nothing saved @ http://127.0.0.1:5174/src/simulation-result-cache.ts:46
+[12720995ms] [LOG] [export-cache] summary hit: 90 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:133
+[12720995ms] [LOG] [export-cache] summary hit: 90 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:133
+[12720995ms] [LOG] [sim-cache] miss: nothing saved @ http://127.0.0.1:5174/src/simulation-result-cache.ts:46
+[12721004ms] [LOG] [export-cache] hit: 90 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:89
+[12721006ms] [LOG] [export-cache] hit: 90 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:89
+[12721304ms] [WARNING] WebSocket connection to 'ws://localhost:8765/' failed: WebSocket is closed before the connection is established. @ http://127.0.0.1:5174/src/cluster-client.ts?t=1778728783354:431
+[12721305ms] [WARNING] [cluster-client] socket error @ http://127.0.0.1:5174/src/cluster-client.ts?t=1778728783354:146
+[13248063ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:5174/node_modules/.vite/deps/react-dom_client.js?v=552065b3:20100
+[13248197ms] [LOG] [sim-cache] miss: nothing saved @ http://127.0.0.1:5174/src/simulation-result-cache.ts:46
+[13248197ms] [LOG] [export-cache] summary hit: 99 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:133
+[13248198ms] [LOG] [export-cache] summary hit: 99 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:133
+[13248198ms] [LOG] [sim-cache] miss: nothing saved @ http://127.0.0.1:5174/src/simulation-result-cache.ts:46
+[13248204ms] [LOG] [export-cache] hit: 99 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:89
+[13248206ms] [LOG] [export-cache] hit: 99 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:89
+[13248506ms] [WARNING] WebSocket connection to 'ws://localhost:8765/' failed: WebSocket is closed before the connection is established. @ http://127.0.0.1:5174/src/cluster-client.ts?t=1778728783354:431
+[13248507ms] [WARNING] [cluster-client] socket error @ http://127.0.0.1:5174/src/cluster-client.ts?t=1778728783354:146
+[13389591ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:5174/node_modules/.vite/deps/react-dom_client.js?v=552065b3:20100
+[13389725ms] [LOG] [sim-cache] miss: nothing saved @ http://127.0.0.1:5174/src/simulation-result-cache.ts:46
+[13389725ms] [LOG] [export-cache] summary hit: 101 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:133
+[13389725ms] [LOG] [export-cache] summary hit: 101 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:133
+[13389728ms] [LOG] [sim-cache] miss: nothing saved @ http://127.0.0.1:5174/src/simulation-result-cache.ts:46
+[13389736ms] [LOG] [export-cache] hit: 101 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:89
+[13389737ms] [LOG] [export-cache] hit: 101 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:89
+[13390038ms] [WARNING] WebSocket connection to 'ws://localhost:8765/' failed: WebSocket is closed before the connection is established. @ http://127.0.0.1:5174/src/cluster-client.ts?t=1778728783354:431
+[13390039ms] [WARNING] [cluster-client] socket error @ http://127.0.0.1:5174/src/cluster-client.ts?t=1778728783354:146
+[13410721ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:5174/node_modules/.vite/deps/react-dom_client.js?v=552065b3:20100
+[13411014ms] [LOG] [sim-cache] miss: nothing saved @ http://127.0.0.1:5174/src/simulation-result-cache.ts:46
+[13411016ms] [LOG] [export-cache] summary hit: 102 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:133
+[13411016ms] [LOG] [export-cache] summary hit: 102 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:133
+[13411018ms] [LOG] [sim-cache] miss: nothing saved @ http://127.0.0.1:5174/src/simulation-result-cache.ts:46
+[13411023ms] [LOG] [export-cache] hit: 102 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:89
+[13411025ms] [LOG] [export-cache] hit: 102 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:89
+[13411324ms] [WARNING] WebSocket connection to 'ws://localhost:8765/' failed: WebSocket is closed before the connection is established. @ http://127.0.0.1:5174/src/cluster-client.ts?t=1778729972435:431
+[13411325ms] [WARNING] [cluster-client] socket error @ http://127.0.0.1:5174/src/cluster-client.ts?t=1778729972435:146
+[13414776ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:5174/node_modules/.vite/deps/react-dom_client.js?v=552065b3:20100
+[13415084ms] [LOG] [sim-cache] miss: nothing saved @ http://127.0.0.1:5174/src/simulation-result-cache.ts:46
+[13415084ms] [LOG] [export-cache] summary hit: 102 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:133
+[13415084ms] [LOG] [export-cache] summary hit: 102 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:133
+[13415087ms] [LOG] [sim-cache] miss: nothing saved @ http://127.0.0.1:5174/src/simulation-result-cache.ts:46
+[13415089ms] [LOG] [export-cache] hit: 102 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:89
+[13415093ms] [LOG] [export-cache] hit: 102 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:89
+[13415397ms] [WARNING] WebSocket connection to 'ws://localhost:8765/' failed: WebSocket is closed before the connection is established. @ http://127.0.0.1:5174/src/cluster-client.ts?t=1778729976583:431
+[13415401ms] [WARNING] [cluster-client] socket error @ http://127.0.0.1:5174/src/cluster-client.ts?t=1778729976583:146
+[13425037ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:5174/node_modules/.vite/deps/react-dom_client.js?v=552065b3:20100
+[13425381ms] [LOG] [sim-cache] miss: nothing saved @ http://127.0.0.1:5174/src/simulation-result-cache.ts:46
+[13425389ms] [LOG] [export-cache] summary hit: 102 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:133
+[13425391ms] [LOG] [export-cache] summary hit: 102 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:133
+[13425391ms] [LOG] [sim-cache] miss: nothing saved @ http://127.0.0.1:5174/src/simulation-result-cache.ts:46
+[13425399ms] [LOG] [export-cache] hit: 102 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:89
+[13425401ms] [LOG] [export-cache] hit: 102 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:89
+[13425698ms] [WARNING] WebSocket connection to 'ws://localhost:8765/' failed: WebSocket is closed before the connection is established. @ http://127.0.0.1:5174/src/cluster-client.ts?t=1778729986741:431
+[13425700ms] [WARNING] [cluster-client] socket error @ http://127.0.0.1:5174/src/cluster-client.ts?t=1778729986741:146
+[13433818ms] [LOG] [export-cache] miss: no entry for fingerprint @ http://127.0.0.1:5174/src/export-payload-cache.ts:69
+[13456508ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:5174/node_modules/.vite/deps/react-dom_client.js?v=552065b3:20100
+[13456799ms] [LOG] [sim-cache] miss: nothing saved @ http://127.0.0.1:5174/src/simulation-result-cache.ts:46
+[13456799ms] [LOG] [export-cache] miss: no entry for fingerprint @ http://127.0.0.1:5174/src/export-payload-cache.ts:69
+[13456799ms] [LOG] [export-cache] miss: no entry for fingerprint @ http://127.0.0.1:5174/src/export-payload-cache.ts:69
+[13456799ms] [LOG] [sim-cache] miss: nothing saved @ http://127.0.0.1:5174/src/simulation-result-cache.ts:46
+[13457105ms] [WARNING] WebSocket connection to 'ws://localhost:8765/' failed: WebSocket is closed before the connection is established. @ http://127.0.0.1:5174/src/cluster-client.ts?t=1778729986741:431
+[13457106ms] [WARNING] [cluster-client] socket error @ http://127.0.0.1:5174/src/cluster-client.ts?t=1778729986741:146
+[13479218ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:5174/node_modules/.vite/deps/react-dom_client.js?v=552065b3:20100
+[13479622ms] [LOG] [sim-cache] miss: nothing saved @ http://127.0.0.1:5174/src/simulation-result-cache.ts:46
+[13479622ms] [LOG] [export-cache] miss: no entry for fingerprint @ http://127.0.0.1:5174/src/export-payload-cache.ts:69
+[13479622ms] [LOG] [export-cache] miss: no entry for fingerprint @ http://127.0.0.1:5174/src/export-payload-cache.ts:69
+[13479622ms] [LOG] [sim-cache] miss: nothing saved @ http://127.0.0.1:5174/src/simulation-result-cache.ts:46
+[13479928ms] [WARNING] WebSocket connection to 'ws://localhost:8765/' failed: WebSocket is closed before the connection is established. @ http://127.0.0.1:5174/src/cluster-client.ts?t=1778729986741:431
+[13479933ms] [WARNING] [cluster-client] socket error @ http://127.0.0.1:5174/src/cluster-client.ts?t=1778729986741:146
+[13519530ms] [LOG] [export-cache] saved to IndexedDB @ http://127.0.0.1:5174/src/export-payload-cache.ts:53

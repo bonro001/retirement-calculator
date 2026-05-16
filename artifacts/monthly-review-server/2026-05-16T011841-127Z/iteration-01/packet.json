@@ -1,0 +1,1047 @@
+{
+  "version": "monthly_review_validation_packet_v1",
+  "generatedAtIso": "2026-05-16T01:18:41.359Z",
+  "northStar": {
+    "legacyTargetTodayDollars": 1000000,
+    "objective": "maximize_monthly_spend_subject_to_sleep_at_night_gates",
+    "approvalStandard": "green_only",
+    "advisorStandard": {
+      "role": "advisor_like_decision_support",
+      "posture": "explain_model_facts_unknowns_household_decisions_and_ai_suggestions_separately",
+      "limits": "do_not_invent_facts_or_treat_suggestions_as_household_decisions"
+    }
+  },
+  "recommendation": {
+    "status": "blocked",
+    "strategyId": null,
+    "annualSpendTodayDollars": null,
+    "monthlySpendTodayDollars": null,
+    "policyId": null,
+    "certificationVerdict": null,
+    "aiVerdict": null,
+    "blockingTaskIds": [
+      "uncertified-strategy-gap"
+    ],
+    "summary": "No green certified core monthly spend candidate is available."
+  },
+  "strategies": [
+    {
+      "id": "current_faithful",
+      "label": "Current Faithful",
+      "corpusEvaluationCount": 8712,
+      "selectedPolicyId": null,
+      "selectedAnnualSpendTodayDollars": null,
+      "certificationVerdict": null,
+      "spendBoundary": {
+        "highestSpendTestedTodayDollars": 145000,
+        "highestGreenSpendTodayDollars": null,
+        "higherSpendLevelsTested": [],
+        "boundaryProven": false
+      }
+    }
+  ],
+  "certificationSummary": [
+    {
+      "strategyId": "current_faithful",
+      "policyId": "pol_127c726f",
+      "verdict": "yellow",
+      "reasons": [
+        "Current faithful / Forward-looking North Star legacy attainment is 71% — below the 85% watch threshold. Central case may not reach $1M. Adapt if trend continues.",
+        "Bad early markets under Current faithful / Forward-looking is not sleep-well green: solvency 95%, legacy 56%, first-10 failure 0%.",
+        "Sustained high inflation under Current faithful / Forward-looking is not sleep-well green: solvency 94%, legacy 61%, first-10 failure 0%.",
+        "Laid off in October under Current faithful / Forward-looking is not sleep-well green: solvency 96%, legacy 65%, first-10 failure 0%.",
+        "Inheritance arrives late under Current faithful / Forward-looking is not sleep-well green: solvency 97%, legacy 65%, first-10 failure 1%.",
+        "Perfect storm under Current faithful / Forward-looking is not sleep-well green: solvency 86%, legacy 44%, first-10 failure 1%."
+      ]
+    },
+    {
+      "strategyId": "current_faithful",
+      "policyId": "pol_1890081d",
+      "verdict": "yellow",
+      "reasons": [
+        "Current faithful / Forward-looking North Star legacy attainment is 71% — below the 85% watch threshold. Central case may not reach $1M. Adapt if trend continues.",
+        "Bad early markets under Current faithful / Forward-looking is not sleep-well green: solvency 95%, legacy 56%, first-10 failure 0%.",
+        "Sustained high inflation under Current faithful / Forward-looking is not sleep-well green: solvency 94%, legacy 61%, first-10 failure 0%.",
+        "Laid off in October under Current faithful / Forward-looking is not sleep-well green: solvency 96%, legacy 65%, first-10 failure 0%.",
+        "Inheritance arrives late under Current faithful / Forward-looking is not sleep-well green: solvency 97%, legacy 65%, first-10 failure 1%.",
+        "Perfect storm under Current faithful / Forward-looking is not sleep-well green: solvency 87%, legacy 44%, first-10 failure 0%."
+      ]
+    },
+    {
+      "strategyId": "current_faithful",
+      "policyId": "pol_07dbbee5",
+      "verdict": "yellow",
+      "reasons": [
+        "Current faithful / Forward-looking North Star legacy attainment is 75% — below the 85% watch threshold. Central case may not reach $1M. Adapt if trend continues.",
+        "Bad early markets under Current faithful / Forward-looking is not sleep-well green: solvency 97%, legacy 63%, first-10 failure 0%.",
+        "Sustained high inflation under Current faithful / Forward-looking is not sleep-well green: solvency 97%, legacy 67%, first-10 failure 0%.",
+        "Perfect storm under Current faithful / Forward-looking is not sleep-well green: solvency 92%, legacy 51%, first-10 failure 0%."
+      ]
+    },
+    {
+      "strategyId": "current_faithful",
+      "policyId": "pol_0a1dd5cb",
+      "verdict": "yellow",
+      "reasons": [
+        "Current faithful / Forward-looking North Star legacy attainment is 75% — below the 85% watch threshold. Central case may not reach $1M. Adapt if trend continues.",
+        "Bad early markets under Current faithful / Forward-looking is not sleep-well green: solvency 97%, legacy 63%, first-10 failure 0%.",
+        "Sustained high inflation under Current faithful / Forward-looking is not sleep-well green: solvency 97%, legacy 67%, first-10 failure 0%.",
+        "Perfect storm under Current faithful / Forward-looking is not sleep-well green: solvency 92%, legacy 51%, first-10 failure 0%."
+      ]
+    },
+    {
+      "strategyId": "current_faithful",
+      "policyId": "pol_566f8f04",
+      "verdict": "yellow",
+      "reasons": [
+        "Current faithful / Forward-looking North Star legacy attainment is 80% — below the 85% watch threshold. Central case may not reach $1M. Adapt if trend continues.",
+        "Bad early markets under Current faithful / Forward-looking is not sleep-well green: solvency 99%, legacy 70%, first-10 failure 0%.",
+        "Perfect storm under Current faithful / Forward-looking is not sleep-well green: solvency 97%, legacy 61%, first-10 failure 0%."
+      ]
+    },
+    {
+      "strategyId": "current_faithful",
+      "policyId": "pol_1dd3167c",
+      "verdict": "yellow",
+      "reasons": [
+        "Current faithful / Forward-looking North Star legacy attainment is 80% — below the 85% watch threshold. Central case may not reach $1M. Adapt if trend continues.",
+        "Bad early markets under Current faithful / Forward-looking is not sleep-well green: solvency 99%, legacy 70%, first-10 failure 0%.",
+        "Perfect storm under Current faithful / Forward-looking is not sleep-well green: solvency 97%, legacy 61%, first-10 failure 0%."
+      ]
+    },
+    {
+      "strategyId": "current_faithful",
+      "policyId": "pol_0100dae1",
+      "verdict": "yellow",
+      "reasons": [
+        "Current faithful / Forward-looking North Star legacy attainment is 84% — below the 85% watch threshold. Central case may not reach $1M. Adapt if trend continues.",
+        "Perfect storm under Current faithful / Forward-looking is not sleep-well green: solvency 99%, legacy 69%, first-10 failure 0%."
+      ]
+    },
+    {
+      "strategyId": "current_faithful",
+      "policyId": "pol_162188df",
+      "verdict": "yellow",
+      "reasons": [
+        "Current faithful / Forward-looking North Star legacy attainment is 84% — below the 85% watch threshold. Central case may not reach $1M. Adapt if trend continues.",
+        "Perfect storm under Current faithful / Forward-looking is not sleep-well green: solvency 99%, legacy 69%, first-10 failure 0%."
+      ]
+    }
+  ],
+  "structuralTasks": [
+    {
+      "id": "uncertified-strategy-gap",
+      "code": "uncertified_strategy_gap",
+      "severity": "critical",
+      "title": "No green certified strategy",
+      "detail": "The monthly review could not find a strategy with a green deterministic certification.",
+      "evidence": [
+        "strategies=1"
+      ],
+      "suggestedFix": "Inspect failed certification rows, then adjust model policy artifacts or mine lower spend candidates without changing approval thresholds.",
+      "blocksApproval": true,
+      "createdAtIso": "2026-05-16T01:18:41.359Z",
+      "status": "open"
+    }
+  ],
+  "householdSignals": [
+    {
+      "id": "aca_bridge_breach",
+      "status": "watch",
+      "title": "ACA bridge breach",
+      "headline": "No selected yearly MAGI path attached",
+      "detail": "The QA packet cannot confirm ACA bridge headroom without selected-policy yearly MAGI rows from certification.",
+      "evidence": [
+        "selectedPathEvidence.yearlyRows=0"
+      ],
+      "recommendation": "Run real certification so the AI review sees bridge-year MAGI, ACA premium, subsidy, and net-cost evidence.",
+      "clarity": {
+        "disposition": "possible_model_bug",
+        "whyItMatters": "ACA bridge checks are only useful when the selected path exposes yearly MAGI, premium, subsidy, and net-cost rows.",
+        "whyItMayBeOk": "A missing row can be acceptable only during a dry run or when certification has not produced healthcare evidence yet.",
+        "modelBugCheck": "Treat this as a model evidence bug if real certification ran but selectedPathEvidence.yearlyRows is still empty.",
+        "decisionPrompt": "Rerun real certification and confirm the 2027 bridge-year MAGI row is present before judging the ACA tradeoff."
+      }
+    },
+    {
+      "id": "cash_runway_gap",
+      "status": "act_now",
+      "title": "Cash runway gap",
+      "headline": "$53,571 short of 18-month target",
+      "detail": "Direct cash is about 0.39 years of core spending and 8.7 months of essential-plus-fixed spending. The target is $103,571.",
+      "evidence": [
+        "directCashBalance=50000",
+        "essentialWithFixedMonthly=5754",
+        "targetCashRunway=103571",
+        "cashGap=53571",
+        "runwayGapMonths=9.31",
+        "directCashYearsOfCoreSpend=0.39"
+      ],
+      "recommendation": "Surface as a checkpoint item before Fidelity refresh: identify whether the gap should be filled from cash, taxable, or reduced payroll deferrals.",
+      "clarity": {
+        "disposition": "needs_action",
+        "whyItMatters": "Cash runway is an operational resilience gate, not a Monte Carlo solvency gate; it protects spending while transfers, payroll changes, or market sales are being handled.",
+        "whyItMayBeOk": "This is a problem until a funding source, transfer plan, or explicit waiver is recorded.",
+        "modelBugCheck": "Check for a bug if bank/cash balances are stale, cash held inside brokerage accounts is double-counted or excluded, or the essential-plus-fixed monthly target is not tied to current seed spending.",
+        "decisionPrompt": "Choose whether to fill the cash bucket, document the source of backup liquidity, or intentionally waive the 18-month target."
+      }
+    },
+    {
+      "id": "holding_concentration",
+      "status": "act_now",
+      "title": "Holding concentration",
+      "headline": "FCNTX is 28% of portfolio",
+      "detail": "Fidelity Contrafund is $257,816, or 28% of the total portfolio, and 100% of Authorized ROTH IRA.",
+      "evidence": [
+        "largestHoldingSymbol=FCNTX",
+        "largestHoldingValue=257816",
+        "largestHoldingPortfolioShare=0.2763",
+        "largestHoldingAccountShare=1.0000",
+        "largestAccountName=Authorized ROTH IRA",
+        "totalPortfolio=933149"
+      ],
+      "recommendation": "Show this as a concentration item: rebalance or reduce single-manager exposure inside tax-advantaged accounts where possible.",
+      "clarity": {
+        "disposition": "needs_action",
+        "whyItMatters": "A large single holding can dominate plan outcomes in ways the broad asset-class Monte Carlo model may not fully capture.",
+        "whyItMayBeOk": "This is a problem until the household records a rebalance plan, staged rebalance, or explicit acceptance of concentration risk.",
+        "modelBugCheck": "Check for a bug if duplicate holdings were merged incorrectly, account balances do not match holding totals, or fund tickers were imported into the wrong source account.",
+        "decisionPrompt": "Decide whether to rebalance, stage the rebalance, or explicitly accept the single-holding exposure until the next review."
+      }
+    },
+    {
+      "id": "legacy_headroom",
+      "status": "watch",
+      "title": "Legacy headroom",
+      "headline": "Median legacy ratio unavailable",
+      "detail": "The selected policy outcome does not include median ending wealth relative to the stated legacy target.",
+      "evidence": [
+        "legacyTargetTodayDollars=1000000",
+        "p50EndingWealthTodayDollars=missing"
+      ],
+      "recommendation": "Attach selected policy outcome percentiles before approving the spend recommendation.",
+      "clarity": {
+        "disposition": "possible_model_bug",
+        "whyItMatters": "Legacy headroom can only be interpreted when the selected policy has ending-wealth percentiles.",
+        "whyItMayBeOk": "Missing ending-wealth data is acceptable only in an incomplete diagnostic packet.",
+        "modelBugCheck": "Treat as a model evidence bug if the selected policy has certification but no p50 ending wealth outcome.",
+        "decisionPrompt": "Attach selected outcome percentiles and rerun before interpreting legacy headroom."
+      }
+    }
+  ],
+  "lifeModelAudit": {
+    "version": "life_model_audit_v1",
+    "generatedAtIso": "2026-05-16T01:18:41.359Z",
+    "modelCompleteness": "reconstructed",
+    "unresolvedEventCount": 2,
+    "materialUnresolvedEventCount": 2,
+    "events": [
+      {
+        "id": "salary_cashflow",
+        "kind": "salary",
+        "title": "Salary until retirement transition",
+        "year": 2027,
+        "amountTodayDollars": 210000,
+        "materiality": "high",
+        "reviewerQuestion": "Does wage income stop in the right year and flow through tax, spending, and contribution logic?",
+        "steps": [
+          {
+            "id": "source",
+            "status": "explicit",
+            "detail": "Wage income is modeled from salaryAnnual until salaryEndDate.",
+            "evidence": [
+              "salaryAnnual=210000",
+              "salaryEndDate=2027-07-01"
+            ]
+          },
+          {
+            "id": "timing",
+            "status": "explicit",
+            "detail": "Salary end date controls the retirement transition year.",
+            "evidence": [
+              "salaryEndDate=2027-07-01"
+            ]
+          },
+          {
+            "id": "tax_treatment",
+            "status": "explicit",
+            "detail": "Salary is taxed as ordinary wage income and payroll contributions are modeled separately.",
+            "evidence": [
+              "payrollProrationRule=month_fraction",
+              "employee401kPreTaxPercent=0.1499"
+            ]
+          },
+          {
+            "id": "destination",
+            "status": "explicit",
+            "detail": "Wages fund annual cashflow first, with configured pre-retirement contributions directed into retirement accounts.",
+            "evidence": [
+              "withdrawalStyle=guardrails",
+              "hsaPercent=0.0159"
+            ]
+          }
+        ],
+        "reviewStatus": "pass"
+      },
+      {
+        "id": "social_security_cashflow",
+        "kind": "social_security",
+        "title": "Social Security benefit stream",
+        "year": null,
+        "amountTodayDollars": 66528,
+        "materiality": "high",
+        "reviewerQuestion": "Are claim ages, benefit amounts, survivor/spousal behavior, and tax treatment explicit enough for the household story?",
+        "steps": [
+          {
+            "id": "source",
+            "status": "explicit",
+            "detail": "Social Security benefit records are included for the household.",
+            "evidence": [
+              "rob:fraMonthly=4100:claimAge=67",
+              "debbie:fraMonthly=1444:claimAge=67"
+            ]
+          },
+          {
+            "id": "timing",
+            "status": "explicit",
+            "detail": "Claim ages are either explicit in the seed or supplied by the optimizer before projection.",
+            "evidence": [
+              "rob:claimAge=67",
+              "debbie:claimAge=67"
+            ]
+          },
+          {
+            "id": "tax_treatment",
+            "status": "explicit",
+            "detail": "Federal provisional-income Social Security taxation is modeled in the tax engine.",
+            "evidence": [
+              "filingStatus=married_filing_jointly"
+            ]
+          },
+          {
+            "id": "destination",
+            "status": "explicit",
+            "detail": "Benefits enter annual cashflow before portfolio withdrawals are calculated.",
+            "evidence": [
+              "destination=annual_cashflow"
+            ]
+          }
+        ],
+        "reviewStatus": "pass"
+      },
+      {
+        "id": "cash_in_inheritance",
+        "kind": "windfall",
+        "title": "Cash-in event: inheritance",
+        "year": 2028,
+        "amountTodayDollars": 500000,
+        "materiality": "high",
+        "reviewerQuestion": "Does this cash-in have an explicit source, timing, tax treatment, spend/use rule, destination account, and future investment policy?",
+        "steps": [
+          {
+            "id": "source",
+            "status": "explicit",
+            "detail": "Cash-in source is modeled as inheritance.",
+            "evidence": [
+              "name=inheritance",
+              "amount=500000"
+            ]
+          },
+          {
+            "id": "timing",
+            "status": "inferred",
+            "detail": "The event year is present, but certainty is not explicitly labeled.",
+            "evidence": [
+              "year=2028",
+              "certainty=missing"
+            ]
+          },
+          {
+            "id": "amount",
+            "status": "explicit",
+            "detail": "Gross windfall amount is the modeled cash source.",
+            "evidence": [
+              "amount=500000"
+            ]
+          },
+          {
+            "id": "tax_treatment",
+            "status": "explicit",
+            "detail": "Windfall tax treatment is explicitly modeled as cash_non_taxable.",
+            "evidence": [
+              "taxTreatment=cash_non_taxable"
+            ]
+          },
+          {
+            "id": "destination",
+            "status": "explicit",
+            "detail": "Unspent cash-in is swept to a taxable shadow investment sleeve.",
+            "evidence": [
+              "windfallDeploymentPolicy.enabled=true",
+              "destinationAccount=taxable",
+              "trackingMode=taxable_shadow_sleeve",
+              "assumptionSource=user_confirmed_invest_unspent_windfall_and_home_sale_cash_in_current_portfolio_mix"
+            ]
+          },
+          {
+            "id": "spending_use",
+            "status": "explicit",
+            "detail": "Same-year spending can use the received cash before any remainder is deployed.",
+            "evidence": [
+              "spendBeforeDeploy=true"
+            ]
+          },
+          {
+            "id": "investment_policy",
+            "status": "explicit",
+            "detail": "Remainder is invested in the shadow sleeve using the aggregate current portfolio mix.",
+            "evidence": [
+              "investmentPolicy=current_portfolio_mix",
+              "cashReserveMonths=0"
+            ]
+          },
+          {
+            "id": "future_return_treatment",
+            "status": "explicit",
+            "detail": "After deployment, the sleeve appreciates with market returns and remains available through normal taxable withdrawals.",
+            "evidence": [
+              "futureReturns=taxable_market_returns"
+            ]
+          }
+        ],
+        "reviewStatus": "watch"
+      },
+      {
+        "id": "cash_in_home_sale",
+        "kind": "home_sale",
+        "title": "Home sale proceeds",
+        "year": 2037,
+        "amountTodayDollars": 500000,
+        "materiality": "high",
+        "reviewerQuestion": "Does this cash-in have an explicit source, timing, tax treatment, spend/use rule, destination account, and future investment policy?",
+        "steps": [
+          {
+            "id": "source",
+            "status": "explicit",
+            "detail": "Cash-in source is modeled as home_sale.",
+            "evidence": [
+              "name=home_sale",
+              "amount=1000000"
+            ]
+          },
+          {
+            "id": "timing",
+            "status": "inferred",
+            "detail": "Timing and amount are modeled, but the event is marked estimated.",
+            "evidence": [
+              "year=2037",
+              "certainty=estimated",
+              "timingUncertaintyYears=2",
+              "amountUncertaintyPercent=0.3"
+            ]
+          },
+          {
+            "id": "amount",
+            "status": "explicit",
+            "detail": "Home-sale cash available to the plan is explicit through liquidity or replacement-home assumptions.",
+            "evidence": [
+              "amount=1000000",
+              "liquidityAmount=500000",
+              "replacementHomeCost=500000",
+              "purchaseClosingCostPercent=0.02",
+              "movingCost=20000"
+            ]
+          },
+          {
+            "id": "tax_treatment",
+            "status": "explicit",
+            "detail": "Primary-home-sale tax treatment includes basis, exclusion, and selling-cost assumptions.",
+            "evidence": [
+              "taxTreatment=primary_home_sale",
+              "costBasis=500000",
+              "exclusionAmount=500000",
+              "sellingCostPercent=0.06"
+            ]
+          },
+          {
+            "id": "destination",
+            "status": "explicit",
+            "detail": "Unspent cash-in is swept to a taxable shadow investment sleeve.",
+            "evidence": [
+              "windfallDeploymentPolicy.enabled=true",
+              "destinationAccount=taxable",
+              "trackingMode=taxable_shadow_sleeve",
+              "assumptionSource=user_confirmed_invest_unspent_windfall_and_home_sale_cash_in_current_portfolio_mix"
+            ]
+          },
+          {
+            "id": "spending_use",
+            "status": "explicit",
+            "detail": "Same-year spending can use the received cash before any remainder is deployed.",
+            "evidence": [
+              "spendBeforeDeploy=true"
+            ]
+          },
+          {
+            "id": "investment_policy",
+            "status": "explicit",
+            "detail": "Remainder is invested in the shadow sleeve using the aggregate current portfolio mix.",
+            "evidence": [
+              "investmentPolicy=current_portfolio_mix",
+              "cashReserveMonths=0"
+            ]
+          },
+          {
+            "id": "future_return_treatment",
+            "status": "explicit",
+            "detail": "After deployment, the sleeve appreciates with market returns and remains available through normal taxable withdrawals.",
+            "evidence": [
+              "futureReturns=taxable_market_returns"
+            ]
+          }
+        ],
+        "reviewStatus": "watch"
+      },
+      {
+        "id": "household_spending",
+        "kind": "spending",
+        "title": "Household spending path",
+        "year": null,
+        "amountTodayDollars": 140587,
+        "materiality": "high",
+        "reviewerQuestion": "Does the modeled monthly spend include the categories the household expects monthly to mean?",
+        "steps": [
+          {
+            "id": "amount",
+            "status": "explicit",
+            "detail": "Core household spend is modeled from essential, optional, and taxes/insurance fields.",
+            "evidence": [
+              "essentialAnnual=57540",
+              "optionalAnnual=57540",
+              "annualTaxesInsurance=11507"
+            ]
+          },
+          {
+            "id": "spending_use",
+            "status": "explicit",
+            "detail": "Travel is modeled as a separate early-retirement annual amount.",
+            "evidence": [
+              "travelEarlyRetirementAnnual=14000",
+              "travelPhaseYears=12"
+            ]
+          }
+        ],
+        "reviewStatus": "pass"
+      },
+      {
+        "id": "portfolio_withdrawals",
+        "kind": "withdrawal",
+        "title": "Portfolio withdrawal sourcing",
+        "year": null,
+        "amountTodayDollars": null,
+        "materiality": "high",
+        "reviewerQuestion": "Are annual spending deficits sourced from the intended accounts and tax-aware withdrawal rule?",
+        "steps": [
+          {
+            "id": "source",
+            "status": "explicit",
+            "detail": "Withdrawal rule decides how cash, taxable, pretax, and Roth are used.",
+            "evidence": [
+              "withdrawalRule=engine_default",
+              "withdrawalStyle=guardrails"
+            ]
+          },
+          {
+            "id": "tax_treatment",
+            "status": "explicit",
+            "detail": "Pretax withdrawals, taxable withdrawals, Roth withdrawals, RMDs, and Roth conversions feed tax calculations separately.",
+            "evidence": [
+              "irmaaAware=true"
+            ]
+          }
+        ],
+        "reviewStatus": "pass"
+      },
+      {
+        "id": "healthcare_and_tax_costs",
+        "kind": "healthcare",
+        "title": "Healthcare, tax, IRMAA, and LTC costs",
+        "year": null,
+        "amountTodayDollars": null,
+        "materiality": "high",
+        "reviewerQuestion": "Are healthcare premiums, medical inflation, LTC assumptions, taxes, ACA, and IRMAA represented as cash outflows instead of narrative caveats?",
+        "steps": [
+          {
+            "id": "amount",
+            "status": "explicit",
+            "detail": "Healthcare premiums and medical inflation are configured in rules.",
+            "evidence": [
+              "baselineAcaPremiumAnnual=14400",
+              "baselineMedicarePremiumAnnual=2220",
+              "medicalInflationAnnual=0.055"
+            ]
+          },
+          {
+            "id": "tax_treatment",
+            "status": "explicit",
+            "detail": "Federal tax, ACA subsidy exposure, and IRMAA are modeled from yearly MAGI/tax inputs.",
+            "evidence": [
+              "irmaaThreshold=200000",
+              "irmaaAware=true"
+            ]
+          },
+          {
+            "id": "spending_use",
+            "status": "explicit",
+            "detail": "Long-term-care stress cost is explicit and can be offset by HSA strategy.",
+            "evidence": [
+              "ltcEnabled=true",
+              "hsaStrategy=ltc_reserve"
+            ]
+          }
+        ],
+        "reviewStatus": "pass"
+      }
+    ],
+    "reviewerChecklist": [
+      "Trace each major inflow from source to destination account.",
+      "Confirm whether each cash-in is spent, held as cash, invested, or earmarked.",
+      "Confirm tax treatment before accepting monthly-spend recommendations.",
+      "Flag internally consistent assumptions that do not match the household story.",
+      "Separate model facts, household decisions, and AI suggestions."
+    ]
+  },
+  "rawExportEvidence": {
+    "source": "monthly_review_compact_export_excerpt_v1",
+    "planFingerprint": "mr-af5c1637",
+    "evidenceLimits": {
+      "topCandidateRows": 8,
+      "higherSpendRows": 12,
+      "yearlyPathRows": 12
+    },
+    "household": {
+      "robBirthDate": "1964-12-08",
+      "debbieBirthDate": "1963-10-23",
+      "filingStatus": "married_filing_jointly",
+      "planningAge": 95,
+      "state": "TX"
+    },
+    "balancesTodayDollars": {
+      "pretax": 386656.11,
+      "roth": 307059.87,
+      "taxable": 138939.58,
+      "cash": 50000,
+      "hsa": 50493.12,
+      "liquidTotal": 933148.6799999999
+    },
+    "spending": {
+      "essentialMonthly": 4795,
+      "optionalMonthly": 4795,
+      "annualTaxesInsurance": 11507,
+      "travelEarlyRetirementAnnual": 14000,
+      "annualCoreSpend": 126587,
+      "annualWithTravelSpend": 140587
+    },
+    "income": {
+      "salaryAnnual": 210000,
+      "salaryEndDate": "2027-07-01",
+      "socialSecurity": [
+        {
+          "person": "rob",
+          "fraMonthly": 4100,
+          "claimAge": 67
+        },
+        {
+          "person": "debbie",
+          "fraMonthly": 1444,
+          "claimAge": 67
+        }
+      ],
+      "windfalls": [
+        {
+          "name": "inheritance",
+          "year": 2028,
+          "amount": 500000,
+          "taxTreatment": "cash_non_taxable"
+        },
+        {
+          "name": "home_sale",
+          "year": 2037,
+          "amount": 1000000,
+          "taxTreatment": "primary_home_sale",
+          "certainty": "estimated",
+          "timingUncertaintyYears": 2,
+          "amountUncertaintyPercent": 0.3,
+          "costBasis": 500000,
+          "exclusionAmount": 500000,
+          "sellingCostPercent": 0.06,
+          "replacementHomeCost": 500000,
+          "purchaseClosingCostPercent": 0.02,
+          "movingCost": 20000,
+          "liquidityAmount": 500000
+        }
+      ],
+      "preRetirementContributions": {
+        "employee401kPreTaxPercentOfSalary": 0.1499,
+        "employee401kRothPercentOfSalary": 0,
+        "priorYearFicaWagesFromEmployer": 210000,
+        "employerPlanSupportsRothDeferrals": true,
+        "employerPlanSupportsSuperCatchUp": true,
+        "planFeatureAssumptionSource": "estimated_pending_plan_document",
+        "employerMatch": {
+          "matchRate": 0.5,
+          "maxEmployeeContributionPercentOfSalary": 0.06,
+          "assumptionSource": "user_confirmed_athenahealth_50_percent_of_first_6_percent_pending_document_verification",
+          "verificationStatus": "user_confirmed_pending_document"
+        },
+        "hsaPercentOfSalary": 0.0159,
+        "hsaCoverageType": "family"
+      }
+    },
+    "assumptions": {
+      "equityMean": 0.074,
+      "equityVolatility": 0.16,
+      "internationalEquityMean": 0.074,
+      "internationalEquityVolatility": 0.18,
+      "bondMean": 0.038,
+      "bondVolatility": 0.07,
+      "cashMean": 0.02,
+      "cashVolatility": 0.01,
+      "inflation": 0.028,
+      "inflationVolatility": 0.01,
+      "simulationRuns": 5000,
+      "simulationSeed": 20260416,
+      "assumptionsVersion": "v1",
+      "guardrailFloorYears": 12,
+      "guardrailCeilingYears": 18,
+      "guardrailCutPercent": 0.2,
+      "robPlanningEndAge": 90,
+      "debbiePlanningEndAge": 95,
+      "travelPhaseYears": 12,
+      "irmaaThreshold": 200000
+    },
+    "rules": {
+      "withdrawalStyle": "guardrails",
+      "irmaaAware": true,
+      "replaceModeImports": true,
+      "monthlyReviewIssueAnnotations": [
+        {
+          "signalId": "aca_bridge_breach",
+          "years": [
+            2027
+          ],
+          "disposition": "intentional_tradeoff",
+          "title": "2027 ACA subsidy loss is expected in the transition year",
+          "rationale": "The 2027 bridge-year MAGI breach is a known transition-year tradeoff from final payroll/taxable income and the selected spend path, not a surprise failure. The plan should include the net ACA cost and can still be green if the certified path clears the gates.",
+          "decision": "Accept the 2027 subsidy loss in the current review unless a MAGI-constrained alternative is explicitly requested to price the subsidy-preserving path.",
+          "evidence": [
+            "Roth low-income bracket fill starts in 2028, after the final-paycheck transition year.",
+            "Contribution-limit assumptions are already labeled as planning_estimate_for_2027_final_paycheck_window.",
+            "Monthly review should still verify MAGI components and net ACA cost plumbing."
+          ],
+          "source": "user_confirmed_monthly_review_context"
+        }
+      ],
+      "rothConversionPolicy": {
+        "enabled": true,
+        "strategy": "aca_then_irmaa_headroom",
+        "minAnnualDollars": 500,
+        "maxAnnualDollars": 70000,
+        "maxPretaxBalancePercent": 0.12,
+        "magiBufferDollars": 2000,
+        "lowIncomeBracketFill": {
+          "enabled": true,
+          "startYear": 2028,
+          "endYear": 2030,
+          "annualTargetDollars": 70000,
+          "requireNoWageIncome": true
+        }
+      },
+      "payrollModel": {
+        "salaryProrationRule": "month_fraction",
+        "salaryProrationSource": "explicit_payroll_calendar"
+      },
+      "contributionLimits": {
+        "employee401kBaseLimit": 24500,
+        "employee401kCatchUpAge": 50,
+        "employee401kCatchUpLimit": 8000,
+        "employee401kSuperCatchUpAges": [
+          60,
+          61,
+          62,
+          63
+        ],
+        "employee401kSuperCatchUpLimit": 11250,
+        "rothCatchUpWageThreshold": 150000,
+        "employee401kBaseLimitByYear": {
+          "2027": 25000
+        },
+        "hsaSelfLimit": 4400,
+        "hsaFamilyLimit": 8750,
+        "hsaCatchUpAge": 55,
+        "hsaCatchUpLimit": 1000,
+        "assumptionSource": "planning_estimate_for_2027_final_paycheck_window"
+      },
+      "housingAfterDownsizePolicy": {
+        "mode": "own_replacement_home",
+        "startYear": 2037,
+        "replacementHomeCost": 500000,
+        "netLiquidityTarget": 500000,
+        "certainty": "estimated",
+        "assumptionSource": "user_estimate_sell_1m_home_buy_500k_replacement_home"
+      },
+      "windfallDeploymentPolicy": {
+        "enabled": true,
+        "destinationAccount": "taxable",
+        "investmentPolicy": "current_portfolio_mix",
+        "trackingMode": "taxable_shadow_sleeve",
+        "spendBeforeDeploy": true,
+        "cashReserveMonths": 0,
+        "assumptionSource": "user_confirmed_invest_unspent_windfall_and_home_sale_cash_in_current_portfolio_mix"
+      },
+      "healthcarePremiums": {
+        "baselineAcaPremiumAnnual": 14400,
+        "baselineMedicarePremiumAnnual": 2220,
+        "medicalInflationAnnual": 0.055
+      },
+      "hsaStrategy": {
+        "enabled": true,
+        "withdrawalMode": "ltc_reserve",
+        "annualQualifiedExpenseWithdrawalCap": 250000,
+        "prioritizeHighMagiYears": false,
+        "highMagiThreshold": 190000
+      },
+      "ltcAssumptions": {
+        "enabled": true,
+        "startAge": 85,
+        "annualCostToday": 48000,
+        "durationYears": 3,
+        "inflationAnnual": 0.055,
+        "eventProbability": 0.45
+      }
+    },
+    "selectedPolicy": null,
+    "proofRows": {
+      "topCandidates": [
+        {
+          "strategyId": "current_faithful",
+          "policyId": "pol_1890081d",
+          "annualSpendTodayDollars": 110000,
+          "solventSuccessRate": 0.978,
+          "bequestAttainmentRate": 0.7062452854148866,
+          "p10EndingWealthTodayDollars": 392551.1502416101,
+          "p25EndingWealthTodayDollars": 847728.6886755988,
+          "p50EndingWealthTodayDollars": 1717756.7117598138,
+          "p75EndingWealthTodayDollars": 3207182.023801366,
+          "p90EndingWealthTodayDollars": 5368889.746796895,
+          "irmaaExposureRate": 0.0902,
+          "medianLifetimeFederalTaxTodayDollars": 96904.45261633316,
+          "withdrawalRule": "tax_bracket_waterfall",
+          "rothConversionAnnualCeiling": 40000
+        },
+        {
+          "strategyId": "current_faithful",
+          "policyId": "pol_127c726f",
+          "annualSpendTodayDollars": 110000,
+          "solventSuccessRate": 0.9774,
+          "bequestAttainmentRate": 0.706787056815056,
+          "p10EndingWealthTodayDollars": 387950.1631371128,
+          "p25EndingWealthTodayDollars": 846705.2832928728,
+          "p50EndingWealthTodayDollars": 1733561.7747094152,
+          "p75EndingWealthTodayDollars": 3257975.2727030567,
+          "p90EndingWealthTodayDollars": 5512416.828698202,
+          "irmaaExposureRate": 0.016,
+          "medianLifetimeFederalTaxTodayDollars": 84479.80070672304,
+          "withdrawalRule": "tax_bracket_waterfall",
+          "rothConversionAnnualCeiling": 200000
+        },
+        {
+          "strategyId": "current_faithful",
+          "policyId": "pol_86fd0aa2",
+          "annualSpendTodayDollars": 110000,
+          "solventSuccessRate": 1,
+          "bequestAttainmentRate": 0.8890457769558133,
+          "p10EndingWealthTodayDollars": 962803.2289150106,
+          "p25EndingWealthTodayDollars": 1472151.5998804383,
+          "p50EndingWealthTodayDollars": 2482130.176245433,
+          "p75EndingWealthTodayDollars": 4136714.0622249297,
+          "p90EndingWealthTodayDollars": 6433799.987564016,
+          "irmaaExposureRate": 0.002,
+          "medianLifetimeFederalTaxTodayDollars": 0,
+          "withdrawalRule": "tax_bracket_waterfall",
+          "rothConversionAnnualCeiling": 120000
+        },
+        {
+          "strategyId": "current_faithful",
+          "policyId": "pol_b0acdc71",
+          "annualSpendTodayDollars": 110000,
+          "solventSuccessRate": 1,
+          "bequestAttainmentRate": 0.8890457769558133,
+          "p10EndingWealthTodayDollars": 962803.2289150106,
+          "p25EndingWealthTodayDollars": 1472151.5998804383,
+          "p50EndingWealthTodayDollars": 2482130.176245433,
+          "p75EndingWealthTodayDollars": 4136714.0622249297,
+          "p90EndingWealthTodayDollars": 6433799.987564016,
+          "irmaaExposureRate": 0.003,
+          "medianLifetimeFederalTaxTodayDollars": 0,
+          "withdrawalRule": "tax_bracket_waterfall",
+          "rothConversionAnnualCeiling": 80000
+        },
+        {
+          "strategyId": "current_faithful",
+          "policyId": "pol_fdd52d16",
+          "annualSpendTodayDollars": 110000,
+          "solventSuccessRate": 1,
+          "bequestAttainmentRate": 0.8890457769558133,
+          "p10EndingWealthTodayDollars": 962803.2289150106,
+          "p25EndingWealthTodayDollars": 1472151.5998804383,
+          "p50EndingWealthTodayDollars": 2482130.176245433,
+          "p75EndingWealthTodayDollars": 4136714.0622249297,
+          "p90EndingWealthTodayDollars": 6433799.987564016,
+          "irmaaExposureRate": 0.004,
+          "medianLifetimeFederalTaxTodayDollars": 0,
+          "withdrawalRule": "tax_bracket_waterfall",
+          "rothConversionAnnualCeiling": 160000
+        },
+        {
+          "strategyId": "current_faithful",
+          "policyId": "pol_13baee78",
+          "annualSpendTodayDollars": 110000,
+          "solventSuccessRate": 1,
+          "bequestAttainmentRate": 0.8855582607429862,
+          "p10EndingWealthTodayDollars": 952419.7283899732,
+          "p25EndingWealthTodayDollars": 1446615.102955944,
+          "p50EndingWealthTodayDollars": 2418881.0961964587,
+          "p75EndingWealthTodayDollars": 3952938.3073183047,
+          "p90EndingWealthTodayDollars": 6079053.7421861235,
+          "irmaaExposureRate": 0.029,
+          "medianLifetimeFederalTaxTodayDollars": 0,
+          "withdrawalRule": "tax_bracket_waterfall",
+          "rothConversionAnnualCeiling": 40000
+        },
+        {
+          "strategyId": "current_faithful",
+          "policyId": "pol_1034f754",
+          "annualSpendTodayDollars": 110000,
+          "solventSuccessRate": 1,
+          "bequestAttainmentRate": 0.8839574719021076,
+          "p10EndingWealthTodayDollars": 945938.5227285248,
+          "p25EndingWealthTodayDollars": 1451421.29584498,
+          "p50EndingWealthTodayDollars": 2446367.4424167196,
+          "p75EndingWealthTodayDollars": 4074858.194361343,
+          "p90EndingWealthTodayDollars": 6367212.572156029,
+          "irmaaExposureRate": 0.004,
+          "medianLifetimeFederalTaxTodayDollars": 0,
+          "withdrawalRule": "tax_bracket_waterfall",
+          "rothConversionAnnualCeiling": 200000
+        },
+        {
+          "strategyId": "current_faithful",
+          "policyId": "pol_ae37474d",
+          "annualSpendTodayDollars": 110000,
+          "solventSuccessRate": 1,
+          "bequestAttainmentRate": 0.8839574719021076,
+          "p10EndingWealthTodayDollars": 945938.5227285248,
+          "p25EndingWealthTodayDollars": 1451421.29584498,
+          "p50EndingWealthTodayDollars": 2446367.4424167196,
+          "p75EndingWealthTodayDollars": 4074858.194361343,
+          "p90EndingWealthTodayDollars": 6368908.566786955,
+          "irmaaExposureRate": 0.002,
+          "medianLifetimeFederalTaxTodayDollars": 0,
+          "withdrawalRule": "tax_bracket_waterfall",
+          "rothConversionAnnualCeiling": 120000
+        }
+      ],
+      "higherSpendRowsTested": [],
+      "certificationRows": [
+        {
+          "strategyId": "current_faithful",
+          "policyId": "pol_127c726f",
+          "verdict": "yellow",
+          "reasons": [
+            "Current faithful / Forward-looking North Star legacy attainment is 71% — below the 85% watch threshold. Central case may not reach $1M. Adapt if trend continues.",
+            "Bad early markets under Current faithful / Forward-looking is not sleep-well green: solvency 95%, legacy 56%, first-10 failure 0%.",
+            "Sustained high inflation under Current faithful / Forward-looking is not sleep-well green: solvency 94%, legacy 61%, first-10 failure 0%.",
+            "Laid off in October under Current faithful / Forward-looking is not sleep-well green: solvency 96%, legacy 65%, first-10 failure 0%.",
+            "Inheritance arrives late under Current faithful / Forward-looking is not sleep-well green: solvency 97%, legacy 65%, first-10 failure 1%.",
+            "Perfect storm under Current faithful / Forward-looking is not sleep-well green: solvency 86%, legacy 44%, first-10 failure 1%."
+          ]
+        },
+        {
+          "strategyId": "current_faithful",
+          "policyId": "pol_1890081d",
+          "verdict": "yellow",
+          "reasons": [
+            "Current faithful / Forward-looking North Star legacy attainment is 71% — below the 85% watch threshold. Central case may not reach $1M. Adapt if trend continues.",
+            "Bad early markets under Current faithful / Forward-looking is not sleep-well green: solvency 95%, legacy 56%, first-10 failure 0%.",
+            "Sustained high inflation under Current faithful / Forward-looking is not sleep-well green: solvency 94%, legacy 61%, first-10 failure 0%.",
+            "Laid off in October under Current faithful / Forward-looking is not sleep-well green: solvency 96%, legacy 65%, first-10 failure 0%.",
+            "Inheritance arrives late under Current faithful / Forward-looking is not sleep-well green: solvency 97%, legacy 65%, first-10 failure 1%.",
+            "Perfect storm under Current faithful / Forward-looking is not sleep-well green: solvency 87%, legacy 44%, first-10 failure 0%."
+          ]
+        },
+        {
+          "strategyId": "current_faithful",
+          "policyId": "pol_07dbbee5",
+          "verdict": "yellow",
+          "reasons": [
+            "Current faithful / Forward-looking North Star legacy attainment is 75% — below the 85% watch threshold. Central case may not reach $1M. Adapt if trend continues.",
+            "Bad early markets under Current faithful / Forward-looking is not sleep-well green: solvency 97%, legacy 63%, first-10 failure 0%.",
+            "Sustained high inflation under Current faithful / Forward-looking is not sleep-well green: solvency 97%, legacy 67%, first-10 failure 0%.",
+            "Perfect storm under Current faithful / Forward-looking is not sleep-well green: solvency 92%, legacy 51%, first-10 failure 0%."
+          ]
+        },
+        {
+          "strategyId": "current_faithful",
+          "policyId": "pol_0a1dd5cb",
+          "verdict": "yellow",
+          "reasons": [
+            "Current faithful / Forward-looking North Star legacy attainment is 75% — below the 85% watch threshold. Central case may not reach $1M. Adapt if trend continues.",
+            "Bad early markets under Current faithful / Forward-looking is not sleep-well green: solvency 97%, legacy 63%, first-10 failure 0%.",
+            "Sustained high inflation under Current faithful / Forward-looking is not sleep-well green: solvency 97%, legacy 67%, first-10 failure 0%.",
+            "Perfect storm under Current faithful / Forward-looking is not sleep-well green: solvency 92%, legacy 51%, first-10 failure 0%."
+          ]
+        },
+        {
+          "strategyId": "current_faithful",
+          "policyId": "pol_566f8f04",
+          "verdict": "yellow",
+          "reasons": [
+            "Current faithful / Forward-looking North Star legacy attainment is 80% — below the 85% watch threshold. Central case may not reach $1M. Adapt if trend continues.",
+            "Bad early markets under Current faithful / Forward-looking is not sleep-well green: solvency 99%, legacy 70%, first-10 failure 0%.",
+            "Perfect storm under Current faithful / Forward-looking is not sleep-well green: solvency 97%, legacy 61%, first-10 failure 0%."
+          ]
+        },
+        {
+          "strategyId": "current_faithful",
+          "policyId": "pol_1dd3167c",
+          "verdict": "yellow",
+          "reasons": [
+            "Current faithful / Forward-looking North Star legacy attainment is 80% — below the 85% watch threshold. Central case may not reach $1M. Adapt if trend continues.",
+            "Bad early markets under Current faithful / Forward-looking is not sleep-well green: solvency 99%, legacy 70%, first-10 failure 0%.",
+            "Perfect storm under Current faithful / Forward-looking is not sleep-well green: solvency 97%, legacy 61%, first-10 failure 0%."
+          ]
+        },
+        {
+          "strategyId": "current_faithful",
+          "policyId": "pol_0100dae1",
+          "verdict": "yellow",
+          "reasons": [
+            "Current faithful / Forward-looking North Star legacy attainment is 84% — below the 85% watch threshold. Central case may not reach $1M. Adapt if trend continues.",
+            "Perfect storm under Current faithful / Forward-looking is not sleep-well green: solvency 99%, legacy 69%, first-10 failure 0%."
+          ]
+        },
+        {
+          "strategyId": "current_faithful",
+          "policyId": "pol_162188df",
+          "verdict": "yellow",
+          "reasons": [
+            "Current faithful / Forward-looking North Star legacy attainment is 84% — below the 85% watch threshold. Central case may not reach $1M. Adapt if trend continues.",
+            "Perfect storm under Current faithful / Forward-looking is not sleep-well green: solvency 99%, legacy 69%, first-10 failure 0%."
+          ]
+        }
+      ]
+    },
+    "yearlyPathEvidence": []
+  }
+}

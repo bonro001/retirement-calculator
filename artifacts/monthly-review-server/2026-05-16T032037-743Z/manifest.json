@@ -1,0 +1,20 @@
+{
+  "generatedAtIso": "2026-05-16T03:27:55.053Z",
+  "baselineFingerprint": "eval-e9cf4cb409229018::||",
+  "options": {
+    "iterations": 1,
+    "apiCalls": 1,
+    "aiMode": "real",
+    "mineMode": "always",
+    "strategyIds": [
+      "current_faithful"
+    ],
+    "dispatcherUrl": "ws://127.0.0.1:8765",
+    "outDir": "/Users/robbonner/retirement-calculator/artifacts/monthly-review-server/2026-05-16T032037-743Z",
+    "timestampOutDir": false,
+    "mineTimeoutMs": 43200000,
+    "maxCertCandidates": 8,
+    "certificationMaxConcurrency": 4
+  },
+  "realApiCalls": 1
+}

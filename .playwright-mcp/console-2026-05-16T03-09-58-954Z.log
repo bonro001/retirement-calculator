@@ -1,0 +1,9 @@
+[     138ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:5174/node_modules/.vite/deps/react-dom_client.js?v=552065b3:20100
+[     187ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ http://127.0.0.1:5174/favicon.ico:0
+[     552ms] [LOG] [sim-cache] miss: nothing saved @ http://127.0.0.1:5174/src/simulation-result-cache.ts:46
+[     552ms] [LOG] [export-cache] miss: no entry for fingerprint @ http://127.0.0.1:5174/src/export-payload-cache.ts:69
+[     552ms] [LOG] [export-cache] miss: no entry for fingerprint @ http://127.0.0.1:5174/src/export-payload-cache.ts:69
+[     552ms] [LOG] [sim-cache] miss: nothing saved @ http://127.0.0.1:5174/src/simulation-result-cache.ts:46
+[     860ms] [WARNING] WebSocket connection to 'ws://localhost:8765/' failed: WebSocket is closed before the connection is established. @ http://127.0.0.1:5174/src/cluster-client.ts:449
+[     861ms] [WARNING] [cluster-client] socket error @ http://127.0.0.1:5174/src/cluster-client.ts:146
+[   30202ms] [LOG] [export-cache] saved to IndexedDB @ http://127.0.0.1:5174/src/export-payload-cache.ts:53

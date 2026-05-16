@@ -1,0 +1,797 @@
+{
+  "$schemaVersion": 1,
+  "kind": "model-verification-report",
+  "mode": "quick",
+  "generatedAt": "2026-05-16T19:22:18.777Z",
+  "durationMs": 10900,
+  "status": "failed",
+  "repository": {
+    "branch": "codex/jpmorgan-spending-models",
+    "commit": "217a716dd0a6a7dad73f109d33afcf137c45ece6",
+    "dirty": true,
+    "dirtyEntryCount": 16
+  },
+  "checks": [
+    {
+      "name": "external anchors",
+      "command": "npx vitest run src/model-negative.test.ts src/external-model-benchmark-corpus.test.ts src/ficalc-source-parity.test.ts src/cfiresim-export-parity.test.ts src/model-replay-packets.test.ts",
+      "startedAt": "2026-05-16T19:22:07.927Z",
+      "durationMs": 4234,
+      "exitCode": 0,
+      "signal": null,
+      "passed": true,
+      "warnings": [],
+      "stdoutTail": "\n RUN  v3.2.4 /Users/robbonner/retirement-calculator\n\n ✓ src/model-negative.test.ts (4 tests) 2514ms\n   ✓ negative model guardrails > refuses to replay a corrupted export snapshot instead of defaulting missing fields  2482ms\n ✓ src/model-replay-packets.test.ts (2 tests) 176ms\n ✓ src/ficalc-source-parity.test.ts (2 tests) 11ms\n ✓ src/external-model-benchmark-corpus.test.ts (5 tests) 5ms\n ✓ src/cfiresim-export-parity.test.ts (3 tests) 2ms\n\n Test Files  5 passed (5)\n      Tests  16 passed (16)\n   Start at  14:22:08\n   Duration  3.65s (transform 309ms, setup 0ms, collect 448ms, tests 2.71s, environment 0ms, prepare 130ms)\n\n",
+      "stderrTail": "",
+      "error": null
+    },
+    {
+      "name": "statutory and north-star contracts",
+      "command": "npx vitest run src/tax-engine.test.ts src/retirement-rules.test.ts src/irmaa-tier-boundaries.test.ts src/aca-subsidy-boundaries.test.ts src/model-contract-propagation.test.ts src/north-star-budget.test.ts src/north-star-golden.test.ts src/north-star-metamorphic.test.ts src/protected-reserve-scenarios.test.ts src/protected-reserve.test.ts",
+      "startedAt": "2026-05-16T19:22:12.162Z",
+      "durationMs": 6614,
+      "exitCode": 1,
+      "signal": null,
+      "passed": false,
+      "warnings": [],
+      "stdoutTail": "\n RUN  v3.2.4 /Users/robbonner/retirement-calculator\n\n ❯ src/aca-subsidy-boundaries.test.ts (13 tests | 1 failed) 4ms\n   ✓ ACA subsidy / FPL-band behavior > MAGI at 1.5 FPL → expected contribution is 4.19% of MAGI 1ms\n   ✓ ACA subsidy / FPL-band behavior > MAGI at 2.0 FPL → expected contribution = 6.6% of MAGI 0ms\n   ✓ ACA subsidy / FPL-band behavior > MAGI at 3.0 FPL → expected contribution = 9.96% of MAGI 0ms\n   × ACA subsidy / FPL-band behavior > MAGI at 4.0 FPL → expected contribution = 9.96% of MAGI 2ms\n     → expected 20000 to be close to 8426.16, received difference is 11573.84, but expected 0.5\n   ✓ ACA subsidy / FPL-band behavior > MAGI $1 above 4.0 FPL → restored 400%-FPL cap removes subsidy 0ms\n   ✓ ACA subsidy / FPL-band behavior > MAGI at 5.0 FPL → restored 400%-FPL cap means no subsidy 0ms\n   ✓ ACA subsidy / FPL-band behavior > MAGI high enough that contribution exceeds premium → subsidy 0 0ms\n   ✓ ACA subsidy / FPL-band behavior > no ACA cost if not retired (working household assumed on employer insurance) 0ms\n   ✓ ACA subsidy / FPL-band behavior > no subsidy if all members on Medicare 0ms\n   ✓ ACA subsidy / FPL-band behavior > household size follows filing status — single is always 1 0ms\n   ✓ ACA subsidy / FPL-band behavior > larger household raises the FPL threshold linearly 0ms\n   ✓ ACA subsidy / FPL-band behavior > monotone: subsidy never increases as MAGI rises 0ms\n   ✓ ACA subsidy / FPL-band behavior > IRMAA surcharge flows through for Medicare-eligible members 0ms\n ✓ src/model-contract-propagation.test.ts (2 tests) 3777ms\n   ✓ household model contract propagation > carries the 88/91 horizon and care-first reserve into export evidence  2007ms\n   ✓ household model contract propagation > keeps reserve and horizon aligned across north-star, monthly review, and export  1769ms\n ✓ src/protected-reserve-scenarios.test.ts (5 tests) 697ms\n ✓ src/north-star-golden.test.ts (2 tests) 214ms\n ✓ src/irmaa-tier-boundaries.test.ts (29 tests) 3ms\n ✓ src/protected-reserve.test.ts (7 tests) 2ms\n ✓ src/north-star-budget.test.ts (5 tests) 2ms\n ✓ src/retirement-rules.test.ts (6 tests) 2ms\n ✓ src/tax-engine.test.ts (7 tests) 2ms\n ✓ src/north-star-metamorphic.test.ts (4 tests) 2ms\n\n Test Files  1 failed | 9 passed (10)\n      Tests  1 failed | 79 passed (80)\n   Start at  14:22:12\n   Duration  6.25s (transform 371ms, setup 0ms, collect 588ms, tests 4.71s, environment 1ms, prepare 241ms)\n\n",
+      "stderrTail": "\n⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯\n\n FAIL  src/aca-subsidy-boundaries.test.ts > ACA subsidy / FPL-band behavior > MAGI at 4.0 FPL → expected contribution = 9.96% of MAGI\nAssertionError: expected 20000 to be close to 8426.16, received difference is 11573.84, but expected 0.5\n ❯ src/aca-subsidy-boundaries.test.ts:69:28\n     67|     const out = calculateHealthcarePremiums(mkInput({ MAGI: magi }));\n     68|     const expectedContribution = magi * 0.0996;\n     69|     expect(out.netAcaCost).toBeCloseTo(expectedContribution, 0);\n       |                            ^\n     70|   });\n     71| \n\n⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯\n\n",
+      "error": null
+    }
+  ],
+  "warnings": [],
+  "modelCompleteness": {
+    "faithful": 2,
+    "reconstructed": 4,
+    "records": [
+      {
+        "id": "firecalc_ws_400k_20k_30yr_60_40",
+        "source": "FIRECalc",
+        "modelCompleteness": "reconstructed",
+        "inferredAssumptionCount": 2
+      },
+      {
+        "id": "cfiresim_live_400k_20k_30yr_60_40",
+        "source": "cFIREsim",
+        "modelCompleteness": "reconstructed",
+        "inferredAssumptionCount": 2
+      },
+      {
+        "id": "ficalc_live_400k_20k_30yr_60_40",
+        "source": "FI Calc",
+        "modelCompleteness": "reconstructed",
+        "inferredAssumptionCount": 2
+      },
+      {
+        "id": "policyengine_api_2026_mfj_w2_100k",
+        "source": "PolicyEngine US",
+        "modelCompleteness": "faithful",
+        "inferredAssumptionCount": 0
+      },
+      {
+        "id": "ficalc_source_fixture",
+        "source": "FI Calc bundled assets",
+        "modelCompleteness": "faithful",
+        "inferredAssumptionCount": 0
+      },
+      {
+        "id": "cfiresim_export_fixture",
+        "source": "cFIREsim hosted CSV export",
+        "modelCompleteness": "reconstructed",
+        "inferredAssumptionCount": 2
+      }
+    ]
+  },
+  "externalBenchmarks": [
+    {
+      "id": "firecalc_ws_400k_20k_30yr_60_40",
+      "kind": "historical_rolling_window_survival",
+      "modelName": "FIRECalc",
+      "modelCompleteness": "reconstructed",
+      "comparisonMode": "generic_local_fixture",
+      "externalSuccessRate": 0.815,
+      "localSuccessRate": 0.7681159420289855,
+      "localLabel": "generic 1926+ local fixture",
+      "localCohortCount": 69,
+      "genericLocal": {
+        "successRate": 0.7681159420289855,
+        "cohortCount": 69,
+        "successfulCohorts": 53,
+        "failedCohorts": 16,
+        "label": "generic 1926+ local fixture"
+      },
+      "sourceNative": null,
+      "expectedLocalSuccessRate": 0.7681159420289855,
+      "successRateTolerance": 0.08
+    },
+    {
+      "id": "cfiresim_live_400k_20k_30yr_60_40",
+      "kind": "historical_rolling_window_survival",
+      "modelName": "cFIREsim",
+      "modelCompleteness": "reconstructed",
+      "comparisonMode": "source_native_replay",
+      "externalSuccessRate": 0.736,
+      "localSuccessRate": 0.736,
+      "localLabel": "cFIREsim export replay",
+      "localCohortCount": 125,
+      "genericLocal": {
+        "successRate": 0.7681159420289855,
+        "cohortCount": 69,
+        "successfulCohorts": 53,
+        "failedCohorts": 16,
+        "label": "generic 1926+ local fixture"
+      },
+      "sourceNative": {
+        "successRate": 0.736,
+        "cohortCount": 125,
+        "successfulCohorts": 92,
+        "failedCohorts": 33,
+        "label": "cFIREsim export replay",
+        "evidence": "src/cfiresim-export-parity.test.ts"
+      },
+      "expectedLocalSuccessRate": 0.7681159420289855,
+      "successRateTolerance": 0.06
+    },
+    {
+      "id": "ficalc_live_400k_20k_30yr_60_40",
+      "kind": "historical_rolling_window_survival",
+      "modelName": "FI Calc",
+      "modelCompleteness": "reconstructed",
+      "comparisonMode": "source_native_replay",
+      "externalSuccessRate": 0.752,
+      "localSuccessRate": 0.752,
+      "localLabel": "FI Calc source replay",
+      "localCohortCount": 125,
+      "genericLocal": {
+        "successRate": 0.7681159420289855,
+        "cohortCount": 69,
+        "successfulCohorts": 53,
+        "failedCohorts": 16,
+        "label": "generic 1926+ local fixture"
+      },
+      "sourceNative": {
+        "successRate": 0.752,
+        "cohortCount": 125,
+        "successfulCohorts": 94,
+        "failedCohorts": 31,
+        "label": "FI Calc source replay",
+        "evidence": "src/ficalc-source-parity.test.ts"
+      },
+      "expectedLocalSuccessRate": 0.7681159420289855,
+      "successRateTolerance": 0.06
+    },
+    {
+      "id": "policyengine_api_2026_mfj_w2_100k",
+      "kind": "policyengine_tax_snapshot",
+      "modelName": "PolicyEngine US",
+      "modelCompleteness": "faithful",
+      "comparisonMode": "faithful_tax_snapshot",
+      "toleranceDollars": 1
+    }
+  ],
+  "modelSnapshots": {
+    "goldenScenarios": [
+      {
+        "scenarioId": "baseline-near-retirement",
+        "scenarioName": "Baseline Near Retirement",
+        "pass": true,
+        "summary": {
+          "successRate": 0.885,
+          "medianEndingWealth": 2911471.1605613427,
+          "tenthPercentileEndingWealth": 160253.22309257626,
+          "medianFailureYear": 2051,
+          "annualTaxEstimate": 3048.6666666666665,
+          "maxIrmaaTier": 1,
+          "averageHealthcarePremiumCost": 11973.466666666667,
+          "firstYearTotalCashOutflow": 148694,
+          "medianLegacySurplus": 1911471.1605613427
+        },
+        "comparisons": [
+          {
+            "metric": "success_rate",
+            "expected": 0.885,
+            "actual": 0.885,
+            "delta": 0,
+            "tolerance": 0.02,
+            "pass": true
+          },
+          {
+            "metric": "median_ending_wealth",
+            "expected": 2911471.1605613427,
+            "actual": 2911471.1605613427,
+            "delta": 0,
+            "tolerance": 300000,
+            "pass": true
+          },
+          {
+            "metric": "tenth_percentile_ending_wealth",
+            "expected": 160253.22309257626,
+            "actual": 160253.22309257626,
+            "delta": 0,
+            "tolerance": 150000,
+            "pass": true
+          },
+          {
+            "metric": "annual_tax_estimate",
+            "expected": 3048.6666666666665,
+            "actual": 3048.6666666666665,
+            "delta": 0,
+            "tolerance": 750,
+            "pass": true
+          },
+          {
+            "metric": "first_year_total_cash_outflow",
+            "expected": 148694,
+            "actual": 148694,
+            "delta": 0,
+            "tolerance": 1000,
+            "pass": true
+          },
+          {
+            "metric": "median_legacy_surplus",
+            "expected": 1911471.1605613427,
+            "actual": 1911471.1605613427,
+            "delta": 0,
+            "tolerance": 300000,
+            "pass": true
+          }
+        ],
+        "notes": [
+          "irmaa-tier:pass (1)",
+          "healthcare-cost:pass (delta=0.00)"
+        ]
+      },
+      {
+        "scenarioId": "early-retirement-stress",
+        "scenarioName": "Early Retirement Stress Case",
+        "pass": true,
+        "summary": {
+          "successRate": 0.405,
+          "medianEndingWealth": 146949.4279747689,
+          "tenthPercentileEndingWealth": -0.0007530907323996991,
+          "medianFailureYear": 2049,
+          "annualTaxEstimate": 746.2333333333333,
+          "maxIrmaaTier": 1,
+          "averageHealthcarePremiumCost": 12637.433333333332,
+          "firstYearTotalCashOutflow": 164425,
+          "medianLegacySurplus": -853050.5720252311
+        },
+        "comparisons": [
+          {
+            "metric": "success_rate",
+            "expected": 0.405,
+            "actual": 0.405,
+            "delta": 0,
+            "tolerance": 0.02,
+            "pass": true
+          },
+          {
+            "metric": "median_ending_wealth",
+            "expected": 146949.4279747689,
+            "actual": 146949.4279747689,
+            "delta": 0,
+            "tolerance": 300000,
+            "pass": true
+          },
+          {
+            "metric": "tenth_percentile_ending_wealth",
+            "expected": 0,
+            "actual": -0.0007530907323996991,
+            "delta": -0.0007530907323996991,
+            "tolerance": 1,
+            "pass": true
+          },
+          {
+            "metric": "annual_tax_estimate",
+            "expected": 746.2333333333333,
+            "actual": 746.2333333333333,
+            "delta": 0,
+            "tolerance": 750,
+            "pass": true
+          },
+          {
+            "metric": "first_year_total_cash_outflow",
+            "expected": 164425,
+            "actual": 164425,
+            "delta": 0,
+            "tolerance": 1000,
+            "pass": true
+          },
+          {
+            "metric": "median_legacy_surplus",
+            "expected": -853050.5720252311,
+            "actual": -853050.5720252311,
+            "delta": 0,
+            "tolerance": 300000,
+            "pass": true
+          }
+        ],
+        "notes": [
+          "failure-year-range:pass (2049)",
+          "irmaa-tier:pass (1)",
+          "healthcare-cost:pass (delta=0.00)"
+        ]
+      },
+      {
+        "scenarioId": "lower-spending",
+        "scenarioName": "Lower Spending Case",
+        "pass": true,
+        "summary": {
+          "successRate": 0.99,
+          "medianEndingWealth": 5121509.101647649,
+          "tenthPercentileEndingWealth": 1208754.7052229885,
+          "medianFailureYear": 2053,
+          "annualTaxEstimate": 3868.9666666666667,
+          "maxIrmaaTier": 1,
+          "averageHealthcarePremiumCost": 11973.466666666667,
+          "firstYearTotalCashOutflow": 131462,
+          "medianLegacySurplus": 4121509.101647649
+        },
+        "comparisons": [
+          {
+            "metric": "success_rate",
+            "expected": 0.99,
+            "actual": 0.99,
+            "delta": 0,
+            "tolerance": 0.02,
+            "pass": true
+          },
+          {
+            "metric": "median_ending_wealth",
+            "expected": 5121509.101647649,
+            "actual": 5121509.101647649,
+            "delta": 0,
+            "tolerance": 300000,
+            "pass": true
+          },
+          {
+            "metric": "tenth_percentile_ending_wealth",
+            "expected": 1208754.7052229885,
+            "actual": 1208754.7052229885,
+            "delta": 0,
+            "tolerance": 200000,
+            "pass": true
+          },
+          {
+            "metric": "annual_tax_estimate",
+            "expected": 3868.9666666666667,
+            "actual": 3868.9666666666667,
+            "delta": 0,
+            "tolerance": 750,
+            "pass": true
+          },
+          {
+            "metric": "first_year_total_cash_outflow",
+            "expected": 131462,
+            "actual": 131462,
+            "delta": 0,
+            "tolerance": 1000,
+            "pass": true
+          },
+          {
+            "metric": "median_legacy_surplus",
+            "expected": 4121509.101647649,
+            "actual": 4121509.101647649,
+            "delta": 0,
+            "tolerance": 300000,
+            "pass": true
+          }
+        ],
+        "notes": [
+          "irmaa-tier:pass (1)",
+          "healthcare-cost:pass (delta=0.00)"
+        ]
+      },
+      {
+        "scenarioId": "aca-bridge",
+        "scenarioName": "ACA Bridge Pre-65 Retirement",
+        "pass": true,
+        "summary": {
+          "successRate": 0.735,
+          "medianEndingWealth": 1568851.0330301477,
+          "tenthPercentileEndingWealth": 0,
+          "medianFailureYear": 2050,
+          "annualTaxEstimate": 1190.5,
+          "maxIrmaaTier": 1,
+          "averageHealthcarePremiumCost": 11475.5,
+          "firstYearTotalCashOutflow": 135026,
+          "medianLegacySurplus": 568851.0330301477
+        },
+        "comparisons": [
+          {
+            "metric": "success_rate",
+            "expected": 0.735,
+            "actual": 0.735,
+            "delta": 0,
+            "tolerance": 0.02,
+            "pass": true
+          },
+          {
+            "metric": "median_ending_wealth",
+            "expected": 1568851.0330301477,
+            "actual": 1568851.0330301477,
+            "delta": 0,
+            "tolerance": 300000,
+            "pass": true
+          },
+          {
+            "metric": "tenth_percentile_ending_wealth",
+            "expected": 0,
+            "actual": 0,
+            "delta": 0,
+            "tolerance": 1,
+            "pass": true
+          },
+          {
+            "metric": "annual_tax_estimate",
+            "expected": 1190.5,
+            "actual": 1190.5,
+            "delta": 0,
+            "tolerance": 750,
+            "pass": true
+          },
+          {
+            "metric": "first_year_total_cash_outflow",
+            "expected": 135026,
+            "actual": 135026,
+            "delta": 0,
+            "tolerance": 1000,
+            "pass": true
+          },
+          {
+            "metric": "median_legacy_surplus",
+            "expected": 568851.0330301477,
+            "actual": 568851.0330301477,
+            "delta": 0,
+            "tolerance": 300000,
+            "pass": true
+          }
+        ],
+        "notes": [
+          "failure-year-range:pass (2050)",
+          "irmaa-tier:pass (1)",
+          "healthcare-cost:pass (delta=0.00)"
+        ]
+      },
+      {
+        "scenarioId": "rmd-heavy",
+        "scenarioName": "High Tax-Deferred Balance (RMD Heavy)",
+        "pass": true,
+        "summary": {
+          "successRate": 0.995,
+          "medianEndingWealth": 9261556.659192218,
+          "tenthPercentileEndingWealth": 2245934.714339214,
+          "medianFailureYear": 2055,
+          "annualTaxEstimate": 44660.066666666666,
+          "maxIrmaaTier": 5,
+          "averageHealthcarePremiumCost": 16246.466666666667,
+          "firstYearTotalCashOutflow": 163002,
+          "medianLegacySurplus": 8261556.6591922175
+        },
+        "comparisons": [
+          {
+            "metric": "success_rate",
+            "expected": 0.995,
+            "actual": 0.995,
+            "delta": 0,
+            "tolerance": 0.02,
+            "pass": true
+          },
+          {
+            "metric": "median_ending_wealth",
+            "expected": 9261556.659192218,
+            "actual": 9261556.659192218,
+            "delta": 0,
+            "tolerance": 400000,
+            "pass": true
+          },
+          {
+            "metric": "tenth_percentile_ending_wealth",
+            "expected": 2245934.714339214,
+            "actual": 2245934.714339214,
+            "delta": 0,
+            "tolerance": 300000,
+            "pass": true
+          },
+          {
+            "metric": "annual_tax_estimate",
+            "expected": 44660.066666666666,
+            "actual": 44660.066666666666,
+            "delta": 0,
+            "tolerance": 1000,
+            "pass": true
+          },
+          {
+            "metric": "first_year_total_cash_outflow",
+            "expected": 163002,
+            "actual": 163002,
+            "delta": 0,
+            "tolerance": 1000,
+            "pass": true
+          },
+          {
+            "metric": "median_legacy_surplus",
+            "expected": 8261556.6591922175,
+            "actual": 8261556.6591922175,
+            "delta": 0,
+            "tolerance": 400000,
+            "pass": true
+          }
+        ],
+        "notes": [
+          "irmaa-tier:pass (5)",
+          "healthcare-cost:pass (delta=0.00)"
+        ]
+      }
+    ],
+    "northStarBudget": {
+      "source": "path_trace",
+      "year": 2026,
+      "totalAnnualBudget": 148694,
+      "totalMonthlyBudget": 12391.166666666666,
+      "spendAndHealthAnnual": 126279,
+      "federalTaxAnnual": 22415,
+      "lifestyleAnnual": 140587,
+      "protectedReserve": {
+        "targetTodayDollars": 1000000,
+        "purpose": "care_first_legacy_if_unused",
+        "availableFor": "late_life_care_or_health_shocks",
+        "normalLifestyleSpendable": false,
+        "modelCompleteness": "faithful",
+        "assumptionSource": "user_confirmed_2026_05_16_care_first_legacy_if_unused",
+        "legacyAliasTodayDollars": 1000000
+      },
+      "medianEndingWealth": 2134368.7114177025
+    },
+    "replayFixture": {
+      "packetCount": 3,
+      "currentHouseholdPacketId": "current_88_91_planner_40_987654",
+      "compatibilityPacketIds": [
+        "default_raw_40_987654",
+        "stress_response_planner_40_987654"
+      ],
+      "currentHouseholdPacket": {
+        "id": "current_88_91_planner_40_987654",
+        "legacyTargetTodayDollars": 1000000,
+        "protectedReserve": {
+          "targetTodayDollars": 1000000,
+          "purpose": "care_first_legacy_if_unused",
+          "availableFor": "late_life_care_or_health_shocks",
+          "normalLifestyleSpendable": false,
+          "assumptionSource": "user_confirmed_2026_05_16_care_first_legacy_if_unused"
+        },
+        "robPlanningEndAge": 88,
+        "debbiePlanningEndAge": 91,
+        "ledgerYearCount": 30,
+        "finalYear": 2055
+      }
+    },
+    "replayPackets": [
+      {
+        "id": "default_raw_40_987654",
+        "label": "Default raw simulation replay",
+        "modelCompleteness": "faithful",
+        "inferredAssumptionCount": 0,
+        "simulationSeed": 987654,
+        "simulationRuns": 40,
+        "summary": {
+          "id": "selected-path",
+          "label": "Selected Path",
+          "simulationMode": "raw_simulation",
+          "successRate": 0.425,
+          "medianEndingWealth": 294924.221188,
+          "tenthPercentileEndingWealth": 0,
+          "medianFailureYear": 2055,
+          "annualFederalTaxEstimate": 5937.147059,
+          "failureYearDistribution": [
+            {
+              "year": 2047,
+              "count": 1,
+              "rate": 0.025
+            },
+            {
+              "year": 2049,
+              "count": 2,
+              "rate": 0.05
+            },
+            {
+              "year": 2050,
+              "count": 1,
+              "rate": 0.025
+            },
+            {
+              "year": 2051,
+              "count": 1,
+              "rate": 0.025
+            },
+            {
+              "year": 2052,
+              "count": 1,
+              "rate": 0.025
+            },
+            {
+              "year": 2053,
+              "count": 2,
+              "rate": 0.05
+            },
+            {
+              "year": 2054,
+              "count": 3,
+              "rate": 0.075
+            },
+            {
+              "year": 2055,
+              "count": 3,
+              "rate": 0.075
+            },
+            {
+              "year": 2056,
+              "count": 2,
+              "rate": 0.05
+            },
+            {
+              "year": 2057,
+              "count": 2,
+              "rate": 0.05
+            },
+            {
+              "year": 2058,
+              "count": 3,
+              "rate": 0.075
+            },
+            {
+              "year": 2059,
+              "count": 2,
+              "rate": 0.05
+            }
+          ]
+        },
+        "ledgerYearCount": 34
+      },
+      {
+        "id": "stress_response_planner_40_987654",
+        "label": "Market + layoff response planner replay",
+        "modelCompleteness": "faithful",
+        "inferredAssumptionCount": 0,
+        "simulationSeed": 987654,
+        "simulationRuns": 40,
+        "summary": {
+          "id": "laid-off-early-bad-first-3-years-reduce-optional-spending-delay-retirement",
+          "label": "Laid Off Early + Bad First 3 Years + Reduce Optional Spending + Delay Retirement",
+          "simulationMode": "planner_enhanced",
+          "successRate": 0.775,
+          "medianEndingWealth": 1008190.01129,
+          "tenthPercentileEndingWealth": 0,
+          "medianFailureYear": 2057,
+          "annualFederalTaxEstimate": 1322.617647,
+          "failureYearDistribution": [
+            {
+              "year": 2052,
+              "count": 1,
+              "rate": 0.025
+            },
+            {
+              "year": 2053,
+              "count": 1,
+              "rate": 0.025
+            },
+            {
+              "year": 2055,
+              "count": 1,
+              "rate": 0.025
+            },
+            {
+              "year": 2056,
+              "count": 1,
+              "rate": 0.025
+            },
+            {
+              "year": 2057,
+              "count": 3,
+              "rate": 0.075
+            },
+            {
+              "year": 2059,
+              "count": 2,
+              "rate": 0.05
+            }
+          ]
+        },
+        "ledgerYearCount": 34
+      },
+      {
+        "id": "current_88_91_planner_40_987654",
+        "label": "Current household 88/91 planner replay",
+        "modelCompleteness": "faithful",
+        "inferredAssumptionCount": 0,
+        "simulationSeed": 987654,
+        "simulationRuns": 40,
+        "summary": {
+          "id": "selected-path",
+          "label": "Selected Path",
+          "simulationMode": "planner_enhanced",
+          "successRate": 0.95,
+          "medianEndingWealth": 1424933.529902,
+          "tenthPercentileEndingWealth": 552555.622342,
+          "medianFailureYear": 2052,
+          "annualFederalTaxEstimate": 3384.3,
+          "failureYearDistribution": [
+            {
+              "year": 2052,
+              "count": 1,
+              "rate": 0.025
+            },
+            {
+              "year": 2054,
+              "count": 1,
+              "rate": 0.025
+            }
+          ]
+        },
+        "ledgerYearCount": 30
+      }
+    ]
+  },
+  "drift": {
+    "comparedToPrevious": true,
+    "previousGeneratedAt": "2026-05-16T19:15:47.294Z",
+    "statusChanged": false,
+    "warningCountDelta": 0,
+    "checkDurationDeltasMs": {
+      "external anchors": 32,
+      "statutory and north-star contracts": -439
+    },
+    "modelCompletenessDelta": {
+      "faithful": 0,
+      "reconstructed": 0
+    },
+    "goldenScenarioDeltas": {
+      "successRate": {
+        "baseline-near-retirement": 0,
+        "early-retirement-stress": 0,
+        "lower-spending": 0,
+        "aca-bridge": 0,
+        "rmd-heavy": 0
+      },
+      "medianEndingWealth": {
+        "baseline-near-retirement": 0,
+        "early-retirement-stress": 0,
+        "lower-spending": 0,
+        "aca-bridge": 0,
+        "rmd-heavy": 0
+      },
+      "tenthPercentileEndingWealth": {
+        "baseline-near-retirement": 0,
+        "early-retirement-stress": 0,
+        "lower-spending": 0,
+        "aca-bridge": 0,
+        "rmd-heavy": 0
+      },
+      "firstYearTotalCashOutflow": {
+        "baseline-near-retirement": 0,
+        "early-retirement-stress": 0,
+        "lower-spending": 0,
+        "aca-bridge": 0,
+        "rmd-heavy": 0
+      }
+    },
+    "northStarBudget": {
+      "totalMonthlyBudgetDelta": 0,
+      "totalAnnualBudgetDelta": 0,
+      "protectedReserveTargetChanged": false,
+      "protectedReservePurposeChanged": false,
+      "protectedReserveAvailableForChanged": false
+    },
+    "replayFixture": {
+      "packetCountDelta": 0,
+      "currentHouseholdPacketChanged": false,
+      "currentHouseholdFinalYearChanged": false,
+      "currentHouseholdProtectedReserveTargetChanged": false,
+      "currentHouseholdProtectedReservePurposeChanged": false
+    }
+  },
+  "strict": {
+    "enabled": true,
+    "failures": []
+  }
+}

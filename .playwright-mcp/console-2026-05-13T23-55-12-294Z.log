@@ -1,0 +1,35 @@
+[     308ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:5174/node_modules/.vite/deps/react-dom_client.js?v=552065b3:20100
+[     517ms] [LOG] [sim-cache] miss: nothing saved @ http://127.0.0.1:5174/src/simulation-result-cache.ts:46
+[     517ms] [LOG] [export-cache] summary hit: 1184 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:133
+[     517ms] [LOG] [export-cache] summary hit: 1184 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:133
+[     520ms] [LOG] [sim-cache] miss: nothing saved @ http://127.0.0.1:5174/src/simulation-result-cache.ts:46
+[     524ms] [LOG] [export-cache] hit: 1184 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:89
+[     525ms] [LOG] [export-cache] hit: 1184 min old @ http://127.0.0.1:5174/src/export-payload-cache.ts:89
+[     824ms] [ERROR] %o
+
+%s
+
+%s
+ TypeError: Cannot read properties of undefined (reading 'selectedPolicy')
+    at MonthlyReviewPanel (http://127.0.0.1:5174/src/MonthlyReviewPanel.tsx?t=1778716436373:696:71)
+    at Object.react_stack_bottom_frame (http://127.0.0.1:5174/node_modules/.vite/deps/react-dom_client.js?v=552065b3:18507:20)
+    at renderWithHooks (http://127.0.0.1:5174/node_modules/.vite/deps/react-dom_client.js?v=552065b3:5652:24)
+    at updateFunctionComponent (http://127.0.0.1:5174/node_modules/.vite/deps/react-dom_client.js?v=552065b3:7473:21)
+    at beginWork (http://127.0.0.1:5174/node_modules/.vite/deps/react-dom_client.js?v=552065b3:8523:20)
+    at runWithFiberInDEV (http://127.0.0.1:5174/node_modules/.vite/deps/react-dom_client.js?v=552065b3:995:72)
+    at performUnitOfWork (http://127.0.0.1:5174/node_modules/.vite/deps/react-dom_client.js?v=552065b3:12559:98)
+    at workLoopSync (http://127.0.0.1:5174/node_modules/.vite/deps/react-dom_client.js?v=552065b3:12422:43)
+    at renderRootSync (http://127.0.0.1:5174/node_modules/.vite/deps/react-dom_client.js?v=552065b3:12406:13)
+    at performWorkOnRoot (http://127.0.0.1:5174/node_modules/.vite/deps/react-dom_client.js?v=552065b3:11825:37) The above error occurred in the <MonthlyReviewPanel> component. React will try to recreate this component tree from scratch using the error boundary you provided, RootErrorBoundary. @ http://127.0.0.1:5174/node_modules/.vite/deps/react-dom_client.js?v=552065b3:6998
+[     825ms] [ERROR] Root app render failed TypeError: Cannot read properties of undefined (reading 'selectedPolicy')
+    at MonthlyReviewPanel (http://127.0.0.1:5174/src/MonthlyReviewPanel.tsx?t=1778716436373:696:71)
+    at Object.react_stack_bottom_frame (http://127.0.0.1:5174/node_modules/.vite/deps/react-dom_client.js?v=552065b3:18507:20)
+    at renderWithHooks (http://127.0.0.1:5174/node_modules/.vite/deps/react-dom_client.js?v=552065b3:5652:24)
+    at updateFunctionComponent (http://127.0.0.1:5174/node_modules/.vite/deps/react-dom_client.js?v=552065b3:7473:21)
+    at beginWork (http://127.0.0.1:5174/node_modules/.vite/deps/react-dom_client.js?v=552065b3:8523:20)
+    at runWithFiberInDEV (http://127.0.0.1:5174/node_modules/.vite/deps/react-dom_client.js?v=552065b3:995:72)
+    at performUnitOfWork (http://127.0.0.1:5174/node_modules/.vite/deps/react-dom_client.js?v=552065b3:12559:98)
+    at workLoopSync (http://127.0.0.1:5174/node_modules/.vite/deps/react-dom_client.js?v=552065b3:12422:43)
+    at renderRootSync (http://127.0.0.1:5174/node_modules/.vite/deps/react-dom_client.js?v=552065b3:12406:13)
+    at performWorkOnRoot (http://127.0.0.1:5174/node_modules/.vite/deps/react-dom_client.js?v=552065b3:11825:37) {componentStack: 
+    at MonthlyReviewPanel (http://127.0.0.1:5174/…/127.0.0.1:5174/src/main.tsx?t=1778716436373:7:1)} @ http://127.0.0.1:5174/src/main.tsx?t=1778716436373:14

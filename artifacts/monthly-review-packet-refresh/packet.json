@@ -1,0 +1,1023 @@
+{
+  "version": "monthly_review_validation_packet_v1",
+  "generatedAtIso": "2026-05-16T16:43:28.462Z",
+  "northStar": {
+    "legacyTargetTodayDollars": 1000000,
+    "protectedReserve": {
+      "targetTodayDollars": 1000000,
+      "purpose": "care_first_legacy_if_unused",
+      "availableFor": "late_life_care_or_health_shocks",
+      "normalLifestyleSpendable": false,
+      "modelCompleteness": "faithful",
+      "assumptionSource": "user_confirmed_2026_05_16_care_first_legacy_if_unused",
+      "legacyAliasTodayDollars": 1000000
+    },
+    "objective": "maximize_monthly_spend_subject_to_sleep_at_night_gates",
+    "approvalStandard": "green_only",
+    "advisorStandard": {
+      "role": "advisor_like_decision_support",
+      "posture": "explain_model_facts_unknowns_household_decisions_and_ai_suggestions_separately",
+      "limits": "do_not_invent_facts_or_treat_suggestions_as_household_decisions"
+    }
+  },
+  "recommendation": {
+    "status": "diagnostic",
+    "strategyId": "current_faithful",
+    "annualSpendTodayDollars": 140000,
+    "monthlySpendTodayDollars": 11666.666666666666,
+    "policyId": "current-88-91-care-reserve-refresh",
+    "certificationVerdict": "green",
+    "aiVerdict": null,
+    "blockingTaskIds": [],
+    "summary": "A green deterministic core spend candidate exists; AI co-review is pending."
+  },
+  "strategies": [
+    {
+      "id": "current_faithful",
+      "label": "Current Faithful",
+      "corpusEvaluationCount": 1,
+      "selectedPolicyId": "current-88-91-care-reserve-refresh",
+      "selectedAnnualSpendTodayDollars": 140000,
+      "certificationVerdict": "green",
+      "spendBoundary": {
+        "highestSpendTestedTodayDollars": 140000,
+        "highestGreenSpendTodayDollars": 140000,
+        "higherSpendLevelsTested": [],
+        "boundaryProven": true
+      }
+    }
+  ],
+  "certificationSummary": [
+    {
+      "strategyId": "current_faithful",
+      "policyId": "current-88-91-care-reserve-refresh",
+      "verdict": "green",
+      "reasons": [
+        "Deterministic packet refresh evidence."
+      ]
+    }
+  ],
+  "structuralTasks": [],
+  "householdSignals": [
+    {
+      "id": "aca_bridge_breach",
+      "status": "ok",
+      "title": "ACA bridge breach",
+      "headline": "2027: payroll transition year, not ACA bridge",
+      "detail": "Modeled MAGI is $135,000, but $105,000 of modeled salary remains in that year. ACA subsidy preservation is not treated as an actionable bridge-year constraint until salary income has ended.",
+      "evidence": [
+        "year=2027",
+        "medianMagi=135000",
+        "acaFriendlyMagiCeiling=82600",
+        "headroom=-52400",
+        "modeledSalaryThisYear=105000",
+        "salaryEndDate=2027-07-01",
+        "payrollTransitionYear=true",
+        "knownDecisionDisposition=intentional_tradeoff",
+        "knownDecisionTitle=2027 ACA subsidy loss is expected in the transition year",
+        "knownDecisionRationale=The 2027 bridge-year MAGI breach is a known transition-year tradeoff from final payroll/taxable income and the selected spend path, not a surprise failure. The plan should include the net ACA cost and can still be green if the certified path clears the gates.",
+        "knownDecision=Accept the 2027 subsidy loss in the current review unless a MAGI-constrained alternative is explicitly requested to price the subsidy-preserving path.",
+        "knownDecisionSource=user_confirmed_monthly_review_context",
+        "knownDecisionEvidence=Roth low-income bracket fill starts in 2028, after the final-paycheck transition year.",
+        "knownDecisionEvidence=Contribution-limit assumptions are already labeled as planning_estimate_for_2027_final_paycheck_window.",
+        "knownDecisionEvidence=Monthly review should still verify MAGI components and net ACA cost plumbing."
+      ],
+      "recommendation": "Known planning decision: Accept the 2027 subsidy loss in the current review unless a MAGI-constrained alternative is explicitly requested to price the subsidy-preserving path.",
+      "knownDecision": {
+        "disposition": "intentional_tradeoff",
+        "title": "2027 ACA subsidy loss is expected in the transition year",
+        "rationale": "The 2027 bridge-year MAGI breach is a known transition-year tradeoff from final payroll/taxable income and the selected spend path, not a surprise failure. The plan should include the net ACA cost and can still be green if the certified path clears the gates.",
+        "decision": "Accept the 2027 subsidy loss in the current review unless a MAGI-constrained alternative is explicitly requested to price the subsidy-preserving path.",
+        "evidence": [
+          "Roth low-income bracket fill starts in 2028, after the final-paycheck transition year.",
+          "Contribution-limit assumptions are already labeled as planning_estimate_for_2027_final_paycheck_window.",
+          "Monthly review should still verify MAGI components and net ACA cost plumbing."
+        ],
+        "source": "user_confirmed_monthly_review_context"
+      },
+      "clarity": {
+        "disposition": "known_intentional_tradeoff",
+        "whyItMatters": "ACA subsidy planning is meaningful in years when the household can control MAGI after salary income has ended.",
+        "whyItMayBeOk": "This is already labeled in the model: The 2027 bridge-year MAGI breach is a known transition-year tradeoff from final payroll/taxable income and the selected spend path, not a surprise failure. The plan should include the net ACA cost and can still be green if the certified path clears the gates.",
+        "modelBugCheck": "Check for a bug if this row is supposed to be post-payroll but modeledSalaryThisYear is still positive, or if the first full post-payroll pre-Medicare year is missing from selected evidence.",
+        "decisionPrompt": "Review the first full post-payroll ACA bridge row before making a subsidy-preservation decision."
+      }
+    },
+    {
+      "id": "cash_runway_gap",
+      "status": "act_now",
+      "title": "Cash runway gap",
+      "headline": "$53,571 short of 18-month target",
+      "detail": "Direct cash is about 0.39 years of core spending and 8.7 months of essential-plus-fixed spending. The target is $103,571.",
+      "evidence": [
+        "directCashBalance=50000",
+        "essentialWithFixedMonthly=5754",
+        "targetCashRunway=103571",
+        "cashGap=53571",
+        "runwayGapMonths=9.31",
+        "directCashYearsOfCoreSpend=0.39"
+      ],
+      "recommendation": "Surface as a checkpoint item before Fidelity refresh: identify whether the gap should be filled from cash, taxable, or reduced payroll deferrals.",
+      "clarity": {
+        "disposition": "needs_action",
+        "whyItMatters": "Cash runway is an operational resilience gate, not a Monte Carlo solvency gate; it protects spending while transfers, payroll changes, or market sales are being handled.",
+        "whyItMayBeOk": "This is a problem until a funding source, transfer plan, or explicit waiver is recorded.",
+        "modelBugCheck": "Check for a bug if bank/cash balances are stale, cash held inside brokerage accounts is double-counted or excluded, or the essential-plus-fixed monthly target is not tied to current seed spending.",
+        "decisionPrompt": "Choose whether to fill the cash bucket, document the source of backup liquidity, or intentionally waive the 18-month target."
+      }
+    },
+    {
+      "id": "holding_concentration",
+      "status": "act_now",
+      "title": "Holding concentration",
+      "headline": "FCNTX is 28% of portfolio",
+      "detail": "Fidelity Contrafund is $257,816, or 28% of the total portfolio, and 100% of Authorized ROTH IRA.",
+      "evidence": [
+        "largestHoldingSymbol=FCNTX",
+        "largestHoldingValue=257816",
+        "largestHoldingPortfolioShare=0.2763",
+        "largestHoldingAccountShare=1.0000",
+        "largestAccountName=Authorized ROTH IRA",
+        "totalPortfolio=933149"
+      ],
+      "recommendation": "Show this as a concentration item: rebalance or reduce single-manager exposure inside tax-advantaged accounts where possible.",
+      "clarity": {
+        "disposition": "needs_action",
+        "whyItMatters": "A large single holding can dominate plan outcomes in ways the broad asset-class Monte Carlo model may not fully capture.",
+        "whyItMayBeOk": "This is a problem until the household records a rebalance plan, staged rebalance, or explicit acceptance of concentration risk.",
+        "modelBugCheck": "Check for a bug if duplicate holdings were merged incorrectly, account balances do not match holding totals, or fund tickers were imported into the wrong source account.",
+        "decisionPrompt": "Decide whether to rebalance, stage the rebalance, or explicitly accept the single-holding exposure until the next review."
+      }
+    },
+    {
+      "id": "legacy_headroom",
+      "status": "ok",
+      "title": "Care/legacy reserve headroom",
+      "headline": "Median EW is 1.6x care/legacy reserve",
+      "detail": "Median ending wealth is $1,600,000 against a $1,000,000 care/legacy reserve.",
+      "evidence": [
+        "legacyTargetTodayDollars=1000000",
+        "protectedReserveTargetTodayDollars=1000000",
+        "protectedReservePurpose=care_first_legacy_if_unused",
+        "protectedReserveAvailableFor=late_life_care_or_health_shocks",
+        "protectedReserveModelCompleteness=faithful",
+        "p50EndingWealthTodayDollars=1600000",
+        "medianReserveToTargetRatio=1.600",
+        "bequestAttainmentRate=0.9"
+      ],
+      "recommendation": "Care/legacy reserve is within the review band; keep monitoring with every rerun.",
+      "clarity": {
+        "disposition": "monitor",
+        "whyItMatters": "Care/legacy reserve headroom shows whether the selected spend path is consuming the protected late-life reserve or leaving a large margin unused.",
+        "whyItMayBeOk": "A moderate ratio is acceptable when it reflects the protected reserve target and sleep-at-night preference.",
+        "modelBugCheck": "Check for a bug if the protected reserve target is stale, ending wealth is nominal instead of today-dollar, or the selected strategy is not the one being reviewed.",
+        "decisionPrompt": "Keep comparing p50 and downside ending wealth against the protected care/legacy reserve."
+      }
+    }
+  ],
+  "lifeModelAudit": {
+    "version": "life_model_audit_v1",
+    "generatedAtIso": "2026-05-16T16:43:28.462Z",
+    "modelCompleteness": "reconstructed",
+    "unresolvedEventCount": 2,
+    "materialUnresolvedEventCount": 2,
+    "events": [
+      {
+        "id": "salary_cashflow",
+        "kind": "salary",
+        "title": "Salary until retirement transition",
+        "year": 2027,
+        "amountTodayDollars": 210000,
+        "materiality": "high",
+        "reviewerQuestion": "Does wage income stop in the right year and flow through tax, spending, and contribution logic?",
+        "steps": [
+          {
+            "id": "source",
+            "status": "explicit",
+            "detail": "Wage income is modeled from salaryAnnual until salaryEndDate.",
+            "evidence": [
+              "salaryAnnual=210000",
+              "salaryEndDate=2027-07-01"
+            ]
+          },
+          {
+            "id": "timing",
+            "status": "explicit",
+            "detail": "Salary end date controls the retirement transition year.",
+            "evidence": [
+              "salaryEndDate=2027-07-01"
+            ]
+          },
+          {
+            "id": "tax_treatment",
+            "status": "explicit",
+            "detail": "Salary is taxed as ordinary wage income and payroll contributions are modeled separately.",
+            "evidence": [
+              "payrollProrationRule=month_fraction",
+              "employee401kPreTaxPercent=0.1499"
+            ]
+          },
+          {
+            "id": "destination",
+            "status": "explicit",
+            "detail": "Wages fund annual cashflow first, with configured pre-retirement contributions directed into retirement accounts.",
+            "evidence": [
+              "withdrawalStyle=guardrails",
+              "hsaPercent=0.0159"
+            ]
+          }
+        ],
+        "reviewStatus": "pass"
+      },
+      {
+        "id": "social_security_cashflow",
+        "kind": "social_security",
+        "title": "Social Security benefit stream",
+        "year": null,
+        "amountTodayDollars": 66528,
+        "materiality": "high",
+        "reviewerQuestion": "Are claim ages, benefit amounts, survivor/spousal behavior, and tax treatment explicit enough for the household story?",
+        "steps": [
+          {
+            "id": "source",
+            "status": "explicit",
+            "detail": "Social Security benefit records are included for the household.",
+            "evidence": [
+              "rob:fraMonthly=4100:claimAge=67",
+              "debbie:fraMonthly=1444:claimAge=67"
+            ]
+          },
+          {
+            "id": "timing",
+            "status": "explicit",
+            "detail": "Claim ages are either explicit in the seed or supplied by the optimizer before projection.",
+            "evidence": [
+              "rob:claimAge=67",
+              "debbie:claimAge=67"
+            ]
+          },
+          {
+            "id": "tax_treatment",
+            "status": "explicit",
+            "detail": "Federal provisional-income Social Security taxation is modeled in the tax engine.",
+            "evidence": [
+              "filingStatus=married_filing_jointly"
+            ]
+          },
+          {
+            "id": "destination",
+            "status": "explicit",
+            "detail": "Benefits enter annual cashflow before portfolio withdrawals are calculated.",
+            "evidence": [
+              "destination=annual_cashflow"
+            ]
+          }
+        ],
+        "reviewStatus": "pass"
+      },
+      {
+        "id": "cash_in_inheritance",
+        "kind": "windfall",
+        "title": "Cash-in event: inheritance",
+        "year": 2028,
+        "amountTodayDollars": 500000,
+        "materiality": "high",
+        "reviewerQuestion": "Does this cash-in have an explicit source, timing, tax treatment, spend/use rule, destination account, and future investment policy?",
+        "steps": [
+          {
+            "id": "source",
+            "status": "explicit",
+            "detail": "Cash-in source is modeled as inheritance.",
+            "evidence": [
+              "name=inheritance",
+              "amount=500000"
+            ]
+          },
+          {
+            "id": "timing",
+            "status": "inferred",
+            "detail": "The event year is present, but certainty is not explicitly labeled.",
+            "evidence": [
+              "year=2028",
+              "certainty=missing"
+            ]
+          },
+          {
+            "id": "amount",
+            "status": "explicit",
+            "detail": "Gross windfall amount is the modeled cash source.",
+            "evidence": [
+              "amount=500000"
+            ]
+          },
+          {
+            "id": "tax_treatment",
+            "status": "explicit",
+            "detail": "Windfall tax treatment is explicitly modeled as cash_non_taxable.",
+            "evidence": [
+              "taxTreatment=cash_non_taxable"
+            ]
+          },
+          {
+            "id": "destination",
+            "status": "explicit",
+            "detail": "Unspent cash-in is swept to a taxable shadow investment sleeve.",
+            "evidence": [
+              "windfallDeploymentPolicy.enabled=true",
+              "destinationAccount=taxable",
+              "trackingMode=taxable_shadow_sleeve",
+              "assumptionSource=user_confirmed_invest_unspent_windfall_and_home_sale_cash_in_current_portfolio_mix"
+            ]
+          },
+          {
+            "id": "spending_use",
+            "status": "explicit",
+            "detail": "Same-year spending can use the received cash before any remainder is deployed.",
+            "evidence": [
+              "spendBeforeDeploy=true"
+            ]
+          },
+          {
+            "id": "investment_policy",
+            "status": "explicit",
+            "detail": "Remainder is invested in the shadow sleeve using the aggregate current portfolio mix.",
+            "evidence": [
+              "investmentPolicy=current_portfolio_mix",
+              "cashReserveMonths=0"
+            ]
+          },
+          {
+            "id": "future_return_treatment",
+            "status": "explicit",
+            "detail": "After deployment, the sleeve appreciates with market returns and remains available through normal taxable withdrawals.",
+            "evidence": [
+              "futureReturns=taxable_market_returns"
+            ]
+          }
+        ],
+        "reviewStatus": "watch"
+      },
+      {
+        "id": "cash_in_home_sale",
+        "kind": "home_sale",
+        "title": "Home sale proceeds",
+        "year": 2037,
+        "amountTodayDollars": 500000,
+        "materiality": "high",
+        "reviewerQuestion": "Does this cash-in have an explicit source, timing, tax treatment, spend/use rule, destination account, and future investment policy?",
+        "steps": [
+          {
+            "id": "source",
+            "status": "explicit",
+            "detail": "Cash-in source is modeled as home_sale.",
+            "evidence": [
+              "name=home_sale",
+              "amount=1000000"
+            ]
+          },
+          {
+            "id": "timing",
+            "status": "inferred",
+            "detail": "Timing and amount are modeled, but the event is marked estimated.",
+            "evidence": [
+              "year=2037",
+              "certainty=estimated",
+              "timingUncertaintyYears=2",
+              "amountUncertaintyPercent=0.3"
+            ]
+          },
+          {
+            "id": "amount",
+            "status": "explicit",
+            "detail": "Home-sale cash available to the plan is explicit through liquidity or replacement-home assumptions.",
+            "evidence": [
+              "amount=1000000",
+              "liquidityAmount=500000",
+              "replacementHomeCost=500000",
+              "purchaseClosingCostPercent=0.02",
+              "movingCost=20000"
+            ]
+          },
+          {
+            "id": "tax_treatment",
+            "status": "explicit",
+            "detail": "Primary-home-sale tax treatment includes basis, exclusion, and selling-cost assumptions.",
+            "evidence": [
+              "taxTreatment=primary_home_sale",
+              "costBasis=500000",
+              "exclusionAmount=500000",
+              "sellingCostPercent=0.06"
+            ]
+          },
+          {
+            "id": "destination",
+            "status": "explicit",
+            "detail": "Unspent cash-in is swept to a taxable shadow investment sleeve.",
+            "evidence": [
+              "windfallDeploymentPolicy.enabled=true",
+              "destinationAccount=taxable",
+              "trackingMode=taxable_shadow_sleeve",
+              "assumptionSource=user_confirmed_invest_unspent_windfall_and_home_sale_cash_in_current_portfolio_mix"
+            ]
+          },
+          {
+            "id": "spending_use",
+            "status": "explicit",
+            "detail": "Same-year spending can use the received cash before any remainder is deployed.",
+            "evidence": [
+              "spendBeforeDeploy=true"
+            ]
+          },
+          {
+            "id": "investment_policy",
+            "status": "explicit",
+            "detail": "Remainder is invested in the shadow sleeve using the aggregate current portfolio mix.",
+            "evidence": [
+              "investmentPolicy=current_portfolio_mix",
+              "cashReserveMonths=0"
+            ]
+          },
+          {
+            "id": "future_return_treatment",
+            "status": "explicit",
+            "detail": "After deployment, the sleeve appreciates with market returns and remains available through normal taxable withdrawals.",
+            "evidence": [
+              "futureReturns=taxable_market_returns"
+            ]
+          }
+        ],
+        "reviewStatus": "watch"
+      },
+      {
+        "id": "household_spending",
+        "kind": "spending",
+        "title": "Household spending path",
+        "year": null,
+        "amountTodayDollars": 140587,
+        "materiality": "high",
+        "reviewerQuestion": "Does the modeled monthly spend include the categories the household expects monthly to mean?",
+        "steps": [
+          {
+            "id": "amount",
+            "status": "explicit",
+            "detail": "Core household spend is modeled from essential, optional, and taxes/insurance fields.",
+            "evidence": [
+              "essentialAnnual=57540",
+              "optionalAnnual=57540",
+              "annualTaxesInsurance=11507"
+            ]
+          },
+          {
+            "id": "spending_use",
+            "status": "explicit",
+            "detail": "Travel is modeled as a separate early-retirement annual amount.",
+            "evidence": [
+              "travelEarlyRetirementAnnual=14000",
+              "travelPhaseYears=12"
+            ]
+          }
+        ],
+        "reviewStatus": "pass"
+      },
+      {
+        "id": "portfolio_withdrawals",
+        "kind": "withdrawal",
+        "title": "Portfolio withdrawal sourcing",
+        "year": null,
+        "amountTodayDollars": null,
+        "materiality": "high",
+        "reviewerQuestion": "Are annual spending deficits sourced from the intended accounts and tax-aware withdrawal rule?",
+        "steps": [
+          {
+            "id": "source",
+            "status": "explicit",
+            "detail": "Withdrawal rule decides how cash, taxable, pretax, and Roth are used.",
+            "evidence": [
+              "withdrawalRule=engine_default",
+              "withdrawalStyle=guardrails"
+            ]
+          },
+          {
+            "id": "tax_treatment",
+            "status": "explicit",
+            "detail": "Pretax withdrawals, taxable withdrawals, Roth withdrawals, RMDs, and Roth conversions feed tax calculations separately.",
+            "evidence": [
+              "irmaaAware=true"
+            ]
+          }
+        ],
+        "reviewStatus": "pass"
+      },
+      {
+        "id": "healthcare_and_tax_costs",
+        "kind": "healthcare",
+        "title": "Healthcare, tax, IRMAA, and LTC costs",
+        "year": null,
+        "amountTodayDollars": null,
+        "materiality": "high",
+        "reviewerQuestion": "Are healthcare premiums, medical inflation, LTC assumptions, taxes, ACA, and IRMAA represented as cash outflows instead of narrative caveats?",
+        "steps": [
+          {
+            "id": "amount",
+            "status": "explicit",
+            "detail": "Healthcare premiums and medical inflation are configured in rules.",
+            "evidence": [
+              "baselineAcaPremiumAnnual=14400",
+              "baselineMedicarePremiumAnnual=2220",
+              "medicalInflationAnnual=0.055"
+            ]
+          },
+          {
+            "id": "tax_treatment",
+            "status": "explicit",
+            "detail": "Federal tax, ACA subsidy exposure, and IRMAA are modeled from yearly MAGI/tax inputs.",
+            "evidence": [
+              "irmaaThreshold=200000",
+              "irmaaAware=true"
+            ]
+          },
+          {
+            "id": "spending_use",
+            "status": "explicit",
+            "detail": "Long-term-care stress cost is explicit and can be offset by HSA strategy.",
+            "evidence": [
+              "ltcEnabled=true",
+              "hsaStrategy=ltc_reserve"
+            ]
+          }
+        ],
+        "reviewStatus": "pass"
+      }
+    ],
+    "reviewerChecklist": [
+      "Trace each major inflow from source to destination account.",
+      "Confirm whether each cash-in is spent, held as cash, invested, or earmarked.",
+      "Confirm tax treatment before accepting monthly-spend recommendations.",
+      "Flag internally consistent assumptions that do not match the household story.",
+      "Separate model facts, household decisions, and AI suggestions."
+    ]
+  },
+  "rawExportEvidence": {
+    "source": "monthly_review_compact_export_excerpt_v1",
+    "planFingerprint": "mr-2bcdfab2",
+    "evidenceLimits": {
+      "topCandidateRows": 8,
+      "higherSpendRows": 12,
+      "yearlyPathRows": 12
+    },
+    "household": {
+      "robBirthDate": "1964-12-08",
+      "debbieBirthDate": "1963-10-23",
+      "filingStatus": "married_filing_jointly",
+      "planningAge": 91,
+      "state": "TX"
+    },
+    "balancesTodayDollars": {
+      "pretax": 386656.11,
+      "roth": 307059.87,
+      "taxable": 138939.58,
+      "cash": 50000,
+      "hsa": 50493.12,
+      "liquidTotal": 933148.6799999999
+    },
+    "spending": {
+      "essentialMonthly": 4795,
+      "optionalMonthly": 4795,
+      "annualTaxesInsurance": 11507,
+      "travelEarlyRetirementAnnual": 14000,
+      "annualCoreSpend": 126587,
+      "annualWithTravelSpend": 140587
+    },
+    "income": {
+      "salaryAnnual": 210000,
+      "salaryEndDate": "2027-07-01",
+      "socialSecurity": [
+        {
+          "person": "rob",
+          "fraMonthly": 4100,
+          "claimAge": 67
+        },
+        {
+          "person": "debbie",
+          "fraMonthly": 1444,
+          "claimAge": 67
+        }
+      ],
+      "windfalls": [
+        {
+          "name": "inheritance",
+          "year": 2028,
+          "amount": 500000,
+          "taxTreatment": "cash_non_taxable"
+        },
+        {
+          "name": "home_sale",
+          "year": 2037,
+          "amount": 1000000,
+          "taxTreatment": "primary_home_sale",
+          "certainty": "estimated",
+          "timingUncertaintyYears": 2,
+          "amountUncertaintyPercent": 0.3,
+          "costBasis": 500000,
+          "exclusionAmount": 500000,
+          "sellingCostPercent": 0.06,
+          "replacementHomeCost": 500000,
+          "purchaseClosingCostPercent": 0.02,
+          "movingCost": 20000,
+          "liquidityAmount": 500000
+        }
+      ],
+      "preRetirementContributions": {
+        "employee401kPreTaxPercentOfSalary": 0.1499,
+        "employee401kRothPercentOfSalary": 0,
+        "priorYearFicaWagesFromEmployer": 210000,
+        "employerPlanSupportsRothDeferrals": true,
+        "employerPlanSupportsSuperCatchUp": true,
+        "planFeatureAssumptionSource": "estimated_pending_plan_document",
+        "employerMatch": {
+          "matchRate": 0.5,
+          "maxEmployeeContributionPercentOfSalary": 0.06,
+          "assumptionSource": "user_confirmed_athenahealth_50_percent_of_first_6_percent_pending_document_verification",
+          "verificationStatus": "user_confirmed_pending_document"
+        },
+        "hsaPercentOfSalary": 0.0159,
+        "hsaCoverageType": "family"
+      }
+    },
+    "assumptions": {
+      "equityMean": 0.074,
+      "equityVolatility": 0.16,
+      "internationalEquityMean": 0.074,
+      "internationalEquityVolatility": 0.18,
+      "bondMean": 0.038,
+      "bondVolatility": 0.07,
+      "cashMean": 0.02,
+      "cashVolatility": 0.01,
+      "inflation": 0.028,
+      "inflationVolatility": 0.01,
+      "simulationRuns": 40,
+      "simulationSeed": 20260416,
+      "assumptionsVersion": "monthly-review-packet-refresh",
+      "guardrailFloorYears": 12,
+      "guardrailCeilingYears": 18,
+      "guardrailCutPercent": 0.2,
+      "robPlanningEndAge": 88,
+      "debbiePlanningEndAge": 91,
+      "travelPhaseYears": 12,
+      "irmaaThreshold": 200000
+    },
+    "rules": {
+      "withdrawalStyle": "guardrails",
+      "irmaaAware": true,
+      "replaceModeImports": true,
+      "monthlyReviewIssueAnnotations": [
+        {
+          "signalId": "aca_bridge_breach",
+          "years": [
+            2027
+          ],
+          "disposition": "intentional_tradeoff",
+          "title": "2027 ACA subsidy loss is expected in the transition year",
+          "rationale": "The 2027 bridge-year MAGI breach is a known transition-year tradeoff from final payroll/taxable income and the selected spend path, not a surprise failure. The plan should include the net ACA cost and can still be green if the certified path clears the gates.",
+          "decision": "Accept the 2027 subsidy loss in the current review unless a MAGI-constrained alternative is explicitly requested to price the subsidy-preserving path.",
+          "evidence": [
+            "Roth low-income bracket fill starts in 2028, after the final-paycheck transition year.",
+            "Contribution-limit assumptions are already labeled as planning_estimate_for_2027_final_paycheck_window.",
+            "Monthly review should still verify MAGI components and net ACA cost plumbing."
+          ],
+          "source": "user_confirmed_monthly_review_context"
+        }
+      ],
+      "rothConversionPolicy": {
+        "enabled": true,
+        "strategy": "aca_then_irmaa_headroom",
+        "minAnnualDollars": 500,
+        "maxAnnualDollars": 70000,
+        "maxPretaxBalancePercent": 0.12,
+        "magiBufferDollars": 2000,
+        "lowIncomeBracketFill": {
+          "enabled": true,
+          "startYear": 2028,
+          "endYear": 2030,
+          "annualTargetDollars": 70000,
+          "requireNoWageIncome": true
+        }
+      },
+      "payrollModel": {
+        "salaryProrationRule": "month_fraction",
+        "salaryProrationSource": "explicit_payroll_calendar"
+      },
+      "contributionLimits": {
+        "employee401kBaseLimit": 24500,
+        "employee401kCatchUpAge": 50,
+        "employee401kCatchUpLimit": 8000,
+        "employee401kSuperCatchUpAges": [
+          60,
+          61,
+          62,
+          63
+        ],
+        "employee401kSuperCatchUpLimit": 11250,
+        "rothCatchUpWageThreshold": 150000,
+        "employee401kBaseLimitByYear": {
+          "2027": 25000
+        },
+        "hsaSelfLimit": 4400,
+        "hsaFamilyLimit": 8750,
+        "hsaCatchUpAge": 55,
+        "hsaCatchUpLimit": 1000,
+        "assumptionSource": "planning_estimate_for_2027_final_paycheck_window"
+      },
+      "housingAfterDownsizePolicy": {
+        "mode": "own_replacement_home",
+        "startYear": 2037,
+        "replacementHomeCost": 500000,
+        "netLiquidityTarget": 500000,
+        "certainty": "estimated",
+        "assumptionSource": "user_estimate_sell_1m_home_buy_500k_replacement_home"
+      },
+      "windfallDeploymentPolicy": {
+        "enabled": true,
+        "destinationAccount": "taxable",
+        "investmentPolicy": "current_portfolio_mix",
+        "trackingMode": "taxable_shadow_sleeve",
+        "spendBeforeDeploy": true,
+        "cashReserveMonths": 0,
+        "assumptionSource": "user_confirmed_invest_unspent_windfall_and_home_sale_cash_in_current_portfolio_mix"
+      },
+      "healthcarePremiums": {
+        "baselineAcaPremiumAnnual": 14400,
+        "baselineMedicarePremiumAnnual": 2220,
+        "medicalInflationAnnual": 0.055
+      },
+      "hsaStrategy": {
+        "enabled": true,
+        "withdrawalMode": "ltc_reserve",
+        "annualQualifiedExpenseWithdrawalCap": 250000,
+        "prioritizeHighMagiYears": false,
+        "highMagiThreshold": 190000
+      },
+      "ltcAssumptions": {
+        "enabled": true,
+        "startAge": 85,
+        "annualCostToday": 48000,
+        "durationYears": 3,
+        "inflationAnnual": 0.055,
+        "eventProbability": 0.45
+      }
+    },
+    "selectedPolicy": {
+      "strategyId": "current_faithful",
+      "strategyLabel": "Current Faithful",
+      "policyId": "current-88-91-care-reserve-refresh",
+      "annualSpendTodayDollars": 140000,
+      "monthlySpendTodayDollars": 11666.666666666666,
+      "primarySocialSecurityClaimAge": 70,
+      "spouseSocialSecurityClaimAge": 67,
+      "rothConversionAnnualCeiling": 70000,
+      "withdrawalRule": "tax_bracket_waterfall",
+      "spendingPath": {
+        "valueBasis": "today_dollars",
+        "scalarMeaning": "core_annual_spend",
+        "policySpendScalarTodayDollars": 140000,
+        "firstScheduleYear": 2027,
+        "retirementYear": 2027,
+        "firstModeledYearAnnualSpendTodayDollars": 154000,
+        "firstRetirementYearAnnualSpendTodayDollars": 154000,
+        "peakGoGoAnnualSpendTodayDollars": 154000,
+        "peakGoGoYear": 2027,
+        "age75AnnualSpendTodayDollars": 145000,
+        "age80AnnualSpendTodayDollars": 145000,
+        "age85AnnualSpendTodayDollars": 145000,
+        "lifetimeAverageAnnualSpendTodayDollars": 147314.2857142857,
+        "scheduleLifetimeSpendTodayDollars": 5156000,
+        "medianLifetimeSpendTodayDollars": 4200000,
+        "annualSpendRows": [
+          {
+            "year": 2027,
+            "householdAge": 61.5,
+            "multiplier": 1,
+            "coreAnnualSpendTodayDollars": 140000,
+            "travelAnnualSpendTodayDollars": 14000,
+            "annualSpendTodayDollars": 154000
+          },
+          {
+            "year": 2028,
+            "householdAge": 62.5,
+            "multiplier": 1,
+            "coreAnnualSpendTodayDollars": 140000,
+            "travelAnnualSpendTodayDollars": 14000,
+            "annualSpendTodayDollars": 154000
+          },
+          {
+            "year": 2029,
+            "householdAge": 63.5,
+            "multiplier": 1,
+            "coreAnnualSpendTodayDollars": 140000,
+            "travelAnnualSpendTodayDollars": 14000,
+            "annualSpendTodayDollars": 154000
+          },
+          {
+            "year": 2030,
+            "householdAge": 64.5,
+            "multiplier": 1,
+            "coreAnnualSpendTodayDollars": 140000,
+            "travelAnnualSpendTodayDollars": 14000,
+            "annualSpendTodayDollars": 154000
+          },
+          {
+            "year": 2031,
+            "householdAge": 65.5,
+            "multiplier": 1,
+            "coreAnnualSpendTodayDollars": 140000,
+            "travelAnnualSpendTodayDollars": 14000,
+            "annualSpendTodayDollars": 154000
+          },
+          {
+            "year": 2032,
+            "householdAge": 66.5,
+            "multiplier": 1,
+            "coreAnnualSpendTodayDollars": 140000,
+            "travelAnnualSpendTodayDollars": 14000,
+            "annualSpendTodayDollars": 154000
+          },
+          {
+            "year": 2033,
+            "householdAge": 67.5,
+            "multiplier": 1,
+            "coreAnnualSpendTodayDollars": 140000,
+            "travelAnnualSpendTodayDollars": 12714.285714285714,
+            "annualSpendTodayDollars": 152714.2857142857
+          },
+          {
+            "year": 2034,
+            "householdAge": 68.5,
+            "multiplier": 1,
+            "coreAnnualSpendTodayDollars": 140000,
+            "travelAnnualSpendTodayDollars": 11428.57142857143,
+            "annualSpendTodayDollars": 151428.57142857142
+          },
+          {
+            "year": 2035,
+            "householdAge": 69.5,
+            "multiplier": 1,
+            "coreAnnualSpendTodayDollars": 140000,
+            "travelAnnualSpendTodayDollars": 10142.857142857143,
+            "annualSpendTodayDollars": 150142.85714285713
+          },
+          {
+            "year": 2036,
+            "householdAge": 70.5,
+            "multiplier": 1,
+            "coreAnnualSpendTodayDollars": 140000,
+            "travelAnnualSpendTodayDollars": 8857.142857142859,
+            "annualSpendTodayDollars": 148857.14285714287
+          },
+          {
+            "year": 2037,
+            "householdAge": 71.5,
+            "multiplier": 1,
+            "coreAnnualSpendTodayDollars": 140000,
+            "travelAnnualSpendTodayDollars": 7571.428571428572,
+            "annualSpendTodayDollars": 147571.42857142858
+          },
+          {
+            "year": 2038,
+            "householdAge": 72.5,
+            "multiplier": 1,
+            "coreAnnualSpendTodayDollars": 140000,
+            "travelAnnualSpendTodayDollars": 6285.714285714286,
+            "annualSpendTodayDollars": 146285.7142857143
+          },
+          {
+            "year": 2039,
+            "householdAge": 73.5,
+            "multiplier": 1,
+            "coreAnnualSpendTodayDollars": 140000,
+            "travelAnnualSpendTodayDollars": 5000,
+            "annualSpendTodayDollars": 145000
+          },
+          {
+            "year": 2040,
+            "householdAge": 74.5,
+            "multiplier": 1,
+            "coreAnnualSpendTodayDollars": 140000,
+            "travelAnnualSpendTodayDollars": 5000,
+            "annualSpendTodayDollars": 145000
+          },
+          {
+            "year": 2041,
+            "householdAge": 75.5,
+            "multiplier": 1,
+            "coreAnnualSpendTodayDollars": 140000,
+            "travelAnnualSpendTodayDollars": 5000,
+            "annualSpendTodayDollars": 145000
+          }
+        ]
+      },
+      "outcome": {
+        "solventSuccessRate": 0.95,
+        "bequestAttainmentRate": 0.9,
+        "p10EndingWealthTodayDollars": 900000,
+        "p25EndingWealthTodayDollars": 1100000,
+        "p50EndingWealthTodayDollars": 1600000,
+        "p75EndingWealthTodayDollars": 2200000,
+        "p90EndingWealthTodayDollars": 2800000,
+        "medianLifetimeSpendTodayDollars": 4200000,
+        "medianSpendVolatility": 0,
+        "medianLifetimeFederalTaxTodayDollars": 240000,
+        "irmaaExposureRate": 0.05
+      },
+      "certificationVerdict": "green"
+    },
+    "northStarBudgets": {
+      "currentPlan": {
+        "year": 2027,
+        "verdict": "green",
+        "source": "path_trace",
+        "totalAnnualBudget": 167220.81712062255,
+        "totalMonthlyBudget": 13935.068093385213,
+        "lifestyleAnnual": 140587,
+        "coreAnnual": 126587,
+        "travelAnnual": 14000,
+        "spendAndHealthAnnual": 155434.82490272372,
+        "healthcareAndOtherAnnual": 14847.824902723718,
+        "federalTaxAnnual": 11785.992217898833,
+        "protectedReserve": {
+          "targetTodayDollars": 1000000,
+          "purpose": "care_first_legacy_if_unused",
+          "availableFor": "late_life_care_or_health_shocks",
+          "normalLifestyleSpendable": false,
+          "modelCompleteness": "faithful",
+          "assumptionSource": "user_confirmed_2026_05_16_care_first_legacy_if_unused",
+          "legacyAliasTodayDollars": 1000000
+        },
+        "legacyTarget": 1000000,
+        "medianEndingWealth": 1395657.4451675413
+      },
+      "selectedPolicy": {
+        "year": 2027,
+        "verdict": "green",
+        "source": "certification_trace",
+        "totalAnnualBudget": 174000,
+        "totalMonthlyBudget": 14500,
+        "lifestyleAnnual": 154000,
+        "coreAnnual": 140000,
+        "travelAnnual": 14000,
+        "spendAndHealthAnnual": 154000,
+        "healthcareAndOtherAnnual": 0,
+        "federalTaxAnnual": 20000,
+        "protectedReserve": {
+          "targetTodayDollars": 1000000,
+          "purpose": "care_first_legacy_if_unused",
+          "availableFor": "late_life_care_or_health_shocks",
+          "normalLifestyleSpendable": false,
+          "modelCompleteness": "faithful",
+          "assumptionSource": "user_confirmed_2026_05_16_care_first_legacy_if_unused",
+          "legacyAliasTodayDollars": 1000000
+        },
+        "legacyTarget": 1000000,
+        "medianEndingWealth": 1600000
+      }
+    },
+    "proofRows": {
+      "topCandidates": [
+        {
+          "strategyId": "current_faithful",
+          "policyId": "current-88-91-care-reserve-refresh",
+          "annualSpendTodayDollars": 140000,
+          "solventSuccessRate": 0.95,
+          "bequestAttainmentRate": 0.9,
+          "p10EndingWealthTodayDollars": 900000,
+          "p25EndingWealthTodayDollars": 1100000,
+          "p50EndingWealthTodayDollars": 1600000,
+          "p75EndingWealthTodayDollars": 2200000,
+          "p90EndingWealthTodayDollars": 2800000,
+          "irmaaExposureRate": 0.05,
+          "medianLifetimeFederalTaxTodayDollars": 240000,
+          "withdrawalRule": "tax_bracket_waterfall",
+          "rothConversionAnnualCeiling": 70000
+        }
+      ],
+      "higherSpendRowsTested": [],
+      "certificationRows": [
+        {
+          "strategyId": "current_faithful",
+          "policyId": "current-88-91-care-reserve-refresh",
+          "verdict": "green",
+          "reasons": [
+            "Deterministic packet refresh evidence."
+          ]
+        }
+      ]
+    },
+    "yearlyPathEvidence": [
+      {
+        "year": 2027,
+        "p10Assets": 900000,
+        "p25AssetsEstimate": 1100000,
+        "medianAssets": 1600000
+      }
+    ]
+  }
+}

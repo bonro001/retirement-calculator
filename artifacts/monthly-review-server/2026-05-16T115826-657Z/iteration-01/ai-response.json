@@ -1,0 +1,397 @@
+{
+  "verdict": "watch",
+  "confidence": "medium",
+  "summary": "The selected candidate is Current Faithful policy pol_04e8044e at $90,000 core annual spend, or $7,500/month, with an actual first-retirement-year lifestyle spend of $104,000 after the separate $14,000 travel overlay. The mined corpus, deterministic certification row, outcome metrics, and spend-boundary evidence are present, and the selected policy is green-certified with the boundary marked proven. I would not call this fully aligned yet because there are non-approval caveats: two material life-model watch items, evidence mismatches in the audit trace, an underfunded cash runway, a concentrated FCNTX holding, and a household decision still needed on whether the large median legacy headroom is intentional.",
+  "findings": [
+    {
+      "id": "selected_candidate_metrics",
+      "status": "pass",
+      "title": "Selected candidate metrics are present and reviewable",
+      "detail": "The selected policy is traceable as Current Faithful / pol_04e8044e with a $90,000 today-dollar core annual spend scalar, or $7,500 per month. Because the spending path uses scalarMeaning=core_annual_spend, the scalar should not be read as all-in household spending: the actual first retirement year includes $90,000 core plus $14,000 travel, for $104,000 lifestyle spend. Ending-wealth percentiles are present: p10 is below the $1,000,000 legacy target, while p50 is well above it; that lower-tail fact is a watch item, not by itself a deterministic failure because the certification gate still passes.",
+      "evidence": [
+        "policyId=pol_04e8044e",
+        "annualSpendTodayDollars=90000",
+        "monthlySpendTodayDollars=7500",
+        "solventSuccessRate=0.9982",
+        "bequestAttainmentRate=0.8703459835950405",
+        "p10EndingWealthTodayDollars=864218.7636461043",
+        "p25EndingWealthTodayDollars=1551045.977030866",
+        "p50EndingWealthTodayDollars=2767062.5403381484",
+        "p75EndingWealthTodayDollars=4656815.120105255",
+        "p90EndingWealthTodayDollars=7413857.107727169",
+        "spendingPath.scalarMeaning=core_annual_spend",
+        "spendingPath.firstRetirementYearAnnualSpendTodayDollars=104000",
+        "spendingPath.peakGoGoAnnualSpendTodayDollars=104000",
+        "spendingPath.age80AnnualSpendTodayDollars=95000",
+        "spendingPath.lifetimeAverageAnnualSpendTodayDollars=97314.28571428571",
+        "spendingPath.firstRow.coreAnnualSpendTodayDollars=90000",
+        "spendingPath.firstRow.travelAnnualSpendTodayDollars=14000",
+        "strategyId=current_faithful",
+        "firstRetirementYearAnnualSpendTodayDollars=104000",
+        "peakGoGoAnnualSpendTodayDollars=104000",
+        "age75AnnualSpendTodayDollars=95000",
+        "age80AnnualSpendTodayDollars=95000",
+        "age85AnnualSpendTodayDollars=95000",
+        "lifetimeAverageAnnualSpendTodayDollars=97314.28571428571",
+        "northStar.legacyTargetTodayDollars=1000000"
+      ],
+      "recommendation": "Use the $104,000 first-year lifestyle spend, not only the $90,000 core scalar, when discussing what the household would actually live on in early retirement."
+    },
+    {
+      "id": "north_star_legacy_alignment",
+      "status": "watch",
+      "title": "Legacy gate passes, but the lower tail is below target and the median has large headroom",
+      "detail": "The north-star objective is to maximize monthly spend subject to sleep-at-night gates and a $1,000,000 today-dollar legacy target. The selected policy clears deterministic certification and has an 87.03% bequest attainment rate, so the model says the legacy gate passes. However, p10 ending wealth is $864,219, which is below the legacy target and should be monitored, while p50 ending wealth is $2,767,063, about 2.77x the target. Advisor category: monitor plus household decision. This is not evidence of depletion risk; it is evidence that the selected green plan may be conservative unless the household intentionally prefers the extra legacy and optionality.",
+      "evidence": [
+        "legacyTargetTodayDollars=1000000",
+        "legacyGate=0.85",
+        "solvencyGate=0.8",
+        "bequestAttainmentRate=0.8703459835950405",
+        "solventSuccessRate=0.9982",
+        "p10EndingWealthTodayDollars=864218.7636461043",
+        "p50EndingWealthTodayDollars=2767062.5403381484",
+        "northStar.objective=maximize_monthly_spend_subject_to_sleep_at_night_gates",
+        "northStar.legacyTargetTodayDollars=1000000",
+        "approvalStandard=green_only",
+        "certificationVerdict=green",
+        "medianLegacyToTargetRatio=2.767"
+      ],
+      "recommendation": "Ask the household whether the extra median legacy is intentional. If not, request a re-certified alternative spend path rather than treating the headroom as automatically spendable."
+    },
+    {
+      "id": "corpus_search_evidence",
+      "status": "pass",
+      "title": "Mined corpus and candidate proof rows are present",
+      "detail": "The packet contains a mined corpus for the Current Faithful strategy, selected policy linkage, top-candidate rows, higher-spend rows, and certification rows. That is enough to substantively review the candidate. The corpus rows themselves are not the approval authority; deterministic certification and the spend-boundary proof control which candidate can be treated as green.",
+      "evidence": [
+        "strategyId=current_faithful",
+        "corpusEvaluationCount=8712",
+        "selectedPolicyId=pol_04e8044e",
+        "strategies[0].id=current_faithful",
+        "rawExportEvidence.proofRows.topCandidates.length=8",
+        "rawExportEvidence.proofRows.higherSpendRowsTested.length=7",
+        "rawExportEvidence.proofRows.certificationRows.length=8"
+      ],
+      "recommendation": "Keep certification status visibly linked to each high-ranking corpus row so attractive but uncertified or failed rows are not mistaken for approved recommendations."
+    },
+    {
+      "id": "spend_boundary_evidence",
+      "status": "pass",
+      "title": "Spend boundary is marked proven at $90,000 core spend",
+      "detail": "The spend boundary evidence says the model tested higher spending levels above the selected $90,000 core spend and that $90,000 is the highest green spend for this strategy. Higher tested levels from $95,000 through $145,000 did not remain green under deterministic certification. This supports the claim that the selected policy is the highest certified green core-spend candidate in the packet, even though the actual early-retirement lifestyle spend is $104,000 with travel.",
+      "evidence": [
+        "boundaryProven=true",
+        "highestGreenSpendTodayDollars=90000",
+        "highestSpendTestedTodayDollars=145000",
+        "higherSpendLevelsTested=95000, 100000, 105000, 110000, 115000, 120000, 125000, 130000, 135000, 140000, 145000",
+        "higherSpendLevelsTested=95000,100000,105000,110000,115000,120000,125000,130000,135000,140000,145000",
+        "selectedPolicy.spendingPath.firstRetirementYearAnnualSpendTodayDollars=104000",
+        "higherSpendRowsTested includes 95000 with verdict yellow in certificationSummary",
+        "higherSpendRowsTested includes 100000,105000,110000 rows with yellow certification reasons"
+      ],
+      "recommendation": "Do not raise the spend target without rerunning deterministic certification on the exact alternative spend path and portfolio assumptions."
+    },
+    {
+      "id": "certification_evidence",
+      "status": "pass",
+      "title": "Selected policy has real green deterministic certification",
+      "detail": "The selected policy appears in the deterministic certification rows with a green verdict and the reason that all baseline, stress, and seed-stability gates cleared the sleep-well thresholds. This is not a flow-debug or skipped certification case. Certification evidence therefore supports the candidate, but it does not resolve the separate household signal and life-model caveats noted elsewhere.",
+      "evidence": [
+        "policyId=pol_04e8044e",
+        "certificationVerdict=green",
+        "reason=All baseline, stress, and seed-stability gates cleared the sleep-well thresholds.",
+        "certificationSummary policyId=pol_04e8044e verdict=green",
+        "certificationRows policyId=pol_04e8044e verdict=green",
+        "recommendation.certificationVerdict=green",
+        "selectedPolicy.certificationVerdict=green"
+      ],
+      "recommendation": "Treat the deterministic certification as valid for the selected policy, while keeping non-certification issues separate from the solvency and legacy gates."
+    },
+    {
+      "id": "assumption_provenance",
+      "status": "watch",
+      "title": "Key assumptions are mostly sourced, but several remain estimates or pending verification",
+      "detail": "The packet gives useful provenance for several material assumptions, including user-confirmed windfall deployment into a taxable shadow sleeve using the current portfolio mix. Some assumptions are still estimates or pending documentation: employer plan features are pending plan-document verification, contribution limits are labeled as planning estimates for the 2027 final-paycheck window, the home-sale/downsize event is an estimate with timing and amount uncertainty, and the inheritance timing certainty is missing. Advisor category: model/data bug risk if these assumptions are wrong; otherwise these are known planning estimates that should be monitored.",
+      "evidence": [
+        "assumptionProvenanceTasks=0",
+        "windfallDeploymentPolicy.assumptionSource=user_confirmed_invest_unspent_windfall_and_home_sale_cash_in_current_portfolio_mix",
+        "employerPlanSupportsRothDeferrals=true",
+        "employerPlanSupportsSuperCatchUp=true",
+        "planFeatureAssumptionSource=estimated_pending_plan_document",
+        "employerMatch.verificationStatus=user_confirmed_pending_document",
+        "contributionLimits.assumptionSource=planning_estimate_for_2027_final_paycheck_window",
+        "housingAfterDownsizePolicy.assumptionSource=user_estimate_sell_1m_home_buy_500k_replacement_home",
+        "home_sale.certainty=estimated",
+        "home_sale.timingUncertaintyYears=2",
+        "home_sale.amountUncertaintyPercent=0.3",
+        "inheritance certainty=missing"
+      ],
+      "recommendation": "Before treating this as approved rather than watch, verify plan documents for contribution and match assumptions and confirm whether the inheritance and home-sale timing assumptions still match household intent."
+    },
+    {
+      "id": "life_model_trace",
+      "status": "watch",
+      "title": "Life-to-model trace is substantive but has material watch items and evidence mismatches",
+      "detail": "The life-model audit traces the major money movements, but it is reconstructed and reports two material unresolved events. Salary is modeled as $210,000 until 2027-07-01, taxed as wage income, prorated by month, funding cashflow first with pretax 401(k) and HSA contributions directed separately. Social Security benefits are modeled as taxable cashflow, but the audit shows Rob claimAge=67 while the selected policy shows primarySocialSecurityClaimAge=68, which should be reconciled. The 2028 inheritance is modeled as a $500,000 non-taxable cash-in that can fund same-year spending before the remainder is swept to a taxable shadow sleeve invested in the current portfolio mix with taxable market returns; however, timing certainty is missing. The 2037 home sale is modeled as a $1,000,000 sale with $500,000 liquidity after a replacement-home assumption, primary-home-sale tax treatment, same-year spending availability, and taxable shadow-sleeve investment of unspent proceeds; however, timing is estimated with plus/minus two-year uncertainty and 30% amount uncertainty. Portfolio withdrawals are also traceable in concept, but the audit says withdrawalRule=engine_default while the selected policy says withdrawalRule=tax_bracket_waterfall. Advisor category: life-model gap and model-evidence mismatch, not proof the plan is wrong.",
+      "evidence": [
+        "modelCompleteness=reconstructed",
+        "unresolvedEventCount=2",
+        "materialUnresolvedEventCount=2",
+        "cash_in_inheritance:watch:timing=inferred",
+        "cash_in_home_sale:watch:timing=inferred",
+        "lifeModelAudit.modelCompleteness=reconstructed",
+        "salaryAnnual=210000",
+        "salaryEndDate=2027-07-01",
+        "payrollProrationRule=month_fraction",
+        "employee401kPreTaxPercent=0.1499",
+        "hsaPercent=0.0159",
+        "social_security audit evidence rob:fraMonthly=4100:claimAge=67",
+        "selectedPolicy.primarySocialSecurityClaimAge=68",
+        "selectedPolicy.spouseSocialSecurityClaimAge=67",
+        "inheritance year=2028 amount=500000 taxTreatment=cash_non_taxable",
+        "inheritance timing status=inferred certainty=missing",
+        "windfallDeploymentPolicy.destinationAccount=taxable",
+        "windfallDeploymentPolicy.trackingMode=taxable_shadow_sleeve",
+        "windfallDeploymentPolicy.investmentPolicy=current_portfolio_mix",
+        "windfallDeploymentPolicy.spendBeforeDeploy=true",
+        "home_sale year=2037 amount=1000000 liquidityAmount=500000 certainty=estimated",
+        "home_sale timingUncertaintyYears=2 amountUncertaintyPercent=0.3",
+        "lifeModelAudit portfolio_withdrawals withdrawalRule=engine_default",
+        "selectedPolicy.withdrawalRule=tax_bracket_waterfall"
+      ],
+      "recommendation": "Reconcile the Social Security claim-age display and withdrawal-rule display, and confirm the inheritance and home-sale timing assumptions before moving from watch to aligned."
+    },
+    {
+      "id": "yearly_path_evidence",
+      "status": "pass",
+      "title": "Yearly asset path is present and reflects the major modeled cash-ins",
+      "detail": "The yearly path excerpt provides p10, p25 estimate, and median assets from 2026 through 2037. It shows a material step-up in 2028, consistent with the modeled inheritance, and another step-up in 2037, consistent with the home-sale liquidity event. The p10 path spends time near or below $1,000,000 before later cash-ins and market outcomes, which reinforces that the lower tail should be monitored, but the path evidence itself is adequate for review.",
+      "evidence": [
+        "yearlyPathRows=12",
+        "2026 medianAssets=1100026 p10Assets=957727",
+        "2027 medianAssets=1129520 p10Assets=920789",
+        "2028 medianAssets=1579274 p10Assets=1327860",
+        "2032 medianAssets=1520633 p10Assets=976230",
+        "2037 medianAssets=2350786 p10Assets=1512314",
+        "inheritance year=2028 amount=500000",
+        "home_sale year=2037 liquidityAmount=500000"
+      ],
+      "recommendation": "Add more yearly rows beyond 2037 in future packets so the reviewer can see the later retirement, RMD, LTC, and end-of-plan trajectory without relying only on ending percentiles."
+    },
+    {
+      "id": "withdrawal_tax_healthcare_evidence",
+      "status": "watch",
+      "title": "Tax, withdrawal, ACA, IRMAA, and healthcare evidence is present but needs reconciliation",
+      "detail": "The packet includes tax-aware withdrawal, Roth conversion, healthcare, ACA, IRMAA, and LTC evidence. The selected policy uses tax_bracket_waterfall withdrawals and shows low modeled IRMAA exposure, median lifetime federal tax of about $91,228, and 2028 ACA evidence with MAGI below the ACA-friendly ceiling and net ACA cost included. The 2027 ACA subsidy loss is annotated as an intentional transition-year tradeoff from final payroll/taxable income, not a surprise failure, so long as MAGI components and net ACA cost are correctly plumbed. The watch item is model-evidence consistency: the selected policy lists rothConversionAnnualCeiling=160000 while the rules list maxAnnualDollars=70000 and low-income bracket fill target=$70000, and the life audit lists withdrawalRule=engine_default while the selected policy lists tax_bracket_waterfall.",
+      "evidence": [
+        "withdrawalRule=tax_bracket_waterfall",
+        "rothConversionAnnualCeiling=160000",
+        "medianLifetimeFederalTaxTodayDollars=91227.62601153301",
+        "irmaaExposureRate=0.0036",
+        "selectedPolicy.withdrawalRule=tax_bracket_waterfall",
+        "lifeModelAudit portfolio_withdrawals withdrawalRule=engine_default",
+        "selectedPolicy.rothConversionAnnualCeiling=160000",
+        "rules.rothConversionPolicy.maxAnnualDollars=70000",
+        "rules.rothConversionPolicy.lowIncomeBracketFill.annualTargetDollars=70000",
+        "rules.rothConversionPolicy.strategy=aca_then_irmaa_headroom",
+        "irmaaThreshold=200000",
+        "baselineAcaPremiumAnnual=14400",
+        "baselineMedicarePremiumAnnual=2220",
+        "medicalInflationAnnual=0.055",
+        "ltcEnabled=true",
+        "ltc annualCostToday=48000 durationYears=3 eventProbability=0.45",
+        "2028 medianMagi=70000",
+        "2028 acaFriendlyMagiCeiling=87404",
+        "2028 medianAcaPremiumEstimate=32055",
+        "2028 medianAcaSubsidyEstimate=25083",
+        "2028 medianNetAcaCost=6972",
+        "monthlyReviewIssueAnnotations disposition=intentional_tradeoff for 2027 ACA subsidy loss"
+      ],
+      "recommendation": "Reconcile the withdrawal-rule and Roth-conversion-ceiling evidence, and keep the ACA row visible to verify that wages, conversions, dividends, interest, realized gains, Social Security, premiums, subsidies, and net ACA costs are included once and only once."
+    },
+    {
+      "id": "household_signal_checklist",
+      "status": "watch",
+      "title": "Household signals include two act-now items and one spend-headroom watch",
+      "detail": "Signal roll-up: aca_bridge_breach is ok and should be monitored because 2028 MAGI has a $17,404 cushion below the ACA-friendly ceiling; cash_runway_gap is act_now because direct cash is $53,571 short of the 18-month target; holding_concentration is act_now because FCNTX is 28% of the total portfolio and 100% of the Authorized ROTH IRA; legacy_headroom is watch because median ending wealth is 2.8x the legacy target and may indicate intentionally conservative spending or unclaimed spending capacity. These are not all automatic plan failures, but the act-now items require explicit household disposition.",
+      "evidence": [
+        "aca_bridge_breach:ok:2028: $17,404 ACA MAGI cushion:knownDecision=none:disposition=monitor; okContext=A cushion means the current policy is not spending ACA subsidy headroom, but the cushion can disappear if conversions or taxable gains increase.; bugCheck=Check for a bug if MAGI excludes conversions, dividends, interest, realized gains, payroll income, or Social Security; if ACA FPL thresholds are stale; or if gross premiums, subsidies, and net ACA costs are not flowing into the selected path.; decision=Keep the bridge-year MAGI row in the review and avoid using the cushion accidentally.",
+        "cash_runway_gap:act_now:$53,571 short of 18-month target:knownDecision=none:disposition=needs_action; okContext=This is a problem until a funding source, transfer plan, or explicit waiver is recorded.; bugCheck=Check for a bug if bank/cash balances are stale, cash held inside brokerage accounts is double-counted or excluded, or the essential-plus-fixed monthly target is not tied to current seed spending.; decision=Choose whether to fill the cash bucket, document the source of backup liquidity, or intentionally waive the 18-month target.",
+        "holding_concentration:act_now:FCNTX is 28% of portfolio:knownDecision=none:disposition=needs_action; okContext=This is a problem until the household records a rebalance plan, staged rebalance, or explicit acceptance of concentration risk.; bugCheck=Check for a bug if duplicate holdings were merged incorrectly, account balances do not match holding totals, or fund tickers were imported into the wrong source account.; decision=Decide whether to rebalance, stage the rebalance, or explicitly accept the single-holding exposure until the next review.",
+        "legacy_headroom:watch:Median EW is 2.8x legacy target:knownDecision=none:disposition=spending_headroom; okContext=High headroom is acceptable if the household deliberately prefers a larger legacy, optionality, or lower stress over more current spending.; bugCheck=Check for a bug if the legacy target is stale, ending wealth is nominal instead of today-dollar, or the selected strategy is not the one being reviewed.; decision=Decide whether this surplus is intentional or whether the monthly spend target should be raised and re-certified.",
+        "aca_bridge_breach status=ok headline=2028: $17,404 ACA MAGI cushion",
+        "cash_runway_gap status=act_now headline=$53,571 short of 18-month target",
+        "holding_concentration status=act_now headline=FCNTX is 28% of portfolio",
+        "legacy_headroom status=watch headline=Median EW is 2.8x legacy target"
+      ],
+      "recommendation": "Resolve or explicitly accept the cash runway and concentration signals, and decide whether the legacy headroom is intentional."
+    },
+    {
+      "id": "model_tasks",
+      "status": "pass",
+      "title": "No critical structural or blocking model tasks are open",
+      "detail": "The packet reports no blocking task IDs and no structural tasks. The recommendation status is diagnostic because AI co-review was pending when the packet was generated; this response is that co-review. There are model-improvement suggestions below, but they are not presented in the packet as critical open model tasks.",
+      "evidence": [
+        "openModelTasks=0",
+        "recommendation.blockingTaskIds=[]",
+        "structuralTasks=[]",
+        "recommendation.status=diagnostic",
+        "recommendation.summary=A green deterministic core spend candidate exists; AI co-review is pending."
+      ],
+      "recommendation": "Continue to separate critical model-blocking tasks from nonblocking evidence and UX improvements."
+    },
+    {
+      "id": "signal_cash_runway_gap",
+      "status": "watch",
+      "title": "Cash runway gap needs a household funding or waiver decision",
+      "detail": "Category: real problem needing a decision. The household is in this situation because direct cash is modeled at $50,000 while the 18-month cash runway target is $103,571, leaving a $53,571 gap. This matters operationally because salary ends in 2027, the selected policy begins retirement spending at $90,000 core plus $14,000 travel, and the model relies on portfolio withdrawals, taxes, healthcare costs, and later cash-ins working smoothly; a thin cash bucket can force poorly timed transfers or sales even if the Monte Carlo solvency result is green. This does not mean the retirement plan is insolvent, but it does mean the selected spending level should be paired with a liquidity plan. The household has not yet stated their intent. Likely resolution paths are: fill the cash bucket from taxable or other available liquidity, reduce or redirect near-term payroll deferrals to build cash, or explicitly waive the 18-month target while documenting backup liquidity. It would look like a model/data bug rather than a real issue if bank balances are stale, cash inside brokerage accounts is excluded or double-counted, or the essential-plus-fixed monthly target is not tied to the current seed spending.",
+      "evidence": [
+        "directCashBalance=50000",
+        "essentialWithFixedMonthly=5754",
+        "targetCashRunway=103571",
+        "cashGap=53571",
+        "runwayGapMonths=9.31",
+        "directCashYearsOfCoreSpend=0.39",
+        "selectedPolicy.annualSpendTodayDollars=90000",
+        "selectedPolicy.spendingPath.firstRetirementYearAnnualSpendTodayDollars=104000",
+        "salaryEndDate=2027-07-01"
+      ],
+      "recommendation": "Choose and record one disposition: fund the gap, document backup liquidity, or intentionally waive the 18-month cash runway target."
+    },
+    {
+      "id": "signal_holding_concentration",
+      "status": "watch",
+      "title": "FCNTX concentration should be rebalanced, staged, or explicitly accepted",
+      "detail": "Category: real problem needing a decision. The household is in this situation because Fidelity Contrafund is modeled at $257,816, equal to 27.63% of the total $933,149 portfolio, and it represents 100% of the Authorized ROTH IRA. This connects directly to the selected spending plan because the certification is based on broad portfolio behavior; a large single-manager or single-fund position can make realized household outcomes differ from the asset-class Monte Carlo assumptions, especially during bad early markets. Since the holding is in a Roth IRA according to the signal, a rebalance may be operationally easier than selling a taxable position, but the household still needs to decide whether to rebalance now, stage the rebalance, or intentionally accept the concentration risk until a later review. The household has not yet stated their intent. It would look like a model/data bug rather than a real issue if duplicate holdings were merged incorrectly, account balances do not match holding totals, or the ticker was imported into the wrong account.",
+      "evidence": [
+        "largestHoldingSymbol=FCNTX",
+        "largestHoldingValue=257816",
+        "largestHoldingPortfolioShare=0.2763",
+        "largestAccountName=Authorized ROTH IRA",
+        "largestHoldingAccountShare=1.0000",
+        "totalPortfolio=933149"
+      ],
+      "recommendation": "Record a concentration decision: rebalance within the Roth IRA, stage a rebalance plan, or explicitly accept the FCNTX exposure and review it next month."
+    },
+    {
+      "id": "signal_legacy_headroom",
+      "status": "watch",
+      "title": "Large median legacy headroom may mean the plan is intentionally conservative",
+      "detail": "Category: household decision and monitor. The household is in this situation because the selected $90,000 core spend policy is the highest green-certified boundary candidate, yet the median ending wealth is $2,767,063 against a $1,000,000 legacy target. The modeled inheritance, home-sale liquidity, spending path, and portfolio return assumptions all contribute to the possibility that the median case leaves substantial wealth. This connects to spending and portfolio decisions because the household may be accepting lower current spending in exchange for a larger legacy, more optionality, or more comfort under stress; alternatively, they may want to test a different spending curve, tax strategy, or portfolio implementation to see whether more lifetime spending can be certified. The household has not yet stated their intent. Likely resolution paths are: keep the plan as intentionally conservative, ask for re-certification of a higher or differently shaped spending path, or preserve the spend target but adjust portfolio/concentration/liquidity decisions. It would look like a model/data bug rather than a real signal if the legacy target is stale, ending wealth is nominal rather than today-dollar, or the selected strategy is not the strategy being reviewed. This is not a homelessness or depletion warning.",
+      "evidence": [
+        "legacyTargetTodayDollars=1000000",
+        "p50EndingWealthTodayDollars=2767063",
+        "medianLegacyToTargetRatio=2.767",
+        "bequestAttainmentRate=0.8703459835950405",
+        "highestGreenSpendTodayDollars=90000",
+        "higherSpendLevelsTested include 95000 through 145000",
+        "p10EndingWealthTodayDollars=864218.7636461043"
+      ],
+      "recommendation": "Ask the household whether the surplus is intentional; if not, request a new certified search for a higher or more tailored spend path rather than informally increasing spending."
+    }
+  ],
+  "actionItems": [
+    "Decide how to handle the $53,571 cash runway gap: fund it, document backup liquidity, or explicitly waive the 18-month target.",
+    "Decide how to handle the FCNTX concentration: rebalance, stage a rebalance, or explicitly accept the single-holding exposure.",
+    "Confirm the inheritance timing certainty and whether the 2028 $500,000 non-taxable cash-in remains a valid household assumption.",
+    "Confirm the 2037 home-sale/downsize assumption, including timing uncertainty, replacement-home cost, liquidity amount, and whether proceeds should still be invested in the taxable shadow sleeve.",
+    "Reconcile the Social Security claim-age evidence, withdrawal-rule evidence, and Roth-conversion ceiling evidence before treating the packet as fully approved.",
+    "Decide whether the median legacy headroom is intentional or whether to request a re-certified higher or differently shaped spending path."
+  ],
+  "modelImprovementTodos": [
+    {
+      "id": "reconcile_selected_policy_and_life_audit_fields",
+      "priority": "high",
+      "category": "model_evidence",
+      "title": "Reconcile selected-policy fields with life-model audit fields",
+      "detail": "The review is harder to trust because the audit trace and selected policy disagree on material implementation details. These may be display/export issues, but they affect Social Security timing and withdrawal sourcing, which are central to taxes, cashflow, and certification interpretation.",
+      "evidence": [
+        "lifeModelAudit social_security evidence rob:claimAge=67",
+        "selectedPolicy.primarySocialSecurityClaimAge=68",
+        "lifeModelAudit portfolio_withdrawals withdrawalRule=engine_default",
+        "selectedPolicy.withdrawalRule=tax_bracket_waterfall",
+        "selectedPolicy.rothConversionAnnualCeiling=160000",
+        "rules.rothConversionPolicy.maxAnnualDollars=70000"
+      ],
+      "suggestedNextStep": "Add an export consistency check that compares selectedPolicy, rules, and lifeModelAudit fields and flags any mismatch before the review packet is generated."
+    },
+    {
+      "id": "explain_uncertified_high_spend_corpus_rows",
+      "priority": "high",
+      "category": "search_or_certification",
+      "title": "Show why attractive higher-spend corpus rows are not approved",
+      "detail": "Some top-candidate rows at $110,000 show strong baseline metrics and zero median federal tax, while the spend boundary says the highest green spend is $90,000. The packet is still reviewable because deterministic certification controls, but the next packet should explain whether those rows failed stress certification, were excluded, or reflect a model artifact.",
+      "evidence": [
+        "topCandidates policyId=pol_86fd0aa2 annualSpendTodayDollars=110000 solventSuccessRate=1 bequestAttainmentRate=0.8890457769558133 medianLifetimeFederalTaxTodayDollars=0",
+        "topCandidates policyId=pol_fdd52d16 annualSpendTodayDollars=110000 solventSuccessRate=1 bequestAttainmentRate=0.8890457769558133 medianLifetimeFederalTaxTodayDollars=0",
+        "spendBoundary.highestGreenSpendTodayDollars=90000",
+        "spendBoundary.boundaryProven=true"
+      ],
+      "suggestedNextStep": "For every top-candidate row, include a certification status or rejection reason, including whether the row was certified, failed stress gates, or was excluded from boundary proof."
+    },
+    {
+      "id": "make_life_event_resolution_status_explicit",
+      "priority": "medium",
+      "category": "assumption",
+      "title": "Clarify unresolved life events and certainty labels",
+      "detail": "The life-model audit reports two material unresolved events even though destination, spending use, and investment treatment are explicit. The remaining uncertainty appears to be timing certainty for inheritance and estimated timing/amount for home sale, but the packet should make that explicit.",
+      "evidence": [
+        "lifeModelAudit.unresolvedEventCount=2",
+        "lifeModelAudit.materialUnresolvedEventCount=2",
+        "inheritance timing status=inferred certainty=missing",
+        "home_sale timing status=inferred certainty=estimated",
+        "home_sale timingUncertaintyYears=2",
+        "home_sale amountUncertaintyPercent=0.3"
+      ],
+      "suggestedNextStep": "Add a per-event unresolvedReason field and distinguish household-estimate uncertainty from missing model plumbing."
+    },
+    {
+      "id": "extend_yearly_path_detail",
+      "priority": "medium",
+      "category": "model_evidence",
+      "title": "Extend yearly path evidence beyond 2037 and include cashflow components",
+      "detail": "The yearly path currently shows assets through 2037, which captures salary transition, inheritance, and home sale, but not the later RMD, Medicare, IRMAA, LTC, and terminal legacy years. Including yearly taxes, withdrawals, MAGI, healthcare, and ending assets would make the certification easier to audit.",
+      "evidence": [
+        "rawExportEvidence.evidenceLimits.yearlyPathRows=12",
+        "yearlyPathEvidence runs from 2026 through 2037",
+        "selectedPolicy.outcome includes ending wealth percentiles but yearly path stops before later retirement years",
+        "ltcAssumptions.startAge=85",
+        "planningAge=95"
+      ],
+      "suggestedNextStep": "Export a compact yearly trace at key ages and event years: retirement, inheritance, ACA bridge, Social Security claiming, Medicare, RMD age, home sale, LTC start age, and terminal year."
+    },
+    {
+      "id": "cash_runway_source_breakdown",
+      "priority": "medium",
+      "category": "data_quality",
+      "title": "Show cash runway source breakdown",
+      "detail": "The cash runway signal depends on direct cash and may be sensitive to whether brokerage cash, money market holdings, or pending transfers are included. A source breakdown would help distinguish a real liquidity gap from an import or categorization issue.",
+      "evidence": [
+        "directCashBalance=50000",
+        "targetCashRunway=103571",
+        "cashGap=53571",
+        "modelBugCheck mentions brokerage cash double-counted or excluded"
+      ],
+      "suggestedNextStep": "Add a cash-runway table listing bank cash, brokerage cash, money market funds, excluded cash-like assets, and the exact spending denominator used for the runway target."
+    },
+    {
+      "id": "holding_concentration_reconciliation",
+      "priority": "low",
+      "category": "data_quality",
+      "title": "Add holdings reconciliation for concentration signals",
+      "detail": "The concentration signal is useful, but the next packet would be easier to audit if it showed how the largest holding ties to account totals and whether duplicate tickers across accounts were merged intentionally.",
+      "evidence": [
+        "largestHoldingSymbol=FCNTX",
+        "largestHoldingValue=257816",
+        "largestHoldingPortfolioShare=0.2763",
+        "largestHoldingAccountShare=1.0000",
+        "largestAccountName=Authorized ROTH IRA",
+        "totalPortfolio=933149"
+      ],
+      "suggestedNextStep": "Include an account-by-account concentration table with holding market value, account total, portfolio total, and import timestamp."
+    }
+  ],
+  "model": "gpt-5.5",
+  "generatedAtIso": "2026-05-16T12:03:18.711Z",
+  "rawResponseText": "{\n  \"verdict\": \"watch\",\n  \"confidence\": \"medium\",\n  \"summary\": \"The selected candidate is Current Faithful policy pol_04e8044e at $90,000 core annual spend, or $7,500/month, with an actual first-retirement-year lifestyle spend of $104,000 after the separate $14,000 travel overlay. The mined corpus, deterministic certification row, outcome metrics, and spend-boundary evidence are present, and the selected policy is green-certified with the boundary marked proven. I would not call this fully aligned yet because there are non-approval caveats: two material life-model watch items, evidence mismatches in the audit trace, an underfunded cash runway, a concentrated FCNTX holding, and a household decision still needed on whether the large median legacy headroom is intentional.\",\n  \"findings\": [\n    {\n      \"id\": \"selected_candidate_metrics\",\n      \"status\": \"pass\",\n      \"title\": \"Selected candidate metrics are present and reviewable\",\n      \"detail\": \"The selected policy is traceable as Current Faithful / pol_04e8044e with a $90,000 today-dollar core annual spend scalar, or $7,500 per month. Because the spending path uses scalarMeaning=core_annual_spend, the scalar should not be read as all-in household spending: the actual first retirement year includes $90,000 core plus $14,000 travel, for $104,000 lifestyle spend. Ending-wealth percentiles are present: p10 is below the $1,000,000 legacy target, while p50 is well above it; that lower-tail fact is a watch item, not by itself a deterministic failure because the certification gate still passes.\",\n      \"evidence\": [\n        \"strategyId=current_faithful\",\n        \"policyId=pol_04e8044e\",\n        \"annualSpendTodayDollars=90000\",\n        \"monthlySpendTodayDollars=7500\",\n        \"spendingPath.scalarMeaning=core_annual_spend\",\n        \"firstRetirementYearAnnualSpendTodayDollars=104000\",\n        \"peakGoGoAnnualSpendTodayDollars=104000\",\n        \"age75AnnualSpendTodayDollars=95000\",\n        \"age80AnnualSpendTodayDollars=95000\",\n        \"age85AnnualSpendTodayDollars=95000\",\n        \"lifetimeAverageAnnualSpendTodayDollars=97314.28571428571\",\n        \"p10EndingWealthTodayDollars=864218.7636461043\",\n        \"p25EndingWealthTodayDollars=1551045.977030866\",\n        \"p50EndingWealthTodayDollars=2767062.5403381484\",\n        \"p75EndingWealthTodayDollars=4656815.120105255\",\n        \"p90EndingWealthTodayDollars=7413857.107727169\",\n        \"northStar.legacyTargetTodayDollars=1000000\"\n      ],\n      \"recommendation\": \"Use the $104,000 first-year lifestyle spend, not only the $90,000 core scalar, when discussing what the household would actually live on in early retirement.\"\n    },\n    {\n      \"id\": \"north_star_legacy_alignment\",\n      \"status\": \"watch\",\n      \"title\": \"Legacy gate passes, but the lower tail is below target and the median has large headroom\",\n      \"detail\": \"The north-star objective is to maximize monthly spend subject to sleep-at-night gates and a $1,000,000 today-dollar legacy target. The selected policy clears deterministic certification and has an 87.03% bequest attainment rate, so the model says the legacy gate passes. However, p10 ending wealth is $864,219, which is below the legacy target and should be monitored, while p50 ending wealth is $2,767,063, about 2.77x the target. Advisor category: monitor plus household decision. This is not evidence of depletion risk; it is evidence that the selected green plan may be conservative unless the household intentionally prefers the extra legacy and optionality.\",\n      \"evidence\": [\n        \"northStar.objective=maximize_monthly_spend_subject_to_sleep_at_night_gates\",\n        \"northStar.legacyTargetTodayDollars=1000000\",\n        \"approvalStandard=green_only\",\n        \"bequestAttainmentRate=0.8703459835950405\",\n        \"certificationVerdict=green\",\n        \"p10EndingWealthTodayDollars=864218.7636461043\",\n        \"p50EndingWealthTodayDollars=2767062.5403381484\",\n        \"medianLegacyToTargetRatio=2.767\"\n      ],\n      \"recommendation\": \"Ask the household whether the extra median legacy is intentional. If not, request a re-certified alternative spend path rather than treating the headroom as automatically spendable.\"\n    },\n    {\n      \"id\": \"corpus_search_evidence\",\n      \"status\": \"pass\",\n      \"title\": \"Mined corpus and candidate proof rows are present\",\n      \"detail\": \"The packet contains a mined corpus for the Current Faithful strategy, selected policy linkage, top-candidate rows, higher-spend rows, and certification rows. That is enough to substantively review the candidate. The corpus rows themselves are not the approval authority; deterministic certification and the spend-boundary proof control which candidate can be treated as green.\",\n      \"evidence\": [\n        \"strategies[0].id=current_faithful\",\n        \"corpusEvaluationCount=8712\",\n        \"selectedPolicyId=pol_04e8044e\",\n        \"rawExportEvidence.proofRows.topCandidates.length=8\",\n        \"rawExportEvidence.proofRows.higherSpendRowsTested.length=7\",\n        \"rawExportEvidence.proofRows.certificationRows.length=8\"\n      ],\n      \"recommendation\": \"Keep certification status visibly linked to each high-ranking corpus row so attractive but uncertified or failed rows are not mistaken for approved recommendations.\"\n    },\n    {\n      \"id\": \"spend_boundary_evidence\",\n      \"status\": \"pass\",\n      \"title\": \"Spend boundary is marked proven at $90,000 core spend\",\n      \"detail\": \"The spend boundary evidence says the model tested higher spending levels above the selected $90,000 core spend and that $90,000 is the highest green spend for this strategy. Higher tested levels from $95,000 through $145,000 did not remain green under deterministic certification. This supports the claim that the selected policy is the highest certified green core-spend candidate in the packet, even though the actual early-retirement lifestyle spend is $104,000 with travel.\",\n      \"evidence\": [\n        \"highestGreenSpendTodayDollars=90000\",\n        \"highestSpendTestedTodayDollars=145000\",\n        \"higherSpendLevelsTested=95000,100000,105000,110000,115000,120000,125000,130000,135000,140000,145000\",\n        \"boundaryProven=true\",\n        \"selectedPolicy.spendingPath.firstRetirementYearAnnualSpendTodayDollars=104000\",\n        \"higherSpendRowsTested includes 95000 with verdict yellow in certificationSummary\",\n        \"higherSpendRowsTested includes 100000,105000,110000 rows with yellow certification reasons\"\n      ],\n      \"recommendation\": \"Do not raise the spend target without rerunning deterministic certification on the exact alternative spend path and portfolio assumptions.\"\n    },\n    {\n      \"id\": \"certification_evidence\",\n      \"status\": \"pass\",\n      \"title\": \"Selected policy has real green deterministic certification\",\n      \"detail\": \"The selected policy appears in the deterministic certification rows with a green verdict and the reason that all baseline, stress, and seed-stability gates cleared the sleep-well thresholds. This is not a flow-debug or skipped certification case. Certification evidence therefore supports the candidate, but it does not resolve the separate household signal and life-model caveats noted elsewhere.\",\n      \"evidence\": [\n        \"certificationSummary policyId=pol_04e8044e verdict=green\",\n        \"certificationRows policyId=pol_04e8044e verdict=green\",\n        \"reason=All baseline, stress, and seed-stability gates cleared the sleep-well thresholds.\",\n        \"recommendation.certificationVerdict=green\",\n        \"selectedPolicy.certificationVerdict=green\"\n      ],\n      \"recommendation\": \"Treat the deterministic certification as valid for the selected policy, while keeping non-certification issues separate from the solvency and legacy gates.\"\n    },\n    {\n      \"id\": \"assumption_provenance\",\n      \"status\": \"watch\",\n      \"title\": \"Key assumptions are mostly sourced, but several remain estimates or pending verification\",\n      \"detail\": \"The packet gives useful provenance for several material assumptions, including user-confirmed windfall deployment into a taxable shadow sleeve using the current portfolio mix. Some assumptions are still estimates or pending documentation: employer plan features are pending plan-document verification, contribution limits are labeled as planning estimates for the 2027 final-paycheck window, the home-sale/downsize event is an estimate with timing and amount uncertainty, and the inheritance timing certainty is missing. Advisor category: model/data bug risk if these assumptions are wrong; otherwise these are known planning estimates that should be monitored.\",\n      \"evidence\": [\n        \"windfallDeploymentPolicy.assumptionSource=user_confirmed_invest_unspent_windfall_and_home_sale_cash_in_current_portfolio_mix\",\n        \"employerPlanSupportsRothDeferrals=true\",\n        \"employerPlanSupportsSuperCatchUp=true\",\n        \"planFeatureAssumptionSource=estimated_pending_plan_document\",\n        \"employerMatch.verificationStatus=user_confirmed_pending_document\",\n        \"contributionLimits.assumptionSource=planning_estimate_for_2027_final_paycheck_window\",\n        \"housingAfterDownsizePolicy.assumptionSource=user_estimate_sell_1m_home_buy_500k_replacement_home\",\n        \"home_sale.certainty=estimated\",\n        \"home_sale.timingUncertaintyYears=2\",\n        \"home_sale.amountUncertaintyPercent=0.3\",\n        \"inheritance certainty=missing\"\n      ],\n      \"recommendation\": \"Before treating this as approved rather than watch, verify plan documents for contribution and match assumptions and confirm whether the inheritance and home-sale timing assumptions still match household intent.\"\n    },\n    {\n      \"id\": \"life_model_trace\",\n      \"status\": \"watch\",\n      \"title\": \"Life-to-model trace is substantive but has material watch items and evidence mismatches\",\n      \"detail\": \"The life-model audit traces the major money movements, but it is reconstructed and reports two material unresolved events. Salary is modeled as $210,000 until 2027-07-01, taxed as wage income, prorated by month, funding cashflow first with pretax 401(k) and HSA contributions directed separately. Social Security benefits are modeled as taxable cashflow, but the audit shows Rob claimAge=67 while the selected policy shows primarySocialSecurityClaimAge=68, which should be reconciled. The 2028 inheritance is modeled as a $500,000 non-taxable cash-in that can fund same-year spending before the remainder is swept to a taxable shadow sleeve invested in the current portfolio mix with taxable market returns; however, timing certainty is missing. The 2037 home sale is modeled as a $1,000,000 sale with $500,000 liquidity after a replacement-home assumption, primary-home-sale tax treatment, same-year spending availability, and taxable shadow-sleeve investment of unspent proceeds; however, timing is estimated with plus/minus two-year uncertainty and 30% amount uncertainty. Portfolio withdrawals are also traceable in concept, but the audit says withdrawalRule=engine_default while the selected policy says withdrawalRule=tax_bracket_waterfall. Advisor category: life-model gap and model-evidence mismatch, not proof the plan is wrong.\",\n      \"evidence\": [\n        \"lifeModelAudit.modelCompleteness=reconstructed\",\n        \"unresolvedEventCount=2\",\n        \"materialUnresolvedEventCount=2\",\n        \"salaryAnnual=210000\",\n        \"salaryEndDate=2027-07-01\",\n        \"payrollProrationRule=month_fraction\",\n        \"employee401kPreTaxPercent=0.1499\",\n        \"hsaPercent=0.0159\",\n        \"social_security audit evidence rob:fraMonthly=4100:claimAge=67\",\n        \"selectedPolicy.primarySocialSecurityClaimAge=68\",\n        \"selectedPolicy.spouseSocialSecurityClaimAge=67\",\n        \"inheritance year=2028 amount=500000 taxTreatment=cash_non_taxable\",\n        \"inheritance timing status=inferred certainty=missing\",\n        \"windfallDeploymentPolicy.destinationAccount=taxable\",\n        \"windfallDeploymentPolicy.trackingMode=taxable_shadow_sleeve\",\n        \"windfallDeploymentPolicy.investmentPolicy=current_portfolio_mix\",\n        \"windfallDeploymentPolicy.spendBeforeDeploy=true\",\n        \"home_sale year=2037 amount=1000000 liquidityAmount=500000 certainty=estimated\",\n        \"home_sale timingUncertaintyYears=2 amountUncertaintyPercent=0.3\",\n        \"lifeModelAudit portfolio_withdrawals withdrawalRule=engine_default\",\n        \"selectedPolicy.withdrawalRule=tax_bracket_waterfall\"\n      ],\n      \"recommendation\": \"Reconcile the Social Security claim-age display and withdrawal-rule display, and confirm the inheritance and home-sale timing assumptions before moving from watch to aligned.\"\n    },\n    {\n      \"id\": \"yearly_path_evidence\",\n      \"status\": \"pass\",\n      \"title\": \"Yearly asset path is present and reflects the major modeled cash-ins\",\n      \"detail\": \"The yearly path excerpt provides p10, p25 estimate, and median assets from 2026 through 2037. It shows a material step-up in 2028, consistent with the modeled inheritance, and another step-up in 2037, consistent with the home-sale liquidity event. The p10 path spends time near or below $1,000,000 before later cash-ins and market outcomes, which reinforces that the lower tail should be monitored, but the path evidence itself is adequate for review.\",\n      \"evidence\": [\n        \"2026 medianAssets=1100026 p10Assets=957727\",\n        \"2027 medianAssets=1129520 p10Assets=920789\",\n        \"2028 medianAssets=1579274 p10Assets=1327860\",\n        \"2032 medianAssets=1520633 p10Assets=976230\",\n        \"2037 medianAssets=2350786 p10Assets=1512314\",\n        \"inheritance year=2028 amount=500000\",\n        \"home_sale year=2037 liquidityAmount=500000\"\n      ],\n      \"recommendation\": \"Add more yearly rows beyond 2037 in future packets so the reviewer can see the later retirement, RMD, LTC, and end-of-plan trajectory without relying only on ending percentiles.\"\n    },\n    {\n      \"id\": \"withdrawal_tax_healthcare_evidence\",\n      \"status\": \"watch\",\n      \"title\": \"Tax, withdrawal, ACA, IRMAA, and healthcare evidence is present but needs reconciliation\",\n      \"detail\": \"The packet includes tax-aware withdrawal, Roth conversion, healthcare, ACA, IRMAA, and LTC evidence. The selected policy uses tax_bracket_waterfall withdrawals and shows low modeled IRMAA exposure, median lifetime federal tax of about $91,228, and 2028 ACA evidence with MAGI below the ACA-friendly ceiling and net ACA cost included. The 2027 ACA subsidy loss is annotated as an intentional transition-year tradeoff from final payroll/taxable income, not a surprise failure, so long as MAGI components and net ACA cost are correctly plumbed. The watch item is model-evidence consistency: the selected policy lists rothConversionAnnualCeiling=160000 while the rules list maxAnnualDollars=70000 and low-income bracket fill target=$70000, and the life audit lists withdrawalRule=engine_default while the selected policy lists tax_bracket_waterfall.\",\n      \"evidence\": [\n        \"selectedPolicy.withdrawalRule=tax_bracket_waterfall\",\n        \"lifeModelAudit portfolio_withdrawals withdrawalRule=engine_default\",\n        \"selectedPolicy.rothConversionAnnualCeiling=160000\",\n        \"rules.rothConversionPolicy.maxAnnualDollars=70000\",\n        \"rules.rothConversionPolicy.lowIncomeBracketFill.annualTargetDollars=70000\",\n        \"rules.rothConversionPolicy.strategy=aca_then_irmaa_headroom\",\n        \"medianLifetimeFederalTaxTodayDollars=91227.62601153301\",\n        \"irmaaExposureRate=0.0036\",\n        \"irmaaThreshold=200000\",\n        \"baselineAcaPremiumAnnual=14400\",\n        \"baselineMedicarePremiumAnnual=2220\",\n        \"medicalInflationAnnual=0.055\",\n        \"ltcEnabled=true\",\n        \"ltc annualCostToday=48000 durationYears=3 eventProbability=0.45\",\n        \"2028 medianMagi=70000\",\n        \"2028 acaFriendlyMagiCeiling=87404\",\n        \"2028 medianAcaPremiumEstimate=32055\",\n        \"2028 medianAcaSubsidyEstimate=25083\",\n        \"2028 medianNetAcaCost=6972\",\n        \"monthlyReviewIssueAnnotations disposition=intentional_tradeoff for 2027 ACA subsidy loss\"\n      ],\n      \"recommendation\": \"Reconcile the withdrawal-rule and Roth-conversion-ceiling evidence, and keep the ACA row visible to verify that wages, conversions, dividends, interest, realized gains, Social Security, premiums, subsidies, and net ACA costs are included once and only once.\"\n    },\n    {\n      \"id\": \"household_signal_checklist\",\n      \"status\": \"watch\",\n      \"title\": \"Household signals include two act-now items and one spend-headroom watch\",\n      \"detail\": \"Signal roll-up: aca_bridge_breach is ok and should be monitored because 2028 MAGI has a $17,404 cushion below the ACA-friendly ceiling; cash_runway_gap is act_now because direct cash is $53,571 short of the 18-month target; holding_concentration is act_now because FCNTX is 28% of the total portfolio and 100% of the Authorized ROTH IRA; legacy_headroom is watch because median ending wealth is 2.8x the legacy target and may indicate intentionally conservative spending or unclaimed spending capacity. These are not all automatic plan failures, but the act-now items require explicit household disposition.\",\n      \"evidence\": [\n        \"aca_bridge_breach status=ok headline=2028: $17,404 ACA MAGI cushion\",\n        \"cash_runway_gap status=act_now headline=$53,571 short of 18-month target\",\n        \"holding_concentration status=act_now headline=FCNTX is 28% of portfolio\",\n        \"legacy_headroom status=watch headline=Median EW is 2.8x legacy target\"\n      ],\n      \"recommendation\": \"Resolve or explicitly accept the cash runway and concentration signals, and decide whether the legacy headroom is intentional.\"\n    },\n    {\n      \"id\": \"model_tasks\",\n      \"status\": \"pass\",\n      \"title\": \"No critical structural or blocking model tasks are open\",\n      \"detail\": \"The packet reports no blocking task IDs and no structural tasks. The recommendation status is diagnostic because AI co-review was pending when the packet was generated; this response is that co-review. There are model-improvement suggestions below, but they are not presented in the packet as critical open model tasks.\",\n      \"evidence\": [\n        \"recommendation.blockingTaskIds=[]\",\n        \"structuralTasks=[]\",\n        \"recommendation.status=diagnostic\",\n        \"recommendation.summary=A green deterministic core spend candidate exists; AI co-review is pending.\"\n      ],\n      \"recommendation\": \"Continue to separate critical model-blocking tasks from nonblocking evidence and UX improvements.\"\n    },\n    {\n      \"id\": \"signal_cash_runway_gap\",\n      \"status\": \"watch\",\n      \"title\": \"Cash runway gap needs a household funding or waiver decision\",\n      \"detail\": \"Category: real problem needing a decision. The household is in this situation because direct cash is modeled at $50,000 while the 18-month cash runway target is $103,571, leaving a $53,571 gap. This matters operationally because salary ends in 2027, the selected policy begins retirement spending at $90,000 core plus $14,000 travel, and the model relies on portfolio withdrawals, taxes, healthcare costs, and later cash-ins working smoothly; a thin cash bucket can force poorly timed transfers or sales even if the Monte Carlo solvency result is green. This does not mean the retirement plan is insolvent, but it does mean the selected spending level should be paired with a liquidity plan. The household has not yet stated their intent. Likely resolution paths are: fill the cash bucket from taxable or other available liquidity, reduce or redirect near-term payroll deferrals to build cash, or explicitly waive the 18-month target while documenting backup liquidity. It would look like a model/data bug rather than a real issue if bank balances are stale, cash inside brokerage accounts is excluded or double-counted, or the essential-plus-fixed monthly target is not tied to the current seed spending.\",\n      \"evidence\": [\n        \"directCashBalance=50000\",\n        \"essentialWithFixedMonthly=5754\",\n        \"targetCashRunway=103571\",\n        \"cashGap=53571\",\n        \"runwayGapMonths=9.31\",\n        \"directCashYearsOfCoreSpend=0.39\",\n        \"selectedPolicy.annualSpendTodayDollars=90000\",\n        \"selectedPolicy.spendingPath.firstRetirementYearAnnualSpendTodayDollars=104000\",\n        \"salaryEndDate=2027-07-01\"\n      ],\n      \"recommendation\": \"Choose and record one disposition: fund the gap, document backup liquidity, or intentionally waive the 18-month cash runway target.\"\n    },\n    {\n      \"id\": \"signal_holding_concentration\",\n      \"status\": \"watch\",\n      \"title\": \"FCNTX concentration should be rebalanced, staged, or explicitly accepted\",\n      \"detail\": \"Category: real problem needing a decision. The household is in this situation because Fidelity Contrafund is modeled at $257,816, equal to 27.63% of the total $933,149 portfolio, and it represents 100% of the Authorized ROTH IRA. This connects directly to the selected spending plan because the certification is based on broad portfolio behavior; a large single-manager or single-fund position can make realized household outcomes differ from the asset-class Monte Carlo assumptions, especially during bad early markets. Since the holding is in a Roth IRA according to the signal, a rebalance may be operationally easier than selling a taxable position, but the household still needs to decide whether to rebalance now, stage the rebalance, or intentionally accept the concentration risk until a later review. The household has not yet stated their intent. It would look like a model/data bug rather than a real issue if duplicate holdings were merged incorrectly, account balances do not match holding totals, or the ticker was imported into the wrong account.\",\n      \"evidence\": [\n        \"largestHoldingSymbol=FCNTX\",\n        \"largestHoldingValue=257816\",\n        \"largestHoldingPortfolioShare=0.2763\",\n        \"largestAccountName=Authorized ROTH IRA\",\n        \"largestHoldingAccountShare=1.0000\",\n        \"totalPortfolio=933149\"\n      ],\n      \"recommendation\": \"Record a concentration decision: rebalance within the Roth IRA, stage a rebalance plan, or explicitly accept the FCNTX exposure and review it next month.\"\n    },\n    {\n      \"id\": \"signal_legacy_headroom\",\n      \"status\": \"watch\",\n      \"title\": \"Large median legacy headroom may mean the plan is intentionally conservative\",\n      \"detail\": \"Category: household decision and monitor. The household is in this situation because the selected $90,000 core spend policy is the highest green-certified boundary candidate, yet the median ending wealth is $2,767,063 against a $1,000,000 legacy target. The modeled inheritance, home-sale liquidity, spending path, and portfolio return assumptions all contribute to the possibility that the median case leaves substantial wealth. This connects to spending and portfolio decisions because the household may be accepting lower current spending in exchange for a larger legacy, more optionality, or more comfort under stress; alternatively, they may want to test a different spending curve, tax strategy, or portfolio implementation to see whether more lifetime spending can be certified. The household has not yet stated their intent. Likely resolution paths are: keep the plan as intentionally conservative, ask for re-certification of a higher or differently shaped spending path, or preserve the spend target but adjust portfolio/concentration/liquidity decisions. It would look like a model/data bug rather than a real signal if the legacy target is stale, ending wealth is nominal rather than today-dollar, or the selected strategy is not the strategy being reviewed. This is not a homelessness or depletion warning.\",\n      \"evidence\": [\n        \"legacyTargetTodayDollars=1000000\",\n        \"p50EndingWealthTodayDollars=2767063\",\n        \"medianLegacyToTargetRatio=2.767\",\n        \"bequestAttainmentRate=0.8703459835950405\",\n        \"highestGreenSpendTodayDollars=90000\",\n        \"higherSpendLevelsTested include 95000 through 145000\",\n        \"p10EndingWealthTodayDollars=864218.7636461043\"\n      ],\n      \"recommendation\": \"Ask the household whether the surplus is intentional; if not, request a new certified search for a higher or more tailored spend path rather than informally increasing spending.\"\n    }\n  ],\n  \"actionItems\": [\n    \"Decide how to handle the $53,571 cash runway gap: fund it, document backup liquidity, or explicitly waive the 18-month target.\",\n    \"Decide how to handle the FCNTX concentration: rebalance, stage a rebalance, or explicitly accept the single-holding exposure.\",\n    \"Confirm the inheritance timing certainty and whether the 2028 $500,000 non-taxable cash-in remains a valid household assumption.\",\n    \"Confirm the 2037 home-sale/downsize assumption, including timing uncertainty, replacement-home cost, liquidity amount, and whether proceeds should still be invested in the taxable shadow sleeve.\",\n    \"Reconcile the Social Security claim-age evidence, withdrawal-rule evidence, and Roth-conversion ceiling evidence before treating the packet as fully approved.\",\n    \"Decide whether the median legacy headroom is intentional or whether to request a re-certified higher or differently shaped spending path.\"\n  ],\n  \"modelImprovementTodos\": [\n    {\n      \"id\": \"reconcile_selected_policy_and_life_audit_fields\",\n      \"priority\": \"high\",\n      \"category\": \"model_evidence\",\n      \"title\": \"Reconcile selected-policy fields with life-model audit fields\",\n      \"detail\": \"The review is harder to trust because the audit trace and selected policy disagree on material implementation details. These may be display/export issues, but they affect Social Security timing and withdrawal sourcing, which are central to taxes, cashflow, and certification interpretation.\",\n      \"evidence\": [\n        \"lifeModelAudit social_security evidence rob:claimAge=67\",\n        \"selectedPolicy.primarySocialSecurityClaimAge=68\",\n        \"lifeModelAudit portfolio_withdrawals withdrawalRule=engine_default\",\n        \"selectedPolicy.withdrawalRule=tax_bracket_waterfall\",\n        \"selectedPolicy.rothConversionAnnualCeiling=160000\",\n        \"rules.rothConversionPolicy.maxAnnualDollars=70000\"\n      ],\n      \"suggestedNextStep\": \"Add an export consistency check that compares selectedPolicy, rules, and lifeModelAudit fields and flags any mismatch before the review packet is generated.\"\n    },\n    {\n      \"id\": \"explain_uncertified_high_spend_corpus_rows\",\n      \"priority\": \"high\",\n      \"category\": \"search_or_certification\",\n      \"title\": \"Show why attractive higher-spend corpus rows are not approved\",\n      \"detail\": \"Some top-candidate rows at $110,000 show strong baseline metrics and zero median federal tax, while the spend boundary says the highest green spend is $90,000. The packet is still reviewable because deterministic certification controls, but the next packet should explain whether those rows failed stress certification, were excluded, or reflect a model artifact.\",\n      \"evidence\": [\n        \"topCandidates policyId=pol_86fd0aa2 annualSpendTodayDollars=110000 solventSuccessRate=1 bequestAttainmentRate=0.8890457769558133 medianLifetimeFederalTaxTodayDollars=0\",\n        \"topCandidates policyId=pol_fdd52d16 annualSpendTodayDollars=110000 solventSuccessRate=1 bequestAttainmentRate=0.8890457769558133 medianLifetimeFederalTaxTodayDollars=0\",\n        \"spendBoundary.highestGreenSpendTodayDollars=90000\",\n        \"spendBoundary.boundaryProven=true\"\n      ],\n      \"suggestedNextStep\": \"For every top-candidate row, include a certification status or rejection reason, including whether the row was certified, failed stress gates, or was excluded from boundary proof.\"\n    },\n    {\n      \"id\": \"make_life_event_resolution_status_explicit\",\n      \"priority\": \"medium\",\n      \"category\": \"assumption\",\n      \"title\": \"Clarify unresolved life events and certainty labels\",\n      \"detail\": \"The life-model audit reports two material unresolved events even though destination, spending use, and investment treatment are explicit. The remaining uncertainty appears to be timing certainty for inheritance and estimated timing/amount for home sale, but the packet should make that explicit.\",\n      \"evidence\": [\n        \"lifeModelAudit.unresolvedEventCount=2\",\n        \"lifeModelAudit.materialUnresolvedEventCount=2\",\n        \"inheritance timing status=inferred certainty=missing\",\n        \"home_sale timing status=inferred certainty=estimated\",\n        \"home_sale timingUncertaintyYears=2\",\n        \"home_sale amountUncertaintyPercent=0.3\"\n      ],\n      \"suggestedNextStep\": \"Add a per-event unresolvedReason field and distinguish household-estimate uncertainty from missing model plumbing.\"\n    },\n    {\n      \"id\": \"extend_yearly_path_detail\",\n      \"priority\": \"medium\",\n      \"category\": \"model_evidence\",\n      \"title\": \"Extend yearly path evidence beyond 2037 and include cashflow components\",\n      \"detail\": \"The yearly path currently shows assets through 2037, which captures salary transition, inheritance, and home sale, but not the later RMD, Medicare, IRMAA, LTC, and terminal legacy years. Including yearly taxes, withdrawals, MAGI, healthcare, and ending assets would make the certification easier to audit.\",\n      \"evidence\": [\n        \"rawExportEvidence.evidenceLimits.yearlyPathRows=12\",\n        \"yearlyPathEvidence runs from 2026 through 2037\",\n        \"selectedPolicy.outcome includes ending wealth percentiles but yearly path stops before later retirement years\",\n        \"ltcAssumptions.startAge=85\",\n        \"planningAge=95\"\n      ],\n      \"suggestedNextStep\": \"Export a compact yearly trace at key ages and event years: retirement, inheritance, ACA bridge, Social Security claiming, Medicare, RMD age, home sale, LTC start age, and terminal year.\"\n    },\n    {\n      \"id\": \"cash_runway_source_breakdown\",\n      \"priority\": \"medium\",\n      \"category\": \"data_quality\",\n      \"title\": \"Show cash runway source breakdown\",\n      \"detail\": \"The cash runway signal depends on direct cash and may be sensitive to whether brokerage cash, money market holdings, or pending transfers are included. A source breakdown would help distinguish a real liquidity gap from an import or categorization issue.\",\n      \"evidence\": [\n        \"directCashBalance=50000\",\n        \"targetCashRunway=103571\",\n        \"cashGap=53571\",\n        \"modelBugCheck mentions brokerage cash double-counted or excluded\"\n      ],\n      \"suggestedNextStep\": \"Add a cash-runway table listing bank cash, brokerage cash, money market funds, excluded cash-like assets, and the exact spending denominator used for the runway target.\"\n    },\n    {\n      \"id\": \"holding_concentration_reconciliation\",\n      \"priority\": \"low\",\n      \"category\": \"data_quality\",\n      \"title\": \"Add holdings reconciliation for concentration signals\",\n      \"detail\": \"The concentration signal is useful, but the next packet would be easier to audit if it showed how the largest holding ties to account totals and whether duplicate tickers across accounts were merged intentionally.\",\n      \"evidence\": [\n        \"largestHoldingSymbol=FCNTX\",\n        \"largestHoldingValue=257816\",\n        \"largestHoldingPortfolioShare=0.2763\",\n        \"largestHoldingAccountShare=1.0000\",\n        \"largestAccountName=Authorized ROTH IRA\",\n        \"totalPortfolio=933149\"\n      ],\n      \"suggestedNextStep\": \"Include an account-by-account concentration table with holding market value, account total, portfolio total, and import timestamp.\"\n    }\n  ]\n}"
+}

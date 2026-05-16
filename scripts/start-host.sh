@@ -30,6 +30,22 @@ REPO_DIR="${REPO_DIR:-$HOME/retirement-calculator}"
 DISPATCHER_URL="${DISPATCHER_URL:-ws://192.168.68.101:8765}"
 HOST_DISPLAY_NAME="${HOST_DISPLAY_NAME:-node-host-$(hostname -s)}"
 
+# Non-interactive Linux shells do not automatically load user-space
+# toolchains. Bazite/Distrobox workers install Node through nvm and Rust
+# through rustup, so make those available before we call node/npm/cargo.
+export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
+if [ -s "$NVM_DIR/nvm.sh" ]; then
+  # shellcheck disable=SC1091
+  . "$NVM_DIR/nvm.sh"
+  nvm use "${NODE_VERSION:-24}" >/dev/null 2>&1 || \
+    nvm use 23 >/dev/null 2>&1 || true
+fi
+
+if [ -s "$HOME/.cargo/env" ]; then
+  # shellcheck disable=SC1091
+  . "$HOME/.cargo/env"
+fi
+
 # Derive LAN git URL from DISPATCHER_URL host. Override via REPO_GIT_URL
 # (e.g. point back at GitHub if the dispatcher's git-daemon is down).
 DISPATCHER_HOST=$(echo "$DISPATCHER_URL" | sed -E 's|^wss?://([^:/]+).*|\1|')

@@ -1,0 +1,55 @@
+[    4313ms] [ERROR] Refused to get unsafe header "X-Sg-Cs" @ https://www.google.com/search?gs_ssp=eJzj4tLP1TcoqsqrKjFUYDRgdGDwYk4sLwYAQnkFsw&q=aws&oq=aws&gs_lcrp=EgZjaHJvbWUqEwgBEC4YgwEYxwEYsQMY0QMYgAQyEAgAEAAYgwEY4wIYsQMYgAQyEwgBEC4YgwEYxwEYsQMY0QMYgAQyDQgCEAAYgwEYsQMYgAQyDQgDEAAYgwEYsQMYgAQyCggEEAAYsQMYgAQyDQgFEAAYgwEYsQMYgAQyCggGEAAYsQMYgAQyDQgHEAAYgwEYsQMYgAQyCggIEAAYsQMYgAQyDQgJEAAYgwEYsQMYgATSAQgyNjUxajBqN6gCB7ACAfEFwXDcDaBdDx4&sourceid=chrome&ie=UTF-8&source=chrome.ob&sei=LagEavjTOPuymtkPsZyDuAo:20
+[    4313ms] [ERROR] Refused to get unsafe header "X-Sorry-Redirect" @ https://www.google.com/search?gs_ssp=eJzj4tLP1TcoqsqrKjFUYDRgdGDwYk4sLwYAQnkFsw&q=aws&oq=aws&gs_lcrp=EgZjaHJvbWUqEwgBEC4YgwEYxwEYsQMY0QMYgAQyEAgAEAAYgwEY4wIYsQMYgAQyEwgBEC4YgwEYxwEYsQMY0QMYgAQyDQgCEAAYgwEYsQMYgAQyDQgDEAAYgwEYsQMYgAQyCggEEAAYsQMYgAQyDQgFEAAYgwEYsQMYgAQyCggGEAAYsQMYgAQyDQgHEAAYgwEYsQMYgAQyCggIEAAYsQMYgAQyDQgJEAAYgwEYsQMYgATSAQgyNjUxajBqN6gCB7ACAfEFwXDcDaBdDx4&sourceid=chrome&ie=UTF-8&source=chrome.ob&sei=LagEavjTOPuymtkPsZyDuAo:20
+[    5279ms] [ERROR] Refused to get unsafe header "X-Sg-Cs" @ https://www.google.com/search?gs_ssp=eJzj4tLP1TcoqsqrKjFUYDRgdGDwYk4sLwYAQnkFsw&q=aws&oq=aws&gs_lcrp=EgZjaHJvbWUqEwgBEC4YgwEYxwEYsQMY0QMYgAQyEAgAEAAYgwEY4wIYsQMYgAQyEwgBEC4YgwEYxwEYsQMY0QMYgAQyDQgCEAAYgwEYsQMYgAQyDQgDEAAYgwEYsQMYgAQyCggEEAAYsQMYgAQyDQgFEAAYgwEYsQMYgAQyCggGEAAYsQMYgAQyDQgHEAAYgwEYsQMYgAQyCggIEAAYsQMYgAQyDQgJEAAYgwEYsQMYgATSAQgyNjUxajBqN6gCB7ACAfEFwXDcDaBdDx4&sourceid=chrome&ie=UTF-8&source=chrome.ob&sei=LagEavjTOPuymtkPsZyDuAo:20
+[    5279ms] [ERROR] Refused to get unsafe header "X-Sorry-Redirect" @ https://www.google.com/search?gs_ssp=eJzj4tLP1TcoqsqrKjFUYDRgdGDwYk4sLwYAQnkFsw&q=aws&oq=aws&gs_lcrp=EgZjaHJvbWUqEwgBEC4YgwEYxwEYsQMY0QMYgAQyEAgAEAAYgwEY4wIYsQMYgAQyEwgBEC4YgwEYxwEYsQMY0QMYgAQyDQgCEAAYgwEYsQMYgAQyDQgDEAAYgwEYsQMYgAQyCggEEAAYsQMYgAQyDQgFEAAYgwEYsQMYgAQyCggGEAAYsQMYgAQyDQgHEAAYgwEYsQMYgAQyCggIEAAYsQMYgAQyDQgJEAAYgwEYsQMYgATSAQgyNjUxajBqN6gCB7ACAfEFwXDcDaBdDx4&sourceid=chrome&ie=UTF-8&source=chrome.ob&sei=LagEavjTOPuymtkPsZyDuAo:20
+[    6448ms] [LOG] this is a dummy log that should be removed @ https://a0.awsstatic.com/target/1.0.127/aws-target-mediator.js:0
+[    7039ms] [ERROR] [TangerineBox] Telemetry configuration is missing. Error: Error: Session data meta tag not found @ https://a.b.cdn.console.awsstatic.com/a/v1/CEQ753HGI4VIEBGCDVTGJAUVQGBTUEBLQAPUZKXOPUCG73VLELWQ/4f9d21011c2f449797c97ad39e28d981db54e8abc2d447ce9b3129dbc8be99c4.js:1
+[    7040ms] [ERROR] [TangerineBox] Telemetry configuration is missing. Error: Error: Session data meta tag not found @ https://a.b.cdn.console.awsstatic.com/a/v1/CEQ753HGI4VIEBGCDVTGJAUVQGBTUEBLQAPUZKXOPUCG73VLELWQ/4f9d21011c2f449797c97ad39e28d981db54e8abc2d447ce9b3129dbc8be99c4.js:1
+[    7045ms] [LOG] Error: failed to parse meta tag awsc-session-data
+    at x (https://a.b.cdn.console.awsstatic.com/a/v1/CEQ753HGI4VIEBGCDVTGJAUVQGBTUEBLQAPUZKXOPUCG73VLELWQ/4f9d21011c2f449797c97ad39e28d981db54e8abc2d447ce9b3129dbc8be99c4.js:2:20414)
+    at F.parseSessionDataMetaTag (https://a.b.cdn.console.awsstatic.com/a/v1/CEQ753HGI4VIEBGCDVTGJAUVQGBTUEBLQAPUZKXOPUCG73VLELWQ/4f9d21011c2f449797c97ad39e28d981db54e8abc2d447ce9b3129dbc8be99c4.js:2:21726)
+    at new F (https://a.b.cdn.console.awsstatic.com/a/v1/CEQ753HGI4VIEBGCDVTGJAUVQGBTUEBLQAPUZKXOPUCG73VLELWQ/4f9d21011c2f449797c97ad39e28d981db54e8abc2d447ce9b3129dbc8be99c4.js:2:21189)
+    at F.getInstance (https://a.b.cdn.console.awsstatic.com/a/v1/CEQ753HGI4VIEBGCDVTGJAUVQGBTUEBLQAPUZKXOPUCG73VLELWQ/4f9d21011c2f449797c97ad39e28d981db54e8abc2d447ce9b3129dbc8be99c4.js:2:21307)
+    at j.getInstance (https://a.b.cdn.console.awsstatic.com/a/v1/CEQ753HGI4VIEBGCDVTGJAUVQGBTUEBLQAPUZKXOPUCG73VLELWQ/4f9d21011c2f449797c97ad39e28d981db54e8abc2d447ce9b3129dbc8be99c4.js:2:23908)
+    at Ce (https://a.b.cdn.console.awsstatic.com/a/v1/CEQ753HGI4VIEBGCDVTGJAUVQGBTUEBLQAPUZKXOPUCG73VLELWQ/4f9d21011c2f449797c97ad39e28d981db54e8abc2d447ce9b3129dbc8be99c4.js:2:28828)
+    at Hs.setupLocals (https://a.b.cdn.console.awsstatic.com/a/v1/CEQ753HGI4VIEBGCDVTGJAUVQGBTUEBLQAPUZKXOPUCG73VLELWQ/4f9d21011c2f449797c97ad39e28d981db54e8abc2d447ce9b3129dbc8be99c4.js:4:84470)
+    at new Hs (https://a.b.cdn.console.awsstatic.com/a/v1/CEQ753HGI4VIEBGCDVTGJAUVQGBTUEBLQAPUZKXOPUCG73VLELWQ/4f9d21011c2f449797c97ad39e28d981db54e8abc2d447ce9b3129dbc8be99c4.js:4:78460)
+    at qs.createNewNamespace (https://a.b.cdn.console.awsstatic.com/a/v1/CEQ753HGI4VIEBGCDVTGJAUVQGBTUEBLQAPUZKXOPUCG73VLELWQ/4f9d21011c2f449797c97ad39e28d981db54e8abc2d447ce9b3129dbc8be99c4.js:4:103269)
+    at qs.applyAsyncFunction (https://a.b.cdn.console.awsstatic.com/a/v1/CEQ753HGI4VIEBGCDVTGJAUVQGBTUEBLQAPUZKXOPUCG73VLELWQ/4f9d21011c2f449797c97ad39e28d981db54e8abc2d447ce9b3129dbc8be99c4.js:4:104353) @ https://a.b.cdn.console.awsstatic.com/a/v1/CEQ753HGI4VIEBGCDVTGJAUVQGBTUEBLQAPUZKXOPUCG73VLELWQ/4f9d21011c2f449797c97ad39e28d981db54e8abc2d447ce9b3129dbc8be99c4.js:1
+[    7047ms] [WARNING] Unable to parse the data using legacy methods @ https://a.b.cdn.console.awsstatic.com/a/v1/CEQ753HGI4VIEBGCDVTGJAUVQGBTUEBLQAPUZKXOPUCG73VLELWQ/4f9d21011c2f449797c97ad39e28d981db54e8abc2d447ce9b3129dbc8be99c4.js:1
+[    7047ms] [ERROR] Couldn't determine console domain and dual-stack values. @ https://a.b.cdn.console.awsstatic.com/a/v1/CEQ753HGI4VIEBGCDVTGJAUVQGBTUEBLQAPUZKXOPUCG73VLELWQ/4f9d21011c2f449797c97ad39e28d981db54e8abc2d447ce9b3129dbc8be99c4.js:1
+[    8101ms] [WARNING] 
+
+⚠️ Your `allowedTags` option includes, `script`, which is inherently
+vulnerable to XSS attacks. Please remove it from `allowedTags`.
+Or, to disable this warning, add the `allowVulnerableTags` option
+and ensure you are accounting for this risk.
+
+ @ https://a0.awsstatic.com/eb-csr/2.0.16/sanitize-html/index.js:7
+[    8101ms] [WARNING] 
+
+⚠️ Your `allowedTags` option includes, `style`, which is inherently
+vulnerable to XSS attacks. Please remove it from `allowedTags`.
+Or, to disable this warning, add the `allowVulnerableTags` option
+and ensure you are accounting for this risk.
+
+ @ https://a0.awsstatic.com/eb-csr/2.0.16/sanitize-html/index.js:7
+[    8106ms] [WARNING] 
+
+⚠️ Your `allowedTags` option includes, `script`, which is inherently
+vulnerable to XSS attacks. Please remove it from `allowedTags`.
+Or, to disable this warning, add the `allowVulnerableTags` option
+and ensure you are accounting for this risk.
+
+ @ https://a0.awsstatic.com/eb-csr/2.0.16/sanitize-html/index.js:7
+[    8106ms] [WARNING] 
+
+⚠️ Your `allowedTags` option includes, `style`, which is inherently
+vulnerable to XSS attacks. Please remove it from `allowedTags`.
+Or, to disable this warning, add the `allowVulnerableTags` option
+and ensure you are accounting for this risk.
+
+ @ https://a0.awsstatic.com/eb-csr/2.0.16/sanitize-html/index.js:7
+[    9734ms] [ERROR] The Content-Security-Policy directive 'default-src' contains the keyword 'none' alongside with other source expressions. The keyword 'none' must be the only source expression in the directive value, otherwise it is ignored. @ https://us-east-2.signin.aws.amazon.com/oauth?client_id=arn%3Aaws%3Asignin%3A%3A%3Aconsole%2Fcanvas&code_challenge=X_x-EIpJEjuuv2WN0Ob6ppaXc3uUGoIzpeG0tKJk2ug&code_challenge_method=SHA-256&response_type=code&redirect_uri=https%3A%2F%2Fconsole.aws.amazon.com%2Fconsole%2Fhome%3Fca-oauth-flow-id%3Dfb63%26hashArgs%3D%2523%26isauthcode%3Dtrue%26nc2%3Dh_si%26oauthStart%3D1778690099904%26sc_channel%3Dps%26src%3Dheader-signin%26state%3DhashArgsFromTB_us-east-2_15acc71d090e9c61%26trk%3Ddc9b9d60-cc82-4cd5-8a61-0b33d6a79fab:0
+[   14409ms] [ERROR] The Content-Security-Policy directive 'default-src' contains the keyword 'none' alongside with other source expressions. The keyword 'none' must be the only source expression in the directive value, otherwise it is ignored. @ https://signin.aws.amazon.com/signin?client_id=arn%3Aaws%3Asignin%3A%3A%3Aconsole%2Fcanvas&redirect_uri=https%3A%2F%2Fconsole.aws.amazon.com%2Fconsole%2Fhome%3Fca-oauth-flow-id%3Dfb63%26hashArgs%3D%2523%26isauthcode%3Dtrue%26nc2%3Dh_si%26oauthStart%3D1778690099904%26sc_channel%3Dps%26src%3Dheader-signin%26state%3DhashArgsFromTB_us-east-2_15acc71d090e9c61%26trk%3Ddc9b9d60-cc82-4cd5-8a61-0b33d6a79fab&page=resolve&code_challenge=X_x-EIpJEjuuv2WN0Ob6ppaXc3uUGoIzpeG0tKJk2ug&code_challenge_method=SHA-256&backwards_compatible=true:0
+[   20753ms] [VERBOSE] [DOM] Password field is not contained in a form: (More info: https://goo.gl/9p2vKq) %o @ https://signin.aws.amazon.com/signin?client_id=arn%3Aaws%3Asignin%3A%3A%3Aconsole%2Fcanvas&redirect_uri=https%3A%2F%2Fconsole.aws.amazon.com%2Fconsole%2Fhome%3Fca-oauth-flow-id%3Dfb63%26hashArgs%3D%2523%26isauthcode%3Dtrue%26nc2%3Dh_si%26oauthStart%3D1778690099904%26sc_channel%3Dps%26src%3Dheader-signin%26state%3DhashArgsFromTB_us-east-2_15acc71d090e9c61%26trk%3Ddc9b9d60-cc82-4cd5-8a61-0b33d6a79fab&page=resolve&code_challenge=X_x-EIpJEjuuv2WN0Ob6ppaXc3uUGoIzpeG0tKJk2ug&code_challenge_method=SHA-256&backwards_compatible=true:0
