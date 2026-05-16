@@ -648,7 +648,7 @@ function SpendBoundaryStrip({
   if (groups.length === 0) return null;
 
   return (
-    <div className="flex items-end gap-1.5 overflow-x-auto pb-1">
+    <div className="grid grid-flow-col auto-cols-[112px] items-start gap-3 overflow-x-auto pb-1">
       {groups.map((group) => {
         const isRecommended =
           recommendedAnnualSpend !== null &&
@@ -663,7 +663,7 @@ function SpendBoundaryStrip({
                 : group.verdict === 'red'
                   ? 'bg-rose-400'
                   : 'bg-stone-300';
-        const height = isRecommended ? 34 : 28;
+        const height = 30;
         const progressPct =
           group.status === 'done'
             ? 100
@@ -699,12 +699,15 @@ function SpendBoundaryStrip({
             : formatCurrency(displayAnnualSpend);
         const validationLevelLabel = `validation level ${formatCurrency(group.annualSpendTodayDollars)}`;
         return (
-          <div key={group.key} className="flex min-w-[112px] flex-col gap-0.5">
-            {isRecommended && (
-              <span className="self-start text-[9px] font-bold uppercase tracking-wide text-emerald-700">
-                Pick
-              </span>
-            )}
+          <div key={group.key} className="grid w-[112px] grid-rows-[12px_30px_14px] gap-1">
+            <span
+              className={`text-[9px] font-bold uppercase tracking-wide ${
+                isRecommended ? 'text-emerald-700' : 'text-transparent'
+              }`}
+              aria-hidden={!isRecommended}
+            >
+              Pick
+            </span>
             <div
               className={`relative w-[112px] overflow-hidden rounded border border-stone-200 bg-stone-100 ${isRecommended ? 'ring-2 ring-emerald-600 ring-offset-1' : ''}`}
               style={{ height: `${height}px` }}
@@ -742,21 +745,22 @@ function SpendBoundaryStrip({
                 </span>
               </div>
             </div>
-            {slotSubLabel && (
-              <span
-                className={`truncate text-[8px] font-semibold uppercase ${
-                  group.verdict === 'green'
+            <span
+              className={`truncate text-[8px] font-semibold uppercase ${
+                !slotSubLabel
+                  ? 'text-transparent'
+                  : group.verdict === 'green'
                     ? 'text-emerald-600'
                     : group.verdict === 'yellow'
                       ? 'text-amber-600'
                       : group.verdict === 'red'
                         ? 'text-rose-600'
                         : 'text-stone-400'
-                }`}
-              >
-                {slotSubLabel}
-              </span>
-            )}
+              }`}
+              aria-hidden={!slotSubLabel}
+            >
+              {slotSubLabel ?? '-'}
+            </span>
           </div>
         );
       })}
