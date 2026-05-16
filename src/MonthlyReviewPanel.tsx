@@ -1805,6 +1805,173 @@ function ReviewChecklist({ items }: { items: ReviewChecklistItem[] }): JSX.Eleme
   );
 }
 
+function aiVerdictMeta(verdict: NonNullable<MonthlyReviewRun['aiApproval']>['verdict'] | null): {
+  label: string;
+  headline: string;
+  meaning: string;
+  badgeClass: string;
+  panelClass: string;
+} {
+  if (verdict === 'aligned') {
+    return {
+      label: 'Use it',
+      headline: 'AI review agrees with the model answer.',
+      meaning: 'The packet has enough evidence to use this monthly review result.',
+      badgeClass: 'bg-emerald-100 text-emerald-800 ring-emerald-200',
+      panelClass: 'border-emerald-200 bg-emerald-50 text-emerald-950',
+    };
+  }
+  if (verdict === 'watch') {
+    return {
+      label: 'Use with watch items',
+      headline: 'AI review says the answer is usable, with caveats.',
+      meaning: 'Use the result, but keep the watch items visible before adopting or mining again.',
+      badgeClass: 'bg-amber-100 text-amber-800 ring-amber-200',
+      panelClass: 'border-amber-200 bg-amber-50 text-amber-950',
+    };
+  }
+  if (verdict === 'misaligned') {
+    return {
+      label: 'Do not use yet',
+      headline: 'AI review disagrees with the model answer.',
+      meaning: 'Fix the blocking issue before treating this result as decision-grade.',
+      badgeClass: 'bg-rose-100 text-rose-800 ring-rose-200',
+      panelClass: 'border-rose-200 bg-rose-50 text-rose-950',
+    };
+  }
+  if (verdict === 'insufficient_data') {
+    return {
+      label: 'Missing evidence',
+      headline: 'AI review needs more evidence.',
+      meaning: 'Rerun or repair the packet before relying on this result.',
+      badgeClass: 'bg-rose-100 text-rose-800 ring-rose-200',
+      panelClass: 'border-rose-200 bg-rose-50 text-rose-950',
+    };
+  }
+  return {
+    label: 'Pending',
+    headline: 'AI review is pending.',
+    meaning: 'The answer is waiting for co-review.',
+    badgeClass: 'bg-stone-100 text-stone-700 ring-stone-200',
+    panelClass: 'border-stone-200 bg-stone-50 text-stone-900',
+  };
+}
+
+function reviewItemRank(item: ReviewChecklistItem): number {
+  if (item.status === 'fail' || item.status === 'act_now') return 0;
+  if (item.status === 'watch') return 1;
+  return 2;
+}
+
+function reviewItemStatusLabel(status: ChecklistStatus): string {
+  if (status === 'fail') return 'Block';
+  if (status === 'act_now') return 'Act now';
+  if (status === 'watch') return 'Watch';
+  return 'Pass';
+}
+
+function AiReviewDecisionBrief({
+  approval,
+  items,
+}: {
+  approval: NonNullable<MonthlyReviewRun['aiApproval']>;
+  items: ReviewChecklistItem[];
+}): JSX.Element {
+  const meta = aiVerdictMeta(approval.verdict);
+  const blockers = items.filter((item) => item.status === 'fail' || item.status === 'act_now');
+  const watches = items.filter((item) => item.status === 'watch');
+  const passes = items.filter((item) => item.status === 'pass');
+  const keyItems = [...blockers, ...watches]
+    .sort((a, b) => {
+      const rankDiff = reviewItemRank(a) - reviewItemRank(b);
+      if (rankDiff !== 0) return rankDiff;
+      return a.title.localeCompare(b.title);
+    })
+    .slice(0, 3);
+  const actionItems =
+    approval.actionItems.length > 0
+      ? approval.actionItems.slice(0, 3)
+      : keyItems
+        .map((item) => item.recommendation)
+        .filter((item): item is string => !!item)
+        .slice(0, 3);
+  const visibleActions =
+    actionItems.length > 0
+      ? actionItems
+      : ['No immediate action needed from the AI review.'];
+
+  return (
+    <div className={`rounded-xl border p-4 ${meta.panelClass}`}>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] opacity-75">
+            AI decision
+          </p>
+          <h3 className="mt-1 text-lg font-semibold">{meta.headline}</h3>
+          <p className="mt-1 text-[12px] leading-5 opacity-90">{meta.meaning}</p>
+        </div>
+        <span
+          className={`w-fit shrink-0 rounded-full px-3 py-1 text-[11px] font-semibold ring-1 ${meta.badgeClass}`}
+        >
+          {meta.label}
+          {approval.confidence ? ` · ${approval.confidence}` : ''}
+        </span>
+      </div>
+
+      {approval.summary && (
+        <p className="mt-3 rounded-lg bg-white/65 px-3 py-2 text-[12px] leading-5 text-stone-700">
+          {approval.summary}
+        </p>
+      )}
+
+      <div className="mt-3 grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+        <div>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] opacity-70">
+            What to do
+          </p>
+          <ul className="mt-2 space-y-1.5">
+            {visibleActions.map((item) => (
+              <li
+                key={item}
+                className="rounded-lg bg-white/75 px-3 py-2 text-[12px] leading-5 text-stone-700"
+              >
+                {item}
+              </li>
+            ))}
+          </ul>
+        </div>
+
+        <div>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] opacity-70">
+            Main watch items
+          </p>
+          {keyItems.length > 0 ? (
+            <ul className="mt-2 space-y-1.5">
+              {keyItems.map((item) => (
+                <li
+                  key={`${item.source}:${item.id}`}
+                  className="rounded-lg bg-white/75 px-3 py-2 text-[12px] leading-5 text-stone-700"
+                >
+                  <span className="font-semibold">{reviewItemStatusLabel(item.status)}:</span>{' '}
+                  {item.title}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="mt-2 rounded-lg bg-white/75 px-3 py-2 text-[12px] leading-5 text-stone-700">
+              No blockers or watch items.
+            </p>
+          )}
+        </div>
+      </div>
+
+      <p className="mt-3 text-[11px] tabular-nums opacity-75">
+        Evidence checks: {passes.length} pass · {watches.length} watch · {blockers.length} block
+      </p>
+    </div>
+  );
+}
+
 function AiReviewProgressTimeline({
   steps,
   elapsedMs,
@@ -3119,60 +3286,46 @@ export function MonthlyReviewPanel({
           />
         ) : aiApproval ? (
           <div className="space-y-3">
-            <AiReviewProgressTimeline
-              steps={aiReviewProgress}
-              elapsedMs={aiReviewElapsedMs}
-            />
-            <div className="flex items-center gap-3">
-              <span
-                className={`rounded-full px-3 py-1 text-[11px] font-semibold ring-1 ${
-                  aiVerdict === 'aligned'
-                    ? 'bg-emerald-100 text-emerald-800 ring-emerald-200'
-                    : aiVerdict === 'watch'
-                      ? 'bg-amber-100 text-amber-800 ring-amber-200'
-                      : 'bg-rose-100 text-rose-800 ring-rose-200'
-                }`}
-              >
-                {aiVerdict === 'aligned' ? 'Aligned' : aiVerdict === 'watch' ? 'Watch' : aiVerdict ?? 'Unknown'}
-                {aiApproval.confidence ? ` · ${aiApproval.confidence}` : ''}
-              </span>
-              {aiApproval.summary && (
-                <p className="text-[12px] text-stone-600">{aiApproval.summary}</p>
-              )}
-            </div>
-            {reviewChecklistItems.length > 0 && <ReviewChecklist items={reviewChecklistItems} />}
-            {aiApproval.actionItems && aiApproval.actionItems.length > 0 && (
-              <ul className="space-y-1">
-                {aiApproval.actionItems.map((item) => (
-                  <li key={item} className="rounded-lg border border-stone-200 bg-stone-50 px-3 py-1.5 text-[11px] text-stone-700">
-                    {item}
-                  </li>
-                ))}
-              </ul>
-            )}
-            {aiApproval.modelImprovementTodos && aiApproval.modelImprovementTodos.length > 0 && (
-              <div className="space-y-2 rounded-lg border border-blue-100 bg-blue-50/60 p-3">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-blue-800">
-                  AI-return todo list
-                </p>
-                <ul className="space-y-2">
-                  {aiApproval.modelImprovementTodos.map((todo) => (
-                    <li key={todo.id} className="text-[11px] text-blue-950">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="font-semibold">{todo.title}</span>
-                        <span className="rounded-full bg-white/80 px-2 py-0.5 text-[10px] uppercase tracking-[0.08em] text-blue-700 ring-1 ring-blue-100">
-                          {todo.priority}
-                        </span>
-                      </div>
-                      <p className="mt-1 text-blue-900/80">{todo.suggestedNextStep}</p>
-                    </li>
-                  ))}
-                </ul>
+            <AiReviewDecisionBrief approval={aiApproval} items={reviewChecklistItems} />
+
+            <details className="rounded-xl border border-stone-200 bg-white/70">
+              <summary className="cursor-pointer px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-stone-500 hover:bg-stone-50">
+                AI evidence and model follow-ups
+              </summary>
+              <div className="space-y-3 px-3 pb-3">
+                <AiReviewProgressTimeline
+                  steps={aiReviewProgress}
+                  elapsedMs={aiReviewElapsedMs}
+                />
+                {reviewChecklistItems.length > 0 && (
+                  <ReviewChecklist items={reviewChecklistItems} />
+                )}
+                {aiApproval.modelImprovementTodos &&
+                  aiApproval.modelImprovementTodos.length > 0 && (
+                  <div className="space-y-2 rounded-lg border border-blue-100 bg-blue-50/60 p-3">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-blue-800">
+                      Model follow-ups
+                    </p>
+                    <ul className="space-y-2">
+                      {aiApproval.modelImprovementTodos.map((todo) => (
+                        <li key={todo.id} className="text-[11px] text-blue-950">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="font-semibold">{todo.title}</span>
+                            <span className="rounded-full bg-white/80 px-2 py-0.5 text-[10px] uppercase tracking-[0.08em] text-blue-700 ring-1 ring-blue-100">
+                              {todo.priority}
+                            </span>
+                          </div>
+                          <p className="mt-1 text-blue-900/80">{todo.suggestedNextStep}</p>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                {run?.aiApproval?.auditTrail && (
+                  <ProofBundleLinks auditTrail={run.aiApproval.auditTrail} />
+                )}
               </div>
-            )}
-            {run?.aiApproval?.auditTrail && (
-              <ProofBundleLinks auditTrail={run.aiApproval.auditTrail} />
-            )}
+            </details>
           </div>
         ) : null}
       </StepCard>
