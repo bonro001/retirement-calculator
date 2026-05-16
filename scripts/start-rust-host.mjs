@@ -11,6 +11,9 @@ const REPO_ROOT = resolve(SCRIPT_DIR, '..');
 const HOST_ENTRY = resolve(REPO_ROOT, 'cluster/host.ts');
 const UPDATE_REQUEST_PATH = resolve(REPO_ROOT, '.cluster-update-request.json');
 const AUTO_UPDATE_EXIT_CODE = 75;
+const FALLBACK_REPO_GIT_URL =
+  process.env.REPO_GIT_FALLBACK_URL ??
+  'https://github.com/bonro001/retirement-calculator.git';
 
 function shortLocalTime() {
   return new Date().toLocaleTimeString([], {
@@ -49,6 +52,27 @@ function git(args, options = {}) {
   });
   if (res.status !== 0) return null;
   return res.stdout.trim() || null;
+}
+
+function commandResult(command, args) {
+  const bin = process.platform === 'win32' && command === 'npm' ? 'npm.cmd' : command;
+  return spawnSync(bin, args, {
+    cwd: REPO_ROOT,
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+    env: process.env,
+  });
+}
+
+function summarizeCommandFailure(res) {
+  const parts = [];
+  if (typeof res.status === 'number') parts.push(`exit=${res.status}`);
+  if (res.signal) parts.push(`signal=${res.signal}`);
+  const stderr = res.stderr?.trim();
+  const stdout = res.stdout?.trim();
+  if (stderr) parts.push(`stderr=${stderr.split(/\r?\n/).slice(-4).join(' | ')}`);
+  if (stdout) parts.push(`stdout=${stdout.split(/\r?\n/).slice(-4).join(' | ')}`);
+  return parts.join(' ');
 }
 
 function runStep(command, args) {
@@ -154,16 +178,59 @@ function deriveRepoGitUrl() {
   return match ? `git://${match[1]}/retirement-calculator` : null;
 }
 
-function ensureOriginRemote() {
-  const repoGitUrl = deriveRepoGitUrl();
-  if (!repoGitUrl) return;
-  const currentOrigin = git(['remote', 'get-url', 'origin']);
-  if (currentOrigin === repoGitUrl) return;
-  if (currentOrigin) {
-    runStep('git', ['remote', 'set-url', 'origin', repoGitUrl]);
-  } else {
-    runStep('git', ['remote', 'add', 'origin', repoGitUrl]);
+function uniqueStrings(values) {
+  const seen = new Set();
+  const out = [];
+  for (const value of values) {
+    if (!value || seen.has(value)) continue;
+    seen.add(value);
+    out.push(value);
   }
+  return out;
+}
+
+function candidateFetchUrls() {
+  return uniqueStrings([
+    deriveRepoGitUrl(),
+    git(['remote', 'get-url', 'origin']),
+    FALLBACK_REPO_GIT_URL,
+  ]);
+}
+
+function setOriginRemote(url) {
+  const currentOrigin = git(['remote', 'get-url', 'origin']);
+  if (currentOrigin === url) return;
+  if (currentOrigin) {
+    runStep('git', ['remote', 'set-url', 'origin', url]);
+  } else {
+    runStep('git', ['remote', 'add', 'origin', url]);
+  }
+}
+
+function fetchOriginWithFallback() {
+  const urls = candidateFetchUrls();
+  if (urls.length === 0) {
+    throw new Error('no git remote candidates available for auto-update');
+  }
+  const failures = [];
+  for (const url of urls) {
+    console.log(`[start-rust-host] git fetch candidate ${url}`);
+    const res = commandResult('git', [
+      'fetch',
+      '--prune',
+      url,
+      '+refs/heads/*:refs/remotes/origin/*',
+    ]);
+    if (res.status === 0) {
+      console.log(`[start-rust-host] git fetch succeeded from ${url}`);
+      setOriginRemote(url);
+      return url;
+    }
+    const summary = summarizeCommandFailure(res);
+    failures.push(`${url}: ${summary}`);
+    console.warn(`[start-rust-host] git fetch failed from ${url}: ${summary}`);
+  }
+  throw new Error(`all git fetch candidates failed: ${failures.join(' ; ')}`);
 }
 
 function readAndClearUpdateRequest() {
@@ -196,9 +263,7 @@ function readAndClearUpdateRequest() {
 function updateIfBehind() {
   const before = buildInfo();
   const requestedBuildInfo = readAndClearUpdateRequest();
-  ensureOriginRemote();
-
-  runStep('git', ['fetch', '--prune', 'origin']);
+  fetchOriginWithFallback();
 
   // Determine target branch: prefer dispatcher's, fall back to current.
   const dispatcherBranch = fetchDispatcherBranch();
@@ -319,6 +384,7 @@ const autoUpdate =
   process.env.HOST_AUTO_UPDATE === 'true';
 const dryRun = hasFlag('dry-run');
 const profile = autoProfile();
+const configuredCertifyWorkers = process.env.HOST_CERTIFY_WORKERS;
 
 if (dispatcher) process.env.DISPATCHER_URL = dispatcher;
 process.env.HOST_WORKERS = workers ?? String(profile.workers);
@@ -386,8 +452,14 @@ function startChild() {
   // running until the dispatcher explicitly tells it to cycle again.
   if (autoUpdateExhausted) {
     process.env.HOST_AUTO_UPDATE = '0';
+    process.env.HOST_CERTIFY_WORKERS = '0';
   } else {
     process.env.HOST_AUTO_UPDATE = autoUpdate ? '1' : '0';
+    if (configuredCertifyWorkers === undefined) {
+      delete process.env.HOST_CERTIFY_WORKERS;
+    } else {
+      process.env.HOST_CERTIFY_WORKERS = configuredCertifyWorkers;
+    }
   }
   process.env.HOST_ACCEPT_UPDATE_CONTROL = autoUpdate ? '1' : '0';
   child = spawn(process.execPath, ['--import', 'tsx', HOST_ENTRY], {
