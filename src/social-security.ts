@@ -81,7 +81,7 @@ function earlyClaimFactor(fraAge: number, claimAge: number): number {
   if (monthsEarly === 0) return 1;
   const tier1 = Math.min(36, monthsEarly);
   const tier2 = Math.max(0, monthsEarly - 36);
-  const reduction = (tier1 * 5) / 1200 + (tier2 * 5) / 900;
+  const reduction = (tier1 * 5) / 900 + (tier2 * 5) / 1200;
   return 1 - reduction;
 }
 
