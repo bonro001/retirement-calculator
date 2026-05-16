@@ -687,7 +687,7 @@ function SpendBoundaryStrip({
                 : group.verdict ?? '-';
         const valueLabel =
           budgetAnnualSpend === null ? 'pending' : formatCurrency(displayAnnualSpend);
-        const targetLabel = `target ${formatCurrency(lifestyleAnnualSpend)}`;
+        const testLevelLabel = `test ${formatCurrency(lifestyleAnnualSpend)}`;
         return (
           <div key={group.key} className="flex min-w-[112px] flex-col gap-0.5">
             {isRecommended && (
@@ -700,8 +700,8 @@ function SpendBoundaryStrip({
               style={{ height: `${height}px` }}
               title={
                 budgetAnnualSpend === null
-                  ? `Total budget pending until certification trace completes · ${targetLabel}/yr${travelDetail} · ${group.candidateCount} candidate${group.candidateCount === 1 ? '' : 's'} · ${group.hostDisplayNames.join(', ') || 'unassigned'} · ${group.verdict ?? (group.status === 'running' ? 'certifying...' : '-')}${progressLabel}`
-                  : `${formatCurrency(displayAnnualSpend)}/yr next-year total budget · ${targetLabel}/yr${travelDetail} · ${group.candidateCount} candidate${group.candidateCount === 1 ? '' : 's'} · ${group.hostDisplayNames.join(', ') || 'unassigned'} · ${group.verdict ?? '-'}${progressLabel}`
+                  ? `Total budget pending until certification trace completes · ${testLevelLabel}/yr${travelDetail} · ${group.candidateCount} candidate${group.candidateCount === 1 ? '' : 's'} · ${group.hostDisplayNames.join(', ') || 'unassigned'} · ${group.verdict ?? (group.status === 'running' ? 'certifying...' : '-')}${progressLabel}`
+                  : `${formatCurrency(displayAnnualSpend)}/yr next-year total budget · ${testLevelLabel}/yr${travelDetail} · ${group.candidateCount} candidate${group.candidateCount === 1 ? '' : 's'} · ${group.hostDisplayNames.join(', ') || 'unassigned'} · ${group.verdict ?? '-'}${progressLabel}`
               }
             >
               <div
@@ -729,7 +729,7 @@ function SpendBoundaryStrip({
             <span
               className="truncate text-[8px] font-semibold uppercase text-stone-500"
             >
-              {targetLabel}
+              {testLevelLabel}
             </span>
             <span
               className={`truncate text-[8px] font-semibold uppercase ${
@@ -1083,12 +1083,12 @@ function ValidationTradeoffMap({
         <div className="flex items-center justify-between gap-3">
           <p className="text-stone-500">
             {selectedSpend !== null
-              ? `${higherGroups.length} higher lifestyle target level${higherGroups.length === 1 ? '' : 's'} tested above ${formatCurrency(displaySelectedSpend)}/yr; total budget pending (${higherSlots.length} candidate${higherSlots.length === 1 ? '' : 's'})`
+              ? `${higherGroups.length} higher validation level${higherGroups.length === 1 ? '' : 's'} tested above ${formatCurrency(displaySelectedSpend)}/yr; total budget pending (${higherSlots.length} candidate${higherSlots.length === 1 ? '' : 's'})`
               : `${displayGroups.length} non-green spend level${displayGroups.length === 1 ? '' : 's'} tested (${displaySlots.length} candidate${displaySlots.length === 1 ? '' : 's'})`}
           </p>
           {selectedSpend !== null && (
             <span className="shrink-0 rounded-full bg-emerald-100 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-emerald-800 ring-1 ring-emerald-200">
-              target {formatCurrency(displaySelectedSpend)}
+              selected test {formatCurrency(displaySelectedSpend)}
             </span>
           )}
         </div>
@@ -1126,7 +1126,7 @@ function ValidationTradeoffMap({
                       pending
                     </p>
                     <p className="mt-0.5 text-[8px] font-semibold uppercase tracking-[0.06em] text-stone-400">
-                      target {formatCurrency(displayAnnualSpend)}
+                      test {formatCurrency(displayAnnualSpend)}
                     </p>
                     <p
                       className={`mt-1 rounded-full px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-[0.08em] ring-1 ${
@@ -1166,7 +1166,7 @@ function ValidationTradeoffMap({
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="text-sm font-semibold tabular-nums text-stone-950">
-                        target {formatCurrency(displayAnnualSpend)}/yr
+                        test {formatCurrency(displayAnnualSpend)}/yr
                       </span>
                       {group.verdict && (
                         <span
@@ -1329,7 +1329,7 @@ function ValidationTradeoffMap({
                       : 'border-rose-100 ring-rose-100'
               }`}
               title={
-                `Next-year total budget ${formatCurrency(displayAnnualSpend)}/yr · lifestyle target ${formatCurrency(lifestyleAnnualSpend)}/yr`
+                `Next-year total budget ${formatCurrency(displayAnnualSpend)}/yr · validation level ${formatCurrency(lifestyleAnnualSpend)}/yr`
               }
             >
               <p className="text-[11px] font-semibold tabular-nums text-stone-900">
@@ -1420,7 +1420,7 @@ function ValidationTradeoffMap({
                       {group.strategyLabels.join(', ')}
                     </p>
                     <p className="mt-1 text-[10px] tabular-nums text-stone-500">
-                      lifestyle target {formatCurrency(lifestyleAnnualSpend)}/yr · core {formatCurrency(group.annualSpendTodayDollars)}/yr + travel {formatCurrency(annualTravelOverlay)}/yr
+                      validation level {formatCurrency(lifestyleAnnualSpend)}/yr · core {formatCurrency(group.annualSpendTodayDollars)}/yr + travel {formatCurrency(annualTravelOverlay)}/yr
                     </p>
                   </div>
                   <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-right text-[10px] tabular-nums text-stone-500 sm:grid-cols-4">
@@ -3240,7 +3240,7 @@ export function MonthlyReviewPanel({
             </p>
             {runningCertSpendLine && runningCertElapsedMs !== null && (
               <p className="text-[11px] tabular-nums text-stone-600">
-                {runningCertMode ?? 'certification'} active · lifestyle targets {runningCertSpendLine} · budget pending · elapsed{' '}
+                {runningCertMode ?? 'certification'} active · testing spend levels {runningCertSpendLine} · total budget pending · elapsed{' '}
                 {formatDuration(runningCertElapsedMs)}
               </p>
             )}
