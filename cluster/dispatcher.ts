@@ -61,6 +61,7 @@ import {
   encodeMessage,
   type BatchAssignMessage,
   type CertifyAssignMessage,
+  type CertifyCancelMessage,
   type CertifyErrorMessage,
   type CertifyJobPayload,
   type CertifyProgressMessage,
@@ -617,6 +618,63 @@ function pickHostForCertify(): Peer | null {
   return eligible[0]?.peer ?? null;
 }
 
+function sendCertifyCancel(job: PendingCertifyJob, reason: string): void {
+  const host = peers.get(job.hostPeerId);
+  if (!host || host.socket.readyState !== host.socket.OPEN) return;
+  const cancel: CertifyCancelMessage = {
+    kind: 'certify_cancel',
+    to: host.peerId,
+    jobId: job.jobId,
+    reason,
+    from: 'dispatcher',
+  };
+  sendTo(host, cancel);
+}
+
+function cancelPendingCertifyJob(
+  jobId: string,
+  reason: string,
+  options: { disconnectHost?: boolean } = {},
+): boolean {
+  const job = pendingCertifyJobs.get(jobId);
+  if (!job) return false;
+  clearTimeout(job.timeout);
+  pendingCertifyJobs.delete(jobId);
+  sendCertifyCancel(job, reason);
+  if (options.disconnectHost) {
+    const host = peers.get(job.hostPeerId);
+    if (host?.socket.readyState === host?.socket.OPEN) {
+      host.socket.close(1000, reason);
+    }
+  }
+  job.reject(new Error(reason));
+  log('info', 'certify cancelled', {
+    jobId,
+    hostPeerId: job.hostPeerId,
+    reason,
+  });
+  broadcastClusterState();
+  return true;
+}
+
+function cancelPendingCertifyJobs(
+  reason: string,
+  options: { disconnectHosts?: boolean } = {},
+): number {
+  const jobIds = [...pendingCertifyJobs.keys()];
+  let cancelled = 0;
+  for (const jobId of jobIds) {
+    if (
+      cancelPendingCertifyJob(jobId, reason, {
+        disconnectHost: options.disconnectHosts,
+      })
+    ) {
+      cancelled += 1;
+    }
+  }
+  return cancelled;
+}
+
 function runCertifyJob(
   payload: CertifyJobPayload,
   callbacks: {
@@ -632,10 +690,7 @@ function runCertifyJob(
     }
     const jobId = `cert-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
     const timeout = setTimeout(() => {
-      const job = pendingCertifyJobs.get(jobId);
-      if (!job) return;
-      pendingCertifyJobs.delete(jobId);
-      job.reject(new Error('certification job timed out'));
+      cancelPendingCertifyJob(jobId, 'certification job timed out');
     }, CERTIFY_JOB_TIMEOUT_MS);
 
     const pending: PendingCertifyJob = {
@@ -2242,6 +2297,7 @@ function handleMessage(peer: Peer, message: ClusterMessage): void {
     case 'batch_assign':
     case 'batch_ack':
     case 'certify_assign':
+    case 'certify_cancel':
     case 'host_control':
     case 'cluster_state':
     case 'evaluations_ingested':
@@ -3007,6 +3063,16 @@ async function handleMonthlyReviewJobHttp(
     monthlyReviewJob.error = 'cancelled by user';
     appendMonthlyReviewJobLog(monthlyReviewJob, 'cancel requested by user');
     cancelActiveSessionFromServerJob('monthly review cancelled by user');
+    const cancelledCertifyJobs = cancelPendingCertifyJobs(
+      'monthly review cancelled by user',
+      { disconnectHosts: true },
+    );
+    if (cancelledCertifyJobs > 0) {
+      appendMonthlyReviewJobLog(
+        monthlyReviewJob,
+        `cancelled ${cancelledCertifyJobs} validation job${cancelledCertifyJobs === 1 ? '' : 's'}`,
+      );
+    }
     const child = monthlyReviewJob.child;
     if (child) {
       child.kill('SIGTERM');

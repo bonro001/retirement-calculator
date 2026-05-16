@@ -503,6 +503,8 @@ export function createClusterClient(config: ClusterClientConfig): ClusterClient 
         handleCertifyAssign(message);
         return;
       }
+      case 'certify_cancel':
+        return;
       case 'cluster_state': {
         publish({ cluster: message.snapshot });
         return;

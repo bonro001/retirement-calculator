@@ -491,6 +491,17 @@ export interface CertifyAssignMessage extends BaseMessage {
 }
 
 /**
+ * Dispatcher -> host: cancel a certification job that was previously
+ * assigned. Certification jobs are independent from mining sessions, so
+ * they need their own cancellation message.
+ */
+export interface CertifyCancelMessage extends BaseMessage {
+  kind: 'certify_cancel';
+  jobId: string;
+  reason?: string;
+}
+
+/**
  * Host → dispatcher: certification job completed. Dispatcher resolves the
  * pending HTTP request keyed by `jobId`.
  */
@@ -541,6 +552,7 @@ export type ClusterMessage =
   | ClusterStateMessage
   | EvaluationsIngestedMessage
   | CertifyAssignMessage
+  | CertifyCancelMessage
   | CertifyProgressMessage
   | CertifyResultMessage
   | CertifyErrorMessage;

@@ -59,6 +59,7 @@ import {
   type BatchResultMessage,
   type CancelSessionMessage,
   type CertifyAssignMessage,
+  type CertifyCancelMessage,
   type CertifyErrorMessage,
   type CertifyProgressMessage,
   type CertifyResultMessage,
@@ -1003,6 +1004,15 @@ function cancelAllCertifyInFlight(reason: string): void {
   }
 }
 
+function cancelCertifyJob(requestId: string, reason: string): boolean {
+  const pending = pendingCertifyRuns.get(requestId);
+  if (!pending) return false;
+  pending.reject(new Error(reason));
+  pendingCertifyRuns.delete(requestId);
+  replaceCertifyWorker(pending.slot);
+  return true;
+}
+
 async function shutdownCertifyPool(): Promise<void> {
   cancelAllCertifyInFlight('host: shutting down');
   await Promise.all(certifySlots.map((slot) => slot.worker.terminate()));
@@ -1371,6 +1381,10 @@ async function handleDispatcherMessage(message: ClusterMessage): Promise<void> {
       void handleCertifyAssign(message);
       return;
     }
+    case 'certify_cancel': {
+      handleCertifyCancel(message);
+      return;
+    }
     case 'cluster_state':
       maybeRequestAutoUpdate(message.snapshot.dispatcherBuildInfo, 'cluster_state');
       return;
@@ -1706,6 +1720,16 @@ async function handleCertifyAssign(message: CertifyAssignMessage): Promise<void>
       durationMs: Date.now() - startedAtMs,
     });
   }
+}
+
+function handleCertifyCancel(message: CertifyCancelMessage): void {
+  const reason = message.reason ?? 'certification cancelled by dispatcher';
+  const cancelled = cancelCertifyJob(message.jobId, reason);
+  log(cancelled ? 'info' : 'warn', 'certify cancel requested', {
+    jobId: message.jobId,
+    cancelled,
+    reason,
+  });
 }
 
 function sendCertifyResult(jobId: string, pack: CertifyResultMessage['pack']): void {
