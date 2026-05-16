@@ -69,6 +69,13 @@ describe('ACA subsidy / FPL-band behavior', () => {
     expect(out.netAcaCost).toBeCloseTo(expectedContribution, 0);
   });
 
+  it('MAGI $1 above 4.0 FPL → restored 400%-FPL cap removes subsidy', () => {
+    const magi = FPL_HOUSEHOLD_2 * 4 + 1;
+    const out = calculateHealthcarePremiums(mkInput({ MAGI: magi }));
+    expect(out.acaSubsidyEstimate).toBe(0);
+    expect(out.netAcaCost).toBe(BASE_PREMIUM_PER_PERSON * 2);
+  });
+
   it('MAGI at 5.0 FPL → restored 400%-FPL cap means no subsidy', () => {
     const magi = FPL_HOUSEHOLD_2 * 5; // 105,750
     const out = calculateHealthcarePremiums(mkInput({ MAGI: magi }));

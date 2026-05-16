@@ -8,13 +8,10 @@ export default defineConfig({
     // infrastructure (e.g., for writing export snapshots to disk). Exclude
     // from the default run; invoke them explicitly when needed.
     exclude: ['**/node_modules/**', 'src/.tmp-*.test.ts'],
-    // Keep test execution deterministic and avoid worker RPC heartbeat timeouts
-    // during long Monte Carlo suites.
+    // Keep test execution deterministic. Long Monte Carlo tiers are batched in
+    // scripts/run-model-tests.mjs so a single worker task stays under Vitest's
+    // RPC heartbeat window.
     maxWorkers: 1,
     pool: 'forks',
-    // Vitest 3.2 occasionally reports its own worker RPC `onTaskUpdate`
-    // timeout after long deterministic MC files even when tests pass. Keep
-    // focused suites as the primary signal for real unhandled app errors.
-    dangerouslyIgnoreUnhandledErrors: true,
   },
 });

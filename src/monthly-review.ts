@@ -17,8 +17,17 @@ import type {
 } from './policy-certification';
 import { clearsPolicyGates, rankPolicies } from './policy-ranker';
 import { calculateRunwayGapMetrics } from './runway-utils';
-import type { MarketAssumptions, SeedData } from './types';
-import { calculateCurrentAges } from './utils';
+import {
+  buildNorthStarBudgetFromCertification,
+  buildNorthStarBudgetFromPath,
+  type NorthStarBudget,
+} from './north-star-budget';
+import {
+  resolveProtectedReserveGoal,
+  type ProtectedReserveGoal,
+} from './protected-reserve';
+import type { MarketAssumptions, PathResult, SeedData } from './types';
+import { buildPathResults, calculateCurrentAges } from './utils';
 
 export type MonthlyReviewStrategyId = 'current_faithful';
 
@@ -309,6 +318,10 @@ export interface MonthlyReviewRawExportEvidence {
     outcome: PolicyEvaluation['outcome'];
     certificationVerdict: PolicyCertificationVerdict;
   } | null;
+  northStarBudgets?: {
+    currentPlan: NorthStarBudget | null;
+    selectedPolicy: NorthStarBudget | null;
+  };
   proofRows: {
     topCandidates: Array<{
       strategyId: MonthlyReviewStrategyId;
@@ -385,6 +398,7 @@ export interface MonthlyReviewValidationPacket {
   generatedAtIso: string;
   northStar: {
     legacyTargetTodayDollars: number;
+    protectedReserve: ProtectedReserveGoal;
     objective: 'maximize_monthly_spend_subject_to_sleep_at_night_gates';
     approvalStandard: 'green_only';
     advisorStandard: {
@@ -439,6 +453,7 @@ export interface RunMonthlyReviewInput {
   legacyTargetTodayDollars: number;
   data: SeedData;
   assumptions: MarketAssumptions;
+  currentPlanPath?: PathResult | null;
   ports: MonthlyReviewRunnerPorts;
   strategyIds?: MonthlyReviewStrategyId[];
   generatedAtIso?: string;
@@ -541,14 +556,29 @@ export function selectCertificationCandidatesBySpend(
     MONTHLY_REVIEW_CERTIFICATION_REPRESENTATIVES_PER_SPEND,
 ): PolicyEvaluation[] {
   const limit = Math.max(1, Math.floor(maxRepresentativesPerSpend));
-  const seenBySpend = new Map<number, number>();
-  const representatives: PolicyEvaluation[] = [];
+  const bucketsBySpend = new Map<number, PolicyEvaluation[]>();
+  const spendOrder: number[] = [];
   for (const candidate of rankedCandidates) {
     const spend = candidate.policy.annualSpendTodayDollars;
-    const seen = seenBySpend.get(spend) ?? 0;
-    if (seen >= limit) continue;
-    seenBySpend.set(spend, seen + 1);
-    representatives.push(candidate);
+    let bucket = bucketsBySpend.get(spend);
+    if (!bucket) {
+      bucket = [];
+      bucketsBySpend.set(spend, bucket);
+      spendOrder.push(spend);
+    }
+    if (bucket.length < limit) {
+      bucket.push(candidate);
+    }
+  }
+
+  const representatives: PolicyEvaluation[] = [];
+  for (let pass = 0; pass < limit; pass += 1) {
+    for (const spend of spendOrder) {
+      const candidate = bucketsBySpend.get(spend)?.[pass];
+      if (candidate) {
+        representatives.push(candidate);
+      }
+    }
   }
   return representatives;
 }
@@ -1647,6 +1677,7 @@ function buildHoldingConcentrationSignal(data: SeedData): MonthlyReviewQaSignal 
 function buildLegacyHeadroomSignal(input: {
   data: SeedData;
   legacyTargetTodayDollars: number;
+  protectedReserve: ProtectedReserveGoal;
   selected: MonthlyReviewCertification | null;
 }): MonthlyReviewQaSignal {
   const knownDecision = monthlyReviewKnownDecision({
@@ -1667,12 +1698,16 @@ function buildLegacyHeadroomSignal(input: {
     return {
       id: 'legacy_headroom',
       status: 'watch',
-      title: 'Legacy headroom',
-      headline: 'Median legacy ratio unavailable',
+      title: 'Care/legacy reserve headroom',
+      headline: 'Median reserve ratio unavailable',
       detail:
-        'The selected policy outcome does not include median ending wealth relative to the stated legacy target.',
+        'The selected policy outcome does not include median ending wealth relative to the protected care/legacy reserve.',
       evidence: [
         `legacyTargetTodayDollars=${input.legacyTargetTodayDollars}`,
+        `protectedReserveTargetTodayDollars=${input.protectedReserve.targetTodayDollars}`,
+        `protectedReservePurpose=${input.protectedReserve.purpose}`,
+        `protectedReserveAvailableFor=${input.protectedReserve.availableFor}`,
+        `protectedReserveModelCompleteness=${input.protectedReserve.modelCompleteness}`,
         `p50EndingWealthTodayDollars=missing`,
         ...knownDecisionEvidence(knownDecision),
       ],
@@ -1685,7 +1720,7 @@ function buildLegacyHeadroomSignal(input: {
         disposition:
           knownDecisionDisposition(knownDecision) ?? 'possible_model_bug',
         whyItMatters:
-          'Legacy headroom can only be interpreted when the selected policy has ending-wealth percentiles.',
+          'Reserve headroom can only be interpreted when the selected policy has ending-wealth percentiles.',
         whyItMayBeOk:
           'Missing ending-wealth data is acceptable only in an incomplete diagnostic packet.',
         modelBugCheck:
@@ -1703,22 +1738,26 @@ function buildLegacyHeadroomSignal(input: {
   return {
     id: 'legacy_headroom',
     status,
-    title: 'Legacy headroom',
-    headline: `Median EW is ${ratio.toFixed(1)}x legacy target`,
+    title: 'Care/legacy reserve headroom',
+    headline: `Median EW is ${ratio.toFixed(1)}x care/legacy reserve`,
     detail:
       ratio >= 2.5
         ? `Median ending wealth is ${moneyLabel(
             medianEndingValue,
           )} against a ${moneyLabel(
-            input.legacyTargetTodayDollars,
-          )} target. This is spending-headroom evidence, not a depletion-risk warning.`
+            input.protectedReserve.targetTodayDollars,
+          )} protected reserve. This is spending-headroom evidence, not a depletion-risk warning.`
         : `Median ending wealth is ${moneyLabel(
             medianEndingValue,
-          )} against a ${moneyLabel(input.legacyTargetTodayDollars)} target.`,
+          )} against a ${moneyLabel(input.protectedReserve.targetTodayDollars)} care/legacy reserve.`,
     evidence: [
       `legacyTargetTodayDollars=${Math.round(input.legacyTargetTodayDollars)}`,
+      `protectedReserveTargetTodayDollars=${Math.round(input.protectedReserve.targetTodayDollars)}`,
+      `protectedReservePurpose=${input.protectedReserve.purpose}`,
+      `protectedReserveAvailableFor=${input.protectedReserve.availableFor}`,
+      `protectedReserveModelCompleteness=${input.protectedReserve.modelCompleteness}`,
       `p50EndingWealthTodayDollars=${Math.round(medianEndingValue)}`,
-      `medianLegacyToTargetRatio=${ratio.toFixed(3)}`,
+      `medianReserveToTargetRatio=${ratio.toFixed(3)}`,
       `bequestAttainmentRate=${outcome?.bequestAttainmentRate ?? 'missing'}`,
       ...knownDecisionEvidence(knownDecision),
     ],
@@ -1726,10 +1765,10 @@ function buildLegacyHeadroomSignal(input: {
       knownDecision
         ? `Known planning decision: ${knownDecision.decision}`
         : ratio < 1
-        ? 'Do not approve a higher spend until the selected candidate is back above the stated legacy target.'
+        ? 'Do not approve a higher spend until the selected candidate is back above the protected care/legacy reserve.'
         : ratio >= 2.5
           ? 'Surface as a “could spend more” flag; it is the opposite of a homelessness/depletion-risk item.'
-          : 'Legacy target is within the review band; keep monitoring with every rerun.',
+          : 'Care/legacy reserve is within the review band; keep monitoring with every rerun.',
     ...(knownDecision ? { knownDecision } : {}),
     clarity: {
       disposition:
@@ -1740,19 +1779,19 @@ function buildLegacyHeadroomSignal(input: {
             ? 'spending_headroom'
             : 'monitor'),
       whyItMatters:
-        'Legacy headroom shows whether the selected spend path is consuming the household goal or leaving a large margin unused.',
+        'Care/legacy reserve headroom shows whether the selected spend path is consuming the protected late-life reserve or leaving a large margin unused.',
       whyItMayBeOk:
         knownDecision
           ? `This is OK because there is a recorded decision: ${knownDecision.rationale}`
           : ratio >= 2.5
-          ? 'High headroom is acceptable if the household deliberately prefers a larger legacy, optionality, or lower stress over more current spending.'
-          : 'A moderate ratio is acceptable when it reflects the stated legacy target and sleep-at-night preference.',
+          ? 'High headroom is acceptable if the household deliberately prefers a larger care reserve, optionality, or lower stress over more current spending.'
+          : 'A moderate ratio is acceptable when it reflects the protected reserve target and sleep-at-night preference.',
       modelBugCheck:
-        'Check for a bug if the legacy target is stale, ending wealth is nominal instead of today-dollar, or the selected strategy is not the one being reviewed.',
+        'Check for a bug if the protected reserve target is stale, ending wealth is nominal instead of today-dollar, or the selected strategy is not the one being reviewed.',
       decisionPrompt:
         ratio >= 2.5
           ? 'Decide whether this surplus is intentional or whether the monthly spend target should be raised and re-certified.'
-          : 'Keep comparing p50 and downside ending wealth against the stated legacy target.',
+          : 'Keep comparing p50 and downside ending wealth against the protected care/legacy reserve.',
     },
   };
 }
@@ -1764,6 +1803,10 @@ export function buildMonthlyReviewQaSignals(input: {
   strategies: MonthlyReviewStrategyResult[];
 }): MonthlyReviewQaSignal[] {
   const selected = selectedMonthlyReviewCertification(input.strategies);
+  const protectedReserve = resolveProtectedReserveGoal(
+    input.data.goals,
+    input.legacyTargetTodayDollars,
+  );
   return [
     buildAcaBridgeSignal({
       data: input.data,
@@ -1775,6 +1818,7 @@ export function buildMonthlyReviewQaSignals(input: {
     buildLegacyHeadroomSignal({
       data: input.data,
       legacyTargetTodayDollars: input.legacyTargetTodayDollars,
+      protectedReserve,
       selected,
     }),
   ];
@@ -1793,13 +1837,26 @@ function buildCertificationSummary(
   );
 }
 
+export function buildMonthlyReviewCurrentPlanPath(input: {
+  data: SeedData;
+  assumptions: MarketAssumptions;
+}): PathResult | null {
+  const [path] = buildPathResults(input.data, input.assumptions, [], [], {
+    pathMode: 'selected_only',
+    outputLevel: 'full_trace',
+  });
+  return path ?? null;
+}
+
 export function buildMonthlyReviewRawExportEvidence(input: {
   data: SeedData;
   assumptions: MarketAssumptions;
   baselineFingerprint: string;
   engineVersion: string;
+  legacyTargetTodayDollars: number;
   strategies: MonthlyReviewStrategyResult[];
   certificationSummary: MonthlyReviewValidationPacket['certificationSummary'];
+  currentPlanPath?: PathResult | null;
 }): MonthlyReviewRawExportEvidence {
   const selected = selectedMonthlyReviewCertification(input.strategies);
   const selectedStrategy = selected
@@ -1901,6 +1958,37 @@ export function buildMonthlyReviewRawExportEvidence(input: {
     input.data.spending.annualTaxesInsurance;
   const annualWithTravelSpend =
     annualCoreSpend + input.data.spending.travelEarlyRetirementAnnual;
+  const reviewRetirementYear =
+    selectedSpendingPath?.retirementYear ??
+    parseYearFromIso(input.data.income.salaryEndDate);
+  const protectedReserve = resolveProtectedReserveGoal(
+    input.data.goals,
+    input.legacyTargetTodayDollars,
+  );
+  const currentPlanNorthStarBudget = input.currentPlanPath
+    ? buildNorthStarBudgetFromPath({
+        path: input.currentPlanPath,
+        year: reviewRetirementYear,
+        spendingPath: null,
+        fallbackCoreAnnual: annualCoreSpend,
+        fallbackTravelAnnual: input.data.spending.travelEarlyRetirementAnnual,
+        inflation: input.assumptions.inflation,
+        legacyTarget: input.legacyTargetTodayDollars,
+        protectedReserve,
+      })
+    : null;
+  const selectedPolicyNorthStarBudget =
+    selected && selectedSpendingPath
+      ? buildNorthStarBudgetFromCertification({
+          cert: selected,
+          spendingPath: selectedSpendingPath,
+          retirementYear: reviewRetirementYear,
+          inflation: input.assumptions.inflation,
+          legacyTarget: input.legacyTargetTodayDollars,
+          protectedReserve,
+          fallbackTravelAnnual: input.data.spending.travelEarlyRetirementAnnual,
+        })
+      : null;
   const balancesTodayDollars = {
     pretax: accountBalance(input.data, 'pretax'),
     roth: accountBalance(input.data, 'roth'),
@@ -2017,6 +2105,10 @@ export function buildMonthlyReviewRawExportEvidence(input: {
             certificationVerdict: selected.verdict,
           }
         : null,
+    northStarBudgets: {
+      currentPlan: currentPlanNorthStarBudget,
+      selectedPolicy: selectedPolicyNorthStarBudget,
+    },
     proofRows: {
       topCandidates: topCandidateRows,
       higherSpendRowsTested,
@@ -2037,13 +2129,19 @@ export function buildMonthlyReviewValidationPacket(input: {
   recommendation: MonthlyReviewRecommendation;
   strategies: MonthlyReviewStrategyResult[];
   tasks: MonthlyReviewModelTask[];
+  currentPlanPath?: PathResult | null;
 }): MonthlyReviewValidationPacket {
   const certificationSummary = buildCertificationSummary(input.strategies);
+  const protectedReserve = resolveProtectedReserveGoal(
+    input.data.goals,
+    input.legacyTargetTodayDollars,
+  );
   return {
     version: 'monthly_review_validation_packet_v1',
     generatedAtIso: input.generatedAtIso,
     northStar: {
       legacyTargetTodayDollars: input.legacyTargetTodayDollars,
+      protectedReserve,
       objective: 'maximize_monthly_spend_subject_to_sleep_at_night_gates',
       approvalStandard: 'green_only',
       advisorStandard: {
@@ -2083,8 +2181,10 @@ export function buildMonthlyReviewValidationPacket(input: {
       assumptions: input.assumptions,
       baselineFingerprint: input.baselineFingerprint,
       engineVersion: input.engineVersion,
+      legacyTargetTodayDollars: input.legacyTargetTodayDollars,
       strategies: input.strategies,
       certificationSummary,
+      currentPlanPath: input.currentPlanPath,
     }),
   };
 }
@@ -2152,6 +2252,7 @@ export async function runMonthlyReview(
     recommendation: preAiRecommendation,
     strategies: strategyResults,
     tasks: preAiTasks,
+    currentPlanPath: input.currentPlanPath ?? null,
   });
   const aiApproval = await input.ports.aiReview(packet);
   const modelTasks = classifyMonthlyReviewModelTasks({

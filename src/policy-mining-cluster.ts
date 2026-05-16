@@ -407,7 +407,7 @@ export async function startClusterMonthlyReviewJob(
   dispatcherUrl: string,
   input: {
     aiMode?: 'mock' | 'real' | 'off';
-    mineMode?: 'missing' | 'always' | 'never';
+    mineMode?: 'always' | 'never';
     maxCertCandidates?: number;
     certificationMaxConcurrency?: number;
   } = {},

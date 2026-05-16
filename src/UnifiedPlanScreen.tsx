@@ -2343,8 +2343,8 @@ export function UnifiedPlanScreen({
   const hardConstraints = currentRun
     ? [
         `Success floor: ${formatPercent(currentEvaluation?.calibration.minimumSuccessRateTarget ?? currentRun.plan.targets.minSuccessRate)}`,
-        `Legacy floor: ${formatCurrency(currentEvaluation?.calibration.legacyFloorTodayDollars ?? currentRun.plan.targets.exitTargetTodayDollars)} (today's dollars)`,
-        `Legacy target band: ${formatCurrency(currentEvaluation?.calibration.legacyTargetBandLowerTodayDollars ?? currentRun.plan.targets.exitTargetTodayDollars)} to ${formatCurrency(currentEvaluation?.calibration.legacyTargetBandUpperTodayDollars ?? currentRun.plan.targets.exitTargetTodayDollars)} (today's dollars)`,
+        `Care/legacy reserve floor: ${formatCurrency(currentEvaluation?.calibration.legacyFloorTodayDollars ?? currentRun.plan.targets.exitTargetTodayDollars)} (today's dollars)`,
+        `Care/legacy reserve band: ${formatCurrency(currentEvaluation?.calibration.legacyTargetBandLowerTodayDollars ?? currentRun.plan.targets.exitTargetTodayDollars)} to ${formatCurrency(currentEvaluation?.calibration.legacyTargetBandUpperTodayDollars ?? currentRun.plan.targets.exitTargetTodayDollars)} (today's dollars)`,
         'Preserve essential spending floor',
         ...(currentRun.plan.constraints.doNotSellHouse ? ['Keep house (no primary residence sale)'] : []),
         ...(currentRun.plan.constraints.doNotRetireLater ? ['Do not retire later'] : []),
@@ -2764,18 +2764,18 @@ export function UnifiedPlanScreen({
     ? [
         solverDiagnostics.surplusPreservedBecause,
         `Binding constraint: ${toReadableConstraint(solverDiagnostics.bindingConstraint)}.`,
-        `Legacy floor: ${formatCurrency(solverDiagnostics.legacyFloorTodayDollars)}; target band: ${formatCurrency(solverDiagnostics.legacyTargetBandLowerTodayDollars)} to ${formatCurrency(solverDiagnostics.legacyTargetBandUpperTodayDollars)}; projected ending wealth: ${formatCurrency(solverDiagnostics.projectedLegacyOutcomeTodayDollars)}.`,
+        `Care/legacy reserve floor: ${formatCurrency(solverDiagnostics.legacyFloorTodayDollars)}; reserve band: ${formatCurrency(solverDiagnostics.legacyTargetBandLowerTodayDollars)} to ${formatCurrency(solverDiagnostics.legacyTargetBandUpperTodayDollars)}; projected ending wealth: ${formatCurrency(solverDiagnostics.projectedLegacyOutcomeTodayDollars)}.`,
         solverDiagnostics.overReservedAmount > 0
-          ? `Over-reserved amount versus legacy target: ${formatCurrency(solverDiagnostics.overReservedAmount)}.`
+          ? `Over-reserved amount versus care/legacy reserve target: ${formatCurrency(solverDiagnostics.overReservedAmount)}.`
           : solverDiagnostics.legacyWithinTargetBand
-            ? 'Projected ending wealth is inside the legacy target band.'
-            : 'Projected ending wealth is at or below the legacy target band.',
+            ? 'Projected ending wealth is inside the care/legacy reserve band.'
+            : 'Projected ending wealth is at or below the care/legacy reserve band.',
         `Flexible spending target/min: ${formatCurrency(solverDiagnostics.flexibleSpendingTarget)} / ${formatCurrency(solverDiagnostics.flexibleSpendingMinimum)} per year.`,
         `Travel spending target/min: ${formatCurrency(solverDiagnostics.travelSpendingTarget)} / ${formatCurrency(solverDiagnostics.travelSpendingMinimum)} per year.`,
         solverDiagnostics.constrainedBySpendingFloors
           ? 'Spending floors are currently binding the optimization.'
           : solverDiagnostics.constrainedByLegacyTarget
-            ? 'Legacy target proximity is currently binding the optimization.'
+            ? 'Care/legacy reserve proximity is currently binding the optimization.'
             : `Primary optimizer driver: ${toReadableConstraint(solverDiagnostics.optimizationConstraintDriver)}.`,
         solverDiagnostics.houseRetentionContribution,
         solverDiagnostics.inheritanceMateriality === 'high'
@@ -4337,7 +4337,7 @@ export function UnifiedPlanScreen({
                   ACA exposure: {acaExposureYears > 0 ? `${acaExposureYears} years above subsidy-safe range.` : 'No ACA breach years in current route.'}
                 </p>
                 <p className="mt-2">
-                  Legacy landing (today $): center {formatCurrency(currentEvaluation.calibration.projectedLegacyTodayDollars)} with
+                  Care/legacy reserve landing (today $): center {formatCurrency(currentEvaluation.calibration.projectedLegacyTodayDollars)} with
                   approx 1σ robust range {formatCurrency(currentEvaluation.calibration.endingWealthOneSigmaLowerTodayDollars)} to{' '}
                   {formatCurrency(currentEvaluation.calibration.endingWealthOneSigmaUpperTodayDollars)}. Target band is{' '}
                   {formatCurrency(currentEvaluation.calibration.legacyTargetBandLowerTodayDollars)} to{' '}
@@ -4346,7 +4346,7 @@ export function UnifiedPlanScreen({
                 </p>
                 {currentEvaluation.calibration.overReservedAmount > 0 ? (
                   <p className="mt-2">
-                    This plan is currently over-reserved by {formatCurrency(currentEvaluation.calibration.overReservedAmount)} relative to the legacy target.
+                    This plan is currently over-reserved by {formatCurrency(currentEvaluation.calibration.overReservedAmount)} relative to the care/legacy reserve target.
                   </p>
                 ) : null}
                 <p className="mt-2">
@@ -4521,7 +4521,7 @@ export function UnifiedPlanScreen({
             </div>
             <div
               className="rounded-xl bg-white p-3"
-              title="Probability the plan does not run out of money before end of horizon. Distinct from bequest attainment — a plan can be solvent and still fall short of the legacy goal."
+              title="Probability the plan does not run out of money before end of horizon. Distinct from reserve attainment — a plan can be solvent and still fall short of the care/legacy reserve."
             >
               <p className="text-xs text-stone-500">Modeled success</p>
               <p className="mt-1 text-lg font-semibold text-stone-900">
@@ -4534,7 +4534,7 @@ export function UnifiedPlanScreen({
             {currentEvaluation.summary.bequestAttainmentRate !== null ? (
               <div
                 className="rounded-xl bg-white p-3"
-                title="Approximate probability ending wealth meets or exceeds your North Star bequest. Interpolated from the P10/P25/P50/P75/P90 distribution; clamped at 95% / 5% in the unmeasured tails."
+                title="Approximate probability ending wealth meets or exceeds your North Star care/legacy reserve. Interpolated from the P10/P25/P50/P75/P90 distribution; clamped at 95% / 5% in the unmeasured tails."
               >
                 <p className="text-xs text-stone-500">Bequest on target</p>
                 <p className="mt-1 text-lg font-semibold text-stone-900">
@@ -4543,7 +4543,7 @@ export function UnifiedPlanScreen({
                 <p className="mt-0.5 text-[10px] text-stone-500">
                   Reaches{' '}
                   {formatCurrency(currentEvaluation.calibration.targetLegacyTodayDollars)}{' '}
-                  bequest
+                  reserve
                 </p>
               </div>
             ) : null}
@@ -4559,7 +4559,7 @@ export function UnifiedPlanScreen({
               <span className="font-semibold">IRMAA outlook:</span> {currentEvaluation.summary.irmaaOutlook}
             </p>
             <p>
-              <span className="font-semibold">Legacy outlook:</span> {currentEvaluation.summary.legacyOutlook}
+              <span className="font-semibold">Reserve outlook:</span> {currentEvaluation.summary.legacyOutlook}
             </p>
             <p className="mt-1">
               <span className="font-semibold">Binding constraint:</span>{' '}
@@ -4584,18 +4584,18 @@ export function UnifiedPlanScreen({
             const p10Below = p10Gap < 0;
             const headline = (() => {
               if (medianGap < 0) {
-                return `Median ending wealth lands ${formatCurrency(Math.abs(medianGap))} below your ${formatCurrency(target)} North Star — the plan is not currently funded to clear the bequest at the median.`;
+                return `Median ending wealth lands ${formatCurrency(Math.abs(medianGap))} below your ${formatCurrency(target)} North Star reserve — the plan is not currently funded to preserve the care/legacy reserve at the median.`;
               }
               if (isBigOvershoot && p10Below) {
-                return `At the median you overshoot the ${formatCurrency(target)} North Star by ${formatCurrency(medianGap)} — but the bottom 10% of paths still falls ${formatCurrency(Math.abs(p10Gap))} short. The median surplus is the cost of insuring against the bad tail, not free money.`;
+                return `At the median you overshoot the ${formatCurrency(target)} North Star reserve by ${formatCurrency(medianGap)} — but the bottom 10% of paths still falls ${formatCurrency(Math.abs(p10Gap))} short. The median surplus is the cost of insuring against the bad tail, not routine-spend money.`;
               }
               if (isBigOvershoot && !p10Below) {
-                return `Median ending wealth overshoots your ${formatCurrency(target)} North Star by ${formatCurrency(medianGap)}, and even the bottom 10% of paths clears the target. That's real unspent capacity — there's room to spend more, gift more, or convert more aggressively to Roth without violating the goal.`;
+                return `Median ending wealth overshoots your ${formatCurrency(target)} North Star reserve by ${formatCurrency(medianGap)}, and even the bottom 10% of paths clears the target. That's real unspent capacity — there's room to spend more, gift more, or convert more aggressively to Roth without violating the care/legacy reserve.`;
               }
               if (medianGap > 0 && p10Below) {
-                return `Median ending wealth clears your ${formatCurrency(target)} North Star by ${formatCurrency(medianGap)}, but the bottom 10% of paths falls ${formatCurrency(Math.abs(p10Gap))} short.`;
+                return `Median ending wealth clears your ${formatCurrency(target)} North Star reserve by ${formatCurrency(medianGap)}, but the bottom 10% of paths falls ${formatCurrency(Math.abs(p10Gap))} short.`;
               }
-              return `Median ending wealth clears the ${formatCurrency(target)} North Star by ${formatCurrency(medianGap)}; the distribution stays above target through P10.`;
+              return `Median ending wealth clears the ${formatCurrency(target)} North Star reserve by ${formatCurrency(medianGap)}; the distribution stays above target through P10.`;
             })();
             const cells: Array<{ label: string; value: number }> = [
               { label: 'P10', value: dist.p10 },
@@ -4637,7 +4637,7 @@ export function UnifiedPlanScreen({
                     })}
                   </div>
                   <p className="mt-2 text-xs text-stone-500">
-                    Today's dollars. North Star: {formatCurrency(target)}. Green
+                    Today's dollars. North Star reserve: {formatCurrency(target)}. Green
                     cells clear the target; red cells fall short. P10 = bottom
                     10% of Monte Carlo paths; P90 = top 10%.
                   </p>
@@ -5225,14 +5225,14 @@ export function UnifiedPlanScreen({
           </ControlSection>
 
           <ControlSection
-            title="Legacy Goal"
+            title="Care/Legacy Reserve"
             summary={legacySummary}
             isOpen={controlsSectionState.legacyGoal}
             onToggle={() => setControlsSectionOpen('legacyGoal', !controlsSectionState.legacyGoal)}
           >
             <div className="grid gap-3 md:grid-cols-2">
               <label className="text-sm text-stone-700">
-                Legacy target ($)
+                Reserve target ($)
                 <input
                   type="number"
                   value={legacyTargetTodayDollars}
@@ -5243,7 +5243,7 @@ export function UnifiedPlanScreen({
                 />
               </label>
               <label className="text-sm text-stone-700">
-                Legacy priority
+                Reserve priority
                 <select
                   value={legacyPriority}
                   onChange={(event) => setLegacyPriority(event.target.value as LegacyPriority)}
@@ -5305,10 +5305,10 @@ export function UnifiedPlanScreen({
         <SectionCard title="Plan Interpretation">
           <div className="grid gap-3 lg:grid-cols-2">
             <div className="rounded-xl bg-white p-4">
-              <p className="text-xs uppercase tracking-[0.14em] text-stone-500">IRMAA + legacy read</p>
+              <p className="text-xs uppercase tracking-[0.14em] text-stone-500">IRMAA + reserve read</p>
               <p className="mt-2 text-sm text-stone-700">{currentEvaluation.irmaa.explanation}</p>
               <p className="mt-2 text-sm text-stone-700">
-                Legacy floor {formatCurrency(currentEvaluation.calibration.legacyFloorTodayDollars)} · target band{' '}
+                Care/legacy reserve floor {formatCurrency(currentEvaluation.calibration.legacyFloorTodayDollars)} · target band{' '}
                 {formatCurrency(currentEvaluation.calibration.legacyTargetBandLowerTodayDollars)} to{' '}
                 {formatCurrency(currentEvaluation.calibration.legacyTargetBandUpperTodayDollars)} (
                 {formatLegacyPriorityLabel(currentEvaluation.calibration.legacyPriority)}) · projected{' '}

@@ -7,6 +7,7 @@ import { initialSeedData } from '../src/data';
 import { defaultAssumptions } from '../src/default-assumptions';
 import { buildEvaluationFingerprint } from '../src/evaluation-fingerprint';
 import {
+  buildMonthlyReviewCurrentPlanPath,
   buildMonthlyReviewMiningFingerprint,
   runMonthlyReview,
   type MonthlyReviewAiApproval,
@@ -50,7 +51,7 @@ loadEnv({ path: '.env.local' });
 loadEnv({ path: '.env', override: false });
 
 type AiMode = 'mock' | 'real' | 'off';
-type MineMode = 'missing' | 'always' | 'never';
+type MineMode = 'always' | 'never';
 
 interface CliOptions {
   iterations: number;
@@ -95,7 +96,7 @@ function parseArgs(argv: string[]): CliOptions {
     iterations: 5,
     apiCalls: 1,
     aiMode: process.env.OPENAI_API_KEY ? 'real' : 'mock',
-    mineMode: 'missing',
+    mineMode: 'always',
     strategyIds: ['current_faithful'],
     dispatcherUrl: process.env.DISPATCHER_URL ?? 'ws://localhost:8765',
     outDir: 'artifacts/monthly-review-loop',
@@ -123,10 +124,12 @@ function parseArgs(argv: string[]): CliOptions {
         }
         break;
       case 'mine':
-        if (value === 'missing' || value === 'always' || value === 'never') {
+        if (value === 'always' || value === 'never') {
           opts.mineMode = value;
+        } else if (value === 'missing') {
+          opts.mineMode = 'always';
         } else {
-          throw new Error(`Unsupported --mine=${value}; use missing, always, or never.`);
+          throw new Error(`Unsupported --mine=${value}; use always or never.`);
         }
         break;
       case 'mine-timeout-minutes':
@@ -182,7 +185,7 @@ Usage:
 Options:
   --strategy=current_faithful | all
   --ai=mock | real | off        mock is deterministic; real calls OpenAI
-  --mine=missing | always | never
+  --mine=always | never       always starts a fresh mine; never requires a supplied session
   --max-cert-candidates=N     exploratory cap; 0 means unlimited
   --cert-concurrency=N        deterministic certifications to run in parallel
   --api-calls=N                hard cap for real OpenAI calls
@@ -224,21 +227,6 @@ function buildMonthlyReviewRunEngineVersion(strategyFingerprint: string): string
 
 function sessionCompleted(session: ClusterSessionListing): boolean {
   return session.summary?.state === 'completed' && session.evaluationCount > 0;
-}
-
-function findLatestSessionForFingerprint(
-  sessions: ClusterSessionListing[],
-  fingerprint: string,
-  engineVersion: string,
-): ClusterSessionListing | null {
-  return (
-    sessions.find(
-      (session) =>
-        sessionCompleted(session) &&
-        session.manifest.config.baselineFingerprint === fingerprint &&
-        session.manifest.config.engineVersion === engineVersion,
-    ) ?? null
-  );
 }
 
 async function startClusterMine(input: {
@@ -396,7 +384,6 @@ async function ensureClusterSession(input: {
   sessions: ClusterSessionListing[];
   strategy: MonthlyReviewStrategyDefinition;
   strategyFingerprint: string;
-  engineVersion: string;
   mineMode: MineMode;
   legacyTargetTodayDollars: number;
   timeoutMs: number;
@@ -404,14 +391,6 @@ async function ensureClusterSession(input: {
   session: ClusterSessionListing | null;
   sessions: ClusterSessionListing[];
 }> {
-  if (input.mineMode !== 'always') {
-    const existing = findLatestSessionForFingerprint(
-      input.sessions,
-      input.strategyFingerprint,
-      input.engineVersion,
-    );
-    if (existing) return { session: existing, sessions: input.sessions };
-  }
   if (input.mineMode === 'never') {
     return { session: null, sessions: input.sessions };
   }
@@ -425,13 +404,9 @@ async function ensureClusterSession(input: {
   });
   await sleep(1_000);
   const sessions = await loadClusterSessions(input.dispatcherUrl);
-  const session =
-    sessions.find((candidate) => candidate.sessionId === sessionId) ??
-    findLatestSessionForFingerprint(
-      sessions,
-      input.strategyFingerprint,
-      input.engineVersion,
-    );
+  const session = sessions.find(
+    (candidate) => candidate.sessionId === sessionId && sessionCompleted(candidate),
+  );
   return { session: session ?? null, sessions };
 }
 
@@ -592,6 +567,10 @@ async function main(): Promise<void> {
   await mkdir(runRoot, { recursive: true });
 
   const baselineFingerprint = buildBaselineFingerprint();
+  const currentPlanPath = buildMonthlyReviewCurrentPlanPath({
+    data: initialSeedData,
+    assumptions: defaultAssumptions,
+  });
   let sessions = await loadClusterSessions(opts.dispatcherUrl);
   let realApiCalls = 0;
 
@@ -603,6 +582,13 @@ async function main(): Promise<void> {
   console.log(`Certify concurrency: ${opts.certificationMaxConcurrency}`);
   console.log(`Dispatcher: ${opts.dispatcherUrl}`);
   console.log(`Baseline: ${baselineFingerprint}`);
+  console.log(
+    `Current-plan trace: ${
+      currentPlanPath
+        ? `${currentPlanPath.yearlySeries.length} yearly rows`
+        : 'missing'
+    }`,
+  );
 
   for (let iteration = 1; iteration <= opts.iterations; iteration += 1) {
     console.log(`\n--- iteration ${iteration}/${opts.iterations} ---`);
@@ -645,6 +631,7 @@ async function main(): Promise<void> {
         initialSeedData.goals?.legacyTargetTodayDollars ?? 1_000_000,
       data: initialSeedData,
       assumptions: defaultAssumptions,
+      currentPlanPath,
       generatedAtIso,
       strategyIds: opts.strategyIds,
       certificationMaxConcurrency: opts.certificationMaxConcurrency,
@@ -660,7 +647,6 @@ async function main(): Promise<void> {
             sessions,
             strategy,
             strategyFingerprint,
-            engineVersion: buildMonthlyReviewRunEngineVersion(strategyFingerprint),
             mineMode: opts.mineMode,
             legacyTargetTodayDollars:
               initialSeedData.goals?.legacyTargetTodayDollars ?? 1_000_000,
@@ -670,12 +656,12 @@ async function main(): Promise<void> {
           const session = ensured.session;
           if (!session) {
             throw new Error(
-              `No completed cluster session found for ${strategy.label} (${strategyFingerprint}). Rerun with --mine=missing or --mine=always.`,
+              `No completed fresh cluster session found for ${strategy.label} (${strategyFingerprint}). Rerun with --mine=always.`,
             );
           }
           sessionMap[strategy.id] = session.sessionId;
           console.log(
-            `${strategy.label}: using ${session.sessionId} (${session.evaluationCount.toLocaleString()} evals)`,
+            `${strategy.label}: mined ${session.sessionId} (${session.evaluationCount.toLocaleString()} evals)`,
           );
           const payload = await loadClusterEvaluations(
             opts.dispatcherUrl,

@@ -8,18 +8,24 @@ export const GOLDEN_SCENARIOS: GoldenScenarioDefinition[] = [
     selectedResponses: [],
     pathKind: 'baseline',
     expected: {
-      // 2026-05-08: re-pinned after current-law 2026 tax/contribution rule
-      // packs, SECURE 2.0 catch-up handling, and north-star trace plumbing.
-      successRate: 1,
-      medianEndingWealth: 6450891.035073565,
-      annualTaxEstimate: 3278.5588235294117,
+      // 2026-05-16: re-pinned after planning end ages moved to
+      // Rob 88 / Debbie 91.
+      successRate: 0.885,
+      medianEndingWealth: 2911471.1605613427,
+      tenthPercentileEndingWealth: 160253.22309257626,
+      annualTaxEstimate: 3048.6666666666665,
+      firstYearTotalCashOutflow: 148694,
+      medianLegacySurplus: 1911471.1605613427,
       maxIrmaaTier: 1,
-      averageHealthcarePremiumCost: 13098.70588235294,
+      averageHealthcarePremiumCost: 11973.466666666667,
     },
     tolerance: {
       successRate: 0.02,
       medianEndingWealth: 300000,
+      tenthPercentileEndingWealth: 150000,
       annualTaxEstimate: 750,
+      firstYearTotalCashOutflow: 1000,
+      medianLegacySurplus: 300000,
     },
   },
   {
@@ -29,19 +35,25 @@ export const GOLDEN_SCENARIOS: GoldenScenarioDefinition[] = [
     selectedResponses: [],
     pathKind: 'stressed',
     expected: {
-      // 2026-05-08: re-pinned after current-law 2026 tax/contribution rule
-      // packs, SECURE 2.0 catch-up handling, and north-star trace plumbing.
-      successRate: 0.965,
-      medianEndingWealth: 2012848.616192121,
-      annualTaxEstimate: 740.3823529411765,
-      medianFailureYearRange: { min: 2056, max: 2056 },
+      // 2026-05-16: re-pinned after planning end ages moved to
+      // Rob 88 / Debbie 91.
+      successRate: 0.405,
+      medianEndingWealth: 146949.4279747689,
+      tenthPercentileEndingWealth: 0,
+      annualTaxEstimate: 746.2333333333333,
+      firstYearTotalCashOutflow: 164425,
+      medianLegacySurplus: -853050.5720252311,
+      medianFailureYearRange: { min: 2049, max: 2049 },
       maxIrmaaTier: 1,
-      averageHealthcarePremiumCost: 13816.882352941177,
+      averageHealthcarePremiumCost: 12637.433333333332,
     },
     tolerance: {
       successRate: 0.02,
       medianEndingWealth: 300000,
+      tenthPercentileEndingWealth: 1,
       annualTaxEstimate: 750,
+      firstYearTotalCashOutflow: 1000,
+      medianLegacySurplus: 300000,
     },
   },
   {
@@ -54,18 +66,24 @@ export const GOLDEN_SCENARIOS: GoldenScenarioDefinition[] = [
       data.spending.optionalMonthly = 3000;
     },
     expected: {
-      // 2026-05-08: re-pinned after current-law 2026 tax/contribution rule
-      // packs, SECURE 2.0 catch-up handling, and north-star trace plumbing.
-      successRate: 1,
-      medianEndingWealth: 8304490.602959889,
-      annualTaxEstimate: 2760.5882352941176,
+      // 2026-05-16: re-pinned after planning end ages moved to
+      // Rob 88 / Debbie 91.
+      successRate: 0.99,
+      medianEndingWealth: 5121509.101647649,
+      tenthPercentileEndingWealth: 1208754.7052229885,
+      annualTaxEstimate: 3868.9666666666667,
+      firstYearTotalCashOutflow: 131462,
+      medianLegacySurplus: 4121509.101647649,
       maxIrmaaTier: 1,
-      averageHealthcarePremiumCost: 13098.70588235294,
+      averageHealthcarePremiumCost: 11973.466666666667,
     },
     tolerance: {
       successRate: 0.02,
       medianEndingWealth: 300000,
+      tenthPercentileEndingWealth: 200000,
       annualTaxEstimate: 750,
+      firstYearTotalCashOutflow: 1000,
+      medianLegacySurplus: 300000,
     },
   },
   {
@@ -82,19 +100,25 @@ export const GOLDEN_SCENARIOS: GoldenScenarioDefinition[] = [
       }));
     },
     expected: {
-      // 2026-05-08: re-pinned after current-law 2026 tax/contribution rule
-      // packs, SECURE 2.0 catch-up handling, and north-star trace plumbing.
-      successRate: 0.985,
-      medianEndingWealth: 4304215.645725329,
-      annualTaxEstimate: 810.1764705882352,
-      medianFailureYearRange: { min: 2059, max: 2059 },
+      // 2026-05-16: re-pinned after planning end ages moved to
+      // Rob 88 / Debbie 91.
+      successRate: 0.735,
+      medianEndingWealth: 1568851.0330301477,
+      tenthPercentileEndingWealth: 0,
+      annualTaxEstimate: 1190.5,
+      firstYearTotalCashOutflow: 135026,
+      medianLegacySurplus: 568851.0330301477,
+      medianFailureYearRange: { min: 2050, max: 2050 },
       maxIrmaaTier: 1,
-      averageHealthcarePremiumCost: 12657.470588235294,
+      averageHealthcarePremiumCost: 11475.5,
     },
     tolerance: {
       successRate: 0.02,
       medianEndingWealth: 300000,
+      tenthPercentileEndingWealth: 1,
       annualTaxEstimate: 750,
+      firstYearTotalCashOutflow: 1000,
+      medianLegacySurplus: 300000,
     },
   },
   {
@@ -110,18 +134,24 @@ export const GOLDEN_SCENARIOS: GoldenScenarioDefinition[] = [
       data.accounts.cash.balance = 40_000;
     },
     expected: {
-      // 2026-05-08: re-pinned after current-law 2026 tax/contribution rule
-      // packs, SECURE 2.0 catch-up handling, and north-star trace plumbing.
-      successRate: 1,
-      medianEndingWealth: 13190289.45995742,
-      annualTaxEstimate: 52142.32352941176,
+      // 2026-05-16: re-pinned after planning end ages moved to
+      // Rob 88 / Debbie 91.
+      successRate: 0.995,
+      medianEndingWealth: 9261556.659192218,
+      tenthPercentileEndingWealth: 2245934.714339214,
+      annualTaxEstimate: 44660.066666666666,
+      firstYearTotalCashOutflow: 163002,
+      medianLegacySurplus: 8261556.6591922175,
       maxIrmaaTier: 5,
-      averageHealthcarePremiumCost: 18704.970588235294,
+      averageHealthcarePremiumCost: 16246.466666666667,
     },
     tolerance: {
       successRate: 0.02,
       medianEndingWealth: 400000,
+      tenthPercentileEndingWealth: 300000,
       annualTaxEstimate: 1000,
+      firstYearTotalCashOutflow: 1000,
+      medianLegacySurplus: 400000,
     },
   },
 ];

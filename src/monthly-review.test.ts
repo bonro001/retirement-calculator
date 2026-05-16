@@ -11,6 +11,7 @@ import {
   rankMonthlyReviewCandidates,
   runMonthlyReview,
   runMonthlyReviewIterationLoop,
+  selectCertificationCandidatesBySpend,
   type MonthlyReviewAiApproval,
   type MonthlyReviewCertification,
   type MonthlyReviewStrategyDefinition,
@@ -31,6 +32,7 @@ import type {
   PolicyCertificationPack,
   PolicyCertificationVerdict,
 } from './policy-certification';
+import type { PathResult } from './types';
 
 const generatedAtIso = '2026-05-13T00:00:00.000Z';
 
@@ -170,6 +172,20 @@ function certification(
   };
 }
 
+function currentPlanPath(): PathResult {
+  return {
+    medianEndingWealth: 2_400_000,
+    yearlySeries: [
+      {
+        year: 2027,
+        medianSpending: 126_000,
+        medianFederalTax: 12_000,
+        medianTotalCashOutflow: 138_000,
+      },
+    ],
+  } as unknown as PathResult;
+}
+
 function strategyResult(input: {
   id: MonthlyReviewStrategyDefinition['id'];
   selected?: MonthlyReviewCertification | null;
@@ -298,7 +314,35 @@ describe('monthly review gates', () => {
     ]);
   });
 
-  it('certifies the top two representatives per spend level', async () => {
+  it('selects one representative per spend level before duplicate confirmation reps', () => {
+    const candidates = [
+      evalRow({ id: 'best-110', spend: 110_000, legacy: 0.9, solvency: 1 }),
+      evalRow({ id: 'next-110', spend: 110_000, legacy: 0.89, solvency: 0.99 }),
+      evalRow({ id: 'best-105', spend: 105_000, legacy: 0.9, solvency: 1 }),
+      evalRow({ id: 'next-105', spend: 105_000, legacy: 0.89, solvency: 0.99 }),
+      evalRow({ id: 'best-100', spend: 100_000, legacy: 0.9, solvency: 1 }),
+      evalRow({ id: 'next-100', spend: 100_000, legacy: 0.89, solvency: 0.99 }),
+      evalRow({ id: 'best-95', spend: 95_000, legacy: 0.9, solvency: 1 }),
+      evalRow({ id: 'next-95', spend: 95_000, legacy: 0.89, solvency: 0.99 }),
+      evalRow({ id: 'best-90', spend: 90_000, legacy: 0.9, solvency: 1 }),
+      evalRow({ id: 'next-90', spend: 90_000, legacy: 0.89, solvency: 0.99 }),
+    ];
+
+    expect(selectCertificationCandidatesBySpend(candidates).map((row) => row.id)).toEqual([
+      'best-110',
+      'best-105',
+      'best-100',
+      'best-95',
+      'best-90',
+      'next-110',
+      'next-105',
+      'next-100',
+      'next-95',
+      'next-90',
+    ]);
+  });
+
+  it('certifies spend levels before duplicate representatives', async () => {
     const candidates = [
       evalRow({ id: 'best-115', spend: 115_000, legacy: 0.9, solvency: 1 }),
       evalRow({ id: 'next-115', spend: 115_000, legacy: 0.89, solvency: 0.99 }),
@@ -319,9 +363,7 @@ describe('monthly review gates', () => {
       },
     });
 
-    expect(calls).toEqual(
-      expect.arrayContaining(['best-115', 'next-115', 'best-114']),
-    );
+    expect(calls).toEqual(['best-115', 'best-114', 'next-115']);
     expect(calls).not.toContain('third-115');
     expect(calls).toHaveLength(3);
     // results sorted spend-desc regardless of completion order
@@ -629,6 +671,7 @@ describe('monthly review strategy and orchestration', () => {
       legacyTargetTodayDollars: 1_000_000,
       data: initialSeedData,
       assumptions: defaultAssumptions,
+      currentPlanPath: currentPlanPath(),
       generatedAtIso,
       ports: {
         mineStrategy: async (s) => ({
@@ -671,6 +714,33 @@ describe('monthly review strategy and orchestration', () => {
         'explain_model_facts_unknowns_household_decisions_and_ai_suggestions_separately',
       limits: 'do_not_invent_facts_or_treat_suggestions_as_household_decisions',
     });
+    expect(packet?.northStar.protectedReserve).toMatchObject({
+      targetTodayDollars: 1_000_000,
+      purpose: 'care_first_legacy_if_unused',
+      availableFor: 'late_life_care_or_health_shocks',
+      normalLifestyleSpendable: false,
+      modelCompleteness: 'faithful',
+    });
+    expect(packet?.rawExportEvidence.northStarBudgets?.currentPlan).toEqual(
+      expect.objectContaining({
+        source: 'path_trace',
+        totalAnnualBudget: expect.any(Number),
+        totalMonthlyBudget: expect.any(Number),
+        protectedReserve: expect.objectContaining({
+          purpose: 'care_first_legacy_if_unused',
+        }),
+      }),
+    );
+    expect(
+      packet?.rawExportEvidence.northStarBudgets?.currentPlan?.totalAnnualBudget,
+    ).toBeGreaterThan(0);
+    expect(packet?.rawExportEvidence.northStarBudgets?.selectedPolicy).toEqual(
+      expect.objectContaining({
+        source: 'target_only',
+        lifestyleAnnual:
+          140_000 + initialSeedData.spending.travelEarlyRetirementAnnual,
+      }),
+    );
     expect(packet?.rawExportEvidence.balancesTodayDollars.liquidTotal).toBeGreaterThan(0);
     expect(packet?.rawExportEvidence.proofRows.topCandidates.length).toBeGreaterThan(0);
     expect(packet?.householdSignals?.map((signal) => signal.id)).toEqual([

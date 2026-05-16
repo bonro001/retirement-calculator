@@ -207,8 +207,9 @@ function checkFeasibility(
   ev: SpendOptimizationEvaluation,
   solventTarget: number,
   legacyTarget: number | null,
+  solventTolerance = 0,
 ): { feasible: boolean; binding: SpendBindingConstraint } {
-  const solvencyFails = ev.solventSuccessRate < solventTarget;
+  const solvencyFails = ev.solventSuccessRate + solventTolerance < solventTarget;
   const legacyFails =
     legacyTarget !== null &&
     ev.legacyAttainmentRate !== null &&
@@ -268,6 +269,7 @@ export function findMaxSustainableSpend(
   // about leaving anything has only one north star).
   const targetLegacyAttainmentRate =
     legacyTargetDollars > 0 ? options.targetLegacyAttainmentRate ?? 0.85 : null;
+  const solventTolerance = 1 / Math.max(1, trialCount);
 
   if (minSpend >= maxSpend) {
     throw new Error(
@@ -293,7 +295,12 @@ export function findMaxSustainableSpend(
     legacyTargetDollars,
   );
   trace.push(atMin);
-  const minCheck = checkFeasibility(atMin, targetSolventRate, targetLegacyAttainmentRate);
+  const minCheck = checkFeasibility(
+    atMin,
+    targetSolventRate,
+    targetLegacyAttainmentRate,
+    solventTolerance,
+  );
   if (!minCheck.feasible) {
     const seedAnnualSpend = getSeedAnnualSpend(seed);
     let currentSeedEvaluation: SpendOptimizationEvaluation | null = null;
@@ -330,7 +337,12 @@ export function findMaxSustainableSpend(
     legacyTargetDollars,
   );
   trace.push(atMax);
-  const maxCheck = checkFeasibility(atMax, targetSolventRate, targetLegacyAttainmentRate);
+  const maxCheck = checkFeasibility(
+    atMax,
+    targetSolventRate,
+    targetLegacyAttainmentRate,
+    solventTolerance,
+  );
   if (maxCheck.feasible) {
     const seedAnnualSpend = getSeedAnnualSpend(seed);
     let currentSeedEvaluation: SpendOptimizationEvaluation | null = null;
@@ -384,6 +396,7 @@ export function findMaxSustainableSpend(
       midEval,
       targetSolventRate,
       targetLegacyAttainmentRate,
+      solventTolerance,
     );
     if (midCheck.feasible) {
       lo = mid;
@@ -451,6 +464,7 @@ export async function findMaxSustainableSpendAsync(
     0;
   const targetLegacyAttainmentRate =
     legacyTargetDollars > 0 ? options.targetLegacyAttainmentRate ?? 0.85 : null;
+  const solventTolerance = 1 / Math.max(1, trialCount);
 
   const cellAssumptions: MarketAssumptions = {
     ...assumptions,
@@ -472,6 +486,7 @@ export async function findMaxSustainableSpendAsync(
     atMin,
     targetSolventRate,
     targetLegacyAttainmentRate,
+    solventTolerance,
   );
 
   if (!minCheck.feasible) {
@@ -513,6 +528,7 @@ export async function findMaxSustainableSpendAsync(
     atMax,
     targetSolventRate,
     targetLegacyAttainmentRate,
+    solventTolerance,
   );
 
   if (maxCheck.feasible) {
@@ -564,6 +580,7 @@ export async function findMaxSustainableSpendAsync(
       midEval,
       targetSolventRate,
       targetLegacyAttainmentRate,
+      solventTolerance,
     );
     if (midCheck.feasible) {
       lo = mid;

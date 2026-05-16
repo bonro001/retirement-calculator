@@ -197,6 +197,7 @@ function buildRequiredFindings(
   const strategy = selectedStrategy(packet);
   const certification = selectedCertificationRow(packet);
   const legacyTarget = packet.northStar.legacyTargetTodayDollars;
+  const protectedReserve = packet.northStar.protectedReserve;
   const openTasks = packet.structuralTasks.filter((task) => task.status === 'open');
   const criticalTasks = openTasks.filter((task) => task.blocksApproval);
   const warningTasks = openTasks.filter((task) => !task.blocksApproval);
@@ -276,7 +277,7 @@ function buildRequiredFindings(
           ]
         : ['selectedPolicy=null'],
       recommendation: p10BelowTarget
-        ? 'Keep this as a downside-watch item: the candidate can pass the attainment gate while p10 still falls below the legacy target.'
+        ? 'Keep this as a downside-watch item: the candidate can pass the attainment gate while p10 still falls below the care/legacy reserve target.'
         : undefined,
     }),
     requiredFinding({
@@ -286,16 +287,21 @@ function buildRequiredFindings(
         : p10BelowTarget
           ? 'watch'
           : 'pass',
-      title: 'North-star legacy alignment',
+      title: 'North-star care/legacy reserve alignment',
       detail: !hasSelectedOutcome
-        ? 'Legacy alignment cannot be checked without selected policy outcome metrics.'
-        : `The north star is ${money(legacyTarget)} legacy while maximizing spend. The candidate has ${percent(
+        ? 'Care/legacy reserve alignment cannot be checked without selected policy outcome metrics.'
+        : `The north star is a ${money(legacyTarget)} protected reserve for late-life care or health shocks first, with legacy secondary if unused. The candidate has ${percent(
             outcome.bequestAttainmentRate,
-          )} legacy attainment and median ending wealth of ${money(
+          )} reserve attainment and median ending wealth of ${money(
             outcome.p50EndingWealthTodayDollars,
           )}; p10 ending wealth is ${money(outcome.p10EndingWealthTodayDollars)}.`,
       evidence: [
         `legacyTargetTodayDollars=${legacyTarget}`,
+        `protectedReserve.targetTodayDollars=${protectedReserve.targetTodayDollars}`,
+        `protectedReserve.purpose=${protectedReserve.purpose}`,
+        `protectedReserve.availableFor=${protectedReserve.availableFor}`,
+        `protectedReserve.normalLifestyleSpendable=${protectedReserve.normalLifestyleSpendable}`,
+        `protectedReserve.modelCompleteness=${protectedReserve.modelCompleteness}`,
         `legacyGate=${LEGACY_ATTAINMENT_GATE}`,
         `solvencyGate=${SOLVENCY_GATE}`,
         `bequestAttainmentRate=${outcome?.bequestAttainmentRate ?? 'missing'}`,
@@ -307,7 +313,7 @@ function buildRequiredFindings(
         bequestBelowGate || solvencyBelowGate || p50BelowTarget
           ? 'Do not approve this candidate; mine or select a lower spend candidate without changing the green thresholds.'
           : p10BelowTarget
-            ? 'Surface the p10 shortfall as a watch item, not as proof that the green attainment gate failed.'
+            ? 'Surface the p10 reserve shortfall as a watch item, not as proof that the green attainment gate failed.'
             : undefined,
     }),
     requiredFinding({
@@ -754,7 +760,7 @@ export function sanitizeMonthlyReviewAiApproval(
   };
 }
 
-function buildPrompt(packet: MonthlyReviewValidationPacket): string {
+export function buildPrompt(packet: MonthlyReviewValidationPacket): string {
   return `You are the co-equal AI reviewer for a household monthly retirement review.
 
 North star: mimic a careful financial advisor to the best of your ability while staying inside the evidence. Prioritize issues, explain tradeoffs, identify what is known vs unknown, suggest concrete next actions, and make the household decision points explicit. Do not invent facts, do not treat your suggestions as household decisions, and do not imply professional authority beyond model-backed decision support.
@@ -780,9 +786,11 @@ Verdict rules:
 - "aligned" means every required check passes, the selected candidate is green-certified by real deterministic certification, the spend boundary is proven, and no critical model tasks are open.
 - "watch" means the packet is substantively reviewable and the candidate may be directionally plausible, but one or more non-approval caveats remain. Flow-debug/skipped certification belongs here when selected policy, corpus, outcome metrics, and boundary evidence are otherwise present. It still blocks approval through the certification finding.
 - "insufficient_data" means selected policy, mined corpus, selected outcome metrics, certification row, or spend-boundary evidence is absent enough that a substantive review cannot be performed.
-- "misaligned" means the evidence shows the selected candidate fails the north-star legacy/solvency gates or materially conflicts with the objective.
+- "misaligned" means the evidence shows the selected candidate fails the north-star reserve/solvency gates or materially conflicts with the objective.
 
-For every run, explicitly report p10, p25, p50, p75, and p90 ending wealth when present, and compare p10 and p50 to northStar.legacyTargetTodayDollars. A p10 value below the legacy target is a watch item when the deterministic legacy-attainment gate still passes; it is not by itself proof of failure.
+Protected reserve semantics are mandatory. packet.northStar.protectedReserve defines the household target: it is a protected care/legacy reserve, not routine lifestyle spending money. Its purpose must be care_first_legacy_if_unused. It is available for late-life care or health shocks, and passing money on is secondary if care does not consume it. Do not describe this target as untouchable inheritance or legacy-only wealth. When reviewing candidate spend, ask whether routine spend preserves the reserve, while recognizing the reserve may intentionally be consumed by care shocks.
+
+For every run, explicitly report p10, p25, p50, p75, and p90 ending wealth when present, and compare p10 and p50 to northStar.protectedReserve.targetTodayDollars / northStar.legacyTargetTodayDollars. A p10 value below the care/legacy reserve target is a watch item when the deterministic reserve-attainment gate still passes; it is not by itself proof of failure.
 
 For every run, inspect packet.householdSignals. The household_signal_checklist finding should give a brief roll-up: list each signal, its status, and one sentence on disposition. Full per-signal analysis belongs in the dedicated signal_<id> findings that follow the fixed checklist — do not repeat that depth here. Do not treat every breached gate as automatic plan failure.
 
@@ -792,7 +800,7 @@ Life-to-model review is mandatory, not optional. Inspect packet.lifeModelAudit a
 
 For the ACA bridge signal specifically, distinguish "subsidy loss is an intentional tradeoff" from "the model is wrong." It may be okay if the extra MAGI buys something explicit, such as higher certified spending, Roth conversion/tax positioning, capital-gain harvesting, or simpler liquidity, and if the selected path includes net ACA cost. It is a model-bug concern if MAGI components are missing or double-counted, ACA/FPL thresholds are stale, ages/salary-end dates are wrong, or premium/subsidy/net ACA cost is missing from selected path evidence.
 
-Excess legacy headroom means the household may be leaving too much on the table; do not describe it as depletion or homelessness risk.
+Excess care/legacy reserve headroom means the household may be leaving too much on the table; do not describe it as depletion or homelessness risk.
 
 For shaped or layered spending strategies, do not compare the policy scalar directly to all-in annual household spending. Use rawExportEvidence.selectedPolicy.spendingPath: report scalarMeaning, first-retirement-year spend, peak go-go spend, age-75/80/85 spend, and lifetime average spend. Treat the scalar as a curve anchor when scalarMeaning is "curve_anchor". Treat it as the monthly operating/core budget before the separate travel overlay when scalarMeaning is "core_annual_spend"; in that case use annualSpendRows[].coreAnnualSpendTodayDollars plus annualSpendRows[].travelAnnualSpendTodayDollars to describe the actual go-go total. Judge whether the actual early-retirement spend path supports the north-star objective.
 

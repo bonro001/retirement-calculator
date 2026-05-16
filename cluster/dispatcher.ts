@@ -2778,7 +2778,7 @@ async function monthlyReviewJobPayload(job: MonthlyReviewServerJob) {
 
 function parseMonthlyReviewJobRequest(body: unknown): {
   aiMode: 'mock' | 'real' | 'off';
-  mineMode: 'missing' | 'always' | 'never';
+  mineMode: 'always' | 'never';
   maxCertCandidates: number;
   certificationMaxConcurrency: number;
 } {
@@ -2797,10 +2797,7 @@ function parseMonthlyReviewJobRequest(body: unknown): {
       : process.env.OPENAI_API_KEY
         ? 'real'
         : 'mock';
-  const mineMode =
-    mineRaw === 'missing' || mineRaw === 'always' || mineRaw === 'never'
-      ? mineRaw
-      : 'missing';
+  const mineMode = mineRaw === 'never' ? 'never' : 'always';
   const maxCertCandidates =
     typeof maxCertRaw === 'number' && Number.isFinite(maxCertRaw)
       ? Math.max(0, Math.floor(maxCertRaw))

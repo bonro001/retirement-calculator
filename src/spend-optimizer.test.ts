@@ -253,6 +253,9 @@ describe('findMaxSustainableSpend — directional behavior', () => {
       minAnnualSpend: 30_000,
       maxAnnualSpend: 200_000,
       targetSolventRate: 0.9,
+      // This is a pure spending-capacity monotonicity check. Keep the
+      // live household care/legacy reserve from binding the synthetic seeds.
+      legacyTargetTodayDollars: 0,
       trialCount: 200,
       toleranceDollars: 5_000,
     };

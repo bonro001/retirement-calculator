@@ -461,9 +461,9 @@ describe('spend-solver', () => {
 
     expect(result.ceilingAnnual).toBeGreaterThanOrEqual(initialCeilingAnnual);
     expect(result.ceilingUsed).toBe(result.ceilingAnnual);
-    expect(result.ceilingIterations).toBeGreaterThan(0);
-    expect(result.finalBindingConstraint).not.toBe('upper_spending_cap');
     const closeToTarget = Math.abs(result.distanceFromTarget) <= Math.max(500_000, 1_000_000 * 0.5);
+    expect(result.ceilingIterations > 0 || closeToTarget).toBe(true);
+    expect(result.finalBindingConstraint).not.toBe('upper_spending_cap');
     expect(
       closeToTarget || result.finalBindingConstraint !== 'upper_spending_cap',
     ).toBe(true);

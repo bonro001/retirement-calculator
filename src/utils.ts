@@ -3272,15 +3272,31 @@ function applyProactiveRothConversion(input: {
   let bestCandidate: CandidateResult | null = null;
   const minAnnualDollars = input.plan.rothConversionPolicy.minAnnualDollars;
   const skipCeilingCheck = thresholdType === 'irmaa' && alreadyAboveIrmaaThreshold;
+  const bracketFillTargetAmount = bracketFillWindowActive
+    ? Math.round(
+        Math.min(
+          bracketFillPolicy.annualTargetDollars,
+          totalConversionBudget,
+          balancePretaxFloor,
+        ) * 100,
+      ) / 100
+    : 0;
   for (let i = 0; i < evaluatedCandidateAmounts.length; i += 1) {
     const amount = evaluatedCandidateAmounts[i];
     if (amount < minAnnualDollars) continue;
     const taxAfterConversion = calculateTaxForConversion(amount);
     const candidateMotive = candidateMotives.get(amount) ?? 'opportunistic_headroom';
+    const isBracketFillTargetCandidate =
+      bracketFillWindowActive &&
+      Math.abs(amount - bracketFillTargetAmount) <= MAGI_TOLERANCE_DOLLARS;
     const crossesAcaCeiling =
       input.acaFriendlyMagiCeiling !== null &&
       taxAfterConversion.MAGI > input.acaFriendlyMagiCeiling + MAGI_TOLERANCE_DOLLARS;
-    if (crossesAcaCeiling && acaOverageBefore <= MAGI_TOLERANCE_DOLLARS) {
+    if (
+      crossesAcaCeiling &&
+      acaOverageBefore <= MAGI_TOLERANCE_DOLLARS &&
+      !isBracketFillTargetCandidate
+    ) {
       continue;
     }
     if (
@@ -3301,6 +3317,15 @@ function applyProactiveRothConversion(input: {
     candidateResults.push(result);
     if (!bestCandidate || evaluation.conversionScore > bestCandidate.evaluation.conversionScore) {
       bestCandidate = result;
+    }
+  }
+  if (bracketFillWindowActive) {
+    const targetCandidate = candidateResults.find(
+      (candidate) =>
+        Math.abs(candidate.amount - bracketFillTargetAmount) <= MAGI_TOLERANCE_DOLLARS,
+    );
+    if (targetCandidate) {
+      bestCandidate = targetCandidate;
     }
   }
 
@@ -4740,10 +4765,10 @@ function simulatePath(
   const rmdPolicyOverride = data.rules.rmdPolicy?.startAgeOverride;
   const robRmdStartAgeConst =
     rmdPolicyOverride ??
-    getRmdStartAgeForBirthYear(new Date(data.household.robBirthDate).getFullYear());
+    getRmdStartAgeForBirthYear(new Date(data.household.robBirthDate).getUTCFullYear());
   const debbieRmdStartAgeConst =
     rmdPolicyOverride ??
-    getRmdStartAgeForBirthYear(new Date(data.household.debbieBirthDate).getFullYear());
+    getRmdStartAgeForBirthYear(new Date(data.household.debbieBirthDate).getUTCFullYear());
 
   const monteCarlo = executeDeterministicMonteCarlo<SimulationRunResult>({
     seed: simulationSeed,

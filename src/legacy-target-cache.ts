@@ -1,5 +1,7 @@
 /**
- * Persistence for the household's North Star (`data.goals.legacyTargetTodayDollars`).
+ * Persistence for the household's care/legacy reserve target
+ * (`data.goals.legacyTargetTodayDollars`, mirrored into
+ * `data.goals.protectedReserve` by the store).
  *
  * Lives in `localStorage` rather than `sessionStorage` because the
  * household sets this value once and expects it to survive across browser

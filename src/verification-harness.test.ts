@@ -30,7 +30,26 @@ describe('verification-harness', () => {
         report.comparisons.some((row) => row.metric === 'annual_tax_estimate'),
       ),
     ).toBe(true);
-  });
+    expect(
+      reports.every((report) =>
+        report.comparisons.some(
+          (row) => row.metric === 'tenth_percentile_ending_wealth',
+        ),
+      ),
+    ).toBe(true);
+    expect(
+      reports.every((report) =>
+        report.comparisons.some(
+          (row) => row.metric === 'first_year_total_cash_outflow',
+        ),
+      ),
+    ).toBe(true);
+    expect(
+      reports.every((report) =>
+        report.comparisons.some((row) => row.metric === 'median_legacy_surplus'),
+      ),
+    ).toBe(true);
+  }, 15_000);
 
   it('produces deterministic full-model results for identical seed and assumptions', () => {
     const assumptions: MarketAssumptions = {
@@ -59,8 +78,10 @@ describe('verification-harness', () => {
     expect(summary.successRate).toBeGreaterThanOrEqual(0);
     expect(summary.successRate).toBeLessThanOrEqual(1);
     expect(summary.annualTaxEstimate).toBeGreaterThanOrEqual(0);
+    expect(summary.tenthPercentileEndingWealth).toBeGreaterThanOrEqual(0);
+    expect(summary.firstYearTotalCashOutflow).toBeGreaterThan(0);
+    expect(Number.isFinite(summary.medianLegacySurplus)).toBe(true);
     expect(summary.maxIrmaaTier).toBeGreaterThanOrEqual(1);
     expect(summary.averageHealthcarePremiumCost).toBeGreaterThan(0);
   });
 });
-

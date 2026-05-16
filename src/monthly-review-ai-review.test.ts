@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { sanitizeMonthlyReviewAiApproval } from '../cluster/monthly-review-ai-review';
+import {
+  buildPrompt,
+  sanitizeMonthlyReviewAiApproval,
+} from '../cluster/monthly-review-ai-review';
 import type { MonthlyReviewValidationPacket } from './monthly-review';
 
 const generatedAtIso = '2026-05-13T12:00:00.000Z';
@@ -12,6 +15,15 @@ function reviewPacket(
     generatedAtIso,
     northStar: {
       legacyTargetTodayDollars: 1_000_000,
+      protectedReserve: {
+        targetTodayDollars: 1_000_000,
+        purpose: 'care_first_legacy_if_unused',
+        availableFor: 'late_life_care_or_health_shocks',
+        normalLifestyleSpendable: false,
+        modelCompleteness: 'faithful',
+        assumptionSource: 'explicit_household_goal',
+        legacyAliasTodayDollars: 1_000_000,
+      },
       objective: 'maximize_monthly_spend_subject_to_sleep_at_night_gates',
       approvalStandard: 'green_only',
       advisorStandard: {
@@ -203,6 +215,17 @@ function reviewPacket(
 }
 
 describe('monthly review AI review sanitizer', () => {
+  it('teaches the AI reviewer the care-first protected reserve contract', () => {
+    const prompt = buildPrompt(reviewPacket());
+
+    expect(prompt).toContain('protected care/legacy reserve');
+    expect(prompt).toContain('not routine lifestyle spending money');
+    expect(prompt).toContain('late-life care or health shocks');
+    expect(prompt).toContain('passing money on is secondary');
+    expect(prompt).toContain('care_first_legacy_if_unused');
+    expect(prompt).toContain('northStar.protectedReserve.targetTodayDollars');
+  });
+
   it('keeps aligned when only nonblocking warning tasks remain', () => {
     const base = reviewPacket();
     const packet = reviewPacket({
@@ -345,6 +368,16 @@ describe('monthly review AI review sanitizer', () => {
     ).toMatchObject({
       status: 'watch',
     });
+    expect(
+      approval.findings.find((finding) => finding.id === 'north_star_legacy_alignment')?.evidence,
+    ).toEqual(
+      expect.arrayContaining([
+        'protectedReserve.purpose=care_first_legacy_if_unused',
+        'protectedReserve.availableFor=late_life_care_or_health_shocks',
+        'protectedReserve.normalLifestyleSpendable=false',
+        'protectedReserve.modelCompleteness=faithful',
+      ]),
+    );
   });
 
   it('adds a failing life-model finding when cash-in destination is incomplete', () => {

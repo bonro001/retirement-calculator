@@ -1,6 +1,7 @@
 export type ScreenId =
   | 'six_pack'
   | 'cockpit'
+  | 'income_curve'
   | 'mining'
   | 'history'
   | 'plan2'
@@ -389,6 +390,13 @@ export interface SeedData {
   scheduledOutflows?: ScheduledOutflow[];
   goals?: {
     legacyTargetTodayDollars?: number | null;
+    protectedReserve?: {
+      targetTodayDollars: number;
+      purpose: 'care_first_legacy_if_unused';
+      availableFor: 'late_life_care_or_health_shocks' | 'legacy_only';
+      normalLifestyleSpendable: boolean;
+      assumptionSource: string;
+    };
     [key: string]: unknown;
   };
 }

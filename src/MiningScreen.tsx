@@ -103,7 +103,7 @@ export function MiningScreen() {
       <div>
         <h1 className="text-xl font-semibold text-stone-900">Monthly review</h1>
         <p className="mt-1 max-w-xl text-[12px] text-stone-500">
-          One button. One answer. Run each month to get the amount you can spend right now.
+          One answer: next-year monthly spend while preserving the legacy target and front-loading travel.
         </p>
       </div>
 
@@ -118,6 +118,7 @@ export function MiningScreen() {
           engineVersion={POLICY_MINER_ENGINE_VERSION}
           dispatcherUrl={dispatcherUrl}
           legacyTargetTodayDollars={legacyTargetTodayDollars}
+          baselinePath={primaryPath}
           selectedStrategyId="current_faithful"
         />
       </div>

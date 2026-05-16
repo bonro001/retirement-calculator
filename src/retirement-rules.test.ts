@@ -17,9 +17,11 @@ describe('retirement-rules', () => {
   });
 
   it('returns expected RMD start ages by birth year bands', () => {
-    expect(getRmdStartAgeForBirthYear(1949)).toBe(72);
+    expect(getRmdStartAgeForBirthYear(1950)).toBe(72);
+    expect(getRmdStartAgeForBirthYear(1951)).toBe(73);
     expect(getRmdStartAgeForBirthYear(1955)).toBe(73);
-    expect(getRmdStartAgeForBirthYear(1962)).toBe(75);
+    expect(getRmdStartAgeForBirthYear(1959)).toBe(73);
+    expect(getRmdStartAgeForBirthYear(1960)).toBe(75);
   });
 
   it('calculates RMD amount using IRS uniform lifetime divisors', () => {
@@ -64,5 +66,49 @@ describe('retirement-rules', () => {
 
     expect(result.amount).toBeCloseTo(387912 / 24.6, 6);
     expect(result.details[0]?.accountShare).toBe(1);
+  });
+
+  it('allocates RMDs from unequal source-account ownership balances', () => {
+    const result = calculateRequiredMinimumDistribution({
+      pretaxBalance: 1_000_000,
+      sourceAccounts: [
+        { id: 'rob-ira', owner: 'rob', balance: 750_000 },
+        { id: 'debbie-ira', owner: 'debbie', balance: 250_000 },
+      ],
+      members: [
+        {
+          owner: 'rob',
+          birthDate: '1952-01-01',
+          age: 74,
+        },
+        {
+          owner: 'debbie',
+          birthDate: '1951-01-01',
+          age: 75,
+        },
+      ],
+    });
+
+    expect(result.amount).toBeCloseTo(750_000 / 25.5 + 250_000 / 24.6, 6);
+    expect(result.details.map((detail) => detail.accountShare)).toEqual([
+      0.75,
+      0.25,
+    ]);
+  });
+
+  it('does not calculate an RMD before a member reaches their start age', () => {
+    const result = calculateRequiredMinimumDistribution({
+      pretaxBalance: 500_000,
+      members: [
+        {
+          birthDate: '1960-01-01',
+          age: 74,
+          accountShare: 1,
+        },
+      ],
+    });
+
+    expect(result.amount).toBe(0);
+    expect(result.details).toEqual([]);
   });
 });

@@ -208,7 +208,7 @@ export function calculateRequiredMinimumDistribution(
   let amount = 0;
 
   input.members.forEach((member, index) => {
-    const birthYear = new Date(member.birthDate).getFullYear();
+    const birthYear = new Date(member.birthDate).getUTCFullYear();
     const startAge = Math.max(
       0,
       Math.floor(member.startAgeOverride ?? getRmdStartAgeForBirthYear(birthYear)),

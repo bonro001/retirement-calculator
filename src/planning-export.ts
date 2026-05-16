@@ -50,6 +50,10 @@ import {
   type PortfolioStrategyAssessment,
 } from './portfolio-strategy-assessment';
 import { computePlanFingerprint } from './prediction-log';
+import {
+  resolveProtectedReserveGoal,
+  type ProtectedReserveGoal,
+} from './protected-reserve';
 import { CURRENT_RULE_PACK_VERSION } from './rule-packs';
 
 export const EXPORT_SCHEMA_VERSION = 'retirement-planner-export.v2';
@@ -154,6 +158,10 @@ export interface PlanningAdjustment {
 
 export interface PlanningExportSnapshot {
   household: SeedData['household'];
+  goals: {
+    legacyTargetTodayDollars: number | null;
+    protectedReserve: ProtectedReserveGoal;
+  };
   assets: {
     byBucket: {
       pretax: number;
@@ -180,6 +188,7 @@ export interface PlanningExportSnapshot {
     optionalMonthly: number;
     annualTaxesInsurance: number;
     travelEarlyRetirementAnnual: number;
+    travelFloorAnnual: number;
     annualCoreSpend: number;
     annualWithTravelSpend: number;
   };
@@ -297,6 +306,7 @@ export interface PlanningStateExport {
     };
   };
   household: PlanningExportSnapshot['household'];
+  goals: PlanningExportSnapshot['goals'];
   assets: PlanningExportSnapshot['assets'];
   spending: PlanningExportSnapshot['spending'];
   income: PlanningExportSnapshot['income'];
@@ -2776,6 +2786,10 @@ function buildSnapshot(
 
   return {
     household: clone(data.household),
+    goals: {
+      legacyTargetTodayDollars: data.goals?.legacyTargetTodayDollars ?? null,
+      protectedReserve: resolveProtectedReserveGoal(data.goals),
+    },
     assets: {
       byBucket: {
         pretax: roundMoney(data.accounts.pretax.balance),
@@ -2802,6 +2816,7 @@ function buildSnapshot(
       optionalMonthly: roundMoney(data.spending.optionalMonthly),
       annualTaxesInsurance: roundMoney(data.spending.annualTaxesInsurance),
       travelEarlyRetirementAnnual: roundMoney(data.spending.travelEarlyRetirementAnnual),
+      travelFloorAnnual: roundMoney(data.spending.travelFloorAnnual ?? 0),
       annualCoreSpend: roundMoney(annualCoreSpend),
       annualWithTravelSpend: roundMoney(annualWithTravelSpend),
     },
@@ -3377,6 +3392,7 @@ export function buildPlanningStateExport(
     },
     exportFreshness,
     household: effectiveInputs.household,
+    goals: effectiveInputs.goals,
     assets: effectiveInputs.assets,
     spending: effectiveInputs.spending,
     income: effectiveInputs.income,

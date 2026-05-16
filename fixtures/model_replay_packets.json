@@ -1,0 +1,4244 @@
+{
+  "$schemaVersion": 1,
+  "$meta": {
+    "purpose": "Frozen replay packets for deterministic model drift detection. Each packet carries explicit seed data, assumptions, selected levers, summary outputs, and a compact yearly ledger.",
+    "capturedOn": "2026-05-16",
+    "modelCompleteness": "faithful",
+    "inferredAssumptions": [],
+    "currentHouseholdPacketId": "current_88_91_planner_40_987654",
+    "compatibilityPacketIds": [
+      "default_raw_40_987654",
+      "stress_response_planner_40_987654"
+    ]
+  },
+  "packets": [
+    {
+      "id": "default_raw_40_987654",
+      "label": "Default raw simulation replay",
+      "modelCompleteness": "faithful",
+      "inferredAssumptions": [],
+      "input": {
+        "data": {
+          "household": {
+            "robBirthDate": "1964-12-08",
+            "debbieBirthDate": "1963-10-23",
+            "filingStatus": "married_filing_jointly",
+            "planningAge": 95,
+            "state": "TX"
+          },
+          "income": {
+            "salaryAnnual": 210000,
+            "salaryEndDate": "2027-07-01",
+            "socialSecurity": [
+              {
+                "person": "rob",
+                "fraMonthly": 4100,
+                "claimAge": 67
+              },
+              {
+                "person": "debbie",
+                "fraMonthly": 1444,
+                "claimAge": 67
+              }
+            ],
+            "windfalls": [
+              {
+                "name": "inheritance",
+                "year": 2028,
+                "amount": 500000,
+                "taxTreatment": "cash_non_taxable"
+              },
+              {
+                "name": "home_sale",
+                "year": 2037,
+                "amount": 1000000,
+                "taxTreatment": "primary_home_sale",
+                "certainty": "estimated",
+                "timingUncertaintyYears": 2,
+                "amountUncertaintyPercent": 0.3,
+                "costBasis": 500000,
+                "exclusionAmount": 500000,
+                "sellingCostPercent": 0.06,
+                "replacementHomeCost": 500000,
+                "purchaseClosingCostPercent": 0.02,
+                "movingCost": 20000,
+                "liquidityAmount": 500000
+              }
+            ],
+            "preRetirementContributions": {
+              "employee401kPreTaxPercentOfSalary": 0.1499,
+              "employee401kRothPercentOfSalary": 0,
+              "priorYearFicaWagesFromEmployer": 210000,
+              "employerPlanSupportsRothDeferrals": true,
+              "employerPlanSupportsSuperCatchUp": true,
+              "planFeatureAssumptionSource": "estimated_pending_plan_document",
+              "employerMatch": {
+                "matchRate": 0.5,
+                "maxEmployeeContributionPercentOfSalary": 0.06,
+                "assumptionSource": "user_confirmed_athenahealth_50_percent_of_first_6_percent_pending_document_verification",
+                "verificationStatus": "user_confirmed_pending_document"
+              },
+              "hsaPercentOfSalary": 0.0159,
+              "hsaCoverageType": "family"
+            },
+            "sabbatical": {
+              "returnDate": "2026-07-01",
+              "paidWeeks": 6,
+              "weeksForgivenPerMonth": 0.5
+            }
+          },
+          "spending": {
+            "essentialMonthly": 4795,
+            "optionalMonthly": 4795,
+            "annualTaxesInsurance": 11507,
+            "travelEarlyRetirementAnnual": 14000,
+            "travelFloorAnnual": 5000
+          },
+          "accounts": {
+            "pretax": {
+              "balance": 386656.11,
+              "targetAllocation": {
+                "CASH": 0.0027,
+                "BND": 0.3171,
+                "FAGIX": 0,
+                "FSRIX": 0,
+                "SCHD": 0.4913,
+                "TRP_2030": 0.0337,
+                "VTI": 0.1552
+              },
+              "sourceAccounts": [
+                {
+                  "id": "19098",
+                  "name": "ATHENAHEALTH 401(k)",
+                  "owner": "rob",
+                  "balance": 13037.99,
+                  "holdings": [
+                    {
+                      "symbol": "TRP_2030",
+                      "name": "T. Rowe Price Retirement 2030 Fund",
+                      "value": 13037.99,
+                      "asOfDate": "2026-04-30",
+                      "shares": 345.377,
+                      "lastPrice": 37.75,
+                      "costBasis": 12730.24
+                    }
+                  ]
+                },
+                {
+                  "id": "267425112",
+                  "name": "Rollover IRA",
+                  "owner": "rob",
+                  "balance": 373618.12,
+                  "holdings": [
+                    {
+                      "symbol": "CASH",
+                      "name": "Held in money market",
+                      "value": 1053.63,
+                      "asOfDate": "2026-04-30"
+                    },
+                    {
+                      "symbol": "BND",
+                      "name": "Vanguard Bd Index Fds Total Bnd Mrkt",
+                      "value": 122608.06,
+                      "asOfDate": "2026-04-30",
+                      "shares": 1668.137,
+                      "lastPrice": 73.5,
+                      "costBasis": 122899.99
+                    },
+                    {
+                      "symbol": "FAGIX",
+                      "name": "Fidelity Capital & Income",
+                      "value": 0.82,
+                      "asOfDate": "2026-04-30",
+                      "shares": 0.073,
+                      "lastPrice": 11.34,
+                      "costBasis": 0
+                    },
+                    {
+                      "symbol": "FSRIX",
+                      "name": "Fidelity Advisor Strategic Inc Cl I",
+                      "value": 0.68,
+                      "asOfDate": "2026-04-30",
+                      "shares": 0.056,
+                      "lastPrice": 12.21,
+                      "costBasis": 0
+                    },
+                    {
+                      "symbol": "SCHD",
+                      "name": "Schwab Us Dividend Equity Etf",
+                      "value": 189960.74,
+                      "asOfDate": "2026-04-30",
+                      "shares": 5923.316,
+                      "lastPrice": 32.07,
+                      "costBasis": 180749.99
+                    },
+                    {
+                      "symbol": "VTI",
+                      "name": "Vanguard Index Fds Vanguard Total Stk Mkt Etf",
+                      "value": 59994.19,
+                      "asOfDate": "2026-04-30",
+                      "shares": 169.389,
+                      "lastPrice": 354.18,
+                      "costBasis": 56809.69
+                    }
+                  ]
+                }
+              ]
+            },
+            "roth": {
+              "balance": 307059.87,
+              "targetAllocation": {
+                "CASH": 0.0005,
+                "FCNTX": 0.8396,
+                "VTI": 0.1031,
+                "VXUS": 0.0567
+              },
+              "sourceAccounts": [
+                {
+                  "id": "194312991",
+                  "name": "Authorized ROTH IRA",
+                  "balance": 257817.77,
+                  "holdings": [
+                    {
+                      "symbol": "CASH",
+                      "name": "Held in money market",
+                      "value": 1.89,
+                      "asOfDate": "2026-04-30"
+                    },
+                    {
+                      "symbol": "FCNTX",
+                      "name": "Fidelity Contrafund",
+                      "value": 257815.88,
+                      "asOfDate": "2026-04-30",
+                      "shares": 10198.413,
+                      "lastPrice": 25.28,
+                      "costBasis": 72795.74
+                    }
+                  ]
+                },
+                {
+                  "id": "262307959",
+                  "name": "ROTH IRA",
+                  "balance": 49242.1,
+                  "holdings": [
+                    {
+                      "symbol": "CASH",
+                      "name": "Held in money market",
+                      "value": 166.59,
+                      "asOfDate": "2026-04-30"
+                    },
+                    {
+                      "symbol": "VTI",
+                      "name": "Vanguard Index Fds Vanguard Total Stk Mkt Etf",
+                      "value": 31671.12,
+                      "asOfDate": "2026-04-30",
+                      "shares": 89.421,
+                      "lastPrice": 354.18,
+                      "costBasis": 29999.86
+                    },
+                    {
+                      "symbol": "VXUS",
+                      "name": "Vanguard Total International Stock Index Fund",
+                      "value": 17404.39,
+                      "asOfDate": "2026-04-30",
+                      "shares": 209.54,
+                      "lastPrice": 83.06,
+                      "costBasis": 16999.99
+                    }
+                  ]
+                }
+              ]
+            },
+            "taxable": {
+              "balance": 138939.58,
+              "targetAllocation": {
+                "CASH": 0.0001,
+                "CENTRAL_MANAGED": 0.6034,
+                "FDGRX": 0.0532,
+                "FDLO": 0.0228,
+                "FELV": 0.0026,
+                "FXAIX": 0.1378,
+                "HAIN": 0.0012,
+                "IEFA": 0.077,
+                "IEMG": 0.0188,
+                "IJH": 0.0418,
+                "MUB": 0.0263,
+                "SCHH": 0.015
+              },
+              "sourceAccounts": [
+                {
+                  "id": "Z30728530",
+                  "name": "Joint WROS - TOD",
+                  "balance": 55105.28,
+                  "holdings": [
+                    {
+                      "symbol": "CASH",
+                      "name": "Held in money market",
+                      "value": 20.14,
+                      "asOfDate": "2026-04-30"
+                    },
+                    {
+                      "symbol": "FDGRX",
+                      "name": "Fidelity Growth Company",
+                      "value": 7392.44,
+                      "asOfDate": "2026-04-30",
+                      "shares": 137.585,
+                      "lastPrice": 53.73,
+                      "costBasis": 4699.9
+                    },
+                    {
+                      "symbol": "FDLO",
+                      "name": "Fidelity Low Volatility Factor Etf",
+                      "value": 3173.53,
+                      "asOfDate": "2026-04-30",
+                      "shares": 45.92,
+                      "lastPrice": 69.11,
+                      "costBasis": 2668.87
+                    },
+                    {
+                      "symbol": "FELV",
+                      "name": "Fidelity Enhanced Large Cap Value Etf",
+                      "value": 359.48,
+                      "asOfDate": "2026-04-30",
+                      "shares": 9.48,
+                      "lastPrice": 37.92,
+                      "costBasis": 278.81
+                    },
+                    {
+                      "symbol": "FXAIX",
+                      "name": "Fidelity 500 Index Fund",
+                      "value": 19147.04,
+                      "asOfDate": "2026-04-30",
+                      "shares": 76.417,
+                      "lastPrice": 250.56,
+                      "costBasis": 14354.31
+                    },
+                    {
+                      "symbol": "HAIN",
+                      "name": "Hain Celestial Group Inc",
+                      "value": 163.3,
+                      "asOfDate": "2026-04-30",
+                      "shares": 250,
+                      "lastPrice": 0.6532,
+                      "costBasis": 0
+                    },
+                    {
+                      "symbol": "IEFA",
+                      "name": "Ishares Trust Core Msci Eafe Etf",
+                      "value": 10697.61,
+                      "asOfDate": "2026-04-30",
+                      "shares": 111.97,
+                      "lastPrice": 95.54,
+                      "costBasis": 8234.96
+                    },
+                    {
+                      "symbol": "IEMG",
+                      "name": "Ishares Core Msci Emerging Markets Etf",
+                      "value": 2618.42,
+                      "asOfDate": "2026-04-30",
+                      "shares": 33.36,
+                      "lastPrice": 78.49,
+                      "costBasis": 1741.9
+                    },
+                    {
+                      "symbol": "IJH",
+                      "name": "Ishares Core S&P Mid-Cap Etf",
+                      "value": 5805.59,
+                      "asOfDate": "2026-04-30",
+                      "shares": 79.78,
+                      "lastPrice": 72.77,
+                      "costBasis": 4425.87
+                    },
+                    {
+                      "symbol": "MUB",
+                      "name": "Ishares National Muni Bond Etf",
+                      "value": 3649.91,
+                      "asOfDate": "2026-04-30",
+                      "shares": 34.07,
+                      "lastPrice": 107.13,
+                      "costBasis": 3550.76
+                    },
+                    {
+                      "symbol": "SCHH",
+                      "name": "Schwab Strategic Tr Us Reit Etf",
+                      "value": 2077.82,
+                      "asOfDate": "2026-04-30",
+                      "shares": 88.72,
+                      "lastPrice": 23.42,
+                      "costBasis": 1796.19
+                    }
+                  ]
+                },
+                {
+                  "id": "Y81720699",
+                  "name": "Joint WROS - TOD (Managed)",
+                  "balance": 83834.3,
+                  "managed": true,
+                  "holdings": [
+                    {
+                      "symbol": "CASH",
+                      "name": "Held in money market",
+                      "value": 1323.02,
+                      "asOfDate": "2026-04-30"
+                    },
+                    {
+                      "symbol": "DFEVX",
+                      "name": "Dimensional Emerging Mkts Val Prtf Instl",
+                      "value": 4140.67,
+                      "asOfDate": "2026-04-30",
+                      "shares": 97.359,
+                      "lastPrice": 42.53,
+                      "costBasis": 2860.65
+                    },
+                    {
+                      "symbol": "DIS",
+                      "name": "Disney Walt Co Com",
+                      "value": 1236.7,
+                      "asOfDate": "2026-04-30",
+                      "shares": 11.92,
+                      "lastPrice": 103.75,
+                      "costBasis": 249.01
+                    },
+                    {
+                      "symbol": "FDGRX",
+                      "name": "Fidelity Growth Company",
+                      "value": 1148.96,
+                      "asOfDate": "2026-04-30",
+                      "shares": 21.384,
+                      "lastPrice": 53.73,
+                      "costBasis": 1102.32
+                    },
+                    {
+                      "symbol": "FDIVX",
+                      "name": "Fidelity Diversified International",
+                      "value": 1702.03,
+                      "asOfDate": "2026-04-30",
+                      "shares": 32.525,
+                      "lastPrice": 52.33,
+                      "costBasis": 1391.41
+                    },
+                    {
+                      "symbol": "FDSSX",
+                      "name": "Fidelity Stock Selector Fund",
+                      "value": 3837.25,
+                      "asOfDate": "2026-04-30",
+                      "shares": 39.068,
+                      "lastPrice": 98.22,
+                      "costBasis": 3700.92
+                    },
+                    {
+                      "symbol": "FELC",
+                      "name": "Fidelity Enhanced Large Cap Core Etf",
+                      "value": 589.93,
+                      "asOfDate": "2026-04-30",
+                      "shares": 14.73,
+                      "lastPrice": 40.05,
+                      "costBasis": 570.04
+                    },
+                    {
+                      "symbol": "FEMVX",
+                      "name": "Fid Sai Emerging Mkt Value Index Fund",
+                      "value": 2728.6,
+                      "asOfDate": "2026-04-30",
+                      "shares": 136.022,
+                      "lastPrice": 20.06,
+                      "costBasis": 1757.41
+                    },
+                    {
+                      "symbol": "FENCX",
+                      "name": "Fid Sai Enhanced Muni Income Fund",
+                      "value": 2690.39,
+                      "asOfDate": "2026-04-30",
+                      "shares": 265.849,
+                      "lastPrice": 10.12,
+                      "costBasis": 2614.18
+                    },
+                    {
+                      "symbol": "FENI",
+                      "name": "Fidelity Enhanced International Etf",
+                      "value": 547.42,
+                      "asOfDate": "2026-04-30",
+                      "shares": 13.94,
+                      "lastPrice": 39.27,
+                      "costBasis": 511.95
+                    },
+                    {
+                      "symbol": "FFSM",
+                      "name": "Fidelity Fundamental Small-Mid Cap Etf",
+                      "value": 490.25,
+                      "asOfDate": "2026-04-30",
+                      "shares": 13.81,
+                      "lastPrice": 35.5,
+                      "costBasis": 478.03
+                    },
+                    {
+                      "symbol": "FICQX",
+                      "name": "Fidelity Intl Cap Appreciation Fund",
+                      "value": 1748.83,
+                      "asOfDate": "2026-04-30",
+                      "shares": 46.648,
+                      "lastPrice": 37.49,
+                      "costBasis": 1648.03
+                    },
+                    {
+                      "symbol": "FIWCX",
+                      "name": "Fidelity Sai Int'L Value Index Fund",
+                      "value": 1804.84,
+                      "asOfDate": "2026-04-30",
+                      "shares": 129.845,
+                      "lastPrice": 13.9,
+                      "costBasis": 1290.72
+                    },
+                    {
+                      "symbol": "FMAGX",
+                      "name": "Fidelity Magellan",
+                      "value": 2689.87,
+                      "asOfDate": "2026-04-30",
+                      "shares": 172.428,
+                      "lastPrice": 15.6,
+                      "costBasis": 2424.33
+                    },
+                    {
+                      "symbol": "FOSFX",
+                      "name": "Fidelity Overseas",
+                      "value": 268.57,
+                      "asOfDate": "2026-04-30",
+                      "shares": 3.591,
+                      "lastPrice": 74.79,
+                      "costBasis": 272.2
+                    },
+                    {
+                      "symbol": "FRESX",
+                      "name": "Fidelity Real Estate Investment",
+                      "value": 892.93,
+                      "asOfDate": "2026-04-30",
+                      "shares": 21.04,
+                      "lastPrice": 42.44,
+                      "costBasis": 874.64
+                    },
+                    {
+                      "symbol": "FSKLX",
+                      "name": "Fid Sai Intnl Low Volatility Index Fd",
+                      "value": 1175.64,
+                      "asOfDate": "2026-04-30",
+                      "shares": 86.065,
+                      "lastPrice": 13.66,
+                      "costBasis": 1013.58
+                    },
+                    {
+                      "symbol": "FSMJX",
+                      "name": "Fidelity Sai Conserv Income Muni Bond Fd",
+                      "value": 325.44,
+                      "asOfDate": "2026-04-30",
+                      "shares": 32.383,
+                      "lastPrice": 10.05,
+                      "costBasis": 325.77
+                    },
+                    {
+                      "symbol": "FSMNX",
+                      "name": "Fidelity Sai Municipal Income Fd",
+                      "value": 21995.5,
+                      "asOfDate": "2026-04-30",
+                      "shares": 2221.768,
+                      "lastPrice": 9.9,
+                      "costBasis": 20932.11
+                    },
+                    {
+                      "symbol": "FSPGX",
+                      "name": "Fidelity Large Cap Growth Index Fund",
+                      "value": 1109.73,
+                      "asOfDate": "2026-04-30",
+                      "shares": 23.758,
+                      "lastPrice": 46.71,
+                      "costBasis": 919.89
+                    },
+                    {
+                      "symbol": "FSPSX",
+                      "name": "Fidelity Internatl Index Fund",
+                      "value": 1548.9,
+                      "asOfDate": "2026-04-30",
+                      "shares": 23.855,
+                      "lastPrice": 64.93,
+                      "costBasis": 1564.43
+                    },
+                    {
+                      "symbol": "FSSNX",
+                      "name": "Fidelity Small Cap Index Fund",
+                      "value": 2859.88,
+                      "asOfDate": "2026-04-30",
+                      "shares": 81.641,
+                      "lastPrice": 35.03,
+                      "costBasis": 1940.63
+                    },
+                    {
+                      "symbol": "FSTFX",
+                      "name": "Fidelity Limited Term Muni Income Fd",
+                      "value": 2205.49,
+                      "asOfDate": "2026-04-30",
+                      "shares": 208.262,
+                      "lastPrice": 10.59,
+                      "costBasis": 2180.5
+                    },
+                    {
+                      "symbol": "FVAL",
+                      "name": "Fidelity Value Factor Etf",
+                      "value": 2635.82,
+                      "asOfDate": "2026-04-30",
+                      "shares": 34.65,
+                      "lastPrice": 76.07,
+                      "costBasis": 2250.19
+                    },
+                    {
+                      "symbol": "FZALX",
+                      "name": "Fidelity Advisor Mega Cap Stock Cl Z",
+                      "value": 10533.17,
+                      "asOfDate": "2026-04-30",
+                      "shares": 315.459,
+                      "lastPrice": 33.39,
+                      "costBasis": 7563.66
+                    },
+                    {
+                      "symbol": "HYD",
+                      "name": "Vaneck Etf Trust High Yld Munietf",
+                      "value": 1245.3,
+                      "asOfDate": "2026-04-30",
+                      "shares": 24.37,
+                      "lastPrice": 51.1,
+                      "costBasis": 1218.54
+                    },
+                    {
+                      "symbol": "IJH",
+                      "name": "Ishares Core S&P Mid-Cap Etf",
+                      "value": 429.34,
+                      "asOfDate": "2026-04-30",
+                      "shares": 5.9,
+                      "lastPrice": 72.77,
+                      "costBasis": 421.78
+                    },
+                    {
+                      "symbol": "MTUM",
+                      "name": "Ishares Tr Msci Usa Mmentm",
+                      "value": 3084.02,
+                      "asOfDate": "2026-04-30",
+                      "shares": 10.86,
+                      "lastPrice": 283.98,
+                      "costBasis": 2166.05
+                    },
+                    {
+                      "symbol": "PEMGX",
+                      "name": "Principal Mid Cap Fund Class A",
+                      "value": 678.26,
+                      "asOfDate": "2026-04-30",
+                      "shares": 18.087,
+                      "lastPrice": 37.5,
+                      "costBasis": 628.91
+                    },
+                    {
+                      "symbol": "QUAL",
+                      "name": "Ishares Tr Msci Usa Qlt Fct",
+                      "value": 3073.51,
+                      "asOfDate": "2026-04-30",
+                      "shares": 14.83,
+                      "lastPrice": 207.25,
+                      "costBasis": 3008.12
+                    },
+                    {
+                      "symbol": "SCZ",
+                      "name": "Ishares Tr Eafe Sml Cp Etf",
+                      "value": 1143.51,
+                      "asOfDate": "2026-04-30",
+                      "shares": 13.68,
+                      "lastPrice": 83.59,
+                      "costBasis": 806.5
+                    },
+                    {
+                      "symbol": "USMV",
+                      "name": "Ishares Tr Msci Usa Min Vol",
+                      "value": 1950.53,
+                      "asOfDate": "2026-04-30",
+                      "shares": 20.61,
+                      "lastPrice": 94.64,
+                      "costBasis": 1925.18
+                    }
+                  ]
+                }
+              ]
+            },
+            "cash": {
+              "balance": 50000,
+              "targetAllocation": {
+                "CASH": 1
+              }
+            },
+            "hsa": {
+              "balance": 50493.12,
+              "targetAllocation": {
+                "CASH": 0.0124,
+                "BND": 0.0987,
+                "SCHD": 0.2263,
+                "VTI": 0.4189,
+                "VXUS": 0.2437
+              },
+              "sourceAccounts": [
+                {
+                  "id": "262675925",
+                  "name": "Health Savings Account",
+                  "balance": 50493.12,
+                  "holdings": [
+                    {
+                      "symbol": "CASH",
+                      "name": "Held in money market",
+                      "value": 627.71,
+                      "asOfDate": "2026-04-30"
+                    },
+                    {
+                      "symbol": "BND",
+                      "name": "Vanguard Bd Index Fds Total Bnd Mrkt",
+                      "value": 4983.37,
+                      "asOfDate": "2026-04-30",
+                      "shares": 67.801,
+                      "lastPrice": 73.5,
+                      "costBasis": 4999.99
+                    },
+                    {
+                      "symbol": "SCHD",
+                      "name": "Schwab Us Dividend Equity Etf",
+                      "value": 11426.12,
+                      "asOfDate": "2026-04-30",
+                      "shares": 356.287,
+                      "lastPrice": 32.07,
+                      "costBasis": 10864.97
+                    },
+                    {
+                      "symbol": "VTI",
+                      "name": "Vanguard Index Fds Vanguard Total Stk Mkt Etf",
+                      "value": 21152.33,
+                      "asOfDate": "2026-04-30",
+                      "shares": 59.722,
+                      "lastPrice": 354.18,
+                      "costBasis": 19999.71
+                    },
+                    {
+                      "symbol": "VXUS",
+                      "name": "Vanguard Total International Stock Index Fund",
+                      "value": 12303.59,
+                      "asOfDate": "2026-04-30",
+                      "shares": 148.129,
+                      "lastPrice": 83.06,
+                      "costBasis": 11999.93
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          "rules": {
+            "withdrawalStyle": "guardrails",
+            "irmaaAware": true,
+            "replaceModeImports": true,
+            "monthlyReviewIssueAnnotations": [
+              {
+                "signalId": "aca_bridge_breach",
+                "years": [
+                  2027
+                ],
+                "disposition": "intentional_tradeoff",
+                "title": "2027 ACA subsidy loss is expected in the transition year",
+                "rationale": "The 2027 bridge-year MAGI breach is a known transition-year tradeoff from final payroll/taxable income and the selected spend path, not a surprise failure. The plan should include the net ACA cost and can still be green if the certified path clears the gates.",
+                "decision": "Accept the 2027 subsidy loss in the current review unless a MAGI-constrained alternative is explicitly requested to price the subsidy-preserving path.",
+                "evidence": [
+                  "Roth low-income bracket fill starts in 2028, after the final-paycheck transition year.",
+                  "Contribution-limit assumptions are already labeled as planning_estimate_for_2027_final_paycheck_window.",
+                  "Monthly review should still verify MAGI components and net ACA cost plumbing."
+                ],
+                "source": "user_confirmed_monthly_review_context"
+              }
+            ],
+            "payrollModel": {
+              "salaryProrationRule": "month_fraction",
+              "salaryProrationSource": "explicit_payroll_calendar"
+            },
+            "contributionLimits": {
+              "employee401kBaseLimit": 24500,
+              "employee401kCatchUpAge": 50,
+              "employee401kCatchUpLimit": 8000,
+              "employee401kSuperCatchUpAges": [
+                60,
+                61,
+                62,
+                63
+              ],
+              "employee401kSuperCatchUpLimit": 11250,
+              "rothCatchUpWageThreshold": 150000,
+              "employee401kBaseLimitByYear": {
+                "2027": 25000
+              },
+              "hsaSelfLimit": 4400,
+              "hsaFamilyLimit": 8750,
+              "hsaCatchUpAge": 55,
+              "hsaCatchUpLimit": 1000,
+              "assumptionSource": "planning_estimate_for_2027_final_paycheck_window"
+            },
+            "housingAfterDownsizePolicy": {
+              "mode": "own_replacement_home",
+              "startYear": 2037,
+              "replacementHomeCost": 500000,
+              "netLiquidityTarget": 500000,
+              "certainty": "estimated",
+              "assumptionSource": "user_estimate_sell_1m_home_buy_500k_replacement_home"
+            },
+            "windfallDeploymentPolicy": {
+              "enabled": true,
+              "destinationAccount": "taxable",
+              "investmentPolicy": "current_portfolio_mix",
+              "trackingMode": "taxable_shadow_sleeve",
+              "spendBeforeDeploy": true,
+              "cashReserveMonths": 0,
+              "assumptionSource": "user_confirmed_invest_unspent_windfall_and_home_sale_cash_in_current_portfolio_mix"
+            },
+            "rothConversionPolicy": {
+              "enabled": true,
+              "strategy": "aca_then_irmaa_headroom",
+              "minAnnualDollars": 500,
+              "maxAnnualDollars": 70000,
+              "maxPretaxBalancePercent": 0.12,
+              "magiBufferDollars": 2000,
+              "lowIncomeBracketFill": {
+                "enabled": true,
+                "startYear": 2028,
+                "endYear": 2030,
+                "annualTargetDollars": 70000,
+                "requireNoWageIncome": true
+              }
+            },
+            "healthcarePremiums": {
+              "baselineAcaPremiumAnnual": 14400,
+              "baselineMedicarePremiumAnnual": 2220,
+              "medicalInflationAnnual": 0.055
+            },
+            "hsaStrategy": {
+              "enabled": true,
+              "withdrawalMode": "ltc_reserve",
+              "annualQualifiedExpenseWithdrawalCap": 250000,
+              "prioritizeHighMagiYears": false,
+              "highMagiThreshold": 190000
+            },
+            "ltcAssumptions": {
+              "enabled": true,
+              "startAge": 85,
+              "annualCostToday": 48000,
+              "durationYears": 3,
+              "inflationAnnual": 0.055,
+              "eventProbability": 0.45
+            }
+          },
+          "stressors": [
+            {
+              "id": "layoff",
+              "name": "Laid Off Early",
+              "type": "income",
+              "salaryEndsEarly": true
+            },
+            {
+              "id": "market_down",
+              "name": "Bad First 3 Years",
+              "type": "market",
+              "equityReturns": [
+                -0.18,
+                -0.12,
+                -0.08
+              ],
+              "recoveryYears": 5
+            },
+            {
+              "id": "market_up",
+              "name": "Strong Early Market (Upside Case)",
+              "type": "market",
+              "equityReturns": [
+                0.12,
+                0.1,
+                0.08
+              ]
+            },
+            {
+              "id": "inflation",
+              "name": "High Inflation",
+              "type": "inflation",
+              "rate": 0.05,
+              "duration": 10
+            },
+            {
+              "id": "delayed_inheritance",
+              "name": "Delayed Inheritance",
+              "type": "timing"
+            }
+          ],
+          "responses": [
+            {
+              "id": "cut_spending",
+              "name": "Reduce Optional Spending",
+              "optionalReductionPercent": 20
+            },
+            {
+              "id": "sell_home_early",
+              "name": "Sell Home Early",
+              "triggerYear": 3,
+              "amount": 500000
+            },
+            {
+              "id": "delay_retirement",
+              "name": "Delay Retirement",
+              "delayYears": 1
+            },
+            {
+              "id": "early_ss",
+              "name": "Claim Social Security Early",
+              "claimAge": 62
+            },
+            {
+              "id": "preserve_roth",
+              "name": "Preserve Roth"
+            },
+            {
+              "id": "increase_cash_buffer",
+              "name": "Increase Cash Buffer"
+            }
+          ],
+          "goals": {
+            "legacyTargetTodayDollars": 1000000,
+            "protectedReserve": {
+              "targetTodayDollars": 1000000,
+              "purpose": "care_first_legacy_if_unused",
+              "availableFor": "late_life_care_or_health_shocks",
+              "normalLifestyleSpendable": false,
+              "assumptionSource": "user_confirmed_2026_05_16_care_first_legacy_if_unused"
+            }
+          }
+        },
+        "assumptions": {
+          "equityMean": 0.074,
+          "equityVolatility": 0.16,
+          "internationalEquityMean": 0.074,
+          "internationalEquityVolatility": 0.18,
+          "bondMean": 0.038,
+          "bondVolatility": 0.07,
+          "cashMean": 0.02,
+          "cashVolatility": 0.01,
+          "inflation": 0.028,
+          "inflationVolatility": 0.01,
+          "simulationRuns": 40,
+          "irmaaThreshold": 200000,
+          "guardrailFloorYears": 12,
+          "guardrailCeilingYears": 18,
+          "guardrailCutPercent": 0.2,
+          "robPlanningEndAge": 90,
+          "debbiePlanningEndAge": 95,
+          "travelPhaseYears": 10,
+          "simulationSeed": 987654,
+          "assumptionsVersion": "model-replay-packet-v1"
+        },
+        "selectedStressors": [],
+        "selectedResponses": [],
+        "options": {
+          "pathMode": "selected_only",
+          "strategyMode": "raw_simulation"
+        }
+      },
+      "expected": {
+        "summary": {
+          "id": "selected-path",
+          "label": "Selected Path",
+          "simulationMode": "raw_simulation",
+          "successRate": 0.425,
+          "medianEndingWealth": 294924.221188,
+          "tenthPercentileEndingWealth": 0,
+          "medianFailureYear": 2055,
+          "annualFederalTaxEstimate": 5937.147059,
+          "failureYearDistribution": [
+            {
+              "year": 2047,
+              "count": 1,
+              "rate": 0.025
+            },
+            {
+              "year": 2049,
+              "count": 2,
+              "rate": 0.05
+            },
+            {
+              "year": 2050,
+              "count": 1,
+              "rate": 0.025
+            },
+            {
+              "year": 2051,
+              "count": 1,
+              "rate": 0.025
+            },
+            {
+              "year": 2052,
+              "count": 1,
+              "rate": 0.025
+            },
+            {
+              "year": 2053,
+              "count": 2,
+              "rate": 0.05
+            },
+            {
+              "year": 2054,
+              "count": 3,
+              "rate": 0.075
+            },
+            {
+              "year": 2055,
+              "count": 3,
+              "rate": 0.075
+            },
+            {
+              "year": 2056,
+              "count": 2,
+              "rate": 0.05
+            },
+            {
+              "year": 2057,
+              "count": 2,
+              "rate": 0.05
+            },
+            {
+              "year": 2058,
+              "count": 3,
+              "rate": 0.075
+            },
+            {
+              "year": 2059,
+              "count": 2,
+              "rate": 0.05
+            }
+          ]
+        },
+        "yearlyLedger": [
+          {
+            "year": 2026,
+            "medianAssets": 1031600,
+            "tenthPercentileAssets": 926472,
+            "medianIncome": 182161,
+            "medianSpending": 140587,
+            "medianFederalTax": 22415,
+            "medianTotalCashOutflow": 163002,
+            "medianWithdrawalTotal": 0,
+            "medianRmdAmount": 0,
+            "medianRothConversion": 0,
+            "dominantIrmaaTier": "Tier 1"
+          },
+          {
+            "year": 2027,
+            "medianAssets": 1040863,
+            "tenthPercentileAssets": 829282,
+            "medianIncome": 87591,
+            "medianSpending": 174951,
+            "medianFederalTax": 6151,
+            "medianTotalCashOutflow": 181102,
+            "medianWithdrawalTotal": 93662,
+            "medianRmdAmount": 0,
+            "medianRothConversion": 0,
+            "dominantIrmaaTier": "Tier 1"
+          },
+          {
+            "year": 2028,
+            "medianAssets": 1483047,
+            "tenthPercentileAssets": 1186708,
+            "medianIncome": 0,
+            "medianSpending": 148659,
+            "medianFederalTax": 0,
+            "medianTotalCashOutflow": 148659,
+            "medianWithdrawalTotal": 148659,
+            "medianRmdAmount": 0,
+            "medianRothConversion": 0,
+            "dominantIrmaaTier": "Tier 1"
+          },
+          {
+            "year": 2029,
+            "medianAssets": 1445159,
+            "tenthPercentileAssets": 1085560,
+            "medianIncome": 0,
+            "medianSpending": 157457,
+            "medianFederalTax": 0,
+            "medianTotalCashOutflow": 157457,
+            "medianWithdrawalTotal": 157457,
+            "medianRmdAmount": 0,
+            "medianRothConversion": 0,
+            "dominantIrmaaTier": "Tier 1"
+          },
+          {
+            "year": 2030,
+            "medianAssets": 1299918,
+            "tenthPercentileAssets": 989626,
+            "medianIncome": 0,
+            "medianSpending": 162827,
+            "medianFederalTax": 0,
+            "medianTotalCashOutflow": 162827,
+            "medianWithdrawalTotal": 162827,
+            "medianRmdAmount": 0,
+            "medianRothConversion": 0,
+            "dominantIrmaaTier": "Tier 1"
+          },
+          {
+            "year": 2031,
+            "medianAssets": 1240121,
+            "tenthPercentileAssets": 861451,
+            "medianIncome": 19859,
+            "medianSpending": 166923,
+            "medianFederalTax": 0,
+            "medianTotalCashOutflow": 166923,
+            "medianWithdrawalTotal": 147065,
+            "medianRmdAmount": 0,
+            "medianRothConversion": 0,
+            "dominantIrmaaTier": "Tier 1"
+          },
+          {
+            "year": 2032,
+            "medianAssets": 1253046,
+            "tenthPercentileAssets": 804201,
+            "medianIncome": 86376,
+            "medianSpending": 170666,
+            "medianFederalTax": 0,
+            "medianTotalCashOutflow": 170666,
+            "medianWithdrawalTotal": 82538,
+            "medianRmdAmount": 0,
+            "medianRothConversion": 0,
+            "dominantIrmaaTier": "Tier 1"
+          },
+          {
+            "year": 2033,
+            "medianAssets": 1271741,
+            "tenthPercentileAssets": 759252,
+            "medianIncome": 89667,
+            "medianSpending": 177272,
+            "medianFederalTax": 16367,
+            "medianTotalCashOutflow": 193639,
+            "medianWithdrawalTotal": 93718,
+            "medianRmdAmount": 0,
+            "medianRothConversion": 0,
+            "dominantIrmaaTier": "Tier 1"
+          },
+          {
+            "year": 2034,
+            "medianAssets": 1176938,
+            "tenthPercentileAssets": 691641,
+            "medianIncome": 91846,
+            "medianSpending": 181778,
+            "medianFederalTax": 23437,
+            "medianTotalCashOutflow": 205215,
+            "medianWithdrawalTotal": 111695,
+            "medianRmdAmount": 0,
+            "medianRothConversion": 0,
+            "dominantIrmaaTier": "Tier 1"
+          },
+          {
+            "year": 2035,
+            "medianAssets": 1208817,
+            "tenthPercentileAssets": 619638,
+            "medianIncome": 93826,
+            "medianSpending": 185924,
+            "medianFederalTax": 24753,
+            "medianTotalCashOutflow": 210677,
+            "medianWithdrawalTotal": 116736,
+            "medianRmdAmount": 0,
+            "medianRothConversion": 0,
+            "dominantIrmaaTier": "Tier 1"
+          },
+          {
+            "year": 2036,
+            "medianAssets": 1104385,
+            "tenthPercentileAssets": 565592,
+            "medianIncome": 96888,
+            "medianSpending": 192152,
+            "medianFederalTax": 25883,
+            "medianTotalCashOutflow": 218035,
+            "medianWithdrawalTotal": 120134,
+            "medianRmdAmount": 0,
+            "medianRothConversion": 0,
+            "dominantIrmaaTier": "Tier 1"
+          },
+          {
+            "year": 2037,
+            "medianAssets": 1613380,
+            "tenthPercentileAssets": 1102861,
+            "medianIncome": 99098,
+            "medianSpending": 176970,
+            "medianFederalTax": 0,
+            "medianTotalCashOutflow": 176970,
+            "medianWithdrawalTotal": 77872,
+            "medianRmdAmount": 0,
+            "medianRothConversion": 0,
+            "dominantIrmaaTier": "Tier 1"
+          },
+          {
+            "year": 2038,
+            "medianAssets": 1550129,
+            "tenthPercentileAssets": 1058892,
+            "medianIncome": 101944,
+            "medianSpending": 182263,
+            "medianFederalTax": 0,
+            "medianTotalCashOutflow": 182263,
+            "medianWithdrawalTotal": 80318,
+            "medianRmdAmount": 0,
+            "medianRothConversion": 0,
+            "dominantIrmaaTier": "Tier 1"
+          },
+          {
+            "year": 2039,
+            "medianAssets": 1662886,
+            "tenthPercentileAssets": 1027895,
+            "medianIncome": 104335,
+            "medianSpending": 186803,
+            "medianFederalTax": 0,
+            "medianTotalCashOutflow": 186803,
+            "medianWithdrawalTotal": 82468,
+            "medianRmdAmount": 0,
+            "medianRothConversion": 0,
+            "dominantIrmaaTier": "Tier 1"
+          },
+          {
+            "year": 2040,
+            "medianAssets": 1682882,
+            "tenthPercentileAssets": 1011403,
+            "medianIncome": 124363,
+            "medianSpending": 193558,
+            "medianFederalTax": 2642,
+            "medianTotalCashOutflow": 196200,
+            "medianWithdrawalTotal": 86421,
+            "medianRmdAmount": 16685,
+            "medianRothConversion": 0,
+            "dominantIrmaaTier": "Tier 1"
+          },
+          {
+            "year": 2041,
+            "medianAssets": 1686995,
+            "tenthPercentileAssets": 1009262,
+            "medianIncome": 130050,
+            "medianSpending": 198226,
+            "medianFederalTax": 2991,
+            "medianTotalCashOutflow": 201217,
+            "medianWithdrawalTotal": 89060,
+            "medianRmdAmount": 17493,
+            "medianRothConversion": 0,
+            "dominantIrmaaTier": "Tier 1"
+          },
+          {
+            "year": 2042,
+            "medianAssets": 1789680,
+            "tenthPercentileAssets": 917763,
+            "medianIncome": 131815,
+            "medianSpending": 204987,
+            "medianFederalTax": 3820,
+            "medianTotalCashOutflow": 208807,
+            "medianWithdrawalTotal": 91416,
+            "medianRmdAmount": 18062,
+            "medianRothConversion": 0,
+            "dominantIrmaaTier": "Tier 1"
+          },
+          {
+            "year": 2043,
+            "medianAssets": 1707950,
+            "tenthPercentileAssets": 778985,
+            "medianIncome": 138188,
+            "medianSpending": 211022,
+            "medianFederalTax": 6578,
+            "medianTotalCashOutflow": 217600,
+            "medianWithdrawalTotal": 99366,
+            "medianRmdAmount": 18704,
+            "medianRothConversion": 0,
+            "dominantIrmaaTier": "Tier 1"
+          },
+          {
+            "year": 2044,
+            "medianAssets": 1597308,
+            "tenthPercentileAssets": 693527,
+            "medianIncome": 138807,
+            "medianSpending": 216561,
+            "medianFederalTax": 7141,
+            "medianTotalCashOutflow": 223702,
+            "medianWithdrawalTotal": 91691,
+            "medianRmdAmount": 19783,
+            "medianRothConversion": 0,
+            "dominantIrmaaTier": "Tier 1"
+          },
+          {
+            "year": 2045,
+            "medianAssets": 1593830,
+            "tenthPercentileAssets": 557204,
+            "medianIncome": 140313,
+            "medianSpending": 223282,
+            "medianFederalTax": 10849,
+            "medianTotalCashOutflow": 234131,
+            "medianWithdrawalTotal": 53442,
+            "medianRmdAmount": 18127,
+            "medianRothConversion": 0,
+            "dominantIrmaaTier": "Tier 1"
+          },
+          {
+            "year": 2046,
+            "medianAssets": 1425606,
+            "tenthPercentileAssets": 501921,
+            "medianIncome": 142769,
+            "medianSpending": 229153,
+            "medianFederalTax": 12544,
+            "medianTotalCashOutflow": 241697,
+            "medianWithdrawalTotal": 52442,
+            "medianRmdAmount": 14849,
+            "medianRothConversion": 0,
+            "dominantIrmaaTier": "Tier 1"
+          },
+          {
+            "year": 2047,
+            "medianAssets": 1457997,
+            "tenthPercentileAssets": 375900,
+            "medianIncome": 144970,
+            "medianSpending": 238619,
+            "medianFederalTax": 18917,
+            "medianTotalCashOutflow": 257536,
+            "medianWithdrawalTotal": 64331,
+            "medianRmdAmount": 8057,
+            "medianRothConversion": 0,
+            "dominantIrmaaTier": "Tier 1"
+          },
+          {
+            "year": 2048,
+            "medianAssets": 1456208,
+            "tenthPercentileAssets": 492041,
+            "medianIncome": 146521,
+            "medianSpending": 244682,
+            "medianFederalTax": 14070,
+            "medianTotalCashOutflow": 258752,
+            "medianWithdrawalTotal": 68653,
+            "medianRmdAmount": 7573,
+            "medianRothConversion": 0,
+            "dominantIrmaaTier": "Tier 1"
+          },
+          {
+            "year": 2049,
+            "medianAssets": 1355559,
+            "tenthPercentileAssets": 401368,
+            "medianIncome": 147283,
+            "medianSpending": 253056,
+            "medianFederalTax": 0,
+            "medianTotalCashOutflow": 253056,
+            "medianWithdrawalTotal": 105928,
+            "medianRmdAmount": 0,
+            "medianRothConversion": 0,
+            "dominantIrmaaTier": "Tier 1"
+          },
+          {
+            "year": 2050,
+            "medianAssets": 1213132,
+            "tenthPercentileAssets": 478249,
+            "medianIncome": 147777,
+            "medianSpending": 267622,
+            "medianFederalTax": 0,
+            "medianTotalCashOutflow": 267622,
+            "medianWithdrawalTotal": 117157,
+            "medianRmdAmount": 0,
+            "medianRothConversion": 0,
+            "dominantIrmaaTier": "Tier 1"
+          },
+          {
+            "year": 2051,
+            "medianAssets": 1039066,
+            "tenthPercentileAssets": 328621,
+            "medianIncome": 148430,
+            "medianSpending": 278615,
+            "medianFederalTax": 0,
+            "medianTotalCashOutflow": 278615,
+            "medianWithdrawalTotal": 121255,
+            "medianRmdAmount": 0,
+            "medianRothConversion": 0,
+            "dominantIrmaaTier": "Tier 1"
+          },
+          {
+            "year": 2052,
+            "medianAssets": 1096979,
+            "tenthPercentileAssets": 260509,
+            "medianIncome": 151699,
+            "medianSpending": 274480,
+            "medianFederalTax": 0,
+            "medianTotalCashOutflow": 274480,
+            "medianWithdrawalTotal": 122454,
+            "medianRmdAmount": 0,
+            "medianRothConversion": 0,
+            "dominantIrmaaTier": "Tier 1"
+          },
+          {
+            "year": 2053,
+            "medianAssets": 1072802,
+            "tenthPercentileAssets": 222052,
+            "medianIncome": 155044,
+            "medianSpending": 282095,
+            "medianFederalTax": 0,
+            "medianTotalCashOutflow": 282095,
+            "medianWithdrawalTotal": 126641,
+            "medianRmdAmount": 0,
+            "medianRothConversion": 0,
+            "dominantIrmaaTier": "Tier 1"
+          },
+          {
+            "year": 2054,
+            "medianAssets": 1143080,
+            "tenthPercentileAssets": 143953,
+            "medianIncome": 159225,
+            "medianSpending": 289235,
+            "medianFederalTax": 77,
+            "medianTotalCashOutflow": 289312,
+            "medianWithdrawalTotal": 129196,
+            "medianRmdAmount": 0,
+            "medianRothConversion": 0,
+            "dominantIrmaaTier": "Tier 1"
+          },
+          {
+            "year": 2055,
+            "medianAssets": 1030433,
+            "tenthPercentileAssets": 229159,
+            "medianIncome": 164662,
+            "medianSpending": 295468,
+            "medianFederalTax": 308,
+            "medianTotalCashOutflow": 295776,
+            "medianWithdrawalTotal": 134008,
+            "medianRmdAmount": 0,
+            "medianRothConversion": 0,
+            "dominantIrmaaTier": "Tier 1"
+          },
+          {
+            "year": 2056,
+            "medianAssets": 1238867,
+            "tenthPercentileAssets": 248802,
+            "medianIncome": 166962,
+            "medianSpending": 306767,
+            "medianFederalTax": 406,
+            "medianTotalCashOutflow": 307173,
+            "medianWithdrawalTotal": 138342,
+            "medianRmdAmount": 0,
+            "medianRothConversion": 0,
+            "dominantIrmaaTier": "Tier 1"
+          },
+          {
+            "year": 2057,
+            "medianAssets": 1462371,
+            "tenthPercentileAssets": 168979,
+            "medianIncome": 172820,
+            "medianSpending": 314839,
+            "medianFederalTax": 673,
+            "medianTotalCashOutflow": 315512,
+            "medianWithdrawalTotal": 142022,
+            "medianRmdAmount": 0,
+            "medianRothConversion": 0,
+            "dominantIrmaaTier": "Tier 1"
+          },
+          {
+            "year": 2058,
+            "medianAssets": 1401586,
+            "tenthPercentileAssets": 351562,
+            "medianIncome": 176702,
+            "medianSpending": 325718,
+            "medianFederalTax": 820,
+            "medianTotalCashOutflow": 326538,
+            "medianWithdrawalTotal": 145922,
+            "medianRmdAmount": 0,
+            "medianRothConversion": 0,
+            "dominantIrmaaTier": "Tier 1"
+          },
+          {
+            "year": 2059,
+            "medianAssets": 1875718,
+            "tenthPercentileAssets": 459486,
+            "medianIncome": 181424,
+            "medianSpending": 333876,
+            "medianFederalTax": 1021,
+            "medianTotalCashOutflow": 334897,
+            "medianWithdrawalTotal": 151199,
+            "medianRmdAmount": 0,
+            "medianRothConversion": 0,
+            "dominantIrmaaTier": "Tier 1"
+          }
+        ]
+      }
+    },
+    {
+      "id": "stress_response_planner_40_987654",
+      "label": "Market + layoff response planner replay",
+      "modelCompleteness": "faithful",
+      "inferredAssumptions": [],
+      "input": {
+        "data": {
+          "household": {
+            "robBirthDate": "1964-12-08",
+            "debbieBirthDate": "1963-10-23",
+            "filingStatus": "married_filing_jointly",
+            "planningAge": 95,
+            "state": "TX"
+          },
+          "income": {
+            "salaryAnnual": 210000,
+            "salaryEndDate": "2027-07-01",
+            "socialSecurity": [
+              {
+                "person": "rob",
+                "fraMonthly": 4100,
+                "claimAge": 67
+              },
+              {
+                "person": "debbie",
+                "fraMonthly": 1444,
+                "claimAge": 67
+              }
+            ],
+            "windfalls": [
+              {
+                "name": "inheritance",
+                "year": 2028,
+                "amount": 500000,
+                "taxTreatment": "cash_non_taxable"
+              },
+              {
+                "name": "home_sale",
+                "year": 2037,
+                "amount": 1000000,
+                "taxTreatment": "primary_home_sale",
+                "certainty": "estimated",
+                "timingUncertaintyYears": 2,
+                "amountUncertaintyPercent": 0.3,
+                "costBasis": 500000,
+                "exclusionAmount": 500000,
+                "sellingCostPercent": 0.06,
+                "replacementHomeCost": 500000,
+                "purchaseClosingCostPercent": 0.02,
+                "movingCost": 20000,
+                "liquidityAmount": 500000
+              }
+            ],
+            "preRetirementContributions": {
+              "employee401kPreTaxPercentOfSalary": 0.1499,
+              "employee401kRothPercentOfSalary": 0,
+              "priorYearFicaWagesFromEmployer": 210000,
+              "employerPlanSupportsRothDeferrals": true,
+              "employerPlanSupportsSuperCatchUp": true,
+              "planFeatureAssumptionSource": "estimated_pending_plan_document",
+              "employerMatch": {
+                "matchRate": 0.5,
+                "maxEmployeeContributionPercentOfSalary": 0.06,
+                "assumptionSource": "user_confirmed_athenahealth_50_percent_of_first_6_percent_pending_document_verification",
+                "verificationStatus": "user_confirmed_pending_document"
+              },
+              "hsaPercentOfSalary": 0.0159,
+              "hsaCoverageType": "family"
+            },
+            "sabbatical": {
+              "returnDate": "2026-07-01",
+              "paidWeeks": 6,
+              "weeksForgivenPerMonth": 0.5
+            }
+          },
+          "spending": {
+            "essentialMonthly": 4795,
+            "optionalMonthly": 4795,
+            "annualTaxesInsurance": 11507,
+            "travelEarlyRetirementAnnual": 14000,
+            "travelFloorAnnual": 5000
+          },
+          "accounts": {
+            "pretax": {
+              "balance": 386656.11,
+              "targetAllocation": {
+                "CASH": 0.0027,
+                "BND": 0.3171,
+                "FAGIX": 0,
+                "FSRIX": 0,
+                "SCHD": 0.4913,
+                "TRP_2030": 0.0337,
+                "VTI": 0.1552
+              },
+              "sourceAccounts": [
+                {
+                  "id": "19098",
+                  "name": "ATHENAHEALTH 401(k)",
+                  "owner": "rob",
+                  "balance": 13037.99,
+                  "holdings": [
+                    {
+                      "symbol": "TRP_2030",
+                      "name": "T. Rowe Price Retirement 2030 Fund",
+                      "value": 13037.99,
+                      "asOfDate": "2026-04-30",
+                      "shares": 345.377,
+                      "lastPrice": 37.75,
+                      "costBasis": 12730.24
+                    }
+                  ]
+                },
+                {
+                  "id": "267425112",
+                  "name": "Rollover IRA",
+                  "owner": "rob",
+                  "balance": 373618.12,
+                  "holdings": [
+                    {
+                      "symbol": "CASH",
+                      "name": "Held in money market",
+                      "value": 1053.63,
+                      "asOfDate": "2026-04-30"
+                    },
+                    {
+                      "symbol": "BND",
+                      "name": "Vanguard Bd Index Fds Total Bnd Mrkt",
+                      "value": 122608.06,
+                      "asOfDate": "2026-04-30",
+                      "shares": 1668.137,
+                      "lastPrice": 73.5,
+                      "costBasis": 122899.99
+                    },
+                    {
+                      "symbol": "FAGIX",
+                      "name": "Fidelity Capital & Income",
+                      "value": 0.82,
+                      "asOfDate": "2026-04-30",
+                      "shares": 0.073,
+                      "lastPrice": 11.34,
+                      "costBasis": 0
+                    },
+                    {
+                      "symbol": "FSRIX",
+                      "name": "Fidelity Advisor Strategic Inc Cl I",
+                      "value": 0.68,
+                      "asOfDate": "2026-04-30",
+                      "shares": 0.056,
+                      "lastPrice": 12.21,
+                      "costBasis": 0
+                    },
+                    {
+                      "symbol": "SCHD",
+                      "name": "Schwab Us Dividend Equity Etf",
+                      "value": 189960.74,
+                      "asOfDate": "2026-04-30",
+                      "shares": 5923.316,
+                      "lastPrice": 32.07,
+                      "costBasis": 180749.99
+                    },
+                    {
+                      "symbol": "VTI",
+                      "name": "Vanguard Index Fds Vanguard Total Stk Mkt Etf",
+                      "value": 59994.19,
+                      "asOfDate": "2026-04-30",
+                      "shares": 169.389,
+                      "lastPrice": 354.18,
+                      "costBasis": 56809.69
+                    }
+                  ]
+                }
+              ]
+            },
+            "roth": {
+              "balance": 307059.87,
+              "targetAllocation": {
+                "CASH": 0.0005,
+                "FCNTX": 0.8396,
+                "VTI": 0.1031,
+                "VXUS": 0.0567
+              },
+              "sourceAccounts": [
+                {
+                  "id": "194312991",
+                  "name": "Authorized ROTH IRA",
+                  "balance": 257817.77,
+                  "holdings": [
+                    {
+                      "symbol": "CASH",
+                      "name": "Held in money market",
+                      "value": 1.89,
+                      "asOfDate": "2026-04-30"
+                    },
+                    {
+                      "symbol": "FCNTX",
+                      "name": "Fidelity Contrafund",
+                      "value": 257815.88,
+                      "asOfDate": "2026-04-30",
+                      "shares": 10198.413,
+                      "lastPrice": 25.28,
+                      "costBasis": 72795.74
+                    }
+                  ]
+                },
+                {
+                  "id": "262307959",
+                  "name": "ROTH IRA",
+                  "balance": 49242.1,
+                  "holdings": [
+                    {
+                      "symbol": "CASH",
+                      "name": "Held in money market",
+                      "value": 166.59,
+                      "asOfDate": "2026-04-30"
+                    },
+                    {
+                      "symbol": "VTI",
+                      "name": "Vanguard Index Fds Vanguard Total Stk Mkt Etf",
+                      "value": 31671.12,
+                      "asOfDate": "2026-04-30",
+                      "shares": 89.421,
+                      "lastPrice": 354.18,
+                      "costBasis": 29999.86
+                    },
+                    {
+                      "symbol": "VXUS",
+                      "name": "Vanguard Total International Stock Index Fund",
+                      "value": 17404.39,
+                      "asOfDate": "2026-04-30",
+                      "shares": 209.54,
+                      "lastPrice": 83.06,
+                      "costBasis": 16999.99
+                    }
+                  ]
+                }
+              ]
+            },
+            "taxable": {
+              "balance": 138939.58,
+              "targetAllocation": {
+                "CASH": 0.0001,
+                "CENTRAL_MANAGED": 0.6034,
+                "FDGRX": 0.0532,
+                "FDLO": 0.0228,
+                "FELV": 0.0026,
+                "FXAIX": 0.1378,
+                "HAIN": 0.0012,
+                "IEFA": 0.077,
+                "IEMG": 0.0188,
+                "IJH": 0.0418,
+                "MUB": 0.0263,
+                "SCHH": 0.015
+              },
+              "sourceAccounts": [
+                {
+                  "id": "Z30728530",
+                  "name": "Joint WROS - TOD",
+                  "balance": 55105.28,
+                  "holdings": [
+                    {
+                      "symbol": "CASH",
+                      "name": "Held in money market",
+                      "value": 20.14,
+                      "asOfDate": "2026-04-30"
+                    },
+                    {
+                      "symbol": "FDGRX",
+                      "name": "Fidelity Growth Company",
+                      "value": 7392.44,
+                      "asOfDate": "2026-04-30",
+                      "shares": 137.585,
+                      "lastPrice": 53.73,
+                      "costBasis": 4699.9
+                    },
+                    {
+                      "symbol": "FDLO",
+                      "name": "Fidelity Low Volatility Factor Etf",
+                      "value": 3173.53,
+                      "asOfDate": "2026-04-30",
+                      "shares": 45.92,
+                      "lastPrice": 69.11,
+                      "costBasis": 2668.87
+                    },
+                    {
+                      "symbol": "FELV",
+                      "name": "Fidelity Enhanced Large Cap Value Etf",
+                      "value": 359.48,
+                      "asOfDate": "2026-04-30",
+                      "shares": 9.48,
+                      "lastPrice": 37.92,
+                      "costBasis": 278.81
+                    },
+                    {
+                      "symbol": "FXAIX",
+                      "name": "Fidelity 500 Index Fund",
+                      "value": 19147.04,
+                      "asOfDate": "2026-04-30",
+                      "shares": 76.417,
+                      "lastPrice": 250.56,
+                      "costBasis": 14354.31
+                    },
+                    {
+                      "symbol": "HAIN",
+                      "name": "Hain Celestial Group Inc",
+                      "value": 163.3,
+                      "asOfDate": "2026-04-30",
+                      "shares": 250,
+                      "lastPrice": 0.6532,
+                      "costBasis": 0
+                    },
+                    {
+                      "symbol": "IEFA",
+                      "name": "Ishares Trust Core Msci Eafe Etf",
+                      "value": 10697.61,
+                      "asOfDate": "2026-04-30",
+                      "shares": 111.97,
+                      "lastPrice": 95.54,
+                      "costBasis": 8234.96
+                    },
+                    {
+                      "symbol": "IEMG",
+                      "name": "Ishares Core Msci Emerging Markets Etf",
+                      "value": 2618.42,
+                      "asOfDate": "2026-04-30",
+                      "shares": 33.36,
+                      "lastPrice": 78.49,
+                      "costBasis": 1741.9
+                    },
+                    {
+                      "symbol": "IJH",
+                      "name": "Ishares Core S&P Mid-Cap Etf",
+                      "value": 5805.59,
+                      "asOfDate": "2026-04-30",
+                      "shares": 79.78,
+                      "lastPrice": 72.77,
+                      "costBasis": 4425.87
+                    },
+                    {
+                      "symbol": "MUB",
+                      "name": "Ishares National Muni Bond Etf",
+                      "value": 3649.91,
+                      "asOfDate": "2026-04-30",
+                      "shares": 34.07,
+                      "lastPrice": 107.13,
+                      "costBasis": 3550.76
+                    },
+                    {
+                      "symbol": "SCHH",
+                      "name": "Schwab Strategic Tr Us Reit Etf",
+                      "value": 2077.82,
+                      "asOfDate": "2026-04-30",
+                      "shares": 88.72,
+                      "lastPrice": 23.42,
+                      "costBasis": 1796.19
+                    }
+                  ]
+                },
+                {
+                  "id": "Y81720699",
+                  "name": "Joint WROS - TOD (Managed)",
+                  "balance": 83834.3,
+                  "managed": true,
+                  "holdings": [
+                    {
+                      "symbol": "CASH",
+                      "name": "Held in money market",
+                      "value": 1323.02,
+                      "asOfDate": "2026-04-30"
+                    },
+                    {
+                      "symbol": "DFEVX",
+                      "name": "Dimensional Emerging Mkts Val Prtf Instl",
+                      "value": 4140.67,
+                      "asOfDate": "2026-04-30",
+                      "shares": 97.359,
+                      "lastPrice": 42.53,
+                      "costBasis": 2860.65
+                    },
+                    {
+                      "symbol": "DIS",
+                      "name": "Disney Walt Co Com",
+                      "value": 1236.7,
+                      "asOfDate": "2026-04-30",
+                      "shares": 11.92,
+                      "lastPrice": 103.75,
+                      "costBasis": 249.01
+                    },
+                    {
+                      "symbol": "FDGRX",
+                      "name": "Fidelity Growth Company",
+                      "value": 1148.96,
+                      "asOfDate": "2026-04-30",
+                      "shares": 21.384,
+                      "lastPrice": 53.73,
+                      "costBasis": 1102.32
+                    },
+                    {
+                      "symbol": "FDIVX",
+                      "name": "Fidelity Diversified International",
+                      "value": 1702.03,
+                      "asOfDate": "2026-04-30",
+                      "shares": 32.525,
+                      "lastPrice": 52.33,
+                      "costBasis": 1391.41
+                    },
+                    {
+                      "symbol": "FDSSX",
+                      "name": "Fidelity Stock Selector Fund",
+                      "value": 3837.25,
+                      "asOfDate": "2026-04-30",
+                      "shares": 39.068,
+                      "lastPrice": 98.22,
+                      "costBasis": 3700.92
+                    },
+                    {
+                      "symbol": "FELC",
+                      "name": "Fidelity Enhanced Large Cap Core Etf",
+                      "value": 589.93,
+                      "asOfDate": "2026-04-30",
+                      "shares": 14.73,
+                      "lastPrice": 40.05,
+                      "costBasis": 570.04
+                    },
+                    {
+                      "symbol": "FEMVX",
+                      "name": "Fid Sai Emerging Mkt Value Index Fund",
+                      "value": 2728.6,
+                      "asOfDate": "2026-04-30",
+                      "shares": 136.022,
+                      "lastPrice": 20.06,
+                      "costBasis": 1757.41
+                    },
+                    {
+                      "symbol": "FENCX",
+                      "name": "Fid Sai Enhanced Muni Income Fund",
+                      "value": 2690.39,
+                      "asOfDate": "2026-04-30",
+                      "shares": 265.849,
+                      "lastPrice": 10.12,
+                      "costBasis": 2614.18
+                    },
+                    {
+                      "symbol": "FENI",
+                      "name": "Fidelity Enhanced International Etf",
+                      "value": 547.42,
+                      "asOfDate": "2026-04-30",
+                      "shares": 13.94,
+                      "lastPrice": 39.27,
+                      "costBasis": 511.95
+                    },
+                    {
+                      "symbol": "FFSM",
+                      "name": "Fidelity Fundamental Small-Mid Cap Etf",
+                      "value": 490.25,
+                      "asOfDate": "2026-04-30",
+                      "shares": 13.81,
+                      "lastPrice": 35.5,
+                      "costBasis": 478.03
+                    },
+                    {
+                      "symbol": "FICQX",
+                      "name": "Fidelity Intl Cap Appreciation Fund",
+                      "value": 1748.83,
+                      "asOfDate": "2026-04-30",
+                      "shares": 46.648,
+                      "lastPrice": 37.49,
+                      "costBasis": 1648.03
+                    },
+                    {
+                      "symbol": "FIWCX",
+                      "name": "Fidelity Sai Int'L Value Index Fund",
+                      "value": 1804.84,
+                      "asOfDate": "2026-04-30",
+                      "shares": 129.845,
+                      "lastPrice": 13.9,
+                      "costBasis": 1290.72
+                    },
+                    {
+                      "symbol": "FMAGX",
+                      "name": "Fidelity Magellan",
+                      "value": 2689.87,
+                      "asOfDate": "2026-04-30",
+                      "shares": 172.428,
+                      "lastPrice": 15.6,
+                      "costBasis": 2424.33
+                    },
+                    {
+                      "symbol": "FOSFX",
+                      "name": "Fidelity Overseas",
+                      "value": 268.57,
+                      "asOfDate": "2026-04-30",
+                      "shares": 3.591,
+                      "lastPrice": 74.79,
+                      "costBasis": 272.2
+                    },
+                    {
+                      "symbol": "FRESX",
+                      "name": "Fidelity Real Estate Investment",
+                      "value": 892.93,
+                      "asOfDate": "2026-04-30",
+                      "shares": 21.04,
+                      "lastPrice": 42.44,
+                      "costBasis": 874.64
+                    },
+                    {
+                      "symbol": "FSKLX",
+                      "name": "Fid Sai Intnl Low Volatility Index Fd",
+                      "value": 1175.64,
+                      "asOfDate": "2026-04-30",
+                      "shares": 86.065,
+                      "lastPrice": 13.66,
+                      "costBasis": 1013.58
+                    },
+                    {
+                      "symbol": "FSMJX",
+                      "name": "Fidelity Sai Conserv Income Muni Bond Fd",
+                      "value": 325.44,
+                      "asOfDate": "2026-04-30",
+                      "shares": 32.383,
+                      "lastPrice": 10.05,
+                      "costBasis": 325.77
+                    },
+                    {
+                      "symbol": "FSMNX",
+                      "name": "Fidelity Sai Municipal Income Fd",
+                      "value": 21995.5,
+                      "asOfDate": "2026-04-30",
+                      "shares": 2221.768,
+                      "lastPrice": 9.9,
+                      "costBasis": 20932.11
+                    },
+                    {
+                      "symbol": "FSPGX",
+                      "name": "Fidelity Large Cap Growth Index Fund",
+                      "value": 1109.73,
+                      "asOfDate": "2026-04-30",
+                      "shares": 23.758,
+                      "lastPrice": 46.71,
+                      "costBasis": 919.89
+                    },
+                    {
+                      "symbol": "FSPSX",
+                      "name": "Fidelity Internatl Index Fund",
+                      "value": 1548.9,
+                      "asOfDate": "2026-04-30",
+                      "shares": 23.855,
+                      "lastPrice": 64.93,
+                      "costBasis": 1564.43
+                    },
+                    {
+                      "symbol": "FSSNX",
+                      "name": "Fidelity Small Cap Index Fund",
+                      "value": 2859.88,
+                      "asOfDate": "2026-04-30",
+                      "shares": 81.641,
+                      "lastPrice": 35.03,
+                      "costBasis": 1940.63
+                    },
+                    {
+                      "symbol": "FSTFX",
+                      "name": "Fidelity Limited Term Muni Income Fd",
+                      "value": 2205.49,
+                      "asOfDate": "2026-04-30",
+                      "shares": 208.262,
+                      "lastPrice": 10.59,
+                      "costBasis": 2180.5
+                    },
+                    {
+                      "symbol": "FVAL",
+                      "name": "Fidelity Value Factor Etf",
+                      "value": 2635.82,
+                      "asOfDate": "2026-04-30",
+                      "shares": 34.65,
+                      "lastPrice": 76.07,
+                      "costBasis": 2250.19
+                    },
+                    {
+                      "symbol": "FZALX",
+                      "name": "Fidelity Advisor Mega Cap Stock Cl Z",
+                      "value": 10533.17,
+                      "asOfDate": "2026-04-30",
+                      "shares": 315.459,
+                      "lastPrice": 33.39,
+                      "costBasis": 7563.66
+                    },
+                    {
+                      "symbol": "HYD",
+                      "name": "Vaneck Etf Trust High Yld Munietf",
+                      "value": 1245.3,
+                      "asOfDate": "2026-04-30",
+                      "shares": 24.37,
+                      "lastPrice": 51.1,
+                      "costBasis": 1218.54
+                    },
+                    {
+                      "symbol": "IJH",
+                      "name": "Ishares Core S&P Mid-Cap Etf",
+                      "value": 429.34,
+                      "asOfDate": "2026-04-30",
+                      "shares": 5.9,
+                      "lastPrice": 72.77,
+                      "costBasis": 421.78
+                    },
+                    {
+                      "symbol": "MTUM",
+                      "name": "Ishares Tr Msci Usa Mmentm",
+                      "value": 3084.02,
+                      "asOfDate": "2026-04-30",
+                      "shares": 10.86,
+                      "lastPrice": 283.98,
+                      "costBasis": 2166.05
+                    },
+                    {
+                      "symbol": "PEMGX",
+                      "name": "Principal Mid Cap Fund Class A",
+                      "value": 678.26,
+                      "asOfDate": "2026-04-30",
+                      "shares": 18.087,
+                      "lastPrice": 37.5,
+                      "costBasis": 628.91
+                    },
+                    {
+                      "symbol": "QUAL",
+                      "name": "Ishares Tr Msci Usa Qlt Fct",
+                      "value": 3073.51,
+                      "asOfDate": "2026-04-30",
+                      "shares": 14.83,
+                      "lastPrice": 207.25,
+                      "costBasis": 3008.12
+                    },
+                    {
+                      "symbol": "SCZ",
+                      "name": "Ishares Tr Eafe Sml Cp Etf",
+                      "value": 1143.51,
+                      "asOfDate": "2026-04-30",
+                      "shares": 13.68,
+                      "lastPrice": 83.59,
+                      "costBasis": 806.5
+                    },
+                    {
+                      "symbol": "USMV",
+                      "name": "Ishares Tr Msci Usa Min Vol",
+                      "value": 1950.53,
+                      "asOfDate": "2026-04-30",
+                      "shares": 20.61,
+                      "lastPrice": 94.64,
+                      "costBasis": 1925.18
+                    }
+                  ]
+                }
+              ]
+            },
+            "cash": {
+              "balance": 50000,
+              "targetAllocation": {
+                "CASH": 1
+              }
+            },
+            "hsa": {
+              "balance": 50493.12,
+              "targetAllocation": {
+                "CASH": 0.0124,
+                "BND": 0.0987,
+                "SCHD": 0.2263,
+                "VTI": 0.4189,
+                "VXUS": 0.2437
+              },
+              "sourceAccounts": [
+                {
+                  "id": "262675925",
+                  "name": "Health Savings Account",
+                  "balance": 50493.12,
+                  "holdings": [
+                    {
+                      "symbol": "CASH",
+                      "name": "Held in money market",
+                      "value": 627.71,
+                      "asOfDate": "2026-04-30"
+                    },
+                    {
+                      "symbol": "BND",
+                      "name": "Vanguard Bd Index Fds Total Bnd Mrkt",
+                      "value": 4983.37,
+                      "asOfDate": "2026-04-30",
+                      "shares": 67.801,
+                      "lastPrice": 73.5,
+                      "costBasis": 4999.99
+                    },
+                    {
+                      "symbol": "SCHD",
+                      "name": "Schwab Us Dividend Equity Etf",
+                      "value": 11426.12,
+                      "asOfDate": "2026-04-30",
+                      "shares": 356.287,
+                      "lastPrice": 32.07,
+                      "costBasis": 10864.97
+                    },
+                    {
+                      "symbol": "VTI",
+                      "name": "Vanguard Index Fds Vanguard Total Stk Mkt Etf",
+                      "value": 21152.33,
+                      "asOfDate": "2026-04-30",
+                      "shares": 59.722,
+                      "lastPrice": 354.18,
+                      "costBasis": 19999.71
+                    },
+                    {
+                      "symbol": "VXUS",
+                      "name": "Vanguard Total International Stock Index Fund",
+                      "value": 12303.59,
+                      "asOfDate": "2026-04-30",
+                      "shares": 148.129,
+                      "lastPrice": 83.06,
+                      "costBasis": 11999.93
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          "rules": {
+            "withdrawalStyle": "guardrails",
+            "irmaaAware": true,
+            "replaceModeImports": true,
+            "monthlyReviewIssueAnnotations": [
+              {
+                "signalId": "aca_bridge_breach",
+                "years": [
+                  2027
+                ],
+                "disposition": "intentional_tradeoff",
+                "title": "2027 ACA subsidy loss is expected in the transition year",
+                "rationale": "The 2027 bridge-year MAGI breach is a known transition-year tradeoff from final payroll/taxable income and the selected spend path, not a surprise failure. The plan should include the net ACA cost and can still be green if the certified path clears the gates.",
+                "decision": "Accept the 2027 subsidy loss in the current review unless a MAGI-constrained alternative is explicitly requested to price the subsidy-preserving path.",
+                "evidence": [
+                  "Roth low-income bracket fill starts in 2028, after the final-paycheck transition year.",
+                  "Contribution-limit assumptions are already labeled as planning_estimate_for_2027_final_paycheck_window.",
+                  "Monthly review should still verify MAGI components and net ACA cost plumbing."
+                ],
+                "source": "user_confirmed_monthly_review_context"
+              }
+            ],
+            "payrollModel": {
+              "salaryProrationRule": "month_fraction",
+              "salaryProrationSource": "explicit_payroll_calendar"
+            },
+            "contributionLimits": {
+              "employee401kBaseLimit": 24500,
+              "employee401kCatchUpAge": 50,
+              "employee401kCatchUpLimit": 8000,
+              "employee401kSuperCatchUpAges": [
+                60,
+                61,
+                62,
+                63
+              ],
+              "employee401kSuperCatchUpLimit": 11250,
+              "rothCatchUpWageThreshold": 150000,
+              "employee401kBaseLimitByYear": {
+                "2027": 25000
+              },
+              "hsaSelfLimit": 4400,
+              "hsaFamilyLimit": 8750,
+              "hsaCatchUpAge": 55,
+              "hsaCatchUpLimit": 1000,
+              "assumptionSource": "planning_estimate_for_2027_final_paycheck_window"
+            },
+            "housingAfterDownsizePolicy": {
+              "mode": "own_replacement_home",
+              "startYear": 2037,
+              "replacementHomeCost": 500000,
+              "netLiquidityTarget": 500000,
+              "certainty": "estimated",
+              "assumptionSource": "user_estimate_sell_1m_home_buy_500k_replacement_home"
+            },
+            "windfallDeploymentPolicy": {
+              "enabled": true,
+              "destinationAccount": "taxable",
+              "investmentPolicy": "current_portfolio_mix",
+              "trackingMode": "taxable_shadow_sleeve",
+              "spendBeforeDeploy": true,
+              "cashReserveMonths": 0,
+              "assumptionSource": "user_confirmed_invest_unspent_windfall_and_home_sale_cash_in_current_portfolio_mix"
+            },
+            "rothConversionPolicy": {
+              "enabled": true,
+              "strategy": "aca_then_irmaa_headroom",
+              "minAnnualDollars": 500,
+              "maxAnnualDollars": 70000,
+              "maxPretaxBalancePercent": 0.12,
+              "magiBufferDollars": 2000,
+              "lowIncomeBracketFill": {
+                "enabled": true,
+                "startYear": 2028,
+                "endYear": 2030,
+                "annualTargetDollars": 70000,
+                "requireNoWageIncome": true
+              }
+            },
+            "healthcarePremiums": {
+              "baselineAcaPremiumAnnual": 14400,
+              "baselineMedicarePremiumAnnual": 2220,
+              "medicalInflationAnnual": 0.055
+            },
+            "hsaStrategy": {
+              "enabled": true,
+              "withdrawalMode": "ltc_reserve",
+              "annualQualifiedExpenseWithdrawalCap": 250000,
+              "prioritizeHighMagiYears": false,
+              "highMagiThreshold": 190000
+            },
+            "ltcAssumptions": {
+              "enabled": true,
+              "startAge": 85,
+              "annualCostToday": 48000,
+              "durationYears": 3,
+              "inflationAnnual": 0.055,
+              "eventProbability": 0.45
+            }
+          },
+          "stressors": [
+            {
+              "id": "layoff",
+              "name": "Laid Off Early",
+              "type": "income",
+              "salaryEndsEarly": true
+            },
+            {
+              "id": "market_down",
+              "name": "Bad First 3 Years",
+              "type": "market",
+              "equityReturns": [
+                -0.18,
+                -0.12,
+                -0.08
+              ],
+              "recoveryYears": 5
+            },
+            {
+              "id": "market_up",
+              "name": "Strong Early Market (Upside Case)",
+              "type": "market",
+              "equityReturns": [
+                0.12,
+                0.1,
+                0.08
+              ]
+            },
+            {
+              "id": "inflation",
+              "name": "High Inflation",
+              "type": "inflation",
+              "rate": 0.05,
+              "duration": 10
+            },
+            {
+              "id": "delayed_inheritance",
+              "name": "Delayed Inheritance",
+              "type": "timing"
+            }
+          ],
+          "responses": [
+            {
+              "id": "cut_spending",
+              "name": "Reduce Optional Spending",
+              "optionalReductionPercent": 20
+            },
+            {
+              "id": "sell_home_early",
+              "name": "Sell Home Early",
+              "triggerYear": 3,
+              "amount": 500000
+            },
+            {
+              "id": "delay_retirement",
+              "name": "Delay Retirement",
+              "delayYears": 1
+            },
+            {
+              "id": "early_ss",
+              "name": "Claim Social Security Early",
+              "claimAge": 62
+            },
+            {
+              "id": "preserve_roth",
+              "name": "Preserve Roth"
+            },
+            {
+              "id": "increase_cash_buffer",
+              "name": "Increase Cash Buffer"
+            }
+          ],
+          "goals": {
+            "legacyTargetTodayDollars": 1000000,
+            "protectedReserve": {
+              "targetTodayDollars": 1000000,
+              "purpose": "care_first_legacy_if_unused",
+              "availableFor": "late_life_care_or_health_shocks",
+              "normalLifestyleSpendable": false,
+              "assumptionSource": "user_confirmed_2026_05_16_care_first_legacy_if_unused"
+            }
+          }
+        },
+        "assumptions": {
+          "equityMean": 0.074,
+          "equityVolatility": 0.16,
+          "internationalEquityMean": 0.074,
+          "internationalEquityVolatility": 0.18,
+          "bondMean": 0.038,
+          "bondVolatility": 0.07,
+          "cashMean": 0.02,
+          "cashVolatility": 0.01,
+          "inflation": 0.028,
+          "inflationVolatility": 0.01,
+          "simulationRuns": 40,
+          "irmaaThreshold": 200000,
+          "guardrailFloorYears": 12,
+          "guardrailCeilingYears": 18,
+          "guardrailCutPercent": 0.2,
+          "robPlanningEndAge": 90,
+          "debbiePlanningEndAge": 95,
+          "travelPhaseYears": 10,
+          "simulationSeed": 987654,
+          "assumptionsVersion": "model-replay-packet-v1"
+        },
+        "selectedStressors": [
+          "layoff",
+          "market_down"
+        ],
+        "selectedResponses": [
+          "cut_spending",
+          "delay_retirement"
+        ],
+        "options": {
+          "pathMode": "selected_only",
+          "strategyMode": "planner_enhanced"
+        }
+      },
+      "expected": {
+        "summary": {
+          "id": "laid-off-early-bad-first-3-years-reduce-optional-spending-delay-retirement",
+          "label": "Laid Off Early + Bad First 3 Years + Reduce Optional Spending + Delay Retirement",
+          "simulationMode": "planner_enhanced",
+          "successRate": 0.775,
+          "medianEndingWealth": 1008190.01129,
+          "tenthPercentileEndingWealth": 0,
+          "medianFailureYear": 2057,
+          "annualFederalTaxEstimate": 1322.617647,
+          "failureYearDistribution": [
+            {
+              "year": 2052,
+              "count": 1,
+              "rate": 0.025
+            },
+            {
+              "year": 2053,
+              "count": 1,
+              "rate": 0.025
+            },
+            {
+              "year": 2055,
+              "count": 1,
+              "rate": 0.025
+            },
+            {
+              "year": 2056,
+              "count": 1,
+              "rate": 0.025
+            },
+            {
+              "year": 2057,
+              "count": 3,
+              "rate": 0.075
+            },
+            {
+              "year": 2059,
+              "count": 2,
+              "rate": 0.05
+            }
+          ]
+        },
+        "yearlyLedger": [
+          {
+            "year": 2026,
+            "medianAssets": 885319,
+            "tenthPercentileAssets": 870133,
+            "medianIncome": 182161,
+            "medianSpending": 117073,
+            "medianFederalTax": 22415,
+            "medianTotalCashOutflow": 139488,
+            "medianWithdrawalTotal": 0,
+            "medianRmdAmount": 0,
+            "medianRothConversion": 0,
+            "dominantIrmaaTier": "Tier 1"
+          },
+          {
+            "year": 2027,
+            "medianAssets": 683401,
+            "tenthPercentileAssets": 667523,
+            "medianIncome": 0,
+            "medianSpending": 127015,
+            "medianFederalTax": 3309,
+            "medianTotalCashOutflow": 130324,
+            "medianWithdrawalTotal": 130457,
+            "medianRmdAmount": 0,
+            "medianRothConversion": 38454,
+            "dominantIrmaaTier": "Tier 1"
+          },
+          {
+            "year": 2028,
+            "medianAssets": 1006758,
+            "tenthPercentileAssets": 987397,
+            "medianIncome": 0,
+            "medianSpending": 130766,
+            "medianFederalTax": 4040,
+            "medianTotalCashOutflow": 134806,
+            "medianWithdrawalTotal": 134806,
+            "medianRmdAmount": 0,
+            "medianRothConversion": 70000,
+            "dominantIrmaaTier": "Tier 1"
+          },
+          {
+            "year": 2029,
+            "medianAssets": 962168,
+            "tenthPercentileAssets": 803220,
+            "medianIncome": 0,
+            "medianSpending": 146522,
+            "medianFederalTax": 3842,
+            "medianTotalCashOutflow": 150364,
+            "medianWithdrawalTotal": 150364,
+            "medianRmdAmount": 0,
+            "medianRothConversion": 70000,
+            "dominantIrmaaTier": "Tier 1"
+          },
+          {
+            "year": 2030,
+            "medianAssets": 937477,
+            "tenthPercentileAssets": 734797,
+            "medianIncome": 0,
+            "medianSpending": 136513,
+            "medianFederalTax": 3644,
+            "medianTotalCashOutflow": 140157,
+            "medianWithdrawalTotal": 140157,
+            "medianRmdAmount": 0,
+            "medianRothConversion": 70000,
+            "dominantIrmaaTier": "Tier 1"
+          },
+          {
+            "year": 2031,
+            "medianAssets": 887440,
+            "tenthPercentileAssets": 671360,
+            "medianIncome": 19859,
+            "medianSpending": 139975,
+            "medianFederalTax": 0,
+            "medianTotalCashOutflow": 139975,
+            "medianWithdrawalTotal": 120116,
+            "medianRmdAmount": 0,
+            "medianRothConversion": 11891,
+            "dominantIrmaaTier": "Tier 1"
+          },
+          {
+            "year": 2032,
+            "medianAssets": 975485,
+            "tenthPercentileAssets": 627008,
+            "medianIncome": 86376,
+            "medianSpending": 143145,
+            "medianFederalTax": 412,
+            "medianTotalCashOutflow": 143557,
+            "medianWithdrawalTotal": 57465,
+            "medianRmdAmount": 0,
+            "medianRothConversion": 11626,
+            "dominantIrmaaTier": "Tier 1"
+          },
+          {
+            "year": 2033,
+            "medianAssets": 1029409,
+            "tenthPercentileAssets": 623520,
+            "medianIncome": 89667,
+            "medianSpending": 148702,
+            "medianFederalTax": 1012,
+            "medianTotalCashOutflow": 149714,
+            "medianWithdrawalTotal": 58056,
+            "medianRmdAmount": 0,
+            "medianRothConversion": 10881,
+            "dominantIrmaaTier": "Tier 1"
+          },
+          {
+            "year": 2034,
+            "medianAssets": 1049696,
+            "tenthPercentileAssets": 612767,
+            "medianIncome": 91846,
+            "medianSpending": 152514,
+            "medianFederalTax": 1232,
+            "medianTotalCashOutflow": 153746,
+            "medianWithdrawalTotal": 56495,
+            "medianRmdAmount": 0,
+            "medianRothConversion": 9528,
+            "dominantIrmaaTier": "Tier 1"
+          },
+          {
+            "year": 2035,
+            "medianAssets": 967830,
+            "tenthPercentileAssets": 592759,
+            "medianIncome": 93826,
+            "medianSpending": 156029,
+            "medianFederalTax": 1240,
+            "medianTotalCashOutflow": 157269,
+            "medianWithdrawalTotal": 1984,
+            "medianRmdAmount": 0,
+            "medianRothConversion": 0,
+            "dominantIrmaaTier": "Tier 1"
+          },
+          {
+            "year": 2036,
+            "medianAssets": 1000449,
+            "tenthPercentileAssets": 523275,
+            "medianIncome": 96888,
+            "medianSpending": 161282,
+            "medianFederalTax": 0,
+            "medianTotalCashOutflow": 161282,
+            "medianWithdrawalTotal": 46933,
+            "medianRmdAmount": 0,
+            "medianRothConversion": 0,
+            "dominantIrmaaTier": "Tier 1"
+          },
+          {
+            "year": 2037,
+            "medianAssets": 1550869,
+            "tenthPercentileAssets": 1076855,
+            "medianIncome": 99098,
+            "medianSpending": 147835,
+            "medianFederalTax": 0,
+            "medianTotalCashOutflow": 147835,
+            "medianWithdrawalTotal": 49379,
+            "medianRmdAmount": 0,
+            "medianRothConversion": 0,
+            "dominantIrmaaTier": "Tier 1"
+          },
+          {
+            "year": 2038,
+            "medianAssets": 1590468,
+            "tenthPercentileAssets": 1038102,
+            "medianIncome": 101944,
+            "medianSpending": 153754,
+            "medianFederalTax": 0,
+            "medianTotalCashOutflow": 153754,
+            "medianWithdrawalTotal": 50851,
+            "medianRmdAmount": 0,
+            "medianRothConversion": 0,
+            "dominantIrmaaTier": "Tier 1"
+          },
+          {
+            "year": 2039,
+            "medianAssets": 1547425,
+            "tenthPercentileAssets": 1066233,
+            "medianIncome": 104335,
+            "medianSpending": 159665,
+            "medianFederalTax": 0,
+            "medianTotalCashOutflow": 159665,
+            "medianWithdrawalTotal": 52835,
+            "medianRmdAmount": 0,
+            "medianRothConversion": 0,
+            "dominantIrmaaTier": "Tier 1"
+          },
+          {
+            "year": 2040,
+            "medianAssets": 1600977,
+            "tenthPercentileAssets": 1118145,
+            "medianIncome": 108009,
+            "medianSpending": 165025,
+            "medianFederalTax": 0,
+            "medianTotalCashOutflow": 165025,
+            "medianWithdrawalTotal": 54761,
+            "medianRmdAmount": 0,
+            "medianRothConversion": 0,
+            "dominantIrmaaTier": "Tier 1"
+          },
+          {
+            "year": 2041,
+            "medianAssets": 1656439,
+            "tenthPercentileAssets": 1139530,
+            "medianIncome": 110444,
+            "medianSpending": 172696,
+            "medianFederalTax": 0,
+            "medianTotalCashOutflow": 172696,
+            "medianWithdrawalTotal": 58114,
+            "medianRmdAmount": 0,
+            "medianRothConversion": 0,
+            "dominantIrmaaTier": "Tier 1"
+          },
+          {
+            "year": 2042,
+            "medianAssets": 1747944,
+            "tenthPercentileAssets": 1017706,
+            "medianIncome": 114090,
+            "medianSpending": 177848,
+            "medianFederalTax": 0,
+            "medianTotalCashOutflow": 177848,
+            "medianWithdrawalTotal": 60762,
+            "medianRmdAmount": 0,
+            "medianRothConversion": 0,
+            "dominantIrmaaTier": "Tier 1"
+          },
+          {
+            "year": 2043,
+            "medianAssets": 1750437,
+            "tenthPercentileAssets": 855629,
+            "medianIncome": 117292,
+            "medianSpending": 185354,
+            "medianFederalTax": 0,
+            "medianTotalCashOutflow": 185354,
+            "medianWithdrawalTotal": 63039,
+            "medianRmdAmount": 0,
+            "medianRothConversion": 0,
+            "dominantIrmaaTier": "Tier 1"
+          },
+          {
+            "year": 2044,
+            "medianAssets": 1758391,
+            "tenthPercentileAssets": 1000879,
+            "medianIncome": 120185,
+            "medianSpending": 190168,
+            "medianFederalTax": 17,
+            "medianTotalCashOutflow": 190185,
+            "medianWithdrawalTotal": 64883,
+            "medianRmdAmount": 0,
+            "medianRothConversion": 0,
+            "dominantIrmaaTier": "Tier 1"
+          },
+          {
+            "year": 2045,
+            "medianAssets": 1755896,
+            "tenthPercentileAssets": 836843,
+            "medianIncome": 123751,
+            "medianSpending": 196985,
+            "medianFederalTax": 0,
+            "medianTotalCashOutflow": 196985,
+            "medianWithdrawalTotal": 63871,
+            "medianRmdAmount": 0,
+            "medianRothConversion": 0,
+            "dominantIrmaaTier": "Tier 1"
+          },
+          {
+            "year": 2046,
+            "medianAssets": 1656987,
+            "tenthPercentileAssets": 797428,
+            "medianIncome": 126798,
+            "medianSpending": 202609,
+            "medianFederalTax": 55,
+            "medianTotalCashOutflow": 202664,
+            "medianWithdrawalTotal": 64202,
+            "medianRmdAmount": 0,
+            "medianRothConversion": 0,
+            "dominantIrmaaTier": "Tier 1"
+          },
+          {
+            "year": 2047,
+            "medianAssets": 1733925,
+            "tenthPercentileAssets": 726950,
+            "medianIncome": 130786,
+            "medianSpending": 206854,
+            "medianFederalTax": 61,
+            "medianTotalCashOutflow": 206915,
+            "medianWithdrawalTotal": 67869,
+            "medianRmdAmount": 0,
+            "medianRothConversion": 0,
+            "dominantIrmaaTier": "Tier 1"
+          },
+          {
+            "year": 2048,
+            "medianAssets": 1690254,
+            "tenthPercentileAssets": 670535,
+            "medianIncome": 133978,
+            "medianSpending": 211963,
+            "medianFederalTax": 0,
+            "medianTotalCashOutflow": 211963,
+            "medianWithdrawalTotal": 69227,
+            "medianRmdAmount": 0,
+            "medianRothConversion": 0,
+            "dominantIrmaaTier": "Tier 1"
+          },
+          {
+            "year": 2049,
+            "medianAssets": 1828275,
+            "tenthPercentileAssets": 704040,
+            "medianIncome": 138146,
+            "medianSpending": 229217,
+            "medianFederalTax": 0,
+            "medianTotalCashOutflow": 229217,
+            "medianWithdrawalTotal": 75448,
+            "medianRmdAmount": 0,
+            "medianRothConversion": 0,
+            "dominantIrmaaTier": "Tier 1"
+          },
+          {
+            "year": 2050,
+            "medianAssets": 1738524,
+            "tenthPercentileAssets": 558169,
+            "medianIncome": 142383,
+            "medianSpending": 239316,
+            "medianFederalTax": 0,
+            "medianTotalCashOutflow": 239316,
+            "medianWithdrawalTotal": 89558,
+            "medianRmdAmount": 0,
+            "medianRothConversion": 0,
+            "dominantIrmaaTier": "Tier 1"
+          },
+          {
+            "year": 2051,
+            "medianAssets": 1534789,
+            "tenthPercentileAssets": 415889,
+            "medianIncome": 146932,
+            "medianSpending": 248333,
+            "medianFederalTax": 0,
+            "medianTotalCashOutflow": 248333,
+            "medianWithdrawalTotal": 97866,
+            "medianRmdAmount": 0,
+            "medianRothConversion": 0,
+            "dominantIrmaaTier": "Tier 1"
+          },
+          {
+            "year": 2052,
+            "medianAssets": 1501410,
+            "tenthPercentileAssets": 357588,
+            "medianIncome": 150503,
+            "medianSpending": 241109,
+            "medianFederalTax": 0,
+            "medianTotalCashOutflow": 241109,
+            "medianWithdrawalTotal": 86980,
+            "medianRmdAmount": 0,
+            "medianRothConversion": 0,
+            "dominantIrmaaTier": "Tier 1"
+          },
+          {
+            "year": 2053,
+            "medianAssets": 1490816,
+            "tenthPercentileAssets": 312693,
+            "medianIncome": 155044,
+            "medianSpending": 250958,
+            "medianFederalTax": 0,
+            "medianTotalCashOutflow": 250958,
+            "medianWithdrawalTotal": 94991,
+            "medianRmdAmount": 0,
+            "medianRothConversion": 0,
+            "dominantIrmaaTier": "Tier 1"
+          },
+          {
+            "year": 2054,
+            "medianAssets": 1396639,
+            "tenthPercentileAssets": 214342,
+            "medianIncome": 159225,
+            "medianSpending": 257872,
+            "medianFederalTax": 102,
+            "medianTotalCashOutflow": 257974,
+            "medianWithdrawalTotal": 93618,
+            "medianRmdAmount": 0,
+            "medianRothConversion": 0,
+            "dominantIrmaaTier": "Tier 1"
+          },
+          {
+            "year": 2055,
+            "medianAssets": 1302730,
+            "tenthPercentileAssets": 141240,
+            "medianIncome": 164128,
+            "medianSpending": 263469,
+            "medianFederalTax": 308,
+            "medianTotalCashOutflow": 263777,
+            "medianWithdrawalTotal": 97976,
+            "medianRmdAmount": 0,
+            "medianRothConversion": 0,
+            "dominantIrmaaTier": "Tier 1"
+          },
+          {
+            "year": 2056,
+            "medianAssets": 1322606,
+            "tenthPercentileAssets": 121507,
+            "medianIncome": 169558,
+            "medianSpending": 275980,
+            "medianFederalTax": 536,
+            "medianTotalCashOutflow": 276516,
+            "medianWithdrawalTotal": 101123,
+            "medianRmdAmount": 0,
+            "medianRothConversion": 0,
+            "dominantIrmaaTier": "Tier 1"
+          },
+          {
+            "year": 2057,
+            "medianAssets": 1294495,
+            "tenthPercentileAssets": 133879,
+            "medianIncome": 172820,
+            "medianSpending": 274474,
+            "medianFederalTax": 673,
+            "medianTotalCashOutflow": 275147,
+            "medianWithdrawalTotal": 97348,
+            "medianRmdAmount": 0,
+            "medianRothConversion": 0,
+            "dominantIrmaaTier": "Tier 1"
+          },
+          {
+            "year": 2058,
+            "medianAssets": 2095800,
+            "tenthPercentileAssets": 359506,
+            "medianIncome": 178871,
+            "medianSpending": 286450,
+            "medianFederalTax": 939,
+            "medianTotalCashOutflow": 287389,
+            "medianWithdrawalTotal": 109517,
+            "medianRmdAmount": 0,
+            "medianRothConversion": 0,
+            "dominantIrmaaTier": "Tier 1"
+          },
+          {
+            "year": 2059,
+            "medianAssets": 1916421,
+            "tenthPercentileAssets": 313654,
+            "medianIncome": 183788,
+            "medianSpending": 296769,
+            "medianFederalTax": 1132,
+            "medianTotalCashOutflow": 297901,
+            "medianWithdrawalTotal": 113839,
+            "medianRmdAmount": 0,
+            "medianRothConversion": 0,
+            "dominantIrmaaTier": "Tier 1"
+          }
+        ]
+      }
+    },
+    {
+      "id": "current_88_91_planner_40_987654",
+      "label": "Current household 88/91 planner replay",
+      "modelCompleteness": "faithful",
+      "inferredAssumptions": [],
+      "input": {
+        "data": {
+          "household": {
+            "robBirthDate": "1964-12-08",
+            "debbieBirthDate": "1963-10-23",
+            "filingStatus": "married_filing_jointly",
+            "planningAge": 91,
+            "state": "TX"
+          },
+          "goals": {
+            "legacyTargetTodayDollars": 1000000,
+            "protectedReserve": {
+              "targetTodayDollars": 1000000,
+              "purpose": "care_first_legacy_if_unused",
+              "availableFor": "late_life_care_or_health_shocks",
+              "normalLifestyleSpendable": false,
+              "assumptionSource": "user_confirmed_2026_05_16_care_first_legacy_if_unused"
+            }
+          },
+          "income": {
+            "salaryAnnual": 210000,
+            "salaryEndDate": "2027-07-01",
+            "socialSecurity": [
+              {
+                "person": "rob",
+                "fraMonthly": 4100,
+                "claimAge": 67
+              },
+              {
+                "person": "debbie",
+                "fraMonthly": 1444,
+                "claimAge": 67
+              }
+            ],
+            "windfalls": [
+              {
+                "name": "inheritance",
+                "year": 2028,
+                "amount": 500000,
+                "taxTreatment": "cash_non_taxable"
+              },
+              {
+                "name": "home_sale",
+                "year": 2037,
+                "amount": 1000000,
+                "taxTreatment": "primary_home_sale",
+                "certainty": "estimated",
+                "timingUncertaintyYears": 2,
+                "amountUncertaintyPercent": 0.3,
+                "costBasis": 500000,
+                "exclusionAmount": 500000,
+                "sellingCostPercent": 0.06,
+                "replacementHomeCost": 500000,
+                "purchaseClosingCostPercent": 0.02,
+                "movingCost": 20000,
+                "liquidityAmount": 500000
+              }
+            ],
+            "preRetirementContributions": {
+              "employee401kPreTaxPercentOfSalary": 0.1499,
+              "employee401kRothPercentOfSalary": 0,
+              "priorYearFicaWagesFromEmployer": 210000,
+              "employerPlanSupportsRothDeferrals": true,
+              "employerPlanSupportsSuperCatchUp": true,
+              "planFeatureAssumptionSource": "estimated_pending_plan_document",
+              "employerMatch": {
+                "matchRate": 0.5,
+                "maxEmployeeContributionPercentOfSalary": 0.06,
+                "assumptionSource": "user_confirmed_athenahealth_50_percent_of_first_6_percent_pending_document_verification",
+                "verificationStatus": "user_confirmed_pending_document"
+              },
+              "hsaPercentOfSalary": 0.0159,
+              "hsaCoverageType": "family"
+            },
+            "sabbatical": {
+              "returnDate": "2026-07-01",
+              "paidWeeks": 6,
+              "weeksForgivenPerMonth": 0.5
+            }
+          },
+          "spending": {
+            "essentialMonthly": 4795,
+            "optionalMonthly": 4795,
+            "annualTaxesInsurance": 11507,
+            "travelEarlyRetirementAnnual": 14000,
+            "travelFloorAnnual": 5000
+          },
+          "accounts": {
+            "pretax": {
+              "balance": 386656.11,
+              "targetAllocation": {
+                "CASH": 0.0027,
+                "BND": 0.3171,
+                "FAGIX": 0,
+                "FSRIX": 0,
+                "SCHD": 0.4913,
+                "TRP_2030": 0.0337,
+                "VTI": 0.1552
+              },
+              "sourceAccounts": [
+                {
+                  "id": "19098",
+                  "name": "ATHENAHEALTH 401(k)",
+                  "owner": "rob",
+                  "balance": 13037.99,
+                  "holdings": [
+                    {
+                      "symbol": "TRP_2030",
+                      "name": "T. Rowe Price Retirement 2030 Fund",
+                      "value": 13037.99,
+                      "asOfDate": "2026-04-30",
+                      "shares": 345.377,
+                      "lastPrice": 37.75,
+                      "costBasis": 12730.24
+                    }
+                  ]
+                },
+                {
+                  "id": "267425112",
+                  "name": "Rollover IRA",
+                  "owner": "rob",
+                  "balance": 373618.12,
+                  "holdings": [
+                    {
+                      "symbol": "CASH",
+                      "name": "Held in money market",
+                      "value": 1053.63,
+                      "asOfDate": "2026-04-30"
+                    },
+                    {
+                      "symbol": "BND",
+                      "name": "Vanguard Bd Index Fds Total Bnd Mrkt",
+                      "value": 122608.06,
+                      "asOfDate": "2026-04-30",
+                      "shares": 1668.137,
+                      "lastPrice": 73.5,
+                      "costBasis": 122899.99
+                    },
+                    {
+                      "symbol": "FAGIX",
+                      "name": "Fidelity Capital & Income",
+                      "value": 0.82,
+                      "asOfDate": "2026-04-30",
+                      "shares": 0.073,
+                      "lastPrice": 11.34,
+                      "costBasis": 0
+                    },
+                    {
+                      "symbol": "FSRIX",
+                      "name": "Fidelity Advisor Strategic Inc Cl I",
+                      "value": 0.68,
+                      "asOfDate": "2026-04-30",
+                      "shares": 0.056,
+                      "lastPrice": 12.21,
+                      "costBasis": 0
+                    },
+                    {
+                      "symbol": "SCHD",
+                      "name": "Schwab Us Dividend Equity Etf",
+                      "value": 189960.74,
+                      "asOfDate": "2026-04-30",
+                      "shares": 5923.316,
+                      "lastPrice": 32.07,
+                      "costBasis": 180749.99
+                    },
+                    {
+                      "symbol": "VTI",
+                      "name": "Vanguard Index Fds Vanguard Total Stk Mkt Etf",
+                      "value": 59994.19,
+                      "asOfDate": "2026-04-30",
+                      "shares": 169.389,
+                      "lastPrice": 354.18,
+                      "costBasis": 56809.69
+                    }
+                  ]
+                }
+              ]
+            },
+            "roth": {
+              "balance": 307059.87,
+              "targetAllocation": {
+                "CASH": 0.0005,
+                "FCNTX": 0.8396,
+                "VTI": 0.1031,
+                "VXUS": 0.0567
+              },
+              "sourceAccounts": [
+                {
+                  "id": "194312991",
+                  "name": "Authorized ROTH IRA",
+                  "balance": 257817.77,
+                  "holdings": [
+                    {
+                      "symbol": "CASH",
+                      "name": "Held in money market",
+                      "value": 1.89,
+                      "asOfDate": "2026-04-30"
+                    },
+                    {
+                      "symbol": "FCNTX",
+                      "name": "Fidelity Contrafund",
+                      "value": 257815.88,
+                      "asOfDate": "2026-04-30",
+                      "shares": 10198.413,
+                      "lastPrice": 25.28,
+                      "costBasis": 72795.74
+                    }
+                  ]
+                },
+                {
+                  "id": "262307959",
+                  "name": "ROTH IRA",
+                  "balance": 49242.1,
+                  "holdings": [
+                    {
+                      "symbol": "CASH",
+                      "name": "Held in money market",
+                      "value": 166.59,
+                      "asOfDate": "2026-04-30"
+                    },
+                    {
+                      "symbol": "VTI",
+                      "name": "Vanguard Index Fds Vanguard Total Stk Mkt Etf",
+                      "value": 31671.12,
+                      "asOfDate": "2026-04-30",
+                      "shares": 89.421,
+                      "lastPrice": 354.18,
+                      "costBasis": 29999.86
+                    },
+                    {
+                      "symbol": "VXUS",
+                      "name": "Vanguard Total International Stock Index Fund",
+                      "value": 17404.39,
+                      "asOfDate": "2026-04-30",
+                      "shares": 209.54,
+                      "lastPrice": 83.06,
+                      "costBasis": 16999.99
+                    }
+                  ]
+                }
+              ]
+            },
+            "taxable": {
+              "balance": 138939.58,
+              "targetAllocation": {
+                "CASH": 0.0001,
+                "CENTRAL_MANAGED": 0.6034,
+                "FDGRX": 0.0532,
+                "FDLO": 0.0228,
+                "FELV": 0.0026,
+                "FXAIX": 0.1378,
+                "HAIN": 0.0012,
+                "IEFA": 0.077,
+                "IEMG": 0.0188,
+                "IJH": 0.0418,
+                "MUB": 0.0263,
+                "SCHH": 0.015
+              },
+              "sourceAccounts": [
+                {
+                  "id": "Z30728530",
+                  "name": "Joint WROS - TOD",
+                  "balance": 55105.28,
+                  "holdings": [
+                    {
+                      "symbol": "CASH",
+                      "name": "Held in money market",
+                      "value": 20.14,
+                      "asOfDate": "2026-04-30"
+                    },
+                    {
+                      "symbol": "FDGRX",
+                      "name": "Fidelity Growth Company",
+                      "value": 7392.44,
+                      "asOfDate": "2026-04-30",
+                      "shares": 137.585,
+                      "lastPrice": 53.73,
+                      "costBasis": 4699.9
+                    },
+                    {
+                      "symbol": "FDLO",
+                      "name": "Fidelity Low Volatility Factor Etf",
+                      "value": 3173.53,
+                      "asOfDate": "2026-04-30",
+                      "shares": 45.92,
+                      "lastPrice": 69.11,
+                      "costBasis": 2668.87
+                    },
+                    {
+                      "symbol": "FELV",
+                      "name": "Fidelity Enhanced Large Cap Value Etf",
+                      "value": 359.48,
+                      "asOfDate": "2026-04-30",
+                      "shares": 9.48,
+                      "lastPrice": 37.92,
+                      "costBasis": 278.81
+                    },
+                    {
+                      "symbol": "FXAIX",
+                      "name": "Fidelity 500 Index Fund",
+                      "value": 19147.04,
+                      "asOfDate": "2026-04-30",
+                      "shares": 76.417,
+                      "lastPrice": 250.56,
+                      "costBasis": 14354.31
+                    },
+                    {
+                      "symbol": "HAIN",
+                      "name": "Hain Celestial Group Inc",
+                      "value": 163.3,
+                      "asOfDate": "2026-04-30",
+                      "shares": 250,
+                      "lastPrice": 0.6532,
+                      "costBasis": 0
+                    },
+                    {
+                      "symbol": "IEFA",
+                      "name": "Ishares Trust Core Msci Eafe Etf",
+                      "value": 10697.61,
+                      "asOfDate": "2026-04-30",
+                      "shares": 111.97,
+                      "lastPrice": 95.54,
+                      "costBasis": 8234.96
+                    },
+                    {
+                      "symbol": "IEMG",
+                      "name": "Ishares Core Msci Emerging Markets Etf",
+                      "value": 2618.42,
+                      "asOfDate": "2026-04-30",
+                      "shares": 33.36,
+                      "lastPrice": 78.49,
+                      "costBasis": 1741.9
+                    },
+                    {
+                      "symbol": "IJH",
+                      "name": "Ishares Core S&P Mid-Cap Etf",
+                      "value": 5805.59,
+                      "asOfDate": "2026-04-30",
+                      "shares": 79.78,
+                      "lastPrice": 72.77,
+                      "costBasis": 4425.87
+                    },
+                    {
+                      "symbol": "MUB",
+                      "name": "Ishares National Muni Bond Etf",
+                      "value": 3649.91,
+                      "asOfDate": "2026-04-30",
+                      "shares": 34.07,
+                      "lastPrice": 107.13,
+                      "costBasis": 3550.76
+                    },
+                    {
+                      "symbol": "SCHH",
+                      "name": "Schwab Strategic Tr Us Reit Etf",
+                      "value": 2077.82,
+                      "asOfDate": "2026-04-30",
+                      "shares": 88.72,
+                      "lastPrice": 23.42,
+                      "costBasis": 1796.19
+                    }
+                  ]
+                },
+                {
+                  "id": "Y81720699",
+                  "name": "Joint WROS - TOD (Managed)",
+                  "balance": 83834.3,
+                  "managed": true,
+                  "holdings": [
+                    {
+                      "symbol": "CASH",
+                      "name": "Held in money market",
+                      "value": 1323.02,
+                      "asOfDate": "2026-04-30"
+                    },
+                    {
+                      "symbol": "DFEVX",
+                      "name": "Dimensional Emerging Mkts Val Prtf Instl",
+                      "value": 4140.67,
+                      "asOfDate": "2026-04-30",
+                      "shares": 97.359,
+                      "lastPrice": 42.53,
+                      "costBasis": 2860.65
+                    },
+                    {
+                      "symbol": "DIS",
+                      "name": "Disney Walt Co Com",
+                      "value": 1236.7,
+                      "asOfDate": "2026-04-30",
+                      "shares": 11.92,
+                      "lastPrice": 103.75,
+                      "costBasis": 249.01
+                    },
+                    {
+                      "symbol": "FDGRX",
+                      "name": "Fidelity Growth Company",
+                      "value": 1148.96,
+                      "asOfDate": "2026-04-30",
+                      "shares": 21.384,
+                      "lastPrice": 53.73,
+                      "costBasis": 1102.32
+                    },
+                    {
+                      "symbol": "FDIVX",
+                      "name": "Fidelity Diversified International",
+                      "value": 1702.03,
+                      "asOfDate": "2026-04-30",
+                      "shares": 32.525,
+                      "lastPrice": 52.33,
+                      "costBasis": 1391.41
+                    },
+                    {
+                      "symbol": "FDSSX",
+                      "name": "Fidelity Stock Selector Fund",
+                      "value": 3837.25,
+                      "asOfDate": "2026-04-30",
+                      "shares": 39.068,
+                      "lastPrice": 98.22,
+                      "costBasis": 3700.92
+                    },
+                    {
+                      "symbol": "FELC",
+                      "name": "Fidelity Enhanced Large Cap Core Etf",
+                      "value": 589.93,
+                      "asOfDate": "2026-04-30",
+                      "shares": 14.73,
+                      "lastPrice": 40.05,
+                      "costBasis": 570.04
+                    },
+                    {
+                      "symbol": "FEMVX",
+                      "name": "Fid Sai Emerging Mkt Value Index Fund",
+                      "value": 2728.6,
+                      "asOfDate": "2026-04-30",
+                      "shares": 136.022,
+                      "lastPrice": 20.06,
+                      "costBasis": 1757.41
+                    },
+                    {
+                      "symbol": "FENCX",
+                      "name": "Fid Sai Enhanced Muni Income Fund",
+                      "value": 2690.39,
+                      "asOfDate": "2026-04-30",
+                      "shares": 265.849,
+                      "lastPrice": 10.12,
+                      "costBasis": 2614.18
+                    },
+                    {
+                      "symbol": "FENI",
+                      "name": "Fidelity Enhanced International Etf",
+                      "value": 547.42,
+                      "asOfDate": "2026-04-30",
+                      "shares": 13.94,
+                      "lastPrice": 39.27,
+                      "costBasis": 511.95
+                    },
+                    {
+                      "symbol": "FFSM",
+                      "name": "Fidelity Fundamental Small-Mid Cap Etf",
+                      "value": 490.25,
+                      "asOfDate": "2026-04-30",
+                      "shares": 13.81,
+                      "lastPrice": 35.5,
+                      "costBasis": 478.03
+                    },
+                    {
+                      "symbol": "FICQX",
+                      "name": "Fidelity Intl Cap Appreciation Fund",
+                      "value": 1748.83,
+                      "asOfDate": "2026-04-30",
+                      "shares": 46.648,
+                      "lastPrice": 37.49,
+                      "costBasis": 1648.03
+                    },
+                    {
+                      "symbol": "FIWCX",
+                      "name": "Fidelity Sai Int'L Value Index Fund",
+                      "value": 1804.84,
+                      "asOfDate": "2026-04-30",
+                      "shares": 129.845,
+                      "lastPrice": 13.9,
+                      "costBasis": 1290.72
+                    },
+                    {
+                      "symbol": "FMAGX",
+                      "name": "Fidelity Magellan",
+                      "value": 2689.87,
+                      "asOfDate": "2026-04-30",
+                      "shares": 172.428,
+                      "lastPrice": 15.6,
+                      "costBasis": 2424.33
+                    },
+                    {
+                      "symbol": "FOSFX",
+                      "name": "Fidelity Overseas",
+                      "value": 268.57,
+                      "asOfDate": "2026-04-30",
+                      "shares": 3.591,
+                      "lastPrice": 74.79,
+                      "costBasis": 272.2
+                    },
+                    {
+                      "symbol": "FRESX",
+                      "name": "Fidelity Real Estate Investment",
+                      "value": 892.93,
+                      "asOfDate": "2026-04-30",
+                      "shares": 21.04,
+                      "lastPrice": 42.44,
+                      "costBasis": 874.64
+                    },
+                    {
+                      "symbol": "FSKLX",
+                      "name": "Fid Sai Intnl Low Volatility Index Fd",
+                      "value": 1175.64,
+                      "asOfDate": "2026-04-30",
+                      "shares": 86.065,
+                      "lastPrice": 13.66,
+                      "costBasis": 1013.58
+                    },
+                    {
+                      "symbol": "FSMJX",
+                      "name": "Fidelity Sai Conserv Income Muni Bond Fd",
+                      "value": 325.44,
+                      "asOfDate": "2026-04-30",
+                      "shares": 32.383,
+                      "lastPrice": 10.05,
+                      "costBasis": 325.77
+                    },
+                    {
+                      "symbol": "FSMNX",
+                      "name": "Fidelity Sai Municipal Income Fd",
+                      "value": 21995.5,
+                      "asOfDate": "2026-04-30",
+                      "shares": 2221.768,
+                      "lastPrice": 9.9,
+                      "costBasis": 20932.11
+                    },
+                    {
+                      "symbol": "FSPGX",
+                      "name": "Fidelity Large Cap Growth Index Fund",
+                      "value": 1109.73,
+                      "asOfDate": "2026-04-30",
+                      "shares": 23.758,
+                      "lastPrice": 46.71,
+                      "costBasis": 919.89
+                    },
+                    {
+                      "symbol": "FSPSX",
+                      "name": "Fidelity Internatl Index Fund",
+                      "value": 1548.9,
+                      "asOfDate": "2026-04-30",
+                      "shares": 23.855,
+                      "lastPrice": 64.93,
+                      "costBasis": 1564.43
+                    },
+                    {
+                      "symbol": "FSSNX",
+                      "name": "Fidelity Small Cap Index Fund",
+                      "value": 2859.88,
+                      "asOfDate": "2026-04-30",
+                      "shares": 81.641,
+                      "lastPrice": 35.03,
+                      "costBasis": 1940.63
+                    },
+                    {
+                      "symbol": "FSTFX",
+                      "name": "Fidelity Limited Term Muni Income Fd",
+                      "value": 2205.49,
+                      "asOfDate": "2026-04-30",
+                      "shares": 208.262,
+                      "lastPrice": 10.59,
+                      "costBasis": 2180.5
+                    },
+                    {
+                      "symbol": "FVAL",
+                      "name": "Fidelity Value Factor Etf",
+                      "value": 2635.82,
+                      "asOfDate": "2026-04-30",
+                      "shares": 34.65,
+                      "lastPrice": 76.07,
+                      "costBasis": 2250.19
+                    },
+                    {
+                      "symbol": "FZALX",
+                      "name": "Fidelity Advisor Mega Cap Stock Cl Z",
+                      "value": 10533.17,
+                      "asOfDate": "2026-04-30",
+                      "shares": 315.459,
+                      "lastPrice": 33.39,
+                      "costBasis": 7563.66
+                    },
+                    {
+                      "symbol": "HYD",
+                      "name": "Vaneck Etf Trust High Yld Munietf",
+                      "value": 1245.3,
+                      "asOfDate": "2026-04-30",
+                      "shares": 24.37,
+                      "lastPrice": 51.1,
+                      "costBasis": 1218.54
+                    },
+                    {
+                      "symbol": "IJH",
+                      "name": "Ishares Core S&P Mid-Cap Etf",
+                      "value": 429.34,
+                      "asOfDate": "2026-04-30",
+                      "shares": 5.9,
+                      "lastPrice": 72.77,
+                      "costBasis": 421.78
+                    },
+                    {
+                      "symbol": "MTUM",
+                      "name": "Ishares Tr Msci Usa Mmentm",
+                      "value": 3084.02,
+                      "asOfDate": "2026-04-30",
+                      "shares": 10.86,
+                      "lastPrice": 283.98,
+                      "costBasis": 2166.05
+                    },
+                    {
+                      "symbol": "PEMGX",
+                      "name": "Principal Mid Cap Fund Class A",
+                      "value": 678.26,
+                      "asOfDate": "2026-04-30",
+                      "shares": 18.087,
+                      "lastPrice": 37.5,
+                      "costBasis": 628.91
+                    },
+                    {
+                      "symbol": "QUAL",
+                      "name": "Ishares Tr Msci Usa Qlt Fct",
+                      "value": 3073.51,
+                      "asOfDate": "2026-04-30",
+                      "shares": 14.83,
+                      "lastPrice": 207.25,
+                      "costBasis": 3008.12
+                    },
+                    {
+                      "symbol": "SCZ",
+                      "name": "Ishares Tr Eafe Sml Cp Etf",
+                      "value": 1143.51,
+                      "asOfDate": "2026-04-30",
+                      "shares": 13.68,
+                      "lastPrice": 83.59,
+                      "costBasis": 806.5
+                    },
+                    {
+                      "symbol": "USMV",
+                      "name": "Ishares Tr Msci Usa Min Vol",
+                      "value": 1950.53,
+                      "asOfDate": "2026-04-30",
+                      "shares": 20.61,
+                      "lastPrice": 94.64,
+                      "costBasis": 1925.18
+                    }
+                  ]
+                }
+              ]
+            },
+            "cash": {
+              "balance": 50000,
+              "targetAllocation": {
+                "CASH": 1
+              }
+            },
+            "hsa": {
+              "balance": 50493.12,
+              "targetAllocation": {
+                "CASH": 0.0124,
+                "BND": 0.0987,
+                "SCHD": 0.2263,
+                "VTI": 0.4189,
+                "VXUS": 0.2437
+              },
+              "sourceAccounts": [
+                {
+                  "id": "262675925",
+                  "name": "Health Savings Account",
+                  "balance": 50493.12,
+                  "holdings": [
+                    {
+                      "symbol": "CASH",
+                      "name": "Held in money market",
+                      "value": 627.71,
+                      "asOfDate": "2026-04-30"
+                    },
+                    {
+                      "symbol": "BND",
+                      "name": "Vanguard Bd Index Fds Total Bnd Mrkt",
+                      "value": 4983.37,
+                      "asOfDate": "2026-04-30",
+                      "shares": 67.801,
+                      "lastPrice": 73.5,
+                      "costBasis": 4999.99
+                    },
+                    {
+                      "symbol": "SCHD",
+                      "name": "Schwab Us Dividend Equity Etf",
+                      "value": 11426.12,
+                      "asOfDate": "2026-04-30",
+                      "shares": 356.287,
+                      "lastPrice": 32.07,
+                      "costBasis": 10864.97
+                    },
+                    {
+                      "symbol": "VTI",
+                      "name": "Vanguard Index Fds Vanguard Total Stk Mkt Etf",
+                      "value": 21152.33,
+                      "asOfDate": "2026-04-30",
+                      "shares": 59.722,
+                      "lastPrice": 354.18,
+                      "costBasis": 19999.71
+                    },
+                    {
+                      "symbol": "VXUS",
+                      "name": "Vanguard Total International Stock Index Fund",
+                      "value": 12303.59,
+                      "asOfDate": "2026-04-30",
+                      "shares": 148.129,
+                      "lastPrice": 83.06,
+                      "costBasis": 11999.93
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          "rules": {
+            "withdrawalStyle": "guardrails",
+            "irmaaAware": true,
+            "replaceModeImports": true,
+            "monthlyReviewIssueAnnotations": [
+              {
+                "signalId": "aca_bridge_breach",
+                "years": [
+                  2027
+                ],
+                "disposition": "intentional_tradeoff",
+                "title": "2027 ACA subsidy loss is expected in the transition year",
+                "rationale": "The 2027 bridge-year MAGI breach is a known transition-year tradeoff from final payroll/taxable income and the selected spend path, not a surprise failure. The plan should include the net ACA cost and can still be green if the certified path clears the gates.",
+                "decision": "Accept the 2027 subsidy loss in the current review unless a MAGI-constrained alternative is explicitly requested to price the subsidy-preserving path.",
+                "evidence": [
+                  "Roth low-income bracket fill starts in 2028, after the final-paycheck transition year.",
+                  "Contribution-limit assumptions are already labeled as planning_estimate_for_2027_final_paycheck_window.",
+                  "Monthly review should still verify MAGI components and net ACA cost plumbing."
+                ],
+                "source": "user_confirmed_monthly_review_context"
+              }
+            ],
+            "payrollModel": {
+              "salaryProrationRule": "month_fraction",
+              "salaryProrationSource": "explicit_payroll_calendar"
+            },
+            "contributionLimits": {
+              "employee401kBaseLimit": 24500,
+              "employee401kCatchUpAge": 50,
+              "employee401kCatchUpLimit": 8000,
+              "employee401kSuperCatchUpAges": [
+                60,
+                61,
+                62,
+                63
+              ],
+              "employee401kSuperCatchUpLimit": 11250,
+              "rothCatchUpWageThreshold": 150000,
+              "employee401kBaseLimitByYear": {
+                "2027": 25000
+              },
+              "hsaSelfLimit": 4400,
+              "hsaFamilyLimit": 8750,
+              "hsaCatchUpAge": 55,
+              "hsaCatchUpLimit": 1000,
+              "assumptionSource": "planning_estimate_for_2027_final_paycheck_window"
+            },
+            "housingAfterDownsizePolicy": {
+              "mode": "own_replacement_home",
+              "startYear": 2037,
+              "replacementHomeCost": 500000,
+              "netLiquidityTarget": 500000,
+              "certainty": "estimated",
+              "assumptionSource": "user_estimate_sell_1m_home_buy_500k_replacement_home"
+            },
+            "windfallDeploymentPolicy": {
+              "enabled": true,
+              "destinationAccount": "taxable",
+              "investmentPolicy": "current_portfolio_mix",
+              "trackingMode": "taxable_shadow_sleeve",
+              "spendBeforeDeploy": true,
+              "cashReserveMonths": 0,
+              "assumptionSource": "user_confirmed_invest_unspent_windfall_and_home_sale_cash_in_current_portfolio_mix"
+            },
+            "rothConversionPolicy": {
+              "enabled": true,
+              "strategy": "aca_then_irmaa_headroom",
+              "minAnnualDollars": 500,
+              "maxAnnualDollars": 70000,
+              "maxPretaxBalancePercent": 0.12,
+              "magiBufferDollars": 2000,
+              "lowIncomeBracketFill": {
+                "enabled": true,
+                "startYear": 2028,
+                "endYear": 2030,
+                "annualTargetDollars": 70000,
+                "requireNoWageIncome": true
+              }
+            },
+            "healthcarePremiums": {
+              "baselineAcaPremiumAnnual": 14400,
+              "baselineMedicarePremiumAnnual": 2220,
+              "medicalInflationAnnual": 0.055
+            },
+            "hsaStrategy": {
+              "enabled": true,
+              "withdrawalMode": "ltc_reserve",
+              "annualQualifiedExpenseWithdrawalCap": 250000,
+              "prioritizeHighMagiYears": false,
+              "highMagiThreshold": 190000
+            },
+            "ltcAssumptions": {
+              "enabled": true,
+              "startAge": 85,
+              "annualCostToday": 48000,
+              "durationYears": 3,
+              "inflationAnnual": 0.055,
+              "eventProbability": 0.45
+            }
+          },
+          "stressors": [
+            {
+              "id": "layoff",
+              "name": "Laid Off Early",
+              "type": "income",
+              "salaryEndsEarly": true
+            },
+            {
+              "id": "market_down",
+              "name": "Bad First 3 Years",
+              "type": "market",
+              "equityReturns": [
+                -0.18,
+                -0.12,
+                -0.08
+              ],
+              "recoveryYears": 5
+            },
+            {
+              "id": "market_up",
+              "name": "Strong Early Market (Upside Case)",
+              "type": "market",
+              "equityReturns": [
+                0.12,
+                0.1,
+                0.08
+              ]
+            },
+            {
+              "id": "inflation",
+              "name": "High Inflation",
+              "type": "inflation",
+              "rate": 0.05,
+              "duration": 10
+            },
+            {
+              "id": "delayed_inheritance",
+              "name": "Delayed Inheritance",
+              "type": "timing"
+            }
+          ],
+          "responses": [
+            {
+              "id": "cut_spending",
+              "name": "Reduce Optional Spending",
+              "optionalReductionPercent": 20
+            },
+            {
+              "id": "sell_home_early",
+              "name": "Sell Home Early",
+              "triggerYear": 3,
+              "amount": 500000
+            },
+            {
+              "id": "delay_retirement",
+              "name": "Delay Retirement",
+              "delayYears": 1
+            },
+            {
+              "id": "early_ss",
+              "name": "Claim Social Security Early",
+              "claimAge": 62
+            },
+            {
+              "id": "preserve_roth",
+              "name": "Preserve Roth"
+            },
+            {
+              "id": "increase_cash_buffer",
+              "name": "Increase Cash Buffer"
+            }
+          ]
+        },
+        "assumptions": {
+          "equityMean": 0.074,
+          "equityVolatility": 0.16,
+          "internationalEquityMean": 0.074,
+          "internationalEquityVolatility": 0.18,
+          "bondMean": 0.038,
+          "bondVolatility": 0.07,
+          "cashMean": 0.02,
+          "cashVolatility": 0.01,
+          "inflation": 0.028,
+          "inflationVolatility": 0.01,
+          "simulationRuns": 40,
+          "irmaaThreshold": 200000,
+          "guardrailFloorYears": 12,
+          "guardrailCeilingYears": 18,
+          "guardrailCutPercent": 0.2,
+          "robPlanningEndAge": 88,
+          "debbiePlanningEndAge": 91,
+          "travelPhaseYears": 12,
+          "travelFlatYears": 5,
+          "simulationSeed": 987654,
+          "assumptionsVersion": "replay-current-88-91-v1"
+        },
+        "selectedStressors": [],
+        "selectedResponses": [],
+        "options": {
+          "pathMode": "selected_only",
+          "strategyMode": "planner_enhanced"
+        }
+      },
+      "expected": {
+        "summary": {
+          "id": "selected-path",
+          "label": "Selected Path",
+          "simulationMode": "planner_enhanced",
+          "successRate": 0.95,
+          "medianEndingWealth": 1424933.529902,
+          "tenthPercentileEndingWealth": 552555.622342,
+          "medianFailureYear": 2052,
+          "annualFederalTaxEstimate": 3384.3,
+          "failureYearDistribution": [
+            {
+              "year": 2052,
+              "count": 1,
+              "rate": 0.025
+            },
+            {
+              "year": 2054,
+              "count": 1,
+              "rate": 0.025
+            }
+          ]
+        },
+        "yearlyLedger": [
+          {
+            "year": 2026,
+            "medianAssets": 1045908,
+            "tenthPercentileAssets": 940780,
+            "medianIncome": 182161,
+            "medianSpending": 126279,
+            "medianFederalTax": 22415,
+            "medianTotalCashOutflow": 148694,
+            "medianWithdrawalTotal": 0,
+            "medianRmdAmount": 0,
+            "medianRothConversion": 0,
+            "dominantIrmaaTier": "Tier 1"
+          },
+          {
+            "year": 2027,
+            "medianAssets": 1065083,
+            "tenthPercentileAssets": 853172,
+            "medianIncome": 87591,
+            "medianSpending": 160238,
+            "medianFederalTax": 12676,
+            "medianTotalCashOutflow": 172914,
+            "medianWithdrawalTotal": 85215,
+            "medianRmdAmount": 0,
+            "medianRothConversion": 50253,
+            "dominantIrmaaTier": "Tier 1"
+          },
+          {
+            "year": 2028,
+            "medianAssets": 1517476,
+            "tenthPercentileAssets": 1210512,
+            "medianIncome": 0,
+            "medianSpending": 140501,
+            "medianFederalTax": 4040,
+            "medianTotalCashOutflow": 144541,
+            "medianWithdrawalTotal": 144541,
+            "medianRmdAmount": 0,
+            "medianRothConversion": 70000,
+            "dominantIrmaaTier": "Tier 1"
+          },
+          {
+            "year": 2029,
+            "medianAssets": 1471731,
+            "tenthPercentileAssets": 1102924,
+            "medianIncome": 0,
+            "medianSpending": 156509,
+            "medianFederalTax": 3842,
+            "medianTotalCashOutflow": 160351,
+            "medianWithdrawalTotal": 160229,
+            "medianRmdAmount": 0,
+            "medianRothConversion": 70000,
+            "dominantIrmaaTier": "Tier 1"
+          },
+          {
+            "year": 2030,
+            "medianAssets": 1346791,
+            "tenthPercentileAssets": 1012396,
+            "medianIncome": 0,
+            "medianSpending": 146815,
+            "medianFederalTax": 3644,
+            "medianTotalCashOutflow": 150459,
+            "medianWithdrawalTotal": 150459,
+            "medianRmdAmount": 0,
+            "medianRothConversion": 70000,
+            "dominantIrmaaTier": "Tier 1"
+          },
+          {
+            "year": 2031,
+            "medianAssets": 1295070,
+            "tenthPercentileAssets": 922025,
+            "medianIncome": 19859,
+            "medianSpending": 150526,
+            "medianFederalTax": 2011,
+            "medianTotalCashOutflow": 152537,
+            "medianWithdrawalTotal": 132828,
+            "medianRmdAmount": 0,
+            "medianRothConversion": 38644,
+            "dominantIrmaaTier": "Tier 1"
+          },
+          {
+            "year": 2032,
+            "medianAssets": 1347916,
+            "tenthPercentileAssets": 858384,
+            "medianIncome": 86376,
+            "medianSpending": 154274,
+            "medianFederalTax": 3105,
+            "medianTotalCashOutflow": 157379,
+            "medianWithdrawalTotal": 71328,
+            "medianRmdAmount": 0,
+            "medianRothConversion": 23760,
+            "dominantIrmaaTier": "Tier 1"
+          },
+          {
+            "year": 2033,
+            "medianAssets": 1389921,
+            "tenthPercentileAssets": 864948,
+            "medianIncome": 89667,
+            "medianSpending": 158693,
+            "medianFederalTax": 6993,
+            "medianTotalCashOutflow": 165686,
+            "medianWithdrawalTotal": 73410,
+            "medianRmdAmount": 0,
+            "medianRothConversion": 36125,
+            "dominantIrmaaTier": "Tier 1"
+          },
+          {
+            "year": 2034,
+            "medianAssets": 1335669,
+            "tenthPercentileAssets": 871163,
+            "medianIncome": 91846,
+            "medianSpending": 161855,
+            "medianFederalTax": 8777,
+            "medianTotalCashOutflow": 170632,
+            "medianWithdrawalTotal": 63317,
+            "medianRmdAmount": 0,
+            "medianRothConversion": 23909,
+            "dominantIrmaaTier": "Tier 1"
+          },
+          {
+            "year": 2035,
+            "medianAssets": 1368198,
+            "tenthPercentileAssets": 805294,
+            "medianIncome": 93826,
+            "medianSpending": 164147,
+            "medianFederalTax": 9780,
+            "medianTotalCashOutflow": 173927,
+            "medianWithdrawalTotal": 57020,
+            "medianRmdAmount": 0,
+            "medianRothConversion": 18891,
+            "dominantIrmaaTier": "Tier 1"
+          },
+          {
+            "year": 2036,
+            "medianAssets": 1298750,
+            "tenthPercentileAssets": 804816,
+            "medianIncome": 96888,
+            "medianSpending": 170178,
+            "medianFederalTax": 19682,
+            "medianTotalCashOutflow": 189860,
+            "medianWithdrawalTotal": 89012,
+            "medianRmdAmount": 0,
+            "medianRothConversion": 7721,
+            "dominantIrmaaTier": "Tier 1"
+          },
+          {
+            "year": 2037,
+            "medianAssets": 1914644,
+            "tenthPercentileAssets": 1420742,
+            "medianIncome": 99098,
+            "medianSpending": 165595,
+            "medianFederalTax": 0,
+            "medianTotalCashOutflow": 165595,
+            "medianWithdrawalTotal": 65523,
+            "medianRmdAmount": 0,
+            "medianRothConversion": 7758,
+            "dominantIrmaaTier": "Tier 1"
+          },
+          {
+            "year": 2038,
+            "medianAssets": 1889476,
+            "tenthPercentileAssets": 1421556,
+            "medianIncome": 101944,
+            "medianSpending": 169578,
+            "medianFederalTax": 697,
+            "medianTotalCashOutflow": 170275,
+            "medianWithdrawalTotal": 66535,
+            "medianRmdAmount": 0,
+            "medianRothConversion": 9146,
+            "dominantIrmaaTier": "Tier 1"
+          },
+          {
+            "year": 2039,
+            "medianAssets": 2041000,
+            "tenthPercentileAssets": 1363997,
+            "medianIncome": 104335,
+            "medianSpending": 174368,
+            "medianFederalTax": 1101,
+            "medianTotalCashOutflow": 175469,
+            "medianWithdrawalTotal": 68262,
+            "medianRmdAmount": 0,
+            "medianRothConversion": 8064,
+            "dominantIrmaaTier": "Tier 1"
+          },
+          {
+            "year": 2040,
+            "medianAssets": 2131726,
+            "tenthPercentileAssets": 1383417,
+            "medianIncome": 109086,
+            "medianSpending": 184542,
+            "medianFederalTax": 742,
+            "medianTotalCashOutflow": 185284,
+            "medianWithdrawalTotal": 71620,
+            "medianRmdAmount": 656,
+            "medianRothConversion": 6021,
+            "dominantIrmaaTier": "Tier 1"
+          },
+          {
+            "year": 2041,
+            "medianAssets": 2154320,
+            "tenthPercentileAssets": 1467268,
+            "medianIncome": 112169,
+            "medianSpending": 191043,
+            "medianFederalTax": 467,
+            "medianTotalCashOutflow": 191510,
+            "medianWithdrawalTotal": 75795,
+            "medianRmdAmount": 508,
+            "medianRothConversion": 3642,
+            "dominantIrmaaTier": "Tier 1"
+          },
+          {
+            "year": 2042,
+            "medianAssets": 2333033,
+            "tenthPercentileAssets": 1211565,
+            "medianIncome": 115079,
+            "medianSpending": 196861,
+            "medianFederalTax": 340,
+            "medianTotalCashOutflow": 197201,
+            "medianWithdrawalTotal": 77359,
+            "medianRmdAmount": 345,
+            "medianRothConversion": 1427,
+            "dominantIrmaaTier": "Tier 1"
+          },
+          {
+            "year": 2043,
+            "medianAssets": 2284388,
+            "tenthPercentileAssets": 1232997,
+            "medianIncome": 118116,
+            "medianSpending": 204033,
+            "medianFederalTax": 439,
+            "medianTotalCashOutflow": 204472,
+            "medianWithdrawalTotal": 75220,
+            "medianRmdAmount": 130,
+            "medianRothConversion": 0,
+            "dominantIrmaaTier": "Tier 1"
+          },
+          {
+            "year": 2044,
+            "medianAssets": 2142313,
+            "tenthPercentileAssets": 1237629,
+            "medianIncome": 120617,
+            "medianSpending": 211225,
+            "medianFederalTax": 467,
+            "medianTotalCashOutflow": 211692,
+            "medianWithdrawalTotal": 69330,
+            "medianRmdAmount": 0,
+            "medianRothConversion": 0,
+            "dominantIrmaaTier": "Tier 1"
+          },
+          {
+            "year": 2045,
+            "medianAssets": 2195055,
+            "tenthPercentileAssets": 1025472,
+            "medianIncome": 124285,
+            "medianSpending": 217682,
+            "medianFederalTax": 0,
+            "medianTotalCashOutflow": 217682,
+            "medianWithdrawalTotal": 53946,
+            "medianRmdAmount": 0,
+            "medianRothConversion": 0,
+            "dominantIrmaaTier": "Tier 1"
+          },
+          {
+            "year": 2046,
+            "medianAssets": 2184208,
+            "tenthPercentileAssets": 1038074,
+            "medianIncome": 126826,
+            "medianSpending": 224555,
+            "medianFederalTax": 0,
+            "medianTotalCashOutflow": 224555,
+            "medianWithdrawalTotal": 88090,
+            "medianRmdAmount": 0,
+            "medianRothConversion": 0,
+            "dominantIrmaaTier": "Tier 1"
+          },
+          {
+            "year": 2047,
+            "medianAssets": 2171487,
+            "tenthPercentileAssets": 1033269,
+            "medianIncome": 130786,
+            "medianSpending": 231038,
+            "medianFederalTax": 0,
+            "medianTotalCashOutflow": 231038,
+            "medianWithdrawalTotal": 99390,
+            "medianRmdAmount": 0,
+            "medianRothConversion": 0,
+            "dominantIrmaaTier": "Tier 1"
+          },
+          {
+            "year": 2048,
+            "medianAssets": 2185414,
+            "tenthPercentileAssets": 1009221,
+            "medianIncome": 133978,
+            "medianSpending": 240547,
+            "medianFederalTax": 0,
+            "medianTotalCashOutflow": 240547,
+            "medianWithdrawalTotal": 104328,
+            "medianRmdAmount": 0,
+            "medianRothConversion": 0,
+            "dominantIrmaaTier": "Tier 1"
+          },
+          {
+            "year": 2049,
+            "medianAssets": 2063118,
+            "tenthPercentileAssets": 968194,
+            "medianIncome": 138146,
+            "medianSpending": 249325,
+            "medianFederalTax": 0,
+            "medianTotalCashOutflow": 249325,
+            "medianWithdrawalTotal": 110737,
+            "medianRmdAmount": 0,
+            "medianRothConversion": 0,
+            "dominantIrmaaTier": "Tier 1"
+          },
+          {
+            "year": 2050,
+            "medianAssets": 2017747,
+            "tenthPercentileAssets": 868141,
+            "medianIncome": 142383,
+            "medianSpending": 260821,
+            "medianFederalTax": 0,
+            "medianTotalCashOutflow": 260821,
+            "medianWithdrawalTotal": 117265,
+            "medianRmdAmount": 0,
+            "medianRothConversion": 0,
+            "dominantIrmaaTier": "Tier 1"
+          },
+          {
+            "year": 2051,
+            "medianAssets": 1802507,
+            "tenthPercentileAssets": 607189,
+            "medianIncome": 146932,
+            "medianSpending": 278161,
+            "medianFederalTax": 0,
+            "medianTotalCashOutflow": 278161,
+            "medianWithdrawalTotal": 124348,
+            "medianRmdAmount": 0,
+            "medianRothConversion": 0,
+            "dominantIrmaaTier": "Tier 1"
+          },
+          {
+            "year": 2052,
+            "medianAssets": 1846280,
+            "tenthPercentileAssets": 553257,
+            "medianIncome": 150503,
+            "medianSpending": 266910,
+            "medianFederalTax": 0,
+            "medianTotalCashOutflow": 266910,
+            "medianWithdrawalTotal": 115447,
+            "medianRmdAmount": 0,
+            "medianRothConversion": 0,
+            "dominantIrmaaTier": "Tier 1"
+          },
+          {
+            "year": 2053,
+            "medianAssets": 1789887,
+            "tenthPercentileAssets": 841703,
+            "medianIncome": 154613,
+            "medianSpending": 274041,
+            "medianFederalTax": 0,
+            "medianTotalCashOutflow": 274041,
+            "medianWithdrawalTotal": 118393,
+            "medianRmdAmount": 0,
+            "medianRothConversion": 0,
+            "dominantIrmaaTier": "Tier 1"
+          },
+          {
+            "year": 2054,
+            "medianAssets": 1845897,
+            "tenthPercentileAssets": 633168,
+            "medianIncome": 159143,
+            "medianSpending": 281829,
+            "medianFederalTax": 74,
+            "medianTotalCashOutflow": 281903,
+            "medianWithdrawalTotal": 120927,
+            "medianRmdAmount": 0,
+            "medianRothConversion": 0,
+            "dominantIrmaaTier": "Tier 1"
+          },
+          {
+            "year": 2055,
+            "medianAssets": 1618783,
+            "tenthPercentileAssets": 726806,
+            "medianIncome": 162999,
+            "medianSpending": 288556,
+            "medianFederalTax": 237,
+            "medianTotalCashOutflow": 288793,
+            "medianWithdrawalTotal": 124036,
+            "medianRmdAmount": 0,
+            "medianRothConversion": 0,
+            "dominantIrmaaTier": "Tier 1"
+          }
+        ]
+      }
+    }
+  ]
+}

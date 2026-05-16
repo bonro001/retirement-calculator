@@ -20,12 +20,16 @@ import {
 import { setBrowserHostMode } from './cluster-client';
 import { PolicyAdoptionModal } from './PolicyAdoptionModal';
 import { useAppStore } from './store';
-import type { MarketAssumptions, SeedData } from './types';
+import type { MarketAssumptions, PathResult, SeedData } from './types';
 import type { SnapshotPeer } from './cluster-peer-view';
 import {
   useClusterSession,
   type UseClusterSession,
 } from './useClusterSession';
+import {
+  buildNorthStarBudgetFromCertification,
+  type NorthStarBudget,
+} from './north-star-budget';
 
 type MonthlyReviewStage =
   | 'idle'
@@ -53,6 +57,7 @@ interface Props {
   engineVersion: string;
   dispatcherUrl: string | null;
   legacyTargetTodayDollars: number;
+  baselinePath?: PathResult | null;
   selectedStrategyId?: MonthlyReviewStrategyId;
   onProgressStageChange?: (stage: MonthlyReviewStage) => void;
 }
@@ -82,8 +87,7 @@ interface MiningSnapshot {
   spendMin: number | null;
   spendMax: number | null;
   feasibleCount: number | null;
-  source?: 'run' | 'reused';
-  sessionId?: string | null;
+  source?: 'run';
 }
 
 interface AiReviewProgressStep {
@@ -94,11 +98,20 @@ interface AiReviewProgressStep {
   atIso: string | null;
 }
 
-const LAST_AI_PACKET_KEY = 'monthly-review:last-ai-validation-packet';
-const LAST_AI_RESPONSE_KEY = 'monthly-review:last-ai-response';
-const LAST_RUN_KEY = 'monthly-review:last-run';
-const LAST_MINING_SNAPSHOT_KEY = 'monthly-review:last-mining-snapshot';
-const LAST_TRANSACTION_EVENTS_KEY = 'monthly-review:last-transaction-events';
+const LEGACY_MONTHLY_REVIEW_STORAGE_KEYS = [
+  'monthly-review:last-ai-validation-packet',
+  'monthly-review:last-ai-response',
+  'monthly-review:last-run',
+  'monthly-review:last-mining-snapshot',
+  'monthly-review:last-transaction-events',
+] as const;
+const MONTHLY_REVIEW_STORAGE_PREFIX = 'monthly-review:v2';
+const LAST_AI_PACKET_KEY = `${MONTHLY_REVIEW_STORAGE_PREFIX}:last-ai-validation-packet`;
+const LAST_AI_RESPONSE_KEY = `${MONTHLY_REVIEW_STORAGE_PREFIX}:last-ai-response`;
+const LAST_RUN_KEY = `${MONTHLY_REVIEW_STORAGE_PREFIX}:last-run`;
+const LAST_MINING_SNAPSHOT_KEY = `${MONTHLY_REVIEW_STORAGE_PREFIX}:last-mining-snapshot`;
+const LAST_TRANSACTION_EVENTS_KEY = `${MONTHLY_REVIEW_STORAGE_PREFIX}:last-transaction-events`;
+let legacyMonthlyReviewStorageCleared = false;
 
 function initialAiReviewProgress(): AiReviewProgressStep[] {
   return [
@@ -149,9 +162,24 @@ function formatCurrency(amount: number | null): string {
   return `$${Math.round(amount)}`;
 }
 
+function annualSpendWithTravelOverlay(
+  annualCoreSpend: number | null,
+  annualTravelOverlay: number,
+): number | null {
+  if (annualCoreSpend === null || !Number.isFinite(annualCoreSpend)) return null;
+  return annualCoreSpend + Math.max(0, annualTravelOverlay);
+}
+
 function formatMonthly(amount: number | null): string {
   if (amount === null || !Number.isFinite(amount)) return '—';
   return `$${Math.round(amount).toLocaleString()}/mo`;
+}
+
+function formatMonthlyDelta(amount: number | null): string {
+  if (amount === null || !Number.isFinite(amount)) return '—';
+  if (Math.abs(amount) < 0.5) return '$0/mo';
+  const sign = amount > 0 ? '+' : '-';
+  return `${sign}${formatMonthly(Math.abs(amount))}`;
 }
 
 function formatPercent(value: number | null): string {
@@ -185,6 +213,143 @@ function formatShortTime(value: number | string | null | undefined): string {
 
 function waitMs(ms: number): Promise<void> {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
+function parseYearFromIso(value: string | null | undefined): number | null {
+  if (!value) return null;
+  const year = Number(value.slice(0, 4));
+  return Number.isFinite(year) ? year : null;
+}
+
+function deflateNominalYearValue(
+  value: number,
+  year: number,
+  baseYear: number,
+  inflation: number,
+): number {
+  if (!Number.isFinite(value)) return 0;
+  const years = Math.max(0, year - baseYear);
+  return value / Math.pow(1 + inflation, years);
+}
+
+const BOLDIN_PLANNED_MONTHLY_TODAY_DOLLARS = 13_205;
+const BOLDIN_SAFE_TARGET_MONTHLY_TODAY_DOLLARS = 14_915;
+
+interface BoldinStyleSpendingComparison {
+  currentPlanBudgetMonthly: number;
+  currentPlanBudgetAnnual: number;
+  currentPlanTraceYear: number | null;
+  currentPlanEngineSpendingMonthly: number | null;
+  currentPlanFederalTaxMonthly: number | null;
+  currentPlanCashOutflowMonthly: number | null;
+  selectedTraceYear: number | null;
+  selectedEngineSpendingMonthly: number | null;
+  selectedFederalTaxMonthly: number | null;
+  selectedCashOutflowMonthly: number | null;
+}
+
+function buildBoldinStyleSpendingComparison(input: {
+  data: SeedData;
+  baselinePath: PathResult | null | undefined;
+  currentPlanBudget: NorthStarBudget | null | undefined;
+  selectedCertification: MonthlyReviewCertification | null;
+  selectedSpendingPath: NonNullable<
+    MonthlyReviewValidationPacket['rawExportEvidence']['selectedPolicy']
+  >['spendingPath'] | null;
+  inflation: number;
+}): BoldinStyleSpendingComparison {
+  const currentPlanBudgetAnnual =
+    Math.max(0, input.data.spending.essentialMonthly ?? 0) * 12 +
+    Math.max(0, input.data.spending.optionalMonthly ?? 0) * 12 +
+    Math.max(0, input.data.spending.annualTaxesInsurance ?? 0) +
+    Math.max(0, input.data.spending.travelEarlyRetirementAnnual ?? 0);
+  const yearlyRows = input.selectedCertification?.pack.selectedPathEvidence?.yearlyRows ?? [];
+  const baseYear = yearlyRows[0]?.year ?? null;
+  const retirementYear =
+    input.selectedSpendingPath?.retirementYear ??
+    parseYearFromIso(input.data.income.salaryEndDate);
+  const baselineRows = input.baselinePath?.yearlySeries ?? [];
+  const baselineBaseYear = baselineRows[0]?.year ?? null;
+  const currentPlanTraceRow =
+    baselineRows.find((row) => retirementYear === null || row.year >= retirementYear) ??
+    baselineRows[0] ??
+    null;
+  const packetCurrentPlanBudget =
+    input.currentPlanBudget?.totalAnnualBudget !== null &&
+    input.currentPlanBudget?.totalAnnualBudget !== undefined
+      ? input.currentPlanBudget
+      : null;
+  const currentPlanEngineSpendingAnnual =
+    packetCurrentPlanBudget
+      ? packetCurrentPlanBudget.spendAndHealthAnnual
+    : currentPlanTraceRow && baselineBaseYear !== null
+      ? deflateNominalYearValue(
+          currentPlanTraceRow.medianSpending,
+          currentPlanTraceRow.year,
+          baselineBaseYear,
+          input.inflation,
+        )
+      : null;
+  const currentPlanFederalTaxAnnual =
+    packetCurrentPlanBudget
+      ? packetCurrentPlanBudget.federalTaxAnnual
+    : currentPlanTraceRow && baselineBaseYear !== null
+      ? deflateNominalYearValue(
+          currentPlanTraceRow.medianFederalTax,
+          currentPlanTraceRow.year,
+          baselineBaseYear,
+          input.inflation,
+        )
+      : null;
+  const selectedTraceRow =
+    yearlyRows.find((row) => retirementYear === null || row.year >= retirementYear) ??
+    yearlyRows[0] ??
+    null;
+  const selectedEngineSpendingAnnual =
+    selectedTraceRow && baseYear !== null
+      ? deflateNominalYearValue(
+          selectedTraceRow.medianSpending,
+          selectedTraceRow.year,
+          baseYear,
+          input.inflation,
+        )
+      : null;
+  const selectedFederalTaxAnnual =
+    selectedTraceRow && baseYear !== null
+      ? deflateNominalYearValue(
+          selectedTraceRow.medianFederalTax,
+          selectedTraceRow.year,
+          baseYear,
+          input.inflation,
+        )
+      : null;
+
+  return {
+    currentPlanBudgetMonthly: currentPlanBudgetAnnual / 12,
+    currentPlanBudgetAnnual,
+    currentPlanTraceYear: packetCurrentPlanBudget?.year ?? currentPlanTraceRow?.year ?? null,
+    currentPlanEngineSpendingMonthly:
+      currentPlanEngineSpendingAnnual === null
+        ? null
+        : currentPlanEngineSpendingAnnual / 12,
+    currentPlanFederalTaxMonthly:
+      currentPlanFederalTaxAnnual === null ? null : currentPlanFederalTaxAnnual / 12,
+    currentPlanCashOutflowMonthly:
+      packetCurrentPlanBudget
+        ? packetCurrentPlanBudget.totalMonthlyBudget
+        : currentPlanEngineSpendingAnnual === null || currentPlanFederalTaxAnnual === null
+          ? null
+          : (currentPlanEngineSpendingAnnual + currentPlanFederalTaxAnnual) / 12,
+    selectedTraceYear: selectedTraceRow?.year ?? null,
+    selectedEngineSpendingMonthly:
+      selectedEngineSpendingAnnual === null ? null : selectedEngineSpendingAnnual / 12,
+    selectedFederalTaxMonthly:
+      selectedFederalTaxAnnual === null ? null : selectedFederalTaxAnnual / 12,
+    selectedCashOutflowMonthly:
+      selectedEngineSpendingAnnual === null || selectedFederalTaxAnnual === null
+        ? null
+        : (selectedEngineSpendingAnnual + selectedFederalTaxAnnual) / 12,
+  };
 }
 
 // ─── Step status helpers ──────────────────────────────────────────────────────
@@ -364,92 +529,147 @@ function StepCard({
   );
 }
 
+function SpendingComparisonStat({
+  label,
+  value,
+  detail,
+}: {
+  label: string;
+  value: string;
+  detail: string;
+}): JSX.Element {
+  return (
+    <div className="rounded-lg bg-white/80 px-3 py-2 ring-1 ring-amber-100">
+      <p className="text-[10px] font-semibold uppercase tracking-[0.1em] text-amber-800">
+        {label}
+      </p>
+      <p className="mt-1 text-lg font-semibold tabular-nums text-stone-950">
+        {value}
+      </p>
+      <p className="mt-0.5 text-[11px] leading-4 text-stone-500">
+        {detail}
+      </p>
+    </div>
+  );
+}
+
 // ─── Spend boundary strip ─────────────────────────────────────────────────────
 
 function SpendBoundaryStrip({
   slots,
   recommendedAnnualSpend,
+  annualTravelOverlay,
+  budgetAnnualByCoreSpend,
 }: {
   slots: CertificationSlot[];
   recommendedAnnualSpend: number | null;
+  annualTravelOverlay: number;
+  budgetAnnualByCoreSpend?: Map<number, number>;
 }): JSX.Element | null {
-  const sorted = [...slots].sort((a, b) => a.annualSpendTodayDollars - b.annualSpendTodayDollars);
-  if (sorted.length === 0) return null;
+  const groups = groupCertificationSlotsBySpend(slots).sort(
+    (a, b) => a.annualSpendTodayDollars - b.annualSpendTodayDollars,
+  );
+  if (groups.length === 0) return null;
 
   return (
     <div className="flex items-end gap-1.5 overflow-x-auto pb-1">
-      {sorted.map((slot) => {
+      {groups.map((group) => {
         const isRecommended =
           recommendedAnnualSpend !== null &&
-          slot.annualSpendTodayDollars === recommendedAnnualSpend;
+          group.annualSpendTodayDollars === recommendedAnnualSpend;
         const fillColor =
-          slot.status === 'running'
+          group.status === 'running'
             ? 'bg-blue-500'
-            : slot.verdict === 'green'
+            : group.verdict === 'green'
               ? 'bg-emerald-400'
-              : slot.verdict === 'yellow'
+              : group.verdict === 'yellow'
                 ? 'bg-amber-400'
-                : slot.verdict === 'red'
+                : group.verdict === 'red'
                   ? 'bg-rose-400'
                   : 'bg-stone-300';
         const height = isRecommended ? 34 : 28;
         const progressPct =
-          slot.status === 'done'
+          group.status === 'done'
             ? 100
-            : slot.total > 0
-              ? Math.min(100, Math.max(4, (slot.completed / slot.total) * 100))
+            : group.total > 0
+              ? Math.min(100, Math.max(4, (group.completed / group.total) * 100))
               : 0;
         const progressLabel =
-          slot.status === 'running' && slot.total > 0
-            ? ` · ${slot.completed}/${slot.total}`
+          group.status === 'running' && group.total > 0
+            ? ` · ${group.completed}/${group.total}`
+            : '';
+        const lifestyleAnnualSpend = annualSpendWithTravelOverlay(
+          group.annualSpendTodayDollars,
+          annualTravelOverlay,
+        );
+        const budgetAnnualSpend =
+          budgetAnnualByCoreSpend?.get(group.annualSpendTodayDollars) ?? null;
+        const displayAnnualSpend = budgetAnnualSpend ?? lifestyleAnnualSpend;
+        const travelDetail =
+          annualTravelOverlay > 0
+            ? ` · core ${formatCurrency(group.annualSpendTodayDollars)}/yr + travel ${formatCurrency(annualTravelOverlay)}/yr`
             : '';
         const slotSubLabel =
-          slot.status === 'running'
-            ? slot.hostDisplayName ?? 'assigning'
-            : slot.verdict === 'green'
+          group.status === 'running'
+            ? group.hostDisplayNames[0] ?? 'assigning'
+            : group.verdict === 'green'
               ? 'certified'
-              : slot.reasons[0]
-                ? certificationReasonLabel(slot.reasons[0].code)
-                : slot.verdict ?? '-';
+              : group.reasons[0]
+                ? certificationReasonLabel(group.reasons[0].code)
+                : group.verdict ?? '-';
+        const valueLabel =
+          budgetAnnualSpend === null ? 'pending' : formatCurrency(displayAnnualSpend);
+        const targetLabel = `target ${formatCurrency(lifestyleAnnualSpend)}`;
         return (
-          <div key={slot.candidateId} className="flex min-w-[92px] flex-col gap-0.5">
+          <div key={group.key} className="flex min-w-[112px] flex-col gap-0.5">
             {isRecommended && (
               <span className="self-start text-[9px] font-bold uppercase tracking-wide text-emerald-700">
                 Pick
               </span>
             )}
             <div
-              className={`relative w-[92px] overflow-hidden rounded border border-stone-200 bg-stone-100 ${isRecommended ? 'ring-2 ring-emerald-600 ring-offset-1' : ''}`}
+              className={`relative w-[112px] overflow-hidden rounded border border-stone-200 bg-stone-100 ${isRecommended ? 'ring-2 ring-emerald-600 ring-offset-1' : ''}`}
               style={{ height: `${height}px` }}
-              title={`${formatCurrency(slot.annualSpendTodayDollars)}/yr · ${slot.hostDisplayName ?? 'unassigned'} · ${slot.verdict ?? (slot.status === 'running' ? 'certifying…' : '—')}${progressLabel}`}
+              title={
+                budgetAnnualSpend === null
+                  ? `Total budget pending until certification trace completes · ${targetLabel}/yr${travelDetail} · ${group.candidateCount} candidate${group.candidateCount === 1 ? '' : 's'} · ${group.hostDisplayNames.join(', ') || 'unassigned'} · ${group.verdict ?? (group.status === 'running' ? 'certifying...' : '-')}${progressLabel}`
+                  : `${formatCurrency(displayAnnualSpend)}/yr next-year total budget · ${targetLabel}/yr${travelDetail} · ${group.candidateCount} candidate${group.candidateCount === 1 ? '' : 's'} · ${group.hostDisplayNames.join(', ') || 'unassigned'} · ${group.verdict ?? '-'}${progressLabel}`
+              }
             >
               <div
                 className={`absolute inset-y-0 left-0 transition-[width] duration-500 ease-out ${fillColor} ${
-                  slot.status === 'running' ? 'shadow-[6px_0_12px_rgba(59,130,246,0.22)]' : ''
+                  group.status === 'running' ? 'shadow-[6px_0_12px_rgba(59,130,246,0.22)]' : ''
                 }`}
                 style={{ width: `${progressPct}%` }}
               />
-              {slot.status === 'running' && progressPct === 0 && (
+              {group.status === 'running' && progressPct === 0 && (
                 <div className="absolute inset-0 animate-pulse bg-blue-100" />
               )}
               <div className="relative flex h-full items-center justify-between px-2 text-[10px] font-semibold tabular-nums text-stone-800">
-                <span>{formatCurrency(slot.annualSpendTodayDollars)}</span>
+                <span className={budgetAnnualSpend === null ? 'uppercase tracking-[0.08em]' : ''}>
+                  {valueLabel}
+                </span>
                 <span className="text-stone-600">
-                  {slot.status === 'running' && slot.total > 0
-                    ? `${slot.completed}/${slot.total}`
-                    : slot.status === 'running'
+                  {group.status === 'running' && group.total > 0
+                    ? `${group.completed}/${group.total}`
+                    : group.status === 'running'
                       ? '...'
-                      : slot.verdict ?? '-'}
+                      : group.verdict ?? '-'}
                 </span>
               </div>
             </div>
             <span
+              className="truncate text-[8px] font-semibold uppercase text-stone-500"
+            >
+              {targetLabel}
+            </span>
+            <span
               className={`truncate text-[8px] font-semibold uppercase ${
-                slot.verdict === 'green'
+                group.verdict === 'green'
                   ? 'text-emerald-600'
-                  : slot.verdict === 'yellow'
+                  : group.verdict === 'yellow'
                     ? 'text-amber-600'
-                    : slot.verdict === 'red'
+                    : group.verdict === 'red'
                       ? 'text-rose-600'
                       : 'text-stone-400'
               }`}
@@ -489,15 +709,143 @@ function certificationVerdictClasses(
   return 'bg-rose-100 text-rose-800 ring-rose-200';
 }
 
-function weakestCertificationRows(cert: MonthlyReviewCertification) {
-  return [...cert.pack.rows]
+interface CertificationReasonSummary {
+  code: string;
+  message: string;
+  count: number;
+}
+
+interface CertificationSlotSpendGroup {
+  key: string;
+  annualSpendTodayDollars: number;
+  slots: CertificationSlot[];
+  candidateCount: number;
+  status: CertificationSlot['status'];
+  completed: number;
+  total: number;
+  verdict: MonthlyReviewCertification['verdict'] | null;
+  reasons: CertificationReasonSummary[];
+  hostDisplayNames: string[];
+}
+
+interface CertificationSpendGroup {
+  key: string;
+  annualSpendTodayDollars: number;
+  certifications: Array<{
+    cert: MonthlyReviewCertification;
+    strategyLabel: string;
+  }>;
+  candidateCount: number;
+  verdict: MonthlyReviewCertification['verdict'];
+  reasons: CertificationReasonSummary[];
+  strategyLabels: string[];
+}
+
+function uniqueStrings(values: Array<string | null | undefined>): string[] {
+  return [...new Set(values.filter((value): value is string => Boolean(value)))];
+}
+
+function aggregateCertificationVerdict(
+  verdicts: Array<MonthlyReviewCertification['verdict'] | null>,
+): MonthlyReviewCertification['verdict'] | null {
+  if (verdicts.includes('green')) return 'green';
+  if (verdicts.includes('red')) return 'red';
+  if (verdicts.includes('yellow')) return 'yellow';
+  return null;
+}
+
+function summarizeCertificationReasons(
+  reasons: Array<{ code: string; message: string }>,
+): CertificationReasonSummary[] {
+  const summaries = new Map<string, CertificationReasonSummary>();
+  for (const reason of reasons) {
+    if (reason.code === 'sleep_well_green') continue;
+    const existing = summaries.get(reason.code);
+    if (existing) {
+      existing.count += 1;
+    } else {
+      summaries.set(reason.code, {
+        code: reason.code,
+        message: reason.message,
+        count: 1,
+      });
+    }
+  }
+  return [...summaries.values()];
+}
+
+function groupCertificationSlotsBySpend(slots: CertificationSlot[]): CertificationSlotSpendGroup[] {
+  const bySpend = new Map<number, CertificationSlot[]>();
+  for (const slot of slots) {
+    const group = bySpend.get(slot.annualSpendTodayDollars) ?? [];
+    group.push(slot);
+    bySpend.set(slot.annualSpendTodayDollars, group);
+  }
+
+  return [...bySpend.entries()].map(([annualSpendTodayDollars, groupSlots]) => {
+    const doneVerdicts = groupSlots
+      .filter((slot) => slot.status === 'done')
+      .map((slot) => slot.verdict);
+    const status = groupSlots.some((slot) => slot.status === 'running') ? 'running' : 'done';
+    return {
+      key: String(annualSpendTodayDollars),
+      annualSpendTodayDollars,
+      slots: groupSlots,
+      candidateCount: groupSlots.length,
+      status,
+      completed: groupSlots.reduce((sum, slot) => sum + slot.completed, 0),
+      total: groupSlots.reduce((sum, slot) => sum + slot.total, 0),
+      verdict: aggregateCertificationVerdict(doneVerdicts),
+      reasons: summarizeCertificationReasons(groupSlots.flatMap((slot) => slot.reasons)),
+      hostDisplayNames: uniqueStrings(groupSlots.map((slot) => slot.hostDisplayName)),
+    };
+  });
+}
+
+function groupCertificationsBySpend(
+  certifications: Array<{ cert: MonthlyReviewCertification; strategyLabel: string }>,
+): CertificationSpendGroup[] {
+  const bySpend = new Map<number, Array<{ cert: MonthlyReviewCertification; strategyLabel: string }>>();
+  for (const item of certifications) {
+    const spend = item.cert.evaluation.policy.annualSpendTodayDollars;
+    const group = bySpend.get(spend) ?? [];
+    group.push(item);
+    bySpend.set(spend, group);
+  }
+
+  return [...bySpend.entries()].map(([annualSpendTodayDollars, groupCertifications]) => {
+    const verdict = aggregateCertificationVerdict(
+      groupCertifications.map(({ cert }) => cert.verdict),
+    ) ?? 'red';
+    return {
+      key: String(annualSpendTodayDollars),
+      annualSpendTodayDollars,
+      certifications: groupCertifications,
+      candidateCount: groupCertifications.length,
+      verdict,
+      reasons: summarizeCertificationReasons(
+        groupCertifications.flatMap(({ cert }) => cert.pack.reasons),
+      ),
+      strategyLabels: uniqueStrings(groupCertifications.map(({ strategyLabel }) => strategyLabel)),
+    };
+  });
+}
+
+function weakestCertificationGroupRows(group: CertificationSpendGroup) {
+  return group.certifications
+    .flatMap(({ cert }) =>
+      cert.pack.rows.map((row) => ({
+        row,
+        key: `${cert.evaluation.id}-${row.id}`,
+      })),
+    )
     .sort((a, b) => {
-      const score = (row: typeof a) =>
+      const score = (row: typeof a.row) =>
         (1 - row.solvencyRate) * 4 +
         row.first10YearFailureRisk * 3 +
         (1 - row.legacyAttainmentRate) * 2 +
         row.spendingCutRate;
-      return score(b) - score(a);
+      return score(b.row) - score(a.row);
     })
     .slice(0, 3);
 }
@@ -527,17 +875,116 @@ function certificationMetricSummary(cert: MonthlyReviewCertification): {
   };
 }
 
+function certificationSpendGroupMetricSummary(group: CertificationSpendGroup): {
+  baselineSolvency: number | null;
+  stressSolvency: number | null;
+  legacy: number | null;
+  first10Failure: number | null;
+} {
+  const summaries = group.certifications.map(({ cert }) => certificationMetricSummary(cert));
+  const minOf = (values: Array<number | null>) => {
+    const finiteValues = values.filter((value): value is number => Number.isFinite(value));
+    return finiteValues.length > 0 ? Math.min(...finiteValues) : null;
+  };
+  const maxOf = (values: Array<number | null>) => {
+    const finiteValues = values.filter((value): value is number => Number.isFinite(value));
+    return finiteValues.length > 0 ? Math.max(...finiteValues) : null;
+  };
+  return {
+    baselineSolvency: minOf(summaries.map((summary) => summary.baselineSolvency)),
+    stressSolvency: minOf(summaries.map((summary) => summary.stressSolvency)),
+    legacy: minOf(summaries.map((summary) => summary.legacy)),
+    first10Failure: maxOf(summaries.map((summary) => summary.first10Failure)),
+  };
+}
+
+function firstRetirementTotalBudgetAnnualForCertification(
+  cert: MonthlyReviewCertification,
+  retirementYear: number | null,
+  inflation: number,
+  legacyTarget: number,
+  fallbackTravelAnnual: number,
+): number | null {
+  return buildNorthStarBudgetFromCertification({
+    cert,
+    spendingPath: null,
+    retirementYear,
+    inflation,
+    legacyTarget,
+    fallbackTravelAnnual,
+  }).totalAnnualBudget;
+}
+
+function firstRetirementTotalBudgetAnnualForGroup(
+  group: CertificationSpendGroup,
+  retirementYear: number | null,
+  inflation: number,
+  legacyTarget: number,
+  fallbackTravelAnnual: number,
+): number | null {
+  const values = group.certifications
+    .map(({ cert }) =>
+      firstRetirementTotalBudgetAnnualForCertification(
+        cert,
+        retirementYear,
+        inflation,
+        legacyTarget,
+        fallbackTravelAnnual,
+      ),
+    )
+    .filter((value): value is number => Number.isFinite(value));
+  if (values.length === 0) return null;
+  return Math.max(...values);
+}
+
+function buildCertificationBudgetAnnualByCoreSpend(
+  run: MonthlyReviewRun | null,
+  retirementYear: number | null,
+  inflation: number,
+  legacyTarget: number,
+  fallbackTravelAnnual: number,
+): Map<number, number> {
+  const budgets = new Map<number, number>();
+  if (!run) return budgets;
+  for (const cert of run.strategies.flatMap((strategy) => strategy.certifications)) {
+    const coreSpend = cert.evaluation.policy.annualSpendTodayDollars;
+    const budget = firstRetirementTotalBudgetAnnualForCertification(
+      cert,
+      retirementYear,
+      inflation,
+      legacyTarget,
+      fallbackTravelAnnual,
+    );
+    if (budget === null) continue;
+    const existing = budgets.get(coreSpend);
+    budgets.set(coreSpend, existing === undefined ? budget : Math.max(existing, budget));
+  }
+  return budgets;
+}
+
 function ValidationTradeoffMap({
   run,
   packet,
   certificationSlots,
+  annualTravelOverlay,
+  retirementYear,
+  inflation,
+  legacyTarget,
 }: {
   run: MonthlyReviewRun | null;
   packet?: MonthlyReviewValidationPacket | null;
   certificationSlots: CertificationSlot[];
+  annualTravelOverlay: number;
+  retirementYear: number | null;
+  inflation: number;
+  legacyTarget: number;
 }): JSX.Element | null {
   if (!run && packet) {
     const selectedSpend = packet.recommendation.annualSpendTodayDollars;
+    const displaySelectedSpend = annualSpendWithTravelOverlay(
+      selectedSpend,
+      annualTravelOverlay,
+    );
     const completedSlots = certificationSlots
       .filter((slot) => slot.status === 'done')
       .sort((a, b) => b.annualSpendTodayDollars - a.annualSpendTodayDollars);
@@ -550,81 +997,119 @@ function ValidationTradeoffMap({
       higherSlots.length > 0
         ? higherSlots
         : completedSlots.filter((slot) => slot.verdict !== 'green');
+    const completedGroups = groupCertificationSlotsBySpend(completedSlots).sort(
+      (a, b) => b.annualSpendTodayDollars - a.annualSpendTodayDollars,
+    );
+    const higherGroups = completedGroups.filter((group) =>
+      selectedSpend === null
+        ? group.verdict !== 'green'
+        : group.annualSpendTodayDollars > selectedSpend,
+    );
+    const displayGroups =
+      higherGroups.length > 0
+        ? higherGroups
+        : completedGroups.filter((group) => group.verdict !== 'green');
 
     return (
       <div className="space-y-3">
         <div className="flex items-center justify-between gap-3">
           <p className="text-stone-500">
             {selectedSpend !== null
-              ? `${higherSlots.length} higher certified candidate${higherSlots.length === 1 ? '' : 's'} tested above ${formatCurrency(selectedSpend)}/yr`
-              : `${displaySlots.length} non-green certified candidate${displaySlots.length === 1 ? '' : 's'} tested`}
+              ? `${higherGroups.length} higher lifestyle target level${higherGroups.length === 1 ? '' : 's'} tested above ${formatCurrency(displaySelectedSpend)}/yr; total budget pending (${higherSlots.length} candidate${higherSlots.length === 1 ? '' : 's'})`
+              : `${displayGroups.length} non-green spend level${displayGroups.length === 1 ? '' : 's'} tested (${displaySlots.length} candidate${displaySlots.length === 1 ? '' : 's'})`}
           </p>
           {selectedSpend !== null && (
             <span className="shrink-0 rounded-full bg-emerald-100 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-emerald-800 ring-1 ring-emerald-200">
-              pick {formatCurrency(selectedSpend)}
+              target {formatCurrency(displaySelectedSpend)}
             </span>
           )}
         </div>
-        {completedSlots.length > 0 && (
+        {completedGroups.length > 0 && (
           <div className="grid grid-flow-col auto-cols-[minmax(76px,1fr)] gap-1 overflow-x-auto pb-1">
-            {[...completedSlots]
+            {[...completedGroups]
               .sort((a, b) => a.annualSpendTodayDollars - b.annualSpendTodayDollars)
-              .map((slot) => {
+              .map((group) => {
                 const isPick =
                   selectedSpend !== null &&
-                  slot.annualSpendTodayDollars === selectedSpend;
+                  group.annualSpendTodayDollars === selectedSpend;
+                const displayAnnualSpend = annualSpendWithTravelOverlay(
+                  group.annualSpendTodayDollars,
+                  annualTravelOverlay,
+                );
                 return (
                   <div
-                    key={slot.candidateId}
+                    key={group.key}
                     className={`rounded border bg-white p-2 text-center ring-1 ${
                       isPick
                         ? 'border-emerald-300 ring-emerald-400'
-                        : slot.verdict === 'green'
+                        : group.verdict === 'green'
                           ? 'border-emerald-100 ring-emerald-100'
-                          : slot.verdict === 'yellow'
+                          : group.verdict === 'yellow'
                             ? 'border-amber-100 ring-amber-100'
                             : 'border-rose-100 ring-rose-100'
                     }`}
+                    title={
+                      annualTravelOverlay > 0
+                      ? `First year ${formatCurrency(displayAnnualSpend)}/yr · core ${formatCurrency(group.annualSpendTodayDollars)}/yr + travel ${formatCurrency(annualTravelOverlay)}/yr`
+                        : undefined
+                    }
                   >
                     <p className="text-[11px] font-semibold tabular-nums text-stone-900">
-                      {formatCurrency(slot.annualSpendTodayDollars)}
+                      pending
+                    </p>
+                    <p className="mt-0.5 text-[8px] font-semibold uppercase tracking-[0.06em] text-stone-400">
+                      target {formatCurrency(displayAnnualSpend)}
                     </p>
                     <p
                       className={`mt-1 rounded-full px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-[0.08em] ring-1 ${
-                        slot.verdict
-                          ? certificationVerdictClasses(slot.verdict)
+                        group.verdict
+                          ? certificationVerdictClasses(group.verdict)
                           : 'bg-stone-100 text-stone-600 ring-stone-200'
                       }`}
                     >
-                      {isPick ? 'pick' : slot.verdict ?? '-'}
+                      {isPick ? 'pick' : group.verdict ?? '-'}
                     </p>
+                    {group.candidateCount > 1 && (
+                      <p className="mt-1 text-[9px] font-semibold tabular-nums text-stone-500">
+                        {group.candidateCount} candidates
+                      </p>
+                    )}
                   </div>
                 );
               })}
           </div>
         )}
-        {displaySlots.length > 0 ? (
+        {displayGroups.length > 0 ? (
           <div className="grid gap-2">
-            {displaySlots.slice(0, 5).map((slot) => {
+            {displayGroups.slice(0, 5).map((group) => {
               const annualDelta =
                 selectedSpend === null
                   ? null
-                  : Math.max(0, slot.annualSpendTodayDollars - selectedSpend);
+                  : Math.max(0, group.annualSpendTodayDollars - selectedSpend);
+              const displayAnnualSpend = annualSpendWithTravelOverlay(
+                group.annualSpendTodayDollars,
+                annualTravelOverlay,
+              );
               return (
                 <div
-                  key={slot.candidateId}
+                  key={group.key}
                   className="rounded-lg border border-stone-200 bg-white p-3"
                 >
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="text-sm font-semibold tabular-nums text-stone-950">
-                        {formatCurrency(slot.annualSpendTodayDollars)}/yr
+                        target {formatCurrency(displayAnnualSpend)}/yr
                       </span>
-                      {slot.verdict && (
+                      {group.verdict && (
                         <span
-                          className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] ring-1 ${certificationVerdictClasses(slot.verdict)}`}
+                          className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] ring-1 ${certificationVerdictClasses(group.verdict)}`}
                         >
-                          {slot.verdict}
+                          {group.verdict}
+                        </span>
+                      )}
+                      {group.candidateCount > 1 && (
+                        <span className="rounded-full bg-stone-100 px-2 py-0.5 text-[10px] font-semibold tabular-nums text-stone-600">
+                          {group.candidateCount} candidates
                         </span>
                       )}
                       {annualDelta !== null && annualDelta > 0 && (
@@ -633,16 +1118,22 @@ function ValidationTradeoffMap({
                         </span>
                       )}
                     </div>
+                    {annualTravelOverlay > 0 && (
+                      <p className="mt-1 text-[10px] tabular-nums text-stone-500">
+                        core {formatCurrency(group.annualSpendTodayDollars)}/yr + travel {formatCurrency(annualTravelOverlay)}/yr
+                      </p>
+                    )}
                   </div>
-                  {slot.reasons.length > 0 && (
+                  {group.reasons.length > 0 && (
                     <div className="mt-2 flex flex-wrap gap-1.5">
-                      {slot.reasons.slice(0, 4).map((reason) => (
+                      {group.reasons.slice(0, 4).map((reason) => (
                         <span
-                          key={`${slot.candidateId}-${reason.code}`}
+                          key={`${group.key}-${reason.code}`}
                           className="rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-800 ring-1 ring-amber-100"
                           title={reason.message}
                         >
                           {certificationReasonLabel(reason.code)}
+                          {reason.count > 1 ? ` x${reason.count}` : ''}
                         </span>
                       ))}
                     </div>
@@ -674,21 +1165,56 @@ function ValidationTradeoffMap({
       (a, b) =>
         b.cert.evaluation.policy.annualSpendTodayDollars -
         a.cert.evaluation.policy.annualSpendTodayDollars,
-    );
+  );
   if (certifications.length === 0) return null;
+  const certificationGroups = groupCertificationsBySpend(certifications).sort(
+    (a, b) => b.annualSpendTodayDollars - a.annualSpendTodayDollars,
+  );
+  const selectedCertification =
+    run.strategies
+      .map((strategy) => strategy.selectedCertification)
+      .find(
+        (cert): cert is MonthlyReviewCertification =>
+          !!cert &&
+          cert.strategyId === run.recommendation.strategyId &&
+          cert.evaluation.id === run.recommendation.policyId,
+      ) ?? null;
+  const selectedBudgetAnnual =
+    selectedCertification === null
+      ? null
+      : firstRetirementTotalBudgetAnnualForCertification(
+          selectedCertification,
+          retirementYear,
+          inflation,
+          legacyTarget,
+          annualTravelOverlay,
+        );
+  const displaySelectedSpend =
+    selectedBudgetAnnual ??
+    annualSpendWithTravelOverlay(
+      selectedSpend,
+      annualTravelOverlay,
+    );
 
-  const higherCandidates = certifications.filter(({ cert }) => {
-    const spend = cert.evaluation.policy.annualSpendTodayDollars;
-    return selectedSpend === null ? cert.verdict !== 'green' : spend > selectedSpend;
+  const higherGroups = certificationGroups.filter((group) => {
+    return selectedSpend === null
+      ? group.verdict !== 'green'
+      : group.annualSpendTodayDollars > selectedSpend;
   });
-  const displayCandidates =
-    higherCandidates.length > 0
-      ? higherCandidates
-      : certifications.filter(({ cert }) => cert.verdict !== 'green');
-  const ladder = [...certifications].sort(
-    (a, b) =>
-      a.cert.evaluation.policy.annualSpendTodayDollars -
-      b.cert.evaluation.policy.annualSpendTodayDollars,
+  const displayGroups =
+    higherGroups.length > 0
+      ? higherGroups
+      : certificationGroups.filter((group) => group.verdict !== 'green');
+  const higherCandidateCount = higherGroups.reduce(
+    (sum, group) => sum + group.candidateCount,
+    0,
+  );
+  const displayCandidateCount = displayGroups.reduce(
+    (sum, group) => sum + group.candidateCount,
+    0,
+  );
+  const ladder = [...certificationGroups].sort(
+    (a, b) => a.annualSpendTodayDollars - b.annualSpendTodayDollars,
   );
 
   return (
@@ -696,81 +1222,138 @@ function ValidationTradeoffMap({
       <div className="flex items-center justify-between gap-3">
         <p className="text-stone-500">
           {selectedSpend !== null
-            ? `${higherCandidates.length} higher candidate${higherCandidates.length === 1 ? '' : 's'} tested above ${formatCurrency(selectedSpend)}/yr`
-            : `${displayCandidates.length} non-green candidate${displayCandidates.length === 1 ? '' : 's'} tested`}
+            ? `${higherGroups.length} higher spend level${higherGroups.length === 1 ? '' : 's'} tested above ${formatCurrency(displaySelectedSpend)}/yr total budget (${higherCandidateCount} candidate${higherCandidateCount === 1 ? '' : 's'})`
+            : `${displayGroups.length} non-green spend level${displayGroups.length === 1 ? '' : 's'} tested (${displayCandidateCount} candidate${displayCandidateCount === 1 ? '' : 's'})`}
         </p>
         {selectedSpend !== null && (
           <span className="shrink-0 rounded-full bg-emerald-100 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-emerald-800 ring-1 ring-emerald-200">
-            pick {formatCurrency(selectedSpend)}
+            pick {formatCurrency(displaySelectedSpend)}
           </span>
         )}
       </div>
 
       <div className="grid grid-flow-col auto-cols-[minmax(76px,1fr)] gap-1 overflow-x-auto pb-1">
-        {ladder.map(({ cert }) => {
-          const spend = cert.evaluation.policy.annualSpendTodayDollars;
-          const isPick = selectedSpend !== null && spend === selectedSpend;
+        {ladder.map((group) => {
+          const isPick =
+            selectedSpend !== null && group.annualSpendTodayDollars === selectedSpend;
+          const lifestyleAnnualSpend = annualSpendWithTravelOverlay(
+            group.annualSpendTodayDollars,
+            annualTravelOverlay,
+          );
+          const displayAnnualSpend =
+            firstRetirementTotalBudgetAnnualForGroup(
+              group,
+              retirementYear,
+              inflation,
+              legacyTarget,
+              annualTravelOverlay,
+            ) ?? lifestyleAnnualSpend;
           return (
             <div
-              key={cert.evaluation.id}
+              key={group.key}
               className={`rounded border bg-white p-2 text-center ring-1 ${
                 isPick
                   ? 'border-emerald-300 ring-emerald-400'
-                  : cert.verdict === 'green'
+                  : group.verdict === 'green'
                     ? 'border-emerald-100 ring-emerald-100'
-                    : cert.verdict === 'yellow'
+                    : group.verdict === 'yellow'
                       ? 'border-amber-100 ring-amber-100'
                       : 'border-rose-100 ring-rose-100'
               }`}
+              title={
+                `Next-year total budget ${formatCurrency(displayAnnualSpend)}/yr · lifestyle target ${formatCurrency(lifestyleAnnualSpend)}/yr`
+              }
             >
               <p className="text-[11px] font-semibold tabular-nums text-stone-900">
-                {formatCurrency(spend)}
+                {formatCurrency(displayAnnualSpend)}
+              </p>
+              <p className="mt-0.5 text-[8px] font-semibold uppercase tracking-[0.06em] text-stone-400">
+                budget
               </p>
               <p
-                className={`mt-1 rounded-full px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-[0.08em] ring-1 ${certificationVerdictClasses(cert.verdict)}`}
+                className={`mt-1 rounded-full px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-[0.08em] ring-1 ${certificationVerdictClasses(group.verdict)}`}
               >
-                {isPick ? 'pick' : cert.verdict}
+                {isPick ? 'pick' : group.verdict}
               </p>
+              {group.candidateCount > 1 && (
+                <p className="mt-1 text-[9px] font-semibold tabular-nums text-stone-500">
+                  {group.candidateCount} candidates
+                </p>
+              )}
             </div>
           );
         })}
       </div>
 
-      {displayCandidates.length > 0 ? (
+      {displayGroups.length > 0 ? (
         <div className="grid gap-2">
-          {displayCandidates.slice(0, 5).map(({ cert, strategyLabel }) => {
-            const spend = cert.evaluation.policy.annualSpendTodayDollars;
+          {displayGroups.slice(0, 5).map((group) => {
             const annualDelta =
-              selectedSpend === null ? null : Math.max(0, spend - selectedSpend);
+              selectedSpend === null
+                ? null
+                : Math.max(
+                    0,
+                    (firstRetirementTotalBudgetAnnualForGroup(
+                      group,
+                      retirementYear,
+                      inflation,
+                      legacyTarget,
+                      annualTravelOverlay,
+                    ) ??
+                      annualSpendWithTravelOverlay(
+                        group.annualSpendTodayDollars,
+                        annualTravelOverlay,
+                      ) ??
+                      0) - (displaySelectedSpend ?? 0),
+                  );
             const monthlyDelta = annualDelta === null ? null : annualDelta / 12;
-            const metrics = certificationMetricSummary(cert);
-            const reasons = cert.pack.reasons.filter(
-              (reason) => reason.code !== 'sleep_well_green',
+            const lifestyleAnnualSpend = annualSpendWithTravelOverlay(
+              group.annualSpendTodayDollars,
+              annualTravelOverlay,
             );
-            const weakestRows = weakestCertificationRows(cert);
+            const displayAnnualSpend =
+              firstRetirementTotalBudgetAnnualForGroup(
+                group,
+                retirementYear,
+                inflation,
+                legacyTarget,
+                annualTravelOverlay,
+              ) ?? lifestyleAnnualSpend;
+            const metrics = certificationSpendGroupMetricSummary(group);
+            const weakestRows = weakestCertificationGroupRows(group);
             return (
               <div
-                key={cert.evaluation.id}
+                key={group.key}
                 className="rounded-lg border border-stone-200 bg-white p-3"
               >
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
                     <div className="flex flex-wrap items-center gap-2">
                       <p className="text-sm font-semibold tabular-nums text-stone-950">
-                        {formatCurrency(spend)}/yr
+                        {formatCurrency(displayAnnualSpend)}/yr total budget
                       </p>
                       <span
-                        className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] ring-1 ${certificationVerdictClasses(cert.verdict)}`}
+                        className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] ring-1 ${certificationVerdictClasses(group.verdict)}`}
                       >
-                        {cert.verdict}
+                        {group.verdict}
                       </span>
+                      {group.candidateCount > 1 && (
+                        <span className="rounded-full bg-stone-100 px-2 py-0.5 text-[10px] font-semibold tabular-nums text-stone-600">
+                          {group.candidateCount} candidates
+                        </span>
+                      )}
                       {monthlyDelta !== null && monthlyDelta > 0 && (
                         <span className="rounded-full bg-stone-100 px-2 py-0.5 text-[10px] font-semibold tabular-nums text-stone-600">
                           +{formatMonthly(monthlyDelta)}
                         </span>
                       )}
                     </div>
-                    <p className="mt-1 text-[11px] text-stone-500">{strategyLabel}</p>
+                    <p className="mt-1 text-[11px] text-stone-500">
+                      {group.strategyLabels.join(', ')}
+                    </p>
+                    <p className="mt-1 text-[10px] tabular-nums text-stone-500">
+                      lifestyle target {formatCurrency(lifestyleAnnualSpend)}/yr · core {formatCurrency(group.annualSpendTodayDollars)}/yr + travel {formatCurrency(annualTravelOverlay)}/yr
+                    </p>
                   </div>
                   <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-right text-[10px] tabular-nums text-stone-500 sm:grid-cols-4">
                     <span>base {formatPercent(metrics.baselineSolvency)}</span>
@@ -780,27 +1363,28 @@ function ValidationTradeoffMap({
                   </div>
                 </div>
 
-                {reasons.length > 0 && (
+                {group.reasons.length > 0 && (
                   <div className="mt-2 flex flex-wrap gap-1.5">
-                    {reasons.slice(0, 4).map((reason) => (
+                    {group.reasons.slice(0, 4).map((reason) => (
                       <span
-                        key={`${cert.evaluation.id}-${reason.code}`}
+                        key={`${group.key}-${reason.code}`}
                         className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ring-1 ${
-                          reason.level === 'red'
+                          group.verdict === 'red'
                             ? 'bg-rose-50 text-rose-800 ring-rose-100'
                             : 'bg-amber-50 text-amber-800 ring-amber-100'
                         }`}
                       >
                         {certificationReasonLabel(reason.code)}
+                        {reason.count > 1 ? ` x${reason.count}` : ''}
                       </span>
                     ))}
                   </div>
                 )}
 
                 <div className="mt-2 grid gap-1 sm:grid-cols-3">
-                  {weakestRows.map((row) => (
+                  {weakestRows.map(({ row, key }) => (
                     <div
-                      key={row.id}
+                      key={key}
                       className="rounded border border-stone-100 bg-stone-50 px-2 py-1.5"
                     >
                       <p className="truncate text-[10px] font-semibold text-stone-700">
@@ -854,11 +1438,13 @@ function ClusterStatusRail({
   session,
   certificationSlots,
   reviewStage,
+  annualTravelOverlay,
 }: {
   peers: SnapshotPeer[];
   session: UseClusterSession['session'];
   certificationSlots: CertificationSlot[];
   reviewStage: MonthlyReviewStage;
+  annualTravelOverlay: number;
 }): JSX.Element {
   const hosts = peers.filter((peer) => peer.roles.includes('host'));
   const totalMiningWorkers = hosts.reduce(
@@ -1016,8 +1602,15 @@ function ClusterStatusRail({
           <div className="mt-2 space-y-1.5">
             {assignedSlots.slice(0, 8).map((slot) => (
               <div key={slot.candidateId} className="flex items-center justify-between gap-2 text-[10px]">
-                <span className="tabular-nums text-stone-800">
-                  {formatCurrency(slot.annualSpendTodayDollars)}
+                <span
+                  className="tabular-nums text-stone-800"
+                  title={
+                    annualTravelOverlay > 0
+                      ? `First year ${formatCurrency(annualSpendWithTravelOverlay(slot.annualSpendTodayDollars, annualTravelOverlay))}/yr · core ${formatCurrency(slot.annualSpendTodayDollars)}/yr + travel ${formatCurrency(annualTravelOverlay)}/yr`
+                      : undefined
+                  }
+                >
+                  {formatCurrency(annualSpendWithTravelOverlay(slot.annualSpendTodayDollars, annualTravelOverlay))}
                 </span>
                 <span className="min-w-0 truncate text-stone-500">
                   {slot.hostDisplayName}
@@ -1304,6 +1897,7 @@ function ModelTaskList({ tasks }: { tasks: MonthlyReviewModelTask[] }) {
 // ─── Internal helpers ────────────────────────────────────────────────────────
 
 function readStoredJson<T>(key: string): T | null {
+  clearLegacyMonthlyReviewStorage();
   if (typeof window === 'undefined') return null;
   try {
     const raw = window.localStorage.getItem(key);
@@ -1319,6 +1913,14 @@ function writeStoredJson(key: string, value: unknown): void {
 function clearStoredJson(key: string): void {
   if (typeof window === 'undefined') return;
   try { window.localStorage.removeItem(key); } catch { /* best-effort */ }
+}
+
+function clearLegacyMonthlyReviewStorage(): void {
+  if (legacyMonthlyReviewStorageCleared || typeof window === 'undefined') return;
+  legacyMonthlyReviewStorageCleared = true;
+  for (const key of LEGACY_MONTHLY_REVIEW_STORAGE_KEYS) {
+    clearStoredJson(key);
+  }
 }
 
 function compactRunForStorage(run: MonthlyReviewRun): MonthlyReviewRun {
@@ -1342,6 +1944,24 @@ function readStoredRunForBaseline(
   if (run.baselineFingerprint !== baselineFingerprint) return null;
   if (run.engineVersion !== engineVersion) return null;
   return run;
+}
+
+function readStoredMiningSnapshot(): MiningSnapshot | null {
+  const snapshot = readStoredJson<Omit<MiningSnapshot, 'source'> & { source?: string }>(
+    LAST_MINING_SNAPSHOT_KEY,
+  );
+  if (!snapshot) return null;
+  if (snapshot.source === 'reused') {
+    clearStoredJson(LAST_MINING_SNAPSHOT_KEY);
+    return null;
+  }
+  return {
+    evaluationCount: snapshot.evaluationCount,
+    spendMin: snapshot.spendMin,
+    spendMax: snapshot.spendMax,
+    feasibleCount: snapshot.feasibleCount,
+    source: snapshot.source === 'run' ? 'run' : undefined,
+  };
 }
 
 function miningSnapshotFromRun(run: MonthlyReviewRun | null): MiningSnapshot | null {
@@ -1369,25 +1989,6 @@ function miningSnapshotFromRun(run: MonthlyReviewRun | null): MiningSnapshot | n
         strategy.certifications.filter((cert) => cert.verdict === 'green').length,
       0,
     ),
-  };
-}
-
-function miningSnapshotFromJobLogs(job: ClusterMonthlyReviewJob): MiningSnapshot | null {
-  const reuseLine = [...job.logTail]
-    .reverse()
-    .find((line) => /\busing\s+s-[^\s]+\s+\([\d,]+\s+evals\)/.test(line));
-  if (!reuseLine) return null;
-  const match = reuseLine.match(/\busing\s+(s-[^\s]+)\s+\(([\d,]+)\s+evals\)/);
-  if (!match) return null;
-  const evaluationCount = Number(match[2]?.replaceAll(',', ''));
-  if (!Number.isFinite(evaluationCount)) return null;
-  return {
-    evaluationCount,
-    spendMin: null,
-    spendMax: null,
-    feasibleCount: null,
-    source: 'reused',
-    sessionId: match[1] ?? null,
   };
 }
 
@@ -1585,9 +2186,12 @@ function aiProgressFromPacket(
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export function MonthlyReviewPanel({
+  assumptions,
+  baselinePath,
   baselineFingerprint,
   engineVersion,
   dispatcherUrl,
+  legacyTargetTodayDollars,
   onProgressStageChange,
 }: Props): JSX.Element | null {
   const cluster = useClusterSession();
@@ -1611,7 +2215,7 @@ export function MonthlyReviewPanel({
   const serverReviewWatcherRef = useRef(false);
   const [failedStep, setFailedStep] = useState<FailedReviewStep>(null);
   const [miningSnapshot, setMiningSnapshot] = useState<MiningSnapshot | null>(() =>
-    readStoredJson<MiningSnapshot>(LAST_MINING_SNAPSHOT_KEY) ??
+    readStoredMiningSnapshot() ??
     miningSnapshotFromRun(restoredRun),
   );
   // Sticky live mine progress for the Step 1 card. Mirrors cluster.session
@@ -1808,11 +2412,6 @@ export function MonthlyReviewPanel({
             setStage('certifying');
           }
         }
-        const logMiningSnapshot = miningSnapshotFromJobLogs(job);
-        if (logMiningSnapshot && !job.run) {
-          setMiningSnapshot(logMiningSnapshot);
-          writeStoredJson(LAST_MINING_SNAPSHOT_KEY, logMiningSnapshot);
-        }
         const jobCertificationSlots = certificationSlotsFromJob(job);
         if (jobCertificationSlots.length > 0 && !job.run) {
           setCertificationSlots(jobCertificationSlots);
@@ -1890,7 +2489,7 @@ export function MonthlyReviewPanel({
       setRunState({ kind: 'running', message: 'Starting server-side Monthly Review…' });
       appendTransactionEvent('server-side review requested');
       const started = await startClusterMonthlyReviewJob(dispatcherUrl, {
-        mineMode: 'missing',
+        mineMode: 'always',
         maxCertCandidates: 8,
         certificationMaxConcurrency: 4,
       });
@@ -2055,6 +2654,31 @@ export function MonthlyReviewPanel({
     )?.travelAnnualSpendTodayDollars ??
     selectedSpendingPath?.annualSpendRows[0]?.travelAnnualSpendTodayDollars ??
     null;
+  const annualTravelOverlayForCandidateDisplay =
+    firstTravelAnnualSpend ??
+    Math.max(0, currentData.spending.travelEarlyRetirementAnnual ?? 0);
+  const displayAnnualSpendForCandidate = (annualCoreSpend: number | null) =>
+    annualSpendWithTravelOverlay(
+      annualCoreSpend,
+      annualTravelOverlayForCandidateDisplay,
+    );
+  const recommendedTotalAnnualSpend =
+    firstRetirementAnnualSpend ??
+    displayAnnualSpendForCandidate(run?.recommendation.annualSpendTodayDollars ?? null);
+  const recommendedTotalMonthlySpend =
+    recommendedTotalAnnualSpend === null ? null : recommendedTotalAnnualSpend / 12;
+  const recommendedLifetimeAverageAnnualSpend =
+    selectedSpendingPath?.lifetimeAverageAnnualSpendTodayDollars ?? null;
+  const reviewRetirementYear =
+    selectedSpendingPath?.retirementYear ??
+    parseYearFromIso(currentData.income.salaryEndDate);
+  const reviewInflation =
+    lastValidationPacket?.rawExportEvidence.assumptions.inflation ??
+    assumptions.inflation;
+  const packetNorthStarBudgets =
+    lastValidationPacket?.rawExportEvidence.northStarBudgets ?? null;
+  const packetCurrentPlanBudget = packetNorthStarBudgets?.currentPlan ?? null;
+  const packetSelectedNorthStarBudget = packetNorthStarBudgets?.selectedPolicy ?? null;
 
   const selectedCertification =
     run?.strategies
@@ -2065,6 +2689,49 @@ export function MonthlyReviewPanel({
           cert.strategyId === run.recommendation.strategyId &&
           cert.evaluation.id === run.recommendation.policyId,
       ) ?? null;
+  const boldinStyleComparison = buildBoldinStyleSpendingComparison({
+    data: currentData,
+    baselinePath,
+    currentPlanBudget: packetCurrentPlanBudget,
+    selectedCertification,
+    selectedSpendingPath,
+    inflation: reviewInflation,
+  });
+  const selectedNorthStarBudget: NorthStarBudget | null =
+    packetSelectedNorthStarBudget ??
+    (selectedCertification === null
+      ? null
+      : buildNorthStarBudgetFromCertification({
+          cert: selectedCertification,
+          spendingPath: selectedSpendingPath,
+          retirementYear: reviewRetirementYear,
+          inflation: reviewInflation,
+          legacyTarget: legacyTargetTodayDollars,
+          fallbackTravelAnnual: annualTravelOverlayForCandidateDisplay,
+        }));
+  const certificationBudgetAnnualByCoreSpend =
+    buildCertificationBudgetAnnualByCoreSpend(
+      run,
+      reviewRetirementYear,
+      reviewInflation,
+      legacyTargetTodayDollars,
+      annualTravelOverlayForCandidateDisplay,
+    );
+  const northStarMonthlySpend =
+    selectedNorthStarBudget?.totalMonthlyBudget ??
+    recommendedTotalMonthlySpend;
+  const northStarAnnualSpend =
+    northStarMonthlySpend === null ? null : northStarMonthlySpend * 12;
+  const northStarSpendLabel =
+    selectedNorthStarBudget?.totalMonthlyBudget === null ||
+    selectedNorthStarBudget?.totalMonthlyBudget === undefined
+      ? 'Next-year lifestyle target'
+      : 'Next-year total budget';
+  const northStarYearLabel =
+    selectedNorthStarBudget?.year === null ||
+    selectedNorthStarBudget?.year === undefined
+      ? 'first retirement year'
+      : String(selectedNorthStarBudget.year);
 
   const alreadyAdopted =
     !!selectedCertification &&
@@ -2106,7 +2773,7 @@ export function MonthlyReviewPanel({
   const runningCertSpendLine =
     runningCertSlots.length > 0
       ? runningCertSlots
-        .map((slot) => `${formatCurrency(slot.annualSpendTodayDollars)}/yr`)
+        .map((slot) => `${formatCurrency(displayAnnualSpendForCandidate(slot.annualSpendTodayDollars))}/yr`)
         .join(', ')
       : null;
   const runningCertMode =
@@ -2124,9 +2791,7 @@ export function MonthlyReviewPanel({
       : Math.max(0, throughputTickMs - aiReviewStartedAtRef.current);
   const minePanelSummary =
     miningSnapshot !== null
-      ? miningSnapshot.source === 'reused'
-        ? `reused ${miningSnapshot.evaluationCount.toLocaleString()} evals${miningSnapshot.sessionId ? ` · ${miningSnapshot.sessionId}` : ''}`
-        : `${miningSnapshot.evaluationCount.toLocaleString()} policies · ${formatCurrency(miningSnapshot.spendMin)}-${formatCurrency(miningSnapshot.spendMax)}/yr · ${(miningSnapshot.feasibleCount ?? 0).toLocaleString()} meet floor`
+      ? `${miningSnapshot.evaluationCount.toLocaleString()} policies · ${formatCurrency(displayAnnualSpendForCandidate(miningSnapshot.spendMin))}-${formatCurrency(displayAnnualSpendForCandidate(miningSnapshot.spendMax))}/yr first-year total · ${(miningSnapshot.feasibleCount ?? 0).toLocaleString()} meet floor`
       : liveMineProgress !== null
         ? `${liveMineProgress.evaluated.toLocaleString()} / ${liveMineProgress.total.toLocaleString()} policies`
         : null;
@@ -2142,8 +2807,11 @@ export function MonthlyReviewPanel({
             Monthly Review
           </p>
           <h2 className="mt-0.5 text-base font-semibold text-stone-950">
-            Sleep-at-night max spend
+            North-star max spend
           </h2>
+          <p className="mt-1 text-[11px] text-stone-500">
+            Maximize next-year spending, favor early travel, protect a {formatCurrency(legacyTargetTodayDollars)} care/legacy reserve.
+          </p>
         </div>
         <button
           type="button"
@@ -2182,8 +2850,7 @@ export function MonthlyReviewPanel({
           <p className="text-rose-700">
             {runState.kind === 'failed' ? runState.reason : 'Mining failed.'}
           </p>
-        ) : (reviewStage === 'connecting' || reviewStage === 'mining') &&
-          miningSnapshot?.source !== 'reused' ? (
+        ) : reviewStage === 'connecting' || reviewStage === 'mining' ? (
           (() => {
             const pct =
               liveMineProgress && liveMineProgress.total > 0
@@ -2236,42 +2903,23 @@ export function MonthlyReviewPanel({
             );
           })()
         ) : miningSnapshot ? (
-          miningSnapshot.source === 'reused' ? (
-            <div className="space-y-2 text-stone-700">
-              <div className="rounded-lg border border-blue-100 bg-blue-50 px-3 py-2">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-blue-700">
-                  Reused completed mine
-                </p>
-                <p className="mt-1 text-[12px] text-blue-950">
-                  Found matching corpus{' '}
-                  {miningSnapshot.sessionId && (
-                    <span className="font-semibold tabular-nums">{miningSnapshot.sessionId}</span>
-                  )}{' '}
-                  with{' '}
-                  <span className="font-semibold tabular-nums">
-                    {miningSnapshot.evaluationCount.toLocaleString()}
-                  </span>{' '}
-                  evaluations.
-                </p>
-              </div>
-              <p className="text-[11px] text-stone-500">
-                No miner hosts were launched for Step 1 because this baseline and strategy already had a completed mine.
+          <div className="space-y-1 text-stone-700">
+            <p>
+              <span className="tabular-nums font-semibold">{miningSnapshot.evaluationCount.toLocaleString()}</span>{' '}
+              policies evaluated · spend range{' '}
+              <span className="tabular-nums font-semibold">{formatCurrency(displayAnnualSpendForCandidate(miningSnapshot.spendMin))}</span>
+              {' – '}
+              <span className="tabular-nums font-semibold">{formatCurrency(displayAnnualSpendForCandidate(miningSnapshot.spendMax))}</span>/yr first-year total
+            </p>
+            {annualTravelOverlayForCandidateDisplay > 0 && (
+              <p className="text-[11px] tabular-nums text-stone-500">
+                Includes {formatCurrency(annualTravelOverlayForCandidateDisplay)}/yr first-year travel overlay.
               </p>
-            </div>
-          ) : (
-            <div className="space-y-1 text-stone-700">
-              <p>
-                <span className="tabular-nums font-semibold">{miningSnapshot.evaluationCount.toLocaleString()}</span>{' '}
-                policies evaluated · spend range{' '}
-                <span className="tabular-nums font-semibold">{formatCurrency(miningSnapshot.spendMin)}</span>
-                {' – '}
-                <span className="tabular-nums font-semibold">{formatCurrency(miningSnapshot.spendMax)}</span>/yr
-              </p>
-              <p className="text-stone-500">
-                <span className="tabular-nums">{(miningSnapshot.feasibleCount ?? 0).toLocaleString()}</span> meet the ≥85% solvency floor
-              </p>
-            </div>
-          )
+            )}
+            <p className="text-stone-500">
+              <span className="tabular-nums">{(miningSnapshot.feasibleCount ?? 0).toLocaleString()}</span> meet the ≥85% solvency floor
+            </p>
+          </div>
         ) : null}
       </StepCard>
 
@@ -2286,13 +2934,15 @@ export function MonthlyReviewPanel({
             </p>
             {runningCertSpendLine && runningCertElapsedMs !== null && (
               <p className="text-[11px] tabular-nums text-stone-600">
-                {runningCertMode ?? 'certification'} active · {runningCertSpendLine} · elapsed{' '}
+                {runningCertMode ?? 'certification'} active · lifestyle targets {runningCertSpendLine} · budget pending · elapsed{' '}
                 {formatDuration(runningCertElapsedMs)}
               </p>
             )}
             <SpendBoundaryStrip
               slots={certificationSlots}
               recommendedAnnualSpend={run?.recommendation.annualSpendTodayDollars ?? null}
+              annualTravelOverlay={annualTravelOverlayForCandidateDisplay}
+              budgetAnnualByCoreSpend={certificationBudgetAnnualByCoreSpend}
             />
           </div>
         ) : reviewStage === 'certifying' ? (
@@ -2314,6 +2964,10 @@ export function MonthlyReviewPanel({
           run={run}
           packet={lastValidationPacket}
           certificationSlots={certificationSlots}
+          annualTravelOverlay={annualTravelOverlayForCandidateDisplay}
+          retirementYear={reviewRetirementYear}
+          inflation={reviewInflation}
+          legacyTarget={legacyTargetTodayDollars}
         />
       </StepCard>
 
@@ -2385,31 +3039,49 @@ export function MonthlyReviewPanel({
       </StepCard>
 
       {/* ── Step 5: Answer ──────────────────────────────────────────────────── */}
-      <StepCard n={5} title="Answer" status={stepStatusForAnswer(reviewStage)}>
+      <StepCard n={5} title="North star answer" status={stepStatusForAnswer(reviewStage)}>
         {run ? (
           <div className="space-y-4">
             {/* The number */}
             <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-stone-500">
-                  Core monthly budget
+                  {northStarSpendLabel}
                 </p>
                 <p
                   className={`mt-1 text-5xl font-bold tabular-nums tracking-tight ${
                     isGreen ? 'text-emerald-700' : 'text-rose-700'
                   }`}
                 >
-                  {formatMonthly(run.recommendation.monthlySpendTodayDollars)}
+                  {formatMonthly(northStarMonthlySpend)}
                 </p>
                 <p className="mt-0.5 text-[12px] text-stone-500">
-                  {formatCurrency(run.recommendation.annualSpendTodayDollars)}/yr before separately modeled travel
+                  {formatCurrency(northStarAnnualSpend)}/yr in {northStarYearLabel}
                 </p>
-                {firstRetirementAnnualSpend !== null && (
-                  <p className="mt-1 text-[12px] font-medium text-stone-700">
-                    Go-go total: {formatCurrency(firstRetirementAnnualSpend)}/yr
-                    {firstTravelAnnualSpend !== null
-                      ? ` including ${formatCurrency(firstTravelAnnualSpend)}/yr travel`
-                      : ''}
+                {selectedNorthStarBudget?.totalMonthlyBudget !== null &&
+                  selectedNorthStarBudget?.totalMonthlyBudget !== undefined && (
+                  <p className="mt-0.5 text-[12px] tabular-nums text-stone-500">
+                    lifestyle target {formatMonthly(recommendedTotalMonthlySpend)} · spend+health{' '}
+                    {formatMonthly(
+                      selectedNorthStarBudget.spendAndHealthAnnual === null
+                        ? null
+                        : selectedNorthStarBudget.spendAndHealthAnnual / 12,
+                    )} · fed tax{' '}
+                    {formatMonthly(
+                      selectedNorthStarBudget.federalTaxAnnual === null
+                        ? null
+                        : selectedNorthStarBudget.federalTaxAnnual / 12,
+                    )}
+                  </p>
+                )}
+                {recommendedLifetimeAverageAnnualSpend !== null && (
+                  <p className="mt-0.5 text-[12px] text-stone-500">
+                    target average {formatCurrency(recommendedLifetimeAverageAnnualSpend)}/yr · care/legacy reserve {formatCurrency(legacyTargetTodayDollars)}
+                  </p>
+                )}
+                {annualTravelOverlayForCandidateDisplay > 0 && (
+                  <p className="mt-1 text-[12px] font-medium tabular-nums text-stone-700">
+                    core {formatCurrency(run.recommendation.annualSpendTodayDollars)}/yr + first-year travel {formatCurrency(annualTravelOverlayForCandidateDisplay)}/yr
                   </p>
                 )}
               </div>
@@ -2456,6 +3128,87 @@ export function MonthlyReviewPanel({
                   </button>
                 )}
               </div>
+            </div>
+
+            <div className="rounded-lg border border-amber-200 bg-amber-50/70 p-3">
+              <div className="flex flex-col gap-1 sm:flex-row sm:items-baseline sm:justify-between">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-amber-900">
+                  Boldin-style spending check
+                </p>
+                <p className="text-[11px] text-amber-800">
+                  Today's dollars · monthly equivalents
+                </p>
+              </div>
+              <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+                <SpendingComparisonStat
+                  label="Boldin planned"
+                  value={formatMonthly(BOLDIN_PLANNED_MONTHLY_TODAY_DOLLARS)}
+                  detail="Screenshot benchmark"
+                />
+                <SpendingComparisonStat
+                  label="Boldin safe target"
+                  value={formatMonthly(BOLDIN_SAFE_TARGET_MONTHLY_TODAY_DOLLARS)}
+                  detail="Screenshot benchmark"
+                />
+                <SpendingComparisonStat
+                  label={
+                    boldinStyleComparison.currentPlanCashOutflowMonthly === null
+                      ? 'Current plan budget'
+                      : 'Current plan engine cashflow'
+                  }
+                  value={formatMonthly(
+                    boldinStyleComparison.currentPlanCashOutflowMonthly ??
+                      boldinStyleComparison.currentPlanBudgetMonthly,
+                  )}
+                  detail={
+                    boldinStyleComparison.currentPlanTraceYear === null
+                      ? `${formatCurrency(boldinStyleComparison.currentPlanBudgetAnnual)}/yr before health/fed tax`
+                      : `${boldinStyleComparison.currentPlanTraceYear}: spend+health ${formatMonthly(boldinStyleComparison.currentPlanEngineSpendingMonthly)} + fed tax ${formatMonthly(boldinStyleComparison.currentPlanFederalTaxMonthly)}`
+                  }
+                />
+                <SpendingComparisonStat
+                  label="Selected engine cashflow"
+                  value={formatMonthly(selectedNorthStarBudget?.totalMonthlyBudget ?? null)}
+                  detail={
+                    selectedNorthStarBudget?.year === null ||
+                    selectedNorthStarBudget?.year === undefined
+                      ? 'Waiting for certified trace rows'
+                      : `${selectedNorthStarBudget.year}: spend+health ${formatMonthly(
+                          selectedNorthStarBudget.spendAndHealthAnnual === null
+                            ? null
+                            : selectedNorthStarBudget.spendAndHealthAnnual / 12,
+                        )} + fed tax ${formatMonthly(
+                          selectedNorthStarBudget.federalTaxAnnual === null
+                            ? null
+                            : selectedNorthStarBudget.federalTaxAnnual / 12,
+                        )}`
+                  }
+                />
+              </div>
+              <p className="mt-3 text-[12px] leading-5 text-amber-950">
+                Boldin planned compares to current-plan engine cashflow from
+                the monthly-review packet; Boldin safe target compares to the
+                selected engine cashflow. Current-plan gap to Boldin planned:{' '}
+                <span className="font-semibold tabular-nums">
+                  {boldinStyleComparison.currentPlanCashOutflowMonthly === null
+                    ? 'engine trace missing'
+                    : formatMonthlyDelta(
+                        boldinStyleComparison.currentPlanCashOutflowMonthly -
+                          BOLDIN_PLANNED_MONTHLY_TODAY_DOLLARS,
+                      )}
+                </span>
+                . Selected gap to Boldin safe:{' '}
+                <span className="font-semibold tabular-nums">
+                  {formatMonthlyDelta(
+                    selectedNorthStarBudget?.totalMonthlyBudget === null ||
+                      selectedNorthStarBudget?.totalMonthlyBudget === undefined
+                      ? null
+                      : selectedNorthStarBudget.totalMonthlyBudget -
+                        BOLDIN_SAFE_TARGET_MONTHLY_TODAY_DOLLARS,
+                  )}
+                </span>
+                .
+              </p>
             </div>
 
             {run.recommendation.summary && (
@@ -2537,6 +3290,7 @@ export function MonthlyReviewPanel({
           session={cluster.session}
           certificationSlots={certificationSlots}
           reviewStage={reviewStage}
+          annualTravelOverlay={annualTravelOverlayForCandidateDisplay}
         />
       </div>
 
@@ -2547,7 +3301,9 @@ export function MonthlyReviewPanel({
           onCancel={() => setAdoptingCertification(null)}
           onConfirm={() => {
             adoptMinedPolicy(adoptingCertification.evaluation.policy, adoptingCertification.evaluation);
-            appendTransactionEvent(`adopted ${formatCurrency(adoptingCertification.evaluation.policy.annualSpendTodayDollars)}/yr`);
+            appendTransactionEvent(
+              `adopted ${formatCurrency(displayAnnualSpendForCandidate(adoptingCertification.evaluation.policy.annualSpendTodayDollars))}/yr first-year total`,
+            );
             setAdoptingCertification(null);
           }}
         />

@@ -1,0 +1,261 @@
+{
+  "$schemaVersion": 1,
+  "$meta": {
+    "purpose": "Frozen external benchmark corpus for validating model slices against public calculators and tax engines. These are not live network tests; they are captured observations plus source metadata so CI stays deterministic.",
+    "capturedOn": "2026-05-16",
+    "modelingScope": "Sequence-of-returns survival for a plain inflation-adjusted 5% withdrawal case, plus one simple 2026 federal income-tax case.",
+    "refreshPolicy": "Refresh manually when external tools change data vintages or tax law. Keep old rows or update capturedOn/sourceNotes so assumption drift is explicit.",
+    "localHistoricalDataWindow": "fixtures/historical_annual_returns.json currently covers 1926-2023, so local 30-year rolling windows are 1926-1994. FIRECalc/FI Calc/cFIREsim use longer Shiller-style histories through roughly 2024, so tolerance bands compare directionally, not exact cohort identity."
+  },
+  "benchmarks": [
+    {
+      "id": "firecalc_ws_400k_20k_30yr_60_40",
+      "kind": "historical_rolling_window_survival",
+      "modelCompleteness": "reconstructed",
+      "source": {
+        "modelName": "FIRECalc",
+        "sourceType": "documented_example",
+        "url": "https://firecalc.com/",
+        "capturedOn": "2026-05-16",
+        "sourceNotes": "FIRECalc home page quotes a $400,000 portfolio, $20,000 inflation-adjusted spending, 30-year, 60/40 example with an 81.5% historical success rate and describes rolling historical retirements from 1871 onward."
+      },
+      "inferredAssumptions": [
+        "FIRECalc's exact bond series, expense treatment, and latest data vintage are external to this repository.",
+        "The local comparison intentionally uses our 1926-2023 annual return fixture, not FIRECalc's full 1871+ dataset."
+      ],
+      "externalObservation": {
+        "successRate": 0.815,
+        "startingBalance": 400000,
+        "initialAnnualWithdrawal": 20000,
+        "durationYears": 30,
+        "allocation": {
+          "stocks": 0.6,
+          "bonds": 0.4
+        },
+        "withdrawalTiming": "inflation_adjusted_constant_spending"
+      },
+      "localScenario": {
+        "returnsFixture": "fixtures/historical_annual_returns.json",
+        "firstStartYear": 1926,
+        "lastStartYear": 1994,
+        "durationYears": 30,
+        "startingBalance": 400000,
+        "initialAnnualWithdrawal": 20000,
+        "allocation": {
+          "stocks": 0.6,
+          "bonds": 0.4
+        }
+      },
+      "expectedLocal": {
+        "cohortCount": 69,
+        "successfulCohorts": 53,
+        "failedCohorts": 16,
+        "successRate": 0.7681159420289855,
+        "failureStartYears": [
+          1929,
+          1937,
+          1960,
+          1961,
+          1962,
+          1963,
+          1964,
+          1965,
+          1966,
+          1967,
+          1968,
+          1969,
+          1970,
+          1971,
+          1972,
+          1973
+        ]
+      },
+      "tolerance": {
+        "successRateAbs": 0.08
+      }
+    },
+    {
+      "id": "cfiresim_live_400k_20k_30yr_60_40",
+      "kind": "historical_rolling_window_survival",
+      "modelCompleteness": "reconstructed",
+      "source": {
+        "modelName": "cFIREsim",
+        "sourceType": "live_calculator_capture",
+        "url": "https://www.cfiresim.com/1bd20fed-79bb-4a20-bb53-4a02246ad578",
+        "capturedOn": "2026-05-16",
+        "sourceNotes": "Captured with historical_all data, inflation_adjusted spending, CPI inflation, 60% equities, 40% bonds, 0% cash/gold, no fees, $400,000 starting portfolio, and $20,000 initial yearly spending."
+      },
+      "inferredAssumptions": [
+        "cFIREsim's exact return series and failure convention are external to this repository.",
+        "The local comparison intentionally uses our 1926-2023 annual return fixture, not cFIREsim's longer 125-cycle data window."
+      ],
+      "externalObservation": {
+        "successRate": 0.736,
+        "successfulCohorts": 92,
+        "failedCohorts": 33,
+        "cohortCount": 125,
+        "averageEndingPortfolio": 455509,
+        "medianEndingPortfolio": 268909,
+        "startingBalance": 400000,
+        "initialAnnualWithdrawal": 20000,
+        "durationYears": 30,
+        "allocation": {
+          "stocks": 0.6,
+          "bonds": 0.4
+        },
+        "withdrawalTiming": "inflation_adjusted_constant_spending"
+      },
+      "localScenario": {
+        "returnsFixture": "fixtures/historical_annual_returns.json",
+        "firstStartYear": 1926,
+        "lastStartYear": 1994,
+        "durationYears": 30,
+        "startingBalance": 400000,
+        "initialAnnualWithdrawal": 20000,
+        "allocation": {
+          "stocks": 0.6,
+          "bonds": 0.4
+        }
+      },
+      "expectedLocal": {
+        "cohortCount": 69,
+        "successfulCohorts": 53,
+        "failedCohorts": 16,
+        "successRate": 0.7681159420289855,
+        "failureStartYears": [
+          1929,
+          1937,
+          1960,
+          1961,
+          1962,
+          1963,
+          1964,
+          1965,
+          1966,
+          1967,
+          1968,
+          1969,
+          1970,
+          1971,
+          1972,
+          1973
+        ]
+      },
+      "tolerance": {
+        "successRateAbs": 0.06
+      }
+    },
+    {
+      "id": "ficalc_live_400k_20k_30yr_60_40",
+      "kind": "historical_rolling_window_survival",
+      "modelCompleteness": "reconstructed",
+      "source": {
+        "modelName": "FI Calc",
+        "sourceType": "live_calculator_capture",
+        "url": "https://ficalc.app/?numberOfYears=30&withdrawalStrategyName=constantDollar&annualWithdrawal=20000&inflationAdjustedFirstYearWithdrawal=true&minWithdrawalLimitEnabled=false&maxWithdrawalLimitEnabled=false&initialPortfolioValue=400000&equitiesInitialRatio=60&equitiesFinalRatio=60&bondsInitialRatio=40&bondsFinalRatio=40&cashInitialRatio=0&cashFinalRatio=0&equitiesFees=0&bondsFees=0&cashFees=0&cashGrowth=0&rebalance=true&rebalanceFrequency=1&changeAllocationsOverTime=false&useAllHistoricalData=true&additionalWithdrawals=%5B%5D&additionalIncome=%5B%5D",
+        "capturedOn": "2026-05-16",
+        "sourceNotes": "Captured from the FI Calc UI. FI Calc documents that it uses Robert Shiller historical data and transforms it for simulations."
+      },
+      "inferredAssumptions": [
+        "FI Calc's exact Shiller transformations and bond-return construction are external to this repository.",
+        "The local comparison intentionally uses our 1926-2023 annual return fixture, not FI Calc's 125-cycle app data."
+      ],
+      "externalObservation": {
+        "successRate": 0.752,
+        "successfulCohorts": 94,
+        "failedCohorts": 31,
+        "cohortCount": 125,
+        "averageEndingPortfolio": 506034.17,
+        "medianEndingPortfolio": 305693,
+        "startingBalance": 400000,
+        "initialAnnualWithdrawal": 20000,
+        "durationYears": 30,
+        "allocation": {
+          "stocks": 0.6,
+          "bonds": 0.4
+        },
+        "withdrawalTiming": "inflation_adjusted_constant_spending"
+      },
+      "localScenario": {
+        "returnsFixture": "fixtures/historical_annual_returns.json",
+        "firstStartYear": 1926,
+        "lastStartYear": 1994,
+        "durationYears": 30,
+        "startingBalance": 400000,
+        "initialAnnualWithdrawal": 20000,
+        "allocation": {
+          "stocks": 0.6,
+          "bonds": 0.4
+        }
+      },
+      "expectedLocal": {
+        "cohortCount": 69,
+        "successfulCohorts": 53,
+        "failedCohorts": 16,
+        "successRate": 0.7681159420289855,
+        "failureStartYears": [
+          1929,
+          1937,
+          1960,
+          1961,
+          1962,
+          1963,
+          1964,
+          1965,
+          1966,
+          1967,
+          1968,
+          1969,
+          1970,
+          1971,
+          1972,
+          1973
+        ]
+      },
+      "tolerance": {
+        "successRateAbs": 0.06
+      }
+    },
+    {
+      "id": "policyengine_api_2026_mfj_w2_100k",
+      "kind": "policyengine_tax_snapshot",
+      "modelCompleteness": "faithful",
+      "source": {
+        "modelName": "PolicyEngine US",
+        "sourceType": "live_api_capture",
+        "url": "https://api.policyengine.org/us/calculate",
+        "docsUrl": "https://github.com/PolicyEngine/policyengine-household-api",
+        "capturedOn": "2026-05-16",
+        "sourceNotes": "Captured from the PolicyEngine household API for a two-person MFJ household in Texas with $100,000 of W-2 employment income and no age fields. Requested adjusted_gross_income, taxable_income, and income_tax for 2026."
+      },
+      "inferredAssumptions": [],
+      "externalObservation": {
+        "taxYear": 2026,
+        "filingStatus": "married_filing_jointly",
+        "state": "TX",
+        "wages": 100000,
+        "adjustedGrossIncome": 100000,
+        "taxableIncome": 67800,
+        "federalIncomeTax": 7640
+      },
+      "localScenario": {
+        "wages": 100000,
+        "pension": 0,
+        "socialSecurityBenefits": 0,
+        "ira401kWithdrawals": 0,
+        "rothWithdrawals": 0,
+        "taxableInterest": 0,
+        "qualifiedDividends": 0,
+        "ordinaryDividends": 0,
+        "realizedLTCG": 0,
+        "realizedSTCG": 0,
+        "otherOrdinaryIncome": 0,
+        "taxExemptInterest": 0,
+        "filingStatus": "married_filing_jointly"
+      },
+      "tolerance": {
+        "dollarsAbs": 1
+      }
+    }
+  ]
+}

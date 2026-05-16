@@ -120,8 +120,9 @@ function runScenario(
   horizonYears: number,
   overrides: Partial<MarketAssumptions> = {},
 ): RunResult {
-  const robEndAge = 65 + horizonYears;
-  const debbieEndAge = 65 + horizonYears;
+  const engineHorizonYears = Math.max(1, horizonYears);
+  const robEndAge = 65 + engineHorizonYears - 1;
+  const debbieEndAge = 65 + engineHorizonYears - 1;
   const assumptions: MarketAssumptions = {
     ...getDefaultVerificationAssumptions(),
     simulationRuns: TRIALS,

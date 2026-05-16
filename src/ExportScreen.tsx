@@ -187,6 +187,12 @@ function formatAuditCell(
   return raw.toString();
 }
 
+function formatExportCurrency(value: number | null | undefined): string {
+  return typeof value === 'number' && Number.isFinite(value)
+    ? `$${Math.round(value).toLocaleString()}`
+    : 'not set';
+}
+
 /**
  * Account-bucket × asset-class matrix. Rows: pretax (IRA/401k), roth,
  * taxable, cash, hsa. Columns: balance, % of total, plus dollar
@@ -986,6 +992,7 @@ export function ExportScreen() {
     () => (payload ? JSON.stringify(payload, null, 2) : ''),
     [payload],
   );
+  const protectedReserve = payload?.goals.protectedReserve ?? null;
 
   // Year-by-year audit data — runs the engine inline (synchronously)
   // because we already have a hot path doing this in Cockpit. The
@@ -1104,6 +1111,26 @@ export function ExportScreen() {
                 <p className="text-xs text-red-700">
                   ZIP build failed. The individual section downloads are still available below.
                 </p>
+              ) : null}
+              {protectedReserve ? (
+                <div className="mt-3 grid gap-2 text-xs text-blue-900 sm:grid-cols-3">
+                  <div className="rounded-xl bg-white/70 px-3 py-2 ring-1 ring-blue-100">
+                    <p className="font-semibold">Care/legacy reserve</p>
+                    <p>{formatExportCurrency(protectedReserve.targetTodayDollars)}</p>
+                  </div>
+                  <div className="rounded-xl bg-white/70 px-3 py-2 ring-1 ring-blue-100">
+                    <p className="font-semibold">Availability</p>
+                    <p>
+                      {protectedReserve.availableFor === 'late_life_care_or_health_shocks'
+                        ? 'Late-life care or health shocks'
+                        : protectedReserve.availableFor}
+                    </p>
+                  </div>
+                  <div className="rounded-xl bg-white/70 px-3 py-2 ring-1 ring-blue-100">
+                    <p className="font-semibold">Model completeness</p>
+                    <p>{protectedReserve.modelCompleteness}</p>
+                  </div>
+                </div>
               ) : null}
             </div>
             <button

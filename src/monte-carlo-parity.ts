@@ -93,6 +93,123 @@ function cloneSeedData(data: SeedData): SeedData {
   return structuredClone(data) as SeedData;
 }
 
+function getReplayValue(root: unknown, path: string) {
+  return path.split('.').reduce<unknown>((current, segment) => {
+    if (current === null || typeof current !== 'object') {
+      return undefined;
+    }
+    return (current as Record<string, unknown>)[segment];
+  }, root);
+}
+
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function validateFiniteReplayNumber(
+  payload: PlanningStateExport,
+  path: string,
+  errors: string[],
+  predicate: (value: number) => boolean = () => true,
+) {
+  const value = getReplayValue(payload, path);
+  if (!isFiniteNumber(value) || !predicate(value)) {
+    errors.push(path);
+  }
+}
+
+function validateReplayArray(payload: PlanningStateExport, path: string, errors: string[]) {
+  if (!Array.isArray(getReplayValue(payload, path))) {
+    errors.push(path);
+  }
+}
+
+function validateReplayRecord(payload: PlanningStateExport, path: string, errors: string[]) {
+  if (!isRecord(getReplayValue(payload, path))) {
+    errors.push(path);
+  }
+}
+
+export function validatePlanningExportForReplay(exportPayload: PlanningStateExport) {
+  const errors: string[] = [];
+  if (!isRecord(exportPayload)) {
+    throw new Error('Export replay cannot run: payload is not an object.');
+  }
+
+  validateReplayRecord(exportPayload, 'baseInputs', errors);
+  validateReplayRecord(exportPayload, 'baseInputs.household', errors);
+  validateReplayRecord(exportPayload, 'baseInputs.assets.byBucket', errors);
+  validateReplayRecord(exportPayload, 'baseInputs.assets.allocations.pretax', errors);
+  validateReplayRecord(exportPayload, 'baseInputs.assets.allocations.roth', errors);
+  validateReplayRecord(exportPayload, 'baseInputs.assets.allocations.taxable', errors);
+  validateReplayRecord(exportPayload, 'baseInputs.assets.allocations.cash', errors);
+  validateReplayRecord(exportPayload, 'baseInputs.spending', errors);
+  validateReplayRecord(exportPayload, 'baseInputs.income', errors);
+  validateReplayRecord(exportPayload, 'baseInputs.assumptions.returns', errors);
+  validateReplayRecord(exportPayload, 'baseInputs.assumptions.inflation', errors);
+  validateReplayRecord(exportPayload, 'baseInputs.assumptions.guardrails', errors);
+  validateReplayRecord(exportPayload, 'baseInputs.assumptions.horizon', errors);
+  validateReplayRecord(exportPayload, 'baseInputs.constraints', errors);
+  validateReplayRecord(exportPayload, 'baseInputs.simulationSettings', errors);
+
+  [
+    'baseInputs.assets.byBucket.pretax',
+    'baseInputs.assets.byBucket.roth',
+    'baseInputs.assets.byBucket.taxable',
+    'baseInputs.assets.byBucket.cash',
+    'baseInputs.assets.byBucket.hsa',
+    'baseInputs.spending.essentialMonthly',
+    'baseInputs.spending.optionalMonthly',
+    'baseInputs.spending.annualTaxesInsurance',
+    'baseInputs.spending.travelEarlyRetirementAnnual',
+    'baseInputs.spending.travelFloorAnnual',
+    'baseInputs.income.salaryAnnual',
+    'baseInputs.assumptions.returns.equityMean',
+    'baseInputs.assumptions.returns.equityVolatility',
+    'baseInputs.assumptions.returns.internationalEquityMean',
+    'baseInputs.assumptions.returns.internationalEquityVolatility',
+    'baseInputs.assumptions.returns.bondMean',
+    'baseInputs.assumptions.returns.bondVolatility',
+    'baseInputs.assumptions.returns.cashMean',
+    'baseInputs.assumptions.returns.cashVolatility',
+    'baseInputs.assumptions.inflation.mean',
+    'baseInputs.assumptions.inflation.volatility',
+    'baseInputs.assumptions.guardrails.floorYears',
+    'baseInputs.assumptions.guardrails.ceilingYears',
+    'baseInputs.assumptions.guardrails.cutPercent',
+    'baseInputs.assumptions.horizon.robPlanningEndAge',
+    'baseInputs.assumptions.horizon.debbiePlanningEndAge',
+    'baseInputs.assumptions.horizon.travelPhaseYears',
+    'baseInputs.constraints.irmaaThreshold',
+    'baseInputs.simulationSettings.simulationRuns',
+    'baseInputs.simulationSettings.simulationSeed',
+  ].forEach((path) => validateFiniteReplayNumber(exportPayload, path, errors));
+
+  validateFiniteReplayNumber(
+    exportPayload,
+    'baseInputs.simulationSettings.simulationRuns',
+    errors,
+    (value) => value > 0,
+  );
+  validateReplayArray(exportPayload, 'baseInputs.income.socialSecurity', errors);
+  validateReplayArray(exportPayload, 'baseInputs.income.windfalls', errors);
+  validateReplayArray(exportPayload, 'toggleState.stressorIds', errors);
+  validateReplayArray(exportPayload, 'toggleState.responseIds', errors);
+
+  if (errors.length > 0) {
+    const uniqueErrors = Array.from(new Set(errors));
+    throw new Error(
+      `Export replay cannot run with incomplete or invalid snapshot fields: ${uniqueErrors.join(
+        ', ',
+      )}.`,
+    );
+  }
+}
+
 function fromSnapshotToSeedData(
   snapshot: PlanningExportSnapshot,
   reference: SeedData,
@@ -113,6 +230,7 @@ function fromSnapshotToSeedData(
       optionalMonthly: snapshot.spending.optionalMonthly,
       annualTaxesInsurance: snapshot.spending.annualTaxesInsurance,
       travelEarlyRetirementAnnual: snapshot.spending.travelEarlyRetirementAnnual,
+      travelFloorAnnual: snapshot.spending.travelFloorAnnual,
     },
     accounts: {
       pretax: {
@@ -571,6 +689,7 @@ export function reproduceSimulationModeFromExport(
   mode: SimulationStrategyMode,
   runCountOverride?: number,
 ) {
+  validatePlanningExportForReplay(exportPayload);
   const snapshot = exportPayload.baseInputs;
   const seedData = fromSnapshotToSeedData(snapshot, cloneSeedData(initialSeedData));
   const assumptions = fromSnapshotToAssumptions(snapshot, runCountOverride);

@@ -258,9 +258,9 @@ const DEFAULT_LEGACY_TARGET_TOLERANCE_PERCENT = 0.05;
 const NORMAL_IQR_TO_SIGMA = 1.3489795003921634;
 const SUCCESS_FLOOR_UNLOCK_STEPS = [0.95, 0.9, 0.85] as const;
 const PHASE_GRID = {
-  goGo: [1, 1.15, 1.3],
+  goGo: [1.3, 1.15, 1],
   slowGo: [0.9, 1, 1.1],
-  late: [0.75, 0.9, 1, 1.15],
+  late: [0.75, 0.9, 1],
 };
 const CURRENCY_FORMATTER = new Intl.NumberFormat('en-US', {
   style: 'currency',
@@ -398,6 +398,19 @@ function buildPhaseSpendingPath(
       ),
     };
   });
+}
+
+function scaleSpendingPath(
+  path: Array<{ year: number; age: number; annualSpend: number }>,
+  scale: number,
+  minimumAnnualSpend = 0,
+) {
+  return path.map((point) => ({
+    ...point,
+    annualSpend: roundCurrency(
+      Math.max(minimumAnnualSpend, point.annualSpend * Math.max(0, scale)),
+    ),
+  }));
 }
 
 function toAnnualSpendScheduleByYear(
@@ -1277,6 +1290,79 @@ function solveForTimeWeightedSpend(
   };
 }
 
+function spendDownSurplusAlongPath(input: {
+  baseEvaluation: SpendSolverEvaluation;
+  evaluatePath: (
+    annualSpendPath: Array<{ year: number; age: number; annualSpend: number }>,
+  ) => SpendSolverEvaluation;
+  constraints: SpendSolverConstraints;
+  minimumAnnualSpend: number;
+  ceilingAnnual: number;
+  toleranceAnnual: number;
+  maxIterations: number;
+}): SpendSolverEvaluation {
+  const basePath = input.baseEvaluation.optimizedSpendingPath;
+  if (
+    !basePath ||
+    input.baseEvaluation.projectedLegacyTodayDollars <=
+      input.constraints.legacyTargetBandUpperTodayDollars ||
+    input.baseEvaluation.annualSpend <= 0
+  ) {
+    return input.baseEvaluation;
+  }
+
+  const maxScale = input.ceilingAnnual / Math.max(1, input.baseEvaluation.annualSpend);
+  if (maxScale <= 1 + 1e-6) {
+    return input.baseEvaluation;
+  }
+
+  let lowScale = 1;
+  let highScale = maxScale;
+  let best = input.baseEvaluation;
+  const evaluateScale = (scale: number) =>
+    input.evaluatePath(
+      scaleSpendingPath(basePath, scale, input.minimumAnnualSpend),
+    );
+
+  const highEvaluation = evaluateScale(highScale);
+  if (isFeasible(highEvaluation, input.constraints)) {
+    best = selectPreferredFeasibleByObjective(
+      best,
+      highEvaluation,
+      'maximize_time_weighted_spending',
+      input.constraints,
+    );
+    if (
+      highEvaluation.projectedLegacyTodayDollars >
+      input.constraints.legacyTargetBandUpperTodayDollars
+    ) {
+      return best;
+    }
+  }
+
+  for (let iteration = 0; iteration < input.maxIterations; iteration += 1) {
+    if ((highScale - lowScale) * input.baseEvaluation.annualSpend <= input.toleranceAnnual) {
+      break;
+    }
+    const midpointScale = (lowScale + highScale) / 2;
+    const evaluation = evaluateScale(midpointScale);
+
+    if (isFeasible(evaluation, input.constraints)) {
+      best = selectPreferredFeasibleByObjective(
+        best,
+        evaluation,
+        'maximize_time_weighted_spending',
+        input.constraints,
+      );
+      lowScale = midpointScale;
+    } else {
+      highScale = midpointScale;
+    }
+  }
+
+  return best;
+}
+
 function describeConstraintFailure(
   evaluation: SpendSolverEvaluation,
   constraints: SpendSolverConstraints,
@@ -1517,6 +1603,12 @@ function buildActionableExplanation({
   feasible: boolean;
 }) {
   const messages: string[] = [];
+  if (!feasible) {
+    const gapDescription = describeConstraintFailure(recommended, constraints);
+    messages.push(
+      `No exact match was found inside current bounds; this result is the closest fit and would require lower spending to avoid outcomes that ${gapDescription}.`,
+    );
+  }
   const increaseCheck = findIncreaseUntilConstraintBreach(
     evaluate,
     recommended.annualSpend,
@@ -1534,7 +1626,7 @@ function buildActionableExplanation({
         constraints,
       )}.`,
     );
-  } else if (recommended.annualSpend >= ceilingAnnual - toleranceAnnual) {
+  } else if (feasible && recommended.annualSpend >= ceilingAnnual - toleranceAnnual) {
     messages.push('Upper spending cap is currently the limiting factor.');
   }
 
@@ -1565,16 +1657,9 @@ function buildActionableExplanation({
   }
 
   if (!messages.length) {
-    if (!feasible) {
-      const gapDescription = describeConstraintFailure(recommended, constraints);
-      messages.push(
-        `No exact match was found inside current bounds; this result is the closest fit and would require lower spending to avoid outcomes that ${gapDescription}.`,
-      );
-    } else {
-      messages.push(
-        'Current spending sits near the active guardrails; small spending increases are likely to weaken success odds or legacy outcomes.',
-      );
-    }
+    messages.push(
+      'Current spending sits near the active guardrails; small spending increases are likely to weaken success odds or legacy outcomes.',
+    );
   }
 
   if (recommended.annualSpend > lowerEvaluation.annualSpend + 1 && feasible) {
@@ -1631,14 +1716,6 @@ function buildConstraintExplanation({
   toleranceAnnual: number;
   feasible: boolean;
 }) {
-  if (recommended.annualSpend >= ceilingAnnual - toleranceAnnual) {
-    return 'Upper spending cap limited the solution';
-  }
-
-  if (recommended.annualSpend <= floorAnnual + toleranceAnnual && !feasible) {
-    return 'Spending floor limited the closest solution';
-  }
-
   if (!feasible) {
     const shortSuccess = recommended.successRate < constraints.minSuccessRate;
     const shortLegacy =
@@ -1653,6 +1730,10 @@ function buildConstraintExplanation({
       return 'No exact solution: success-rate floor is binding';
     }
     return 'No exact solution: constraints limited the result';
+  }
+
+  if (recommended.annualSpend >= ceilingAnnual - toleranceAnnual) {
+    return 'Upper spending cap limited the solution';
   }
 
   if (
@@ -1931,6 +2012,18 @@ export function solveSpendByReverseTimeline(input: SpendSolverInputs): SpendSolv
   let feasible = isFeasible(recommended, baseConstraints);
 
   if (objective === 'maximize_time_weighted_spending') {
+    recommended = spendDownSurplusAlongPath({
+      baseEvaluation: recommended,
+      evaluatePath: evaluator.evaluatePathSearch,
+      constraints: baseConstraints,
+      minimumAnnualSpend: evaluator.minimumAcceptableAnnualSpend,
+      ceilingAnnual,
+      toleranceAnnual,
+      maxIterations,
+    });
+    upperEvaluation = recommended;
+    feasible = isFeasible(recommended, baseConstraints);
+
     const maxCeilingExpansionSteps = Math.max(12, maxIterations * 6);
     while (
       expansionSteps < maxCeilingExpansionSteps &&
@@ -1986,6 +2079,16 @@ export function solveSpendByReverseTimeline(input: SpendSolverInputs): SpendSolv
       nonConvergenceDetected = nonConvergenceDetected || !expandedSearch.converged;
       upperEvaluation = expandedSearch.bestFeasible;
       recommended = upperEvaluation ?? expandedSearch.bestClosest;
+      recommended = spendDownSurplusAlongPath({
+        baseEvaluation: recommended,
+        evaluatePath: evaluator.evaluatePathSearch,
+        constraints: baseConstraints,
+        minimumAnnualSpend: evaluator.minimumAcceptableAnnualSpend,
+        ceilingAnnual,
+        toleranceAnnual,
+        maxIterations,
+      });
+      upperEvaluation = recommended;
       feasible = isFeasible(recommended, baseConstraints);
       expansionSteps += 1;
     }
@@ -2047,6 +2150,18 @@ export function solveSpendByReverseTimeline(input: SpendSolverInputs): SpendSolv
     upperEvaluation = evaluateWithFinalBudget(upperEvaluation);
   }
   lowerEvaluation = evaluateWithFinalBudget(lowerEvaluation);
+  if (objective === 'maximize_time_weighted_spending') {
+    recommended = spendDownSurplusAlongPath({
+      baseEvaluation: recommended,
+      evaluatePath: evaluator.evaluatePathFinal,
+      constraints: baseConstraints,
+      minimumAnnualSpend: evaluator.minimumAcceptableAnnualSpend,
+      ceilingAnnual,
+      toleranceAnnual,
+      maxIterations,
+    });
+    upperEvaluation = recommended;
+  }
   feasible = isFeasible(recommended, baseConstraints);
   if (!feasible) {
     const fallbackSearch = solveForHighestFeasibleSpend(

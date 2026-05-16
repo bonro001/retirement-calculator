@@ -5,16 +5,22 @@ import { buildPathResults } from './utils';
 export interface GoldenScenarioSummary {
   successRate: number;
   medianEndingWealth: number;
+  tenthPercentileEndingWealth: number;
   medianFailureYear: number | null;
   annualTaxEstimate: number;
   maxIrmaaTier: number;
   averageHealthcarePremiumCost: number;
+  firstYearTotalCashOutflow: number;
+  medianLegacySurplus: number;
 }
 
 export interface GoldenScenarioExpected {
   successRate: number;
   medianEndingWealth: number;
+  tenthPercentileEndingWealth?: number;
   annualTaxEstimate: number;
+  firstYearTotalCashOutflow?: number;
+  medianLegacySurplus?: number;
   medianFailureYearRange?: {
     min: number;
     max: number;
@@ -26,7 +32,10 @@ export interface GoldenScenarioExpected {
 export interface GoldenScenarioTolerance {
   successRate: number;
   medianEndingWealth: number;
+  tenthPercentileEndingWealth?: number;
   annualTaxEstimate: number;
+  firstYearTotalCashOutflow?: number;
+  medianLegacySurplus?: number;
 }
 
 export type GoldenScenarioPathKind = 'baseline' | 'stressed' | 'response';
@@ -37,6 +46,7 @@ export interface GoldenScenarioDefinition {
   selectedStressors: string[];
   selectedResponses: string[];
   pathKind: GoldenScenarioPathKind;
+  legacyTarget?: number;
   mutateData?: (data: SeedData) => void;
   assumptionsOverride?: Partial<MarketAssumptions>;
   expected: GoldenScenarioExpected;
@@ -44,7 +54,13 @@ export interface GoldenScenarioDefinition {
 }
 
 export interface GoldenScenarioComparisonRow {
-  metric: 'success_rate' | 'median_ending_wealth' | 'annual_tax_estimate';
+  metric:
+    | 'success_rate'
+    | 'median_ending_wealth'
+    | 'tenth_percentile_ending_wealth'
+    | 'annual_tax_estimate'
+    | 'first_year_total_cash_outflow'
+    | 'median_legacy_surplus';
   expected: number;
   actual: number;
   delta: number;
@@ -77,8 +93,8 @@ const DEFAULT_VERIFICATION_ASSUMPTIONS: MarketAssumptions = {
   guardrailFloorYears: 12,
   guardrailCeilingYears: 18,
   guardrailCutPercent: 0.2,
-  robPlanningEndAge: 90,
-  debbiePlanningEndAge: 95,
+  robPlanningEndAge: 88,
+  debbiePlanningEndAge: 91,
   travelPhaseYears: 10,
   simulationSeed: 424242,
   assumptionsVersion: 'v1-test',
@@ -103,7 +119,10 @@ function parseTierLabel(label: string) {
   return match ? Number(match[1]) : 1;
 }
 
-export function summarizePathForVerification(path: PathResult): GoldenScenarioSummary {
+export function summarizePathForVerification(
+  path: PathResult,
+  legacyTarget = 1_000_000,
+): GoldenScenarioSummary {
   const maxIrmaaTier = path.yearlySeries.length
     ? Math.max(...path.yearlySeries.map((year) => parseTierLabel(year.dominantIrmaaTier)))
     : 1;
@@ -112,14 +131,18 @@ export function summarizePathForVerification(path: PathResult): GoldenScenarioSu
       (total, year) => total + year.medianTotalHealthcarePremiumCost,
       0,
     ) / Math.max(1, path.yearlySeries.length);
+  const firstYear = path.yearlySeries[0] ?? null;
 
   return {
     successRate: path.successRate,
     medianEndingWealth: path.medianEndingWealth,
+    tenthPercentileEndingWealth: path.tenthPercentileEndingWealth,
     medianFailureYear: path.medianFailureYear,
     annualTaxEstimate: path.annualFederalTaxEstimate,
     maxIrmaaTier,
     averageHealthcarePremiumCost,
+    firstYearTotalCashOutflow: firstYear?.medianTotalCashOutflow ?? 0,
+    medianLegacySurplus: path.medianEndingWealth - legacyTarget,
   };
 }
 
@@ -142,7 +165,7 @@ export function runGoldenScenario(
     scenario.selectedResponses,
   );
   const selectedPath = pathResults[toPathIndex(scenario.pathKind)] ?? pathResults[0];
-  const summary = summarizePathForVerification(selectedPath);
+  const summary = summarizePathForVerification(selectedPath, scenario.legacyTarget);
 
   const comparisons: GoldenScenarioComparisonRow[] = [
     {
@@ -163,6 +186,24 @@ export function runGoldenScenario(
       pass: Math.abs(summary.medianEndingWealth - scenario.expected.medianEndingWealth) <=
         scenario.tolerance.medianEndingWealth,
     },
+    ...(typeof scenario.expected.tenthPercentileEndingWealth === 'number'
+      ? [
+          {
+            metric: 'tenth_percentile_ending_wealth' as const,
+            expected: scenario.expected.tenthPercentileEndingWealth,
+            actual: summary.tenthPercentileEndingWealth,
+            delta:
+              summary.tenthPercentileEndingWealth -
+              scenario.expected.tenthPercentileEndingWealth,
+            tolerance: scenario.tolerance.tenthPercentileEndingWealth ?? 0,
+            pass:
+              Math.abs(
+                summary.tenthPercentileEndingWealth -
+                  scenario.expected.tenthPercentileEndingWealth,
+              ) <= (scenario.tolerance.tenthPercentileEndingWealth ?? 0),
+          },
+        ]
+      : []),
     {
       metric: 'annual_tax_estimate',
       expected: scenario.expected.annualTaxEstimate,
@@ -172,6 +213,38 @@ export function runGoldenScenario(
       pass: Math.abs(summary.annualTaxEstimate - scenario.expected.annualTaxEstimate) <=
         scenario.tolerance.annualTaxEstimate,
     },
+    ...(typeof scenario.expected.firstYearTotalCashOutflow === 'number'
+      ? [
+          {
+            metric: 'first_year_total_cash_outflow' as const,
+            expected: scenario.expected.firstYearTotalCashOutflow,
+            actual: summary.firstYearTotalCashOutflow,
+            delta:
+              summary.firstYearTotalCashOutflow -
+              scenario.expected.firstYearTotalCashOutflow,
+            tolerance: scenario.tolerance.firstYearTotalCashOutflow ?? 0,
+            pass:
+              Math.abs(
+                summary.firstYearTotalCashOutflow -
+                  scenario.expected.firstYearTotalCashOutflow,
+              ) <= (scenario.tolerance.firstYearTotalCashOutflow ?? 0),
+          },
+        ]
+      : []),
+    ...(typeof scenario.expected.medianLegacySurplus === 'number'
+      ? [
+          {
+            metric: 'median_legacy_surplus' as const,
+            expected: scenario.expected.medianLegacySurplus,
+            actual: summary.medianLegacySurplus,
+            delta: summary.medianLegacySurplus - scenario.expected.medianLegacySurplus,
+            tolerance: scenario.tolerance.medianLegacySurplus ?? 0,
+            pass:
+              Math.abs(summary.medianLegacySurplus - scenario.expected.medianLegacySurplus) <=
+              (scenario.tolerance.medianLegacySurplus ?? 0),
+          },
+        ]
+      : []),
   ];
 
   const notes: string[] = [];

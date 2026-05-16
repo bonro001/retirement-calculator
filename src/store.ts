@@ -315,8 +315,9 @@ interface AppState {
   ) => void;
   updateSpending: <K extends keyof SpendingData>(key: K, value: SpendingData[K]) => void;
   /**
-   * Set (or clear) the household's end-of-plan legacy goal in today's
-   * dollars. Lives on `data.goals.legacyTargetTodayDollars`. Pass
+   * Set (or clear) the household's protected care/legacy reserve in today's
+   * dollars. Lives on `data.goals.legacyTargetTodayDollars` for backward
+   * compatibility and `data.goals.protectedReserve` for explicit purpose. Pass
    * `undefined` to clear the target — the Advisor falls back to its
    * "no target set" prompt. Touches both `data` and `appliedData` so the
    * North Star reads consistently across draft and committed views; goals
@@ -690,7 +691,21 @@ export const useAppStore = create<AppState>((set) => ({
       // no reason to gate the North Star behind a "Run plan" click.
       const writeGoals = (target: SeedData) => ({
         ...target,
-        goals: { ...(target.goals ?? {}), legacyTargetTodayDollars: value },
+        goals: {
+          ...(target.goals ?? {}),
+          legacyTargetTodayDollars: value,
+          protectedReserve:
+            value === undefined || value === null
+              ? undefined
+              : {
+                  targetTodayDollars: value,
+                  purpose: 'care_first_legacy_if_unused' as const,
+                  availableFor: 'late_life_care_or_health_shocks' as const,
+                  normalLifestyleSpendable: false,
+                  assumptionSource:
+                    'user_entered_care_first_legacy_reserve',
+                },
+        },
       });
       // Persist to localStorage so the value survives a page refresh.
       // Cache writes are best-effort (storage may be full or disabled);

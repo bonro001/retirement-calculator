@@ -3,8 +3,18 @@
     "robBirthDate": "1964-12-08",
     "debbieBirthDate": "1963-10-23",
     "filingStatus": "married_filing_jointly",
-    "planningAge": 95,
+    "planningAge": 91,
     "state": "TX"
+  },
+  "goals": {
+    "legacyTargetTodayDollars": 1000000,
+    "protectedReserve": {
+      "targetTodayDollars": 1000000,
+      "purpose": "care_first_legacy_if_unused",
+      "availableFor": "late_life_care_or_health_shocks",
+      "normalLifestyleSpendable": false,
+      "assumptionSource": "user_confirmed_2026_05_16_care_first_legacy_if_unused"
+    }
   },
   "income": {
     "salaryAnnual": 210000,

@@ -28,6 +28,7 @@ import {
 } from './ui-primitives';
 import { TaxesScreen } from './screens/TaxesScreen';
 import { IncomeScreen } from './screens/IncomeScreen';
+import { IncomeCurveScreen } from './screens/IncomeCurveScreen';
 import { SocialSecurityScreen } from './screens/SocialSecurityScreen';
 import { SpendingScreen } from './screens/SpendingScreen';
 import { SixPackScreen } from './screens/SixPackScreen';
@@ -250,6 +251,15 @@ const navigation: {
     // Receipt / spend ledger
     iconPath:
       'M6.75 3h10.5A1.75 1.75 0 0 1 19 4.75V21l-3-1.5-3 1.5-3-1.5L7 21V4.75A1.75 1.75 0 0 1 8.75 3Zm3 5h4.5M9.75 12h4.5M9.75 16h2.5',
+  },
+  {
+    id: 'income_curve',
+    label: 'Spending Curve',
+    shortLabel: 'Spend',
+    section: 'today',
+    // Sloping line - selected yearly spending target through time.
+    iconPath:
+      'M4 18h16M5 15l4-4 4 2 6-7M5 15v3m4-7v7m4-5v5m6-12v12',
   },
   {
     id: 'accounts',
@@ -747,6 +757,7 @@ export function App() {
   const REACHABLE_SCREENS: ScreenId[] = [
     'six_pack',
     'cockpit',
+    'income_curve',
     'plan2',
     'mining',
     'simulation',
@@ -1813,6 +1824,7 @@ export function App() {
                   retirementDate={currentPlan.income.salaryEndDate}
                 />
               )}
+              {currentScreen === 'income_curve' && <IncomeCurveScreen />}
               {currentScreen === 'income' && <IncomeScreen />}
               {currentScreen === 'social_security' && <SocialSecurityScreen />}
               {currentScreen === 'taxes' && <TaxesScreen />}
@@ -2997,8 +3009,8 @@ function YearCard({ year, label, yearData, events, isPrimary }: YearCardProps) {
 }
 
 /**
- * Tiny inline editor used by the Advisor's North Star card when no legacy
- * target is set yet. Kept deliberately dumb: a number field + Save button.
+ * Tiny inline editor used by the Advisor's North Star card when no care/legacy
+ * reserve is set yet. Kept deliberately dumb: a number field + Save button.
  * The full edit affordance for the populated state is a window.prompt
  * inline on the card — no need for a second floating form when the target
  * already exists. Empty / non-numeric / negative input is silently rejected
@@ -3443,9 +3455,9 @@ function AdvisorRoom({
         </button>
       </div>
 
-      {/* ------------------------ North Star (end-of-plan goal) ------------ */}
+      {/* ------------------------ North Star (care/legacy reserve) --------- */}
       {/* Sits ABOVE everything else — it's the anchor the rest of the page
-          reads against. The household's stated end-of-plan target compared
+          reads against. The household's stated care/legacy reserve compared
           to the engine's projected median + p10. If no target is set yet,
           the card prompts the household to enter one rather than rendering
           a hollow $0 reading. */}
@@ -3453,14 +3465,14 @@ function AdvisorRoom({
         <div className="flex items-center gap-2">
           <span className="h-2.5 w-2.5 rounded-full bg-blue-700" />
           <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-blue-800">
-            North Star · end-of-plan goal
+            North Star · care/legacy reserve
           </p>
         </div>
         {legacyTarget === undefined ? (
           <div className="mt-3">
             <p className="max-w-[60ch] text-base leading-relaxed text-stone-800">
-              Set the dollar amount you want left at the end of the plan —
-              inheritance, charitable bequest, or your own late-life cushion.
+              Set the protected reserve you want available for late-life care
+              or health shocks. If care does not consume it, it becomes legacy.
               Every other number on this page reads against it.
             </p>
             <LegacyTargetEditor
@@ -3473,7 +3485,7 @@ function AdvisorRoom({
             {/* GOAL — the household's stated target. Editable. */}
             <div>
               <p className="text-[11px] font-medium uppercase tracking-wider text-stone-500">
-                Goal
+                Protected reserve
               </p>
               <p className="mt-1 text-3xl font-semibold tabular-nums text-stone-900">
                 {formatCurrency(Math.round(legacyTarget ?? 0))}
@@ -3482,7 +3494,7 @@ function AdvisorRoom({
                 type="button"
                 onClick={() => {
                   const raw = window.prompt(
-                    'New end-of-plan goal (today\u0027s dollars). Leave blank to clear.',
+                    'New care/legacy reserve (today\u0027s dollars). Leave blank to clear.',
                     String(legacyTarget),
                   );
                   if (raw === null) return;
@@ -3507,7 +3519,7 @@ function AdvisorRoom({
                 North Star. Color-coded vs the 80% comfortable threshold. */}
             <div>
               <p className="text-[11px] font-medium uppercase tracking-wider text-stone-500">
-                Likely to leave at least your goal
+                Likely to preserve reserve
               </p>
               <p
                 className={`mt-1 text-3xl font-semibold tabular-nums ${
@@ -3530,7 +3542,7 @@ function AdvisorRoom({
                   : bequestComfortable
                     ? 'comfortable margin'
                     : bequestStretched
-                      ? 'stretched — would you spend less or work longer?'
+                      ? 'stretched — care reserve may need a tradeoff'
                       : 'doable but tight — small misses matter'}
               </p>
             </div>
@@ -3570,7 +3582,7 @@ function AdvisorRoom({
           </div>
         )}
         {/* Subtle reminder so it's clear all three numbers are in the same
-            unit as the goal. Suppress while no goal is set (the prompt copy
+            unit as the reserve. Suppress while no reserve is set (the prompt copy
             above already explains today-dollar framing). */}
         {legacyTarget !== undefined && cemetery !== null && (
           <p className="mt-3 text-[11px] text-stone-500">
@@ -4629,7 +4641,7 @@ function SandboxRoom({
  * household tweaks knobs below. It carries three things at all times:
  *   • What scenario is loaded (label + knob value + reaction count)
  *   • The best-available headline numbers — heuristic dollars before the
- *     engine has run, real success% / median legacy after it has
+ *     engine has run, real success% / median reserve after it has
  *   • The Run / Cancel control + a Clear-scenario escape hatch
  *
  * Why sticky and not a fixed page header: the rest of the app uses scrolling
@@ -4667,9 +4679,9 @@ function SandboxStickyHeader({
   canRun: boolean;
   /** Committed-plan monthly spend; used as the "before" reference. */
   baselineMonthlySpendNow: number | null;
-  /** Committed-plan median ending wealth — anchors the North Star compare. */
+  /** Committed-plan median ending wealth — anchors the North Star reserve compare. */
   baselineMedianEndingWealth: number | null;
-  /** Household-stated end-of-plan target (today $). Null when unset. */
+  /** Household-stated care/legacy reserve target (today $). Null when unset. */
   legacyTarget: number | null;
   onRun: () => void;
   onCancel: () => void;
@@ -4777,7 +4789,7 @@ function SandboxStickyHeader({
               const gapToTarget = legacyTarget !== null ? nowLegacy - legacyTarget : null;
               return (
                 <HeaderStat
-                  label="Legacy"
+                  label="Reserve"
                   base={formatDollars(simResult.baseline.medianEndingWealth)}
                   now={formatDollars(nowLegacy)}
                   delta={formatDeltaDollars(
@@ -4787,7 +4799,7 @@ function SandboxStickyHeader({
                   caption={
                     gapToTarget === null
                       ? undefined
-                      : `vs goal ${gapToTarget >= 0 ? '+' : '−'}${formatDollars(Math.abs(gapToTarget))}`
+                      : `vs reserve ${gapToTarget >= 0 ? '+' : '−'}${formatDollars(Math.abs(gapToTarget))}`
                   }
                   captionTone={
                     gapToTarget === null
@@ -4833,12 +4845,12 @@ function SandboxStickyHeader({
               now={formatDollars(impact.mitigatedImpactDollars)}
               delta="estimate"
             />
-            {/* Pre-run Legacy stat — surfaces the household's North Star
-                target alongside the heuristic damage so they see the goal
+            {/* Pre-run reserve stat — surfaces the household's North Star
+                target alongside the heuristic damage so they see the reserve
                 being threatened before the engine confirms it. */}
             {legacyTarget !== null && baselineMedianEndingWealth !== null && (
               <HeaderStat
-                label="Legacy goal"
+                label="Care/legacy reserve"
                 base={formatDollars(baselineMedianEndingWealth)}
                 now={formatDollars(legacyTarget)}
                 delta="target"
@@ -4928,7 +4940,7 @@ function SandboxStickyHeader({
  * numbers where there's no baseline-vs-scenario pair to compare.
  *
  * `caption` adds a second line below the headline numbers — used by the
- * Legacy stat to show "vs target: ±$X" when the household has set a
+ * Reserve stat to show "vs target: ±$X" when the household has set a
  * North Star goal. `captionTone` colorizes it (positive = on track,
  * negative = short of target).
  */
@@ -5203,7 +5215,7 @@ function SandboxEngineSection({
               primary={formatPct(result.baseline.successRate)}
               primaryLabel="plan success"
               secondary={formatDollars(result.baseline.medianEndingWealth)}
-              secondaryLabel="median legacy"
+              secondaryLabel="median reserve"
             />
             <EngineMetricCard
               label="With stressor"
@@ -5215,7 +5227,7 @@ function SandboxEngineSection({
                 result.baseline.successRate,
               )}
               secondary={formatDollars(result.stressed.medianEndingWealth)}
-              secondaryLabel="median legacy"
+              secondaryLabel="median reserve"
               secondaryDelta={formatDollarDelta(
                 result.stressed.medianEndingWealth,
                 result.baseline.medianEndingWealth,
@@ -5232,7 +5244,7 @@ function SandboxEngineSection({
                   result.baseline.successRate,
                 )}
                 secondary={formatDollars(result.mitigated.medianEndingWealth)}
-                secondaryLabel="median legacy"
+                secondaryLabel="median reserve"
                 secondaryDelta={formatDollarDelta(
                   result.mitigated.medianEndingWealth,
                   result.baseline.medianEndingWealth,
@@ -6112,14 +6124,14 @@ function SpendSolverScreen({
   return (
     <Panel
       title="Spend Solver"
-      subtitle="Reverse timeline mode solves for spending from your target outcomes. Set your legacy and success guardrails, then run solve to get a recommended spend and safe band."
+      subtitle="Reverse timeline mode solves for spending from your target outcomes. Set your care/legacy reserve and success guardrails, then run solve to get a recommended spend and safe band."
     >
       <div className="grid gap-6 xl:grid-cols-[0.95fr_1.05fr]">
         <article className="rounded-[28px] bg-stone-100/85 p-5">
           <p className="text-sm font-medium text-stone-500">Inputs</p>
           <div className="mt-4 space-y-4">
             <SolverNumberField
-              label="Target legacy (today's dollars)"
+              label="Care/legacy reserve (today's dollars)"
               value={targetLegacy}
               onChange={setTargetLegacy}
               min={0}
@@ -6277,7 +6289,7 @@ function SpendSolverScreen({
                   </div>
                   <div>
                     <p className="text-xs uppercase tracking-[0.16em] text-stone-500">
-                      Legacy target (today $)
+                      Reserve target (today $)
                     </p>
                     <p className="mt-1 font-semibold">
                       {formatCurrency(result.targetLegacyTodayDollars)}
@@ -6285,7 +6297,7 @@ function SpendSolverScreen({
                   </div>
                   <div>
                     <p className="text-xs uppercase tracking-[0.16em] text-stone-500">
-                      Projected legacy (today $)
+                      Projected reserve (today $)
                     </p>
                     <p className="mt-1 font-semibold">
                       {formatCurrency(result.projectedLegacyOutcomeTodayDollars)}
@@ -6301,7 +6313,7 @@ function SpendSolverScreen({
                   </div>
                   <div>
                     <p className="text-xs uppercase tracking-[0.16em] text-stone-500">
-                      Legacy buffer (today $)
+                      Reserve buffer (today $)
                     </p>
                     <p className="mt-1 font-semibold">
                       {formatCurrency(result.legacyBuffer)}
@@ -6815,7 +6827,7 @@ function AutopilotPlanScreen({
           <p className="text-sm font-medium text-stone-600">Plan targets</p>
           <div className="mt-3 space-y-3">
             <SolverNumberField
-              label="Target legacy (today's dollars)"
+              label="Care/legacy reserve (today's dollars)"
               value={targetLegacy}
               onChange={setTargetLegacy}
               min={0}
@@ -6863,7 +6875,7 @@ function AutopilotPlanScreen({
                   value={formatPercent(result.summary.successRate)}
                 />
                 <MetricTile
-                  label="Projected legacy"
+                  label="Projected reserve"
                   value={formatCurrency(result.summary.projectedLegacyOutcomeTodayDollars)}
                 />
               </div>
