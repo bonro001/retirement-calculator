@@ -695,9 +695,9 @@ function SpendBoundaryStrip({
                 : group.verdict ?? '-';
         const valueLabel =
           budgetAnnualSpend === null
-            ? formatCurrency(lifestyleAnnualSpend)
+            ? formatCurrency(group.annualSpendTodayDollars)
             : formatCurrency(displayAnnualSpend);
-        const validationLevelLabel = `validation level ${formatCurrency(lifestyleAnnualSpend)}`;
+        const validationLevelLabel = `validation level ${formatCurrency(group.annualSpendTodayDollars)}`;
         return (
           <div key={group.key} className="flex min-w-[112px] flex-col gap-0.5">
             {isRecommended && (
@@ -1063,10 +1063,6 @@ function ValidationTradeoffMap({
 }): JSX.Element | null {
   if (!run && packet) {
     const selectedSpend = packet.recommendation.annualSpendTodayDollars;
-    const displaySelectedSpend = annualSpendWithTravelOverlay(
-      selectedSpend,
-      annualTravelOverlay,
-    );
     const completedSlots = certificationSlots
       .filter((slot) => slot.status === 'done')
       .sort((a, b) => b.annualSpendTodayDollars - a.annualSpendTodayDollars);
@@ -1097,12 +1093,12 @@ function ValidationTradeoffMap({
         <div className="flex items-center justify-between gap-3">
           <p className="text-stone-500">
             {selectedSpend !== null
-              ? `${higherGroups.length} higher validation level${higherGroups.length === 1 ? '' : 's'} tested above ${formatCurrency(displaySelectedSpend)}/yr; full budget trace pending`
+              ? `${higherGroups.length} higher validation level${higherGroups.length === 1 ? '' : 's'} tested above ${formatCurrency(selectedSpend)}/yr; full budget trace pending`
               : `${displayGroups.length} non-green spend level${displayGroups.length === 1 ? '' : 's'} tested (${displaySlots.length} check${displaySlots.length === 1 ? '' : 's'})`}
           </p>
           {selectedSpend !== null && (
             <span className="shrink-0 rounded-full bg-emerald-100 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-emerald-800 ring-1 ring-emerald-200">
-              selected level {formatCurrency(displaySelectedSpend)}
+              selected level {formatCurrency(selectedSpend)}
             </span>
           )}
         </div>
@@ -1114,10 +1110,6 @@ function ValidationTradeoffMap({
                 const isPick =
                   selectedSpend !== null &&
                   group.annualSpendTodayDollars === selectedSpend;
-                const displayAnnualSpend = annualSpendWithTravelOverlay(
-                  group.annualSpendTodayDollars,
-                  annualTravelOverlay,
-                );
                 return (
                   <div
                     key={group.key}
@@ -1132,12 +1124,12 @@ function ValidationTradeoffMap({
                     }`}
                     title={
                       annualTravelOverlay > 0
-                      ? `First year ${formatCurrency(displayAnnualSpend)}/yr · core ${formatCurrency(group.annualSpendTodayDollars)}/yr + travel ${formatCurrency(annualTravelOverlay)}/yr`
+                      ? `Validation level ${formatCurrency(group.annualSpendTodayDollars)}/yr · travel overlay ${formatCurrency(annualTravelOverlay)}/yr not included in this test label`
                         : undefined
                     }
                   >
                     <p className="text-[11px] font-semibold tabular-nums text-stone-900">
-                      {formatCurrency(displayAnnualSpend)}
+                      {formatCurrency(group.annualSpendTodayDollars)}
                     </p>
                     <p className="mt-0.5 text-[8px] font-semibold uppercase tracking-[0.06em] text-stone-400">
                       level
@@ -1168,10 +1160,6 @@ function ValidationTradeoffMap({
                 selectedSpend === null
                   ? null
                   : Math.max(0, group.annualSpendTodayDollars - selectedSpend);
-              const displayAnnualSpend = annualSpendWithTravelOverlay(
-                group.annualSpendTodayDollars,
-                annualTravelOverlay,
-              );
               return (
                 <div
                   key={group.key}
@@ -1180,7 +1168,7 @@ function ValidationTradeoffMap({
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="text-sm font-semibold tabular-nums text-stone-950">
-                        {formatCurrency(displayAnnualSpend)}/yr validation level
+                        {formatCurrency(group.annualSpendTodayDollars)}/yr validation level
                       </span>
                       {group.verdict && (
                         <span
@@ -1692,7 +1680,7 @@ function ClusterStatusRail({
                       : undefined
                   }
                 >
-                  {formatCurrency(annualSpendWithTravelOverlay(slot.annualSpendTodayDollars, annualTravelOverlay))}
+                  {formatCurrency(slot.annualSpendTodayDollars)}
                 </span>
                 <span className="min-w-0 truncate text-stone-500">
                   {slot.hostDisplayName}
@@ -3204,7 +3192,7 @@ export function MonthlyReviewPanel({
   const runningCertSpendLine =
     runningCertSlots.length > 0
       ? runningCertSlots
-        .map((slot) => `${formatCurrency(displayAnnualSpendForCandidate(slot.annualSpendTodayDollars))}/yr`)
+        .map((slot) => `${formatCurrency(slot.annualSpendTodayDollars)}/yr`)
         .join(', ')
       : null;
   const criticalTasks = run?.modelTasks.filter((t) => t.blocksApproval && t.status === 'open') ?? [];
