@@ -2,40 +2,53 @@
   "$schemaVersion": 1,
   "kind": "model-verification-report",
   "mode": "quick",
-  "generatedAt": "2026-05-16T19:22:18.777Z",
-  "durationMs": 10900,
-  "status": "failed",
+  "generatedAt": "2026-05-16T19:37:13.361Z",
+  "durationMs": 15180,
+  "status": "passed",
   "repository": {
     "branch": "codex/jpmorgan-spending-models",
-    "commit": "217a716dd0a6a7dad73f109d33afcf137c45ece6",
+    "commit": "53c8a7e83516b79f9b9bcb1c7b43a436f0e5d946",
     "dirty": true,
-    "dirtyEntryCount": 16
+    "dirtyEntryCount": 2
   },
   "checks": [
     {
       "name": "external anchors",
       "command": "npx vitest run src/model-negative.test.ts src/external-model-benchmark-corpus.test.ts src/ficalc-source-parity.test.ts src/cfiresim-export-parity.test.ts src/model-replay-packets.test.ts",
-      "startedAt": "2026-05-16T19:22:07.927Z",
-      "durationMs": 4234,
+      "startedAt": "2026-05-16T19:36:58.242Z",
+      "durationMs": 4027,
       "exitCode": 0,
       "signal": null,
       "passed": true,
       "warnings": [],
-      "stdoutTail": "\n RUN  v3.2.4 /Users/robbonner/retirement-calculator\n\n ✓ src/model-negative.test.ts (4 tests) 2514ms\n   ✓ negative model guardrails > refuses to replay a corrupted export snapshot instead of defaulting missing fields  2482ms\n ✓ src/model-replay-packets.test.ts (2 tests) 176ms\n ✓ src/ficalc-source-parity.test.ts (2 tests) 11ms\n ✓ src/external-model-benchmark-corpus.test.ts (5 tests) 5ms\n ✓ src/cfiresim-export-parity.test.ts (3 tests) 2ms\n\n Test Files  5 passed (5)\n      Tests  16 passed (16)\n   Start at  14:22:08\n   Duration  3.65s (transform 309ms, setup 0ms, collect 448ms, tests 2.71s, environment 0ms, prepare 130ms)\n\n",
+      "stdoutTail": "\n RUN  v3.2.4 /Users/robbonner/retirement-calculator\n\n ✓ src/model-negative.test.ts (4 tests) 2226ms\n   ✓ negative model guardrails > refuses to replay a corrupted export snapshot instead of defaulting missing fields  2193ms\n ✓ src/model-replay-packets.test.ts (2 tests) 169ms\n ✓ src/ficalc-source-parity.test.ts (2 tests) 12ms\n ✓ src/external-model-benchmark-corpus.test.ts (5 tests) 5ms\n ✓ src/cfiresim-export-parity.test.ts (3 tests) 2ms\n\n Test Files  5 passed (5)\n      Tests  16 passed (16)\n   Start at  14:36:58\n   Duration  3.39s (transform 323ms, setup 0ms, collect 477ms, tests 2.41s, environment 0ms, prepare 129ms)\n\n",
       "stderrTail": "",
       "error": null
     },
     {
       "name": "statutory and north-star contracts",
       "command": "npx vitest run src/tax-engine.test.ts src/retirement-rules.test.ts src/irmaa-tier-boundaries.test.ts src/aca-subsidy-boundaries.test.ts src/model-contract-propagation.test.ts src/north-star-budget.test.ts src/north-star-golden.test.ts src/north-star-metamorphic.test.ts src/protected-reserve-scenarios.test.ts src/protected-reserve.test.ts",
-      "startedAt": "2026-05-16T19:22:12.162Z",
-      "durationMs": 6614,
-      "exitCode": 1,
+      "startedAt": "2026-05-16T19:37:02.270Z",
+      "durationMs": 6546,
+      "exitCode": 0,
       "signal": null,
-      "passed": false,
+      "passed": true,
       "warnings": [],
-      "stdoutTail": "\n RUN  v3.2.4 /Users/robbonner/retirement-calculator\n\n ❯ src/aca-subsidy-boundaries.test.ts (13 tests | 1 failed) 4ms\n   ✓ ACA subsidy / FPL-band behavior > MAGI at 1.5 FPL → expected contribution is 4.19% of MAGI 1ms\n   ✓ ACA subsidy / FPL-band behavior > MAGI at 2.0 FPL → expected contribution = 6.6% of MAGI 0ms\n   ✓ ACA subsidy / FPL-band behavior > MAGI at 3.0 FPL → expected contribution = 9.96% of MAGI 0ms\n   × ACA subsidy / FPL-band behavior > MAGI at 4.0 FPL → expected contribution = 9.96% of MAGI 2ms\n     → expected 20000 to be close to 8426.16, received difference is 11573.84, but expected 0.5\n   ✓ ACA subsidy / FPL-band behavior > MAGI $1 above 4.0 FPL → restored 400%-FPL cap removes subsidy 0ms\n   ✓ ACA subsidy / FPL-band behavior > MAGI at 5.0 FPL → restored 400%-FPL cap means no subsidy 0ms\n   ✓ ACA subsidy / FPL-band behavior > MAGI high enough that contribution exceeds premium → subsidy 0 0ms\n   ✓ ACA subsidy / FPL-band behavior > no ACA cost if not retired (working household assumed on employer insurance) 0ms\n   ✓ ACA subsidy / FPL-band behavior > no subsidy if all members on Medicare 0ms\n   ✓ ACA subsidy / FPL-band behavior > household size follows filing status — single is always 1 0ms\n   ✓ ACA subsidy / FPL-band behavior > larger household raises the FPL threshold linearly 0ms\n   ✓ ACA subsidy / FPL-band behavior > monotone: subsidy never increases as MAGI rises 0ms\n   ✓ ACA subsidy / FPL-band behavior > IRMAA surcharge flows through for Medicare-eligible members 0ms\n ✓ src/model-contract-propagation.test.ts (2 tests) 3777ms\n   ✓ household model contract propagation > carries the 88/91 horizon and care-first reserve into export evidence  2007ms\n   ✓ household model contract propagation > keeps reserve and horizon aligned across north-star, monthly review, and export  1769ms\n ✓ src/protected-reserve-scenarios.test.ts (5 tests) 697ms\n ✓ src/north-star-golden.test.ts (2 tests) 214ms\n ✓ src/irmaa-tier-boundaries.test.ts (29 tests) 3ms\n ✓ src/protected-reserve.test.ts (7 tests) 2ms\n ✓ src/north-star-budget.test.ts (5 tests) 2ms\n ✓ src/retirement-rules.test.ts (6 tests) 2ms\n ✓ src/tax-engine.test.ts (7 tests) 2ms\n ✓ src/north-star-metamorphic.test.ts (4 tests) 2ms\n\n Test Files  1 failed | 9 passed (10)\n      Tests  1 failed | 79 passed (80)\n   Start at  14:22:12\n   Duration  6.25s (transform 371ms, setup 0ms, collect 588ms, tests 4.71s, environment 1ms, prepare 241ms)\n\n",
-      "stderrTail": "\n⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯\n\n FAIL  src/aca-subsidy-boundaries.test.ts > ACA subsidy / FPL-band behavior > MAGI at 4.0 FPL → expected contribution = 9.96% of MAGI\nAssertionError: expected 20000 to be close to 8426.16, received difference is 11573.84, but expected 0.5\n ❯ src/aca-subsidy-boundaries.test.ts:69:28\n     67|     const out = calculateHealthcarePremiums(mkInput({ MAGI: magi }));\n     68|     const expectedContribution = magi * 0.0996;\n     69|     expect(out.netAcaCost).toBeCloseTo(expectedContribution, 0);\n       |                            ^\n     70|   });\n     71| \n\n⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯\n\n",
+      "stdoutTail": "\n RUN  v3.2.4 /Users/robbonner/retirement-calculator\n\n ✓ src/model-contract-propagation.test.ts (2 tests) 3839ms\n   ✓ household model contract propagation > carries the 88/91 horizon and care-first reserve into export evidence  2056ms\n   ✓ household model contract propagation > keeps reserve and horizon aligned across north-star, monthly review, and export  1782ms\n ✓ src/protected-reserve-scenarios.test.ts (5 tests) 652ms\n ✓ src/north-star-golden.test.ts (2 tests) 212ms\n ✓ src/irmaa-tier-boundaries.test.ts (29 tests) 3ms\n ✓ src/aca-subsidy-boundaries.test.ts (13 tests) 2ms\n ✓ src/north-star-budget.test.ts (5 tests) 3ms\n ✓ src/protected-reserve.test.ts (7 tests) 2ms\n ✓ src/retirement-rules.test.ts (6 tests) 2ms\n ✓ src/tax-engine.test.ts (7 tests) 2ms\n ✓ src/north-star-metamorphic.test.ts (4 tests) 2ms\n\n Test Files  10 passed (10)\n      Tests  80 passed (80)\n   Start at  14:37:02\n   Duration  6.18s (transform 326ms, setup 0ms, collect 518ms, tests 4.72s, environment 1ms, prepare 236ms)\n\n",
+      "stderrTail": "",
+      "error": null
+    },
+    {
+      "name": "golden scenario snapshots",
+      "command": "npx vitest run src/verification-harness.test.ts",
+      "startedAt": "2026-05-16T19:37:08.817Z",
+      "durationMs": 4544,
+      "exitCode": 0,
+      "signal": null,
+      "passed": true,
+      "warnings": [],
+      "stdoutTail": "\n RUN  v3.2.4 /Users/robbonner/retirement-calculator\n\n ✓ src/verification-harness.test.ts (3 tests) 3888ms\n   ✓ verification-harness > passes parity checks for golden scenarios within tolerance thresholds  2879ms\n   ✓ verification-harness > produces deterministic full-model results for identical seed and assumptions  634ms\n   ✓ verification-harness > summarizes path outputs for tax, IRMAA, and healthcare signals  374ms\n\n Test Files  1 passed (1)\n      Tests  3 passed (3)\n   Start at  14:37:09\n   Duration  4.15s (transform 118ms, setup 0ms, collect 157ms, tests 3.89s, environment 0ms, prepare 25ms)\n\n",
+      "stderrTail": "",
       "error": null
     }
   ],
@@ -734,12 +747,13 @@
   },
   "drift": {
     "comparedToPrevious": true,
-    "previousGeneratedAt": "2026-05-16T19:15:47.294Z",
-    "statusChanged": false,
+    "previousGeneratedAt": "2026-05-16T19:36:25.745Z",
+    "statusChanged": true,
     "warningCountDelta": 0,
     "checkDurationDeltasMs": {
-      "external anchors": 32,
-      "statutory and north-star contracts": -439
+      "external anchors": 498,
+      "statutory and north-star contracts": 757,
+      "golden scenario snapshots": 0
     },
     "modelCompletenessDelta": {
       "faithful": 0,

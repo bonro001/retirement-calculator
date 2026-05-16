@@ -142,7 +142,7 @@ export function calculateHealthcarePremiums(
   const magi = clamp(input.MAGI);
   const fplRatio = fpl > 0 ? magi / fpl : Number.POSITIVE_INFINITY;
   const eligibleForAcaSubsidy =
-    fplRatio < config.aca.subsidyEligibilityMaxFplRatio;
+    fplRatio <= config.aca.subsidyEligibilityMaxFplRatio;
   const expectedContributionRate = interpolateRate(
     fplRatio,
     config.aca.expectedContributionByFplBand,
