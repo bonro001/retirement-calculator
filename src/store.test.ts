@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { initialSeedData } from './data';
+import { operatingAnnualSpendFromCategories } from './policy-adoption';
 import { useAppStore } from './store';
 
 function installLocalStorageStub() {
@@ -170,6 +171,23 @@ describe('store applyAccountTradeInstructions', () => {
   });
 });
 
+describe('store currentScreen persistence', () => {
+  beforeEach(() => {
+    installLocalStorageStub();
+    window.localStorage.clear();
+    resetStore();
+  });
+
+  it('persists the selected screen so dev-server reloads return to the same tab', () => {
+    useAppStore.getState().setCurrentScreen('model_health');
+
+    expect(useAppStore.getState().currentScreen).toBe('model_health');
+    expect(window.localStorage.getItem('retirement-calc:current-screen:v1')).toBe(
+      'model_health',
+    );
+  });
+});
+
 describe('store adoptMinedPolicy', () => {
   beforeEach(() => {
     installLocalStorageStub();
@@ -200,16 +218,8 @@ describe('store adoptMinedPolicy', () => {
       rothConversionAnnualCeiling: 120_000,
     });
     const after = useAppStore.getState();
-    const draftSpend =
-      after.data.spending.essentialMonthly * 12 +
-      after.data.spending.optionalMonthly * 12 +
-      after.data.spending.travelEarlyRetirementAnnual +
-      after.data.spending.annualTaxesInsurance;
-    const appliedSpend =
-      after.appliedData.spending.essentialMonthly * 12 +
-      after.appliedData.spending.optionalMonthly * 12 +
-      after.appliedData.spending.travelEarlyRetirementAnnual +
-      after.appliedData.spending.annualTaxesInsurance;
+    const draftSpend = operatingAnnualSpendFromCategories(after.data.spending);
+    const appliedSpend = operatingAnnualSpendFromCategories(after.appliedData.spending);
     expect(Math.abs(draftSpend - 110_000)).toBeLessThanOrEqual(12);
     expect(Math.abs(appliedSpend - 110_000)).toBeLessThanOrEqual(12);
   });

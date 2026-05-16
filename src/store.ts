@@ -402,6 +402,32 @@ export interface PolicyAdoptionUndo {
 }
 
 const ADOPTED_PLAN_LS_KEY = 'retirement-calc:adopted-plan:v1';
+const CURRENT_SCREEN_LS_KEY = 'retirement-calc:current-screen:v1';
+
+const SCREEN_IDS = new Set<ScreenId>([
+  'six_pack',
+  'cockpit',
+  'income_curve',
+  'model_health',
+  'mining',
+  'history',
+  'plan2',
+  'accounts',
+  'social_security',
+  'taxes',
+  'export',
+  'overview',
+  'explore',
+  'paths',
+  'compare',
+  'solver',
+  'autopilot',
+  'spending',
+  'income',
+  'stress',
+  'simulation',
+  'insights',
+]);
 
 interface PersistedAdoptedPlan {
   version: 1;
@@ -409,6 +435,29 @@ interface PersistedAdoptedPlan {
   appliedData: SeedData;
   lastPolicyAdoption: PolicyAdoptionUndo;
   savedAtIso: string;
+}
+
+function isScreenId(value: unknown): value is ScreenId {
+  return typeof value === 'string' && SCREEN_IDS.has(value as ScreenId);
+}
+
+function readPersistedCurrentScreen(): ScreenId {
+  try {
+    if (typeof window === 'undefined' || !window.localStorage) return 'mining';
+    const raw = window.localStorage.getItem(CURRENT_SCREEN_LS_KEY);
+    return isScreenId(raw) ? raw : 'mining';
+  } catch {
+    return 'mining';
+  }
+}
+
+function writePersistedCurrentScreen(screen: ScreenId): void {
+  try {
+    if (typeof window === 'undefined' || !window.localStorage) return;
+    window.localStorage.setItem(CURRENT_SCREEN_LS_KEY, screen);
+  } catch {
+    // localStorage quota / private browsing — navigation still works in memory.
+  }
 }
 
 function readPersistedAdoptedPlan(): PersistedAdoptedPlan | null {
@@ -537,7 +586,7 @@ const initialSnapshots: PlanSnapshot[] = (() => {
 export const useAppStore = create<AppState>((set) => ({
   data: cloneSeedData(initialStoreData),
   appliedData: cloneSeedData(initialAppliedStoreData),
-  currentScreen: 'mining',
+  currentScreen: readPersistedCurrentScreen(),
   draftSelectedStressors: [],
   draftSelectedResponses: [],
   draftAssumptions: defaultAssumptions,
@@ -561,7 +610,10 @@ export const useAppStore = create<AppState>((set) => ({
   setPlanAnalysisStatus: (status) => set({ planAnalysisStatus: status }),
   draftTradeSetActivities: [],
   latestUnifiedPlanEvaluationContext: restoredEvalContext,
-  setCurrentScreen: (screen) => set({ currentScreen: screen }),
+  setCurrentScreen: (screen) => {
+    writePersistedCurrentScreen(screen);
+    set({ currentScreen: screen });
+  },
   requestUnifiedPlanRerun: () =>
     set((state) => ({
       unifiedPlanRerunNonce: state.unifiedPlanRerunNonce + 1,

@@ -2,52 +2,52 @@
   "$schemaVersion": 1,
   "kind": "model-verification-report",
   "mode": "quick",
-  "generatedAt": "2026-05-16T19:37:13.361Z",
-  "durationMs": 15180,
+  "generatedAt": "2026-05-16T19:45:57.066Z",
+  "durationMs": 15261,
   "status": "passed",
   "repository": {
     "branch": "codex/jpmorgan-spending-models",
-    "commit": "53c8a7e83516b79f9b9bcb1c7b43a436f0e5d946",
+    "commit": "91824325a77ae3d89804c38d8dc2a86adeea83a1",
     "dirty": true,
-    "dirtyEntryCount": 2
+    "dirtyEntryCount": 3
   },
   "checks": [
     {
       "name": "external anchors",
       "command": "npx vitest run src/model-negative.test.ts src/external-model-benchmark-corpus.test.ts src/ficalc-source-parity.test.ts src/cfiresim-export-parity.test.ts src/model-replay-packets.test.ts",
-      "startedAt": "2026-05-16T19:36:58.242Z",
-      "durationMs": 4027,
+      "startedAt": "2026-05-16T19:45:41.868Z",
+      "durationMs": 4162,
       "exitCode": 0,
       "signal": null,
       "passed": true,
       "warnings": [],
-      "stdoutTail": "\n RUN  v3.2.4 /Users/robbonner/retirement-calculator\n\n ✓ src/model-negative.test.ts (4 tests) 2226ms\n   ✓ negative model guardrails > refuses to replay a corrupted export snapshot instead of defaulting missing fields  2193ms\n ✓ src/model-replay-packets.test.ts (2 tests) 169ms\n ✓ src/ficalc-source-parity.test.ts (2 tests) 12ms\n ✓ src/external-model-benchmark-corpus.test.ts (5 tests) 5ms\n ✓ src/cfiresim-export-parity.test.ts (3 tests) 2ms\n\n Test Files  5 passed (5)\n      Tests  16 passed (16)\n   Start at  14:36:58\n   Duration  3.39s (transform 323ms, setup 0ms, collect 477ms, tests 2.41s, environment 0ms, prepare 129ms)\n\n",
+      "stdoutTail": "\n RUN  v3.2.4 /Users/robbonner/retirement-calculator\n\n ✓ src/model-negative.test.ts (4 tests) 2304ms\n   ✓ negative model guardrails > refuses to replay a corrupted export snapshot instead of defaulting missing fields  2184ms\n ✓ src/model-replay-packets.test.ts (2 tests) 183ms\n ✓ src/ficalc-source-parity.test.ts (2 tests) 11ms\n ✓ src/external-model-benchmark-corpus.test.ts (5 tests) 6ms\n ✓ src/cfiresim-export-parity.test.ts (3 tests) 2ms\n\n Test Files  5 passed (5)\n      Tests  16 passed (16)\n   Start at  14:45:42\n   Duration  3.53s (transform 343ms, setup 0ms, collect 509ms, tests 2.51s, environment 0ms, prepare 134ms)\n\n",
       "stderrTail": "",
       "error": null
     },
     {
       "name": "statutory and north-star contracts",
       "command": "npx vitest run src/tax-engine.test.ts src/retirement-rules.test.ts src/irmaa-tier-boundaries.test.ts src/aca-subsidy-boundaries.test.ts src/model-contract-propagation.test.ts src/north-star-budget.test.ts src/north-star-golden.test.ts src/north-star-metamorphic.test.ts src/protected-reserve-scenarios.test.ts src/protected-reserve.test.ts",
-      "startedAt": "2026-05-16T19:37:02.270Z",
-      "durationMs": 6546,
+      "startedAt": "2026-05-16T19:45:46.031Z",
+      "durationMs": 6566,
       "exitCode": 0,
       "signal": null,
       "passed": true,
       "warnings": [],
-      "stdoutTail": "\n RUN  v3.2.4 /Users/robbonner/retirement-calculator\n\n ✓ src/model-contract-propagation.test.ts (2 tests) 3839ms\n   ✓ household model contract propagation > carries the 88/91 horizon and care-first reserve into export evidence  2056ms\n   ✓ household model contract propagation > keeps reserve and horizon aligned across north-star, monthly review, and export  1782ms\n ✓ src/protected-reserve-scenarios.test.ts (5 tests) 652ms\n ✓ src/north-star-golden.test.ts (2 tests) 212ms\n ✓ src/irmaa-tier-boundaries.test.ts (29 tests) 3ms\n ✓ src/aca-subsidy-boundaries.test.ts (13 tests) 2ms\n ✓ src/north-star-budget.test.ts (5 tests) 3ms\n ✓ src/protected-reserve.test.ts (7 tests) 2ms\n ✓ src/retirement-rules.test.ts (6 tests) 2ms\n ✓ src/tax-engine.test.ts (7 tests) 2ms\n ✓ src/north-star-metamorphic.test.ts (4 tests) 2ms\n\n Test Files  10 passed (10)\n      Tests  80 passed (80)\n   Start at  14:37:02\n   Duration  6.18s (transform 326ms, setup 0ms, collect 518ms, tests 4.72s, environment 1ms, prepare 236ms)\n\n",
+      "stdoutTail": "\n RUN  v3.2.4 /Users/robbonner/retirement-calculator\n\n ✓ src/model-contract-propagation.test.ts (2 tests) 3727ms\n   ✓ household model contract propagation > carries the 88/91 horizon and care-first reserve into export evidence  2033ms\n   ✓ household model contract propagation > keeps reserve and horizon aligned across north-star, monthly review, and export  1692ms\n ✓ src/protected-reserve-scenarios.test.ts (5 tests) 673ms\n ✓ src/north-star-golden.test.ts (2 tests) 201ms\n ✓ src/irmaa-tier-boundaries.test.ts (29 tests) 3ms\n ✓ src/north-star-budget.test.ts (5 tests) 2ms\n ✓ src/aca-subsidy-boundaries.test.ts (13 tests) 2ms\n ✓ src/tax-engine.test.ts (7 tests) 2ms\n ✓ src/protected-reserve.test.ts (7 tests) 2ms\n ✓ src/retirement-rules.test.ts (6 tests) 2ms\n ✓ src/north-star-metamorphic.test.ts (4 tests) 2ms\n\n Test Files  10 passed (10)\n      Tests  80 passed (80)\n   Start at  14:45:46\n   Duration  6.19s (transform 374ms, setup 0ms, collect 590ms, tests 4.62s, environment 1ms, prepare 249ms)\n\n",
       "stderrTail": "",
       "error": null
     },
     {
       "name": "golden scenario snapshots",
       "command": "npx vitest run src/verification-harness.test.ts",
-      "startedAt": "2026-05-16T19:37:08.817Z",
-      "durationMs": 4544,
+      "startedAt": "2026-05-16T19:45:52.598Z",
+      "durationMs": 4468,
       "exitCode": 0,
       "signal": null,
       "passed": true,
       "warnings": [],
-      "stdoutTail": "\n RUN  v3.2.4 /Users/robbonner/retirement-calculator\n\n ✓ src/verification-harness.test.ts (3 tests) 3888ms\n   ✓ verification-harness > passes parity checks for golden scenarios within tolerance thresholds  2879ms\n   ✓ verification-harness > produces deterministic full-model results for identical seed and assumptions  634ms\n   ✓ verification-harness > summarizes path outputs for tax, IRMAA, and healthcare signals  374ms\n\n Test Files  1 passed (1)\n      Tests  3 passed (3)\n   Start at  14:37:09\n   Duration  4.15s (transform 118ms, setup 0ms, collect 157ms, tests 3.89s, environment 0ms, prepare 25ms)\n\n",
+      "stdoutTail": "\n RUN  v3.2.4 /Users/robbonner/retirement-calculator\n\n ✓ src/verification-harness.test.ts (3 tests) 3812ms\n   ✓ verification-harness > passes parity checks for golden scenarios within tolerance thresholds  2934ms\n   ✓ verification-harness > produces deterministic full-model results for identical seed and assumptions  695ms\n\n Test Files  1 passed (1)\n      Tests  3 passed (3)\n   Start at  14:45:52\n   Duration  4.08s (transform 123ms, setup 0ms, collect 162ms, tests 3.81s, environment 0ms, prepare 25ms)\n\n",
       "stderrTail": "",
       "error": null
     }
@@ -747,12 +747,12 @@
   },
   "drift": {
     "comparedToPrevious": true,
-    "previousGeneratedAt": "2026-05-16T19:36:25.745Z",
+    "previousGeneratedAt": "2026-05-16T19:40:26.697Z",
     "statusChanged": true,
     "warningCountDelta": 0,
     "checkDurationDeltasMs": {
-      "external anchors": 498,
-      "statutory and north-star contracts": 757,
+      "external anchors": 445,
+      "statutory and north-star contracts": 536,
       "golden scenario snapshots": 0
     },
     "modelCompletenessDelta": {
