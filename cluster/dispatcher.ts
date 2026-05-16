@@ -594,6 +594,7 @@ function pickHostForCertify(): Peer | null {
     if (!peer.roles.includes('host')) continue;
     if (peer.socket.readyState !== peer.socket.OPEN) continue;
     if (peer.quarantinedForSessionReason) continue;
+    if (hostDispatchBlockedReason(peer)) continue;
     const capacity = certifyCapacity(peer);
     if (capacity <= 0) continue;
     const certifyInFlight = certifyInFlightForPeer(peer.peerId);

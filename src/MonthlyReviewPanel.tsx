@@ -776,6 +776,7 @@ const CERTIFICATION_REASON_LABELS: Record<string, string> = {
   stress_not_green: 'stress margin',
   seed_stability_yellow: 'seed stability',
   sleep_well_green: 'cleared',
+  validation_workers_unavailable: 'workers unavailable',
 };
 
 function certificationReasonLabel(code: string): string {
@@ -2265,9 +2266,17 @@ function certificationSlotsFromRun(run: MonthlyReviewRun | null): CertificationS
 function parseCertificationReason(reason: string): { code: string; message: string } {
   const splitAt = reason.indexOf(':');
   if (splitAt <= 0) return { code: 'certification_reason', message: reason };
+  const code = reason.slice(0, splitAt).trim();
+  const message = reason.slice(splitAt + 1).trim();
+  if (
+    code === 'certification_failed' &&
+    /host disconnected|no host available|worker|dispatcher|connection/i.test(message)
+  ) {
+    return { code: 'validation_workers_unavailable', message };
+  }
   return {
-    code: reason.slice(0, splitAt).trim(),
-    message: reason.slice(splitAt + 1).trim(),
+    code,
+    message,
   };
 }
 
