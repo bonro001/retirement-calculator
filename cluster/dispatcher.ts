@@ -2806,17 +2806,19 @@ async function modelHealthJobPayload(job: ModelHealthServerJob | null) {
 
 function parseModelHealthJobRequest(body: unknown): {
   maxAgeHours: number;
+  force: boolean;
 } {
   const record =
     body && typeof body === 'object' && !Array.isArray(body)
       ? (body as Record<string, unknown>)
       : {};
   const rawMaxAgeHours = record.maxAgeHours;
+  const force = record.force === true;
   const maxAgeHours =
     typeof rawMaxAgeHours === 'number' && Number.isFinite(rawMaxAgeHours)
       ? Math.max(1, Math.floor(rawMaxAgeHours))
       : MODEL_HEALTH_DEFAULT_MAX_AGE_HOURS;
-  return { maxAgeHours };
+  return { maxAgeHours, force };
 }
 
 async function handleModelHealthJobHttp(
@@ -2836,7 +2838,7 @@ async function handleModelHealthJobHttp(
     const body = await readJsonBody(req);
     const opts = parseModelHealthJobRequest(body);
     const report = await readModelHealthReport();
-    if (modelHealthReportFresh(report, opts.maxAgeHours)) {
+    if (!opts.force && modelHealthReportFresh(report, opts.maxAgeHours)) {
       sendJson(res, 200, {
         ...(await modelHealthJobPayload(null)),
         skipped: true,

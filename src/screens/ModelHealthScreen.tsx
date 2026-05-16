@@ -1,11 +1,22 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  loadClusterModelHealthJob,
+  startClusterModelHealthJob,
+  type ClusterModelHealthJobPayload,
+} from '../policy-mining-cluster';
 import { Panel } from '../ui-primitives';
+import { useClusterSession } from '../useClusterSession';
 import { formatCurrency } from '../utils';
 
 type ReportLoadState =
   | { status: 'loading'; reports: VerificationReport[]; error: null }
   | { status: 'ready'; reports: VerificationReport[]; error: null }
   | { status: 'error'; reports: VerificationReport[]; error: string };
+
+type RerunState =
+  | { kind: 'idle'; message: string | null }
+  | { kind: 'running'; message: string }
+  | { kind: 'failed'; message: string };
 
 interface VerificationReport {
   $schemaVersion: number;
@@ -186,6 +197,13 @@ async function fetchReport(path: string): Promise<VerificationReport | null> {
   return JSON.parse(trimmed) as VerificationReport;
 }
 
+async function loadLocalReports(): Promise<VerificationReport[]> {
+  const reports = await Promise.all(REPORT_PATHS.map((path) => fetchReport(path)));
+  return reports
+    .filter((report): report is VerificationReport => report !== null)
+    .sort((a, b) => reportSortKey(b) - reportSortKey(a));
+}
+
 function reportSortKey(report: VerificationReport): number {
   return Date.parse(report.generatedAt) || 0;
 }
@@ -294,22 +312,41 @@ function externalAnchorDetail(benchmark: ExternalBenchmark): string {
   return 'faithful external tax snapshot';
 }
 
+function rerunMessage(payload: ClusterModelHealthJobPayload): string {
+  const lastLog = payload.job?.logTail.at(-1);
+  if (lastLog) return lastLog;
+  if (payload.job?.status === 'running') return 'Model Health check is running.';
+  return 'Starting quick strict Model Health check.';
+}
+
+function waitMs(ms: number): Promise<void> {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
 export function ModelHealthScreen() {
+  const cluster = useClusterSession();
+  const dispatcherUrl = cluster.snapshot.dispatcherUrl ?? null;
   const [state, setState] = useState<ReportLoadState>({
     status: 'loading',
     reports: [],
     error: null,
   });
+  const [rerunState, setRerunState] = useState<RerunState>({
+    kind: 'idle',
+    message: null,
+  });
+
+  const refreshReports = useCallback(async () => {
+    const reports = await loadLocalReports();
+    setState({ status: 'ready', reports, error: null });
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
-    Promise.all(REPORT_PATHS.map((path) => fetchReport(path)))
+    loadLocalReports()
       .then((reports) => {
         if (cancelled) return;
-        const available = reports
-          .filter((report): report is VerificationReport => report !== null)
-          .sort((a, b) => reportSortKey(b) - reportSortKey(a));
-        setState({ status: 'ready', reports: available, error: null });
+        setState({ status: 'ready', reports, error: null });
       })
       .catch((error) => {
         if (cancelled) return;
@@ -324,6 +361,48 @@ export function ModelHealthScreen() {
     };
   }, []);
 
+  const rerunQuickCheck = useCallback(async () => {
+    if (!dispatcherUrl || rerunState.kind === 'running') return;
+    setRerunState({
+      kind: 'running',
+      message: 'Starting quick strict Model Health check.',
+    });
+    try {
+      const started = await startClusterModelHealthJob(dispatcherUrl, {
+        force: true,
+      });
+      setRerunState({ kind: 'running', message: rerunMessage(started) });
+      for (;;) {
+        const latest = await loadClusterModelHealthJob(dispatcherUrl);
+        setRerunState({ kind: 'running', message: rerunMessage(latest) });
+        if (latest.job?.status === 'complete' || latest.job?.status === 'failed') {
+          await refreshReports();
+          if (latest.job.status === 'failed') {
+            setRerunState({
+              kind: 'failed',
+              message:
+                latest.job.error ??
+                latest.report?.strict?.failures?.[0]?.message ??
+                'Model Health check failed.',
+            });
+          } else {
+            setRerunState({
+              kind: 'idle',
+              message: `Updated ${formatDate(latest.report?.generatedAt)}`,
+            });
+          }
+          return;
+        }
+        await waitMs(1_000);
+      }
+    } catch (error) {
+      setRerunState({
+        kind: 'failed',
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }, [dispatcherUrl, refreshReports, rerunState.kind]);
+
   const report = state.reports[0] ?? null;
   const alternateReports = useMemo(
     () => state.reports.slice(1),
@@ -336,6 +415,11 @@ export function ModelHealthScreen() {
         title="Model Health"
         subtitle="Last background verification report."
       >
+        <RerunControl
+          dispatcherUrl={dispatcherUrl}
+          rerunState={rerunState}
+          onRerun={rerunQuickCheck}
+        />
         <div className="rounded-2xl border border-blue-200 bg-blue-50 p-5 text-sm font-semibold text-blue-950">
           Loading verifier report...
         </div>
@@ -349,6 +433,11 @@ export function ModelHealthScreen() {
         title="Model Health"
         subtitle="Last background verification report."
       >
+        <RerunControl
+          dispatcherUrl={dispatcherUrl}
+          rerunState={rerunState}
+          onRerun={rerunQuickCheck}
+        />
         <div className="rounded-2xl border border-rose-200 bg-rose-50 p-5 text-sm text-rose-950">
           <p className="font-semibold">Could not read the verifier report.</p>
           <p className="mt-1">{state.error}</p>
@@ -363,6 +452,11 @@ export function ModelHealthScreen() {
         title="Model Health"
         subtitle="Last background verification report."
       >
+        <RerunControl
+          dispatcherUrl={dispatcherUrl}
+          rerunState={rerunState}
+          onRerun={rerunQuickCheck}
+        />
         <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5 text-sm leading-6 text-amber-950">
           <p className="font-semibold">No local verification report is available yet.</p>
           <p className="mt-1">
@@ -389,6 +483,12 @@ export function ModelHealthScreen() {
       title="Model Health"
       subtitle="Last background verifier output; the browser only reports what the CLI produced."
     >
+      <RerunControl
+        dispatcherUrl={dispatcherUrl}
+        rerunState={rerunState}
+        onRerun={rerunQuickCheck}
+      />
+
       <div className={`rounded-2xl border p-5 ${statusClasses(report.status)}`}>
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div>
@@ -705,6 +805,44 @@ function Fact({ label, value }: { label: string; value: string }) {
     <div className="rounded-xl bg-white/70 px-3 py-2">
       <p className="text-[11px] font-semibold uppercase text-stone-400">{label}</p>
       <p className="mt-1 break-words font-semibold text-stone-900">{value}</p>
+    </div>
+  );
+}
+
+function RerunControl({
+  dispatcherUrl,
+  rerunState,
+  onRerun,
+}: {
+  dispatcherUrl: string | null;
+  rerunState: RerunState;
+  onRerun: () => void;
+}) {
+  const running = rerunState.kind === 'running';
+  const disabled = !dispatcherUrl || running;
+  return (
+    <div className="mb-4 flex flex-col gap-2 rounded-2xl border border-stone-200 bg-white p-4 sm:flex-row sm:items-center sm:justify-between">
+      <div>
+        <p className="text-sm font-semibold text-stone-900">Refresh Model Health</p>
+        <p
+          className={`mt-1 text-xs ${
+            rerunState.kind === 'failed' ? 'text-rose-700' : 'text-stone-500'
+          }`}
+        >
+          {rerunState.message ??
+            (dispatcherUrl
+              ? 'Runs the quick strict verifier through the dispatcher.'
+              : 'Start the dispatcher to rerun from the UI.')}
+        </p>
+      </div>
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={onRerun}
+        className="rounded-full bg-stone-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-stone-700 disabled:cursor-not-allowed disabled:bg-stone-300"
+      >
+        {running ? 'Running...' : 'Rerun'}
+      </button>
     </div>
   );
 }

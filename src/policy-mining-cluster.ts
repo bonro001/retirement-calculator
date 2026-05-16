@@ -434,7 +434,7 @@ export interface ClusterModelHealthJobPayload {
 
 export async function startClusterModelHealthJob(
   dispatcherUrl: string,
-  input: { maxAgeHours?: number } = {},
+  input: { maxAgeHours?: number; force?: boolean } = {},
 ): Promise<ClusterModelHealthJobPayload> {
   return postJson<ClusterModelHealthJobPayload>(
     dispatcherUrl,
