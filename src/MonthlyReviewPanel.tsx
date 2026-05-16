@@ -36,6 +36,7 @@ import {
 
 type MonthlyReviewStage =
   | 'idle'
+  | 'cleanup'
   | 'connecting'
   | 'mining'
   | 'certifying'
@@ -387,11 +388,17 @@ function failedStepForStage(stage: MonthlyReviewStage): FailedReviewStep {
   return 'mine';
 }
 
+function stepStatusForCleanup(stage: MonthlyReviewStage): StepStatus {
+  if (stage === 'cleanup') return 'active';
+  if (stage === 'idle') return 'waiting';
+  return 'done';
+}
+
 function stepStatusForMine(
   stage: MonthlyReviewStage,
   failedStep: FailedReviewStep,
 ): StepStatus {
-  if (stage === 'idle') return 'waiting';
+  if (stage === 'idle' || stage === 'cleanup') return 'waiting';
   if (stage === 'connecting' || stage === 'mining') return 'active';
   if (stage === 'failed') return failedStep === 'mine' ? 'failed' : 'done';
   return 'done';
@@ -401,7 +408,7 @@ function stepStatusForCertify(
   stage: MonthlyReviewStage,
   failedStep: FailedReviewStep,
 ): StepStatus {
-  if (stage === 'idle' || stage === 'connecting' || stage === 'mining') return 'waiting';
+  if (stage === 'idle' || stage === 'cleanup' || stage === 'connecting' || stage === 'mining') return 'waiting';
   if (stage === 'certifying') return 'active';
   if (stage === 'failed') {
     if (failedStep === 'certify') return 'failed';
@@ -414,7 +421,7 @@ function stepStatusForTradeoffs(
   stage: MonthlyReviewStage,
   failedStep: FailedReviewStep,
 ): StepStatus {
-  if (stage === 'idle' || stage === 'connecting' || stage === 'mining' || stage === 'certifying') {
+  if (stage === 'idle' || stage === 'cleanup' || stage === 'connecting' || stage === 'mining' || stage === 'certifying') {
     return 'waiting';
   }
   if (stage === 'failed') {
@@ -428,7 +435,7 @@ function stepStatusForAi(
   stage: MonthlyReviewStage,
   failedStep: FailedReviewStep,
 ): StepStatus {
-  if (stage === 'idle' || stage === 'connecting' || stage === 'mining' || stage === 'certifying') return 'waiting';
+  if (stage === 'idle' || stage === 'cleanup' || stage === 'connecting' || stage === 'mining' || stage === 'certifying') return 'waiting';
   if (stage === 'ai_review') return 'active';
   if (stage === 'failed') return failedStep === 'ai' ? 'failed' : 'waiting';
   return 'done';
@@ -2445,6 +2452,7 @@ export function MonthlyReviewPanel({
   const [reviewStage, setReviewStage] = useState<MonthlyReviewStage>(() =>
     restoredRun ? 'complete' : 'idle',
   );
+  const [cleanupStepVisible, setCleanupStepVisible] = useState(false);
   const reviewStageRef = useRef<MonthlyReviewStage>(
     restoredRun ? 'complete' : 'idle',
   );
@@ -2560,6 +2568,7 @@ export function MonthlyReviewPanel({
   useEffect(() => {
     if (
       reviewStage !== 'mining' &&
+      reviewStage !== 'cleanup' &&
       reviewStage !== 'connecting' &&
       reviewStage !== 'certifying' &&
       reviewStage !== 'ai_review'
@@ -2573,7 +2582,7 @@ export function MonthlyReviewPanel({
   // Reset live progress when a new run begins so we don't show stale data
   // from the previous review's mining phase.
   useEffect(() => {
-    if (reviewStage === 'idle' || reviewStage === 'connecting') {
+    if (reviewStage === 'idle' || reviewStage === 'cleanup' || reviewStage === 'connecting') {
       setLiveMineProgress(null);
     }
   }, [reviewStage]);
@@ -2904,8 +2913,20 @@ export function MonthlyReviewPanel({
 
   const start = async () => {
     if (!baselineFingerprint) return;
+    const hasPreviousRunEvidence =
+      runState.kind !== 'idle' ||
+      miningSnapshot !== null ||
+      certificationSlots.length > 0 ||
+      lastValidationPacket !== null ||
+      lastAiResponse !== null ||
+      transactionEventsRef.current.length > 0;
     setBrowserHostMode('off');
     setFailedStep(null);
+    setCleanupStepVisible(hasPreviousRunEvidence);
+    if (hasPreviousRunEvidence) {
+      setStage('cleanup');
+      setRunState({ kind: 'running', message: 'Cleaning up previous Monthly Review...' });
+    }
     setMiningSnapshot(null);
     setMinePanelCollapsed(false);
     minePanelAutoCollapsedRef.current = false;
@@ -2922,9 +2943,12 @@ export function MonthlyReviewPanel({
     nextTransactionEventIdRef.current = 1;
     transactionEventsRef.current = [];
     setTransactionEvents([]);
-    setStage('connecting');
-    setRunState({ kind: 'running', message: 'Checking Model Health before mining...' });
     try {
+      if (hasPreviousRunEvidence) {
+        await waitMs(800);
+      }
+      setStage('connecting');
+      setRunState({ kind: 'running', message: 'Checking Model Health before mining...' });
       await ensureFreshModelHealth();
       if (!clusterRef.current.session) {
         clusterRef.current.reconnect();
@@ -3130,6 +3154,20 @@ export function MonthlyReviewPanel({
 
       {modelHealthPreflight.kind !== 'idle' && (
         <ModelHealthPreflightPuck state={modelHealthPreflight} />
+      )}
+
+      {cleanupStepVisible && (
+        <StepCard
+          n={0}
+          title="Cleanup previous run"
+          status={stepStatusForCleanup(reviewStage)}
+        >
+          <p className="text-stone-600">
+            {reviewStage === 'cleanup'
+              ? 'Clearing the previous mine, validation, AI review, and answer before starting fresh.'
+              : 'Previous run cleared. New evidence will fill in below.'}
+          </p>
+        </StepCard>
       )}
 
       {MONTHLY_REVIEW_SKIP_REAL_CERTIFICATION && (
