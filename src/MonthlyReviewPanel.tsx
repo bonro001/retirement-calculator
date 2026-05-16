@@ -695,11 +695,9 @@ function SpendBoundaryStrip({
                 : group.verdict ?? '-';
         const valueLabel =
           budgetAnnualSpend === null
-            ? group.status === 'running'
-              ? formatCurrency(lifestyleAnnualSpend)
-              : 'test'
+            ? formatCurrency(lifestyleAnnualSpend)
             : formatCurrency(displayAnnualSpend);
-        const testLevelLabel = `test ${formatCurrency(lifestyleAnnualSpend)}`;
+        const validationLevelLabel = `validation level ${formatCurrency(lifestyleAnnualSpend)}`;
         return (
           <div key={group.key} className="flex min-w-[112px] flex-col gap-0.5">
             {isRecommended && (
@@ -712,8 +710,8 @@ function SpendBoundaryStrip({
               style={{ height: `${height}px` }}
               title={
                 budgetAnnualSpend === null
-                  ? `Full budget trace pending · ${testLevelLabel}/yr${travelDetail} · ${group.candidateCount} check${group.candidateCount === 1 ? '' : 's'} · ${group.verdict ?? (group.status === 'running' ? 'certifying...' : '-')}${progressLabel}`
-                  : `${formatCurrency(displayAnnualSpend)}/yr next-year total budget · ${testLevelLabel}/yr${travelDetail} · ${group.candidateCount} check${group.candidateCount === 1 ? '' : 's'} · ${group.verdict ?? '-'}${progressLabel}`
+                  ? `Full budget trace pending · ${validationLevelLabel}/yr${travelDetail} · ${group.candidateCount} check${group.candidateCount === 1 ? '' : 's'} · ${group.verdict ?? (group.status === 'running' ? 'certifying...' : '-')}${progressLabel}`
+                  : `${formatCurrency(displayAnnualSpend)}/yr next-year total budget · ${validationLevelLabel}/yr${travelDetail} · ${group.candidateCount} check${group.candidateCount === 1 ? '' : 's'} · ${group.verdict ?? '-'}${progressLabel}`
               }
             >
               <div
@@ -744,11 +742,6 @@ function SpendBoundaryStrip({
                 </span>
               </div>
             </div>
-            <span
-              className="truncate text-[8px] font-semibold uppercase text-stone-500"
-            >
-              {testLevelLabel}
-            </span>
             {slotSubLabel && (
               <span
                 className={`truncate text-[8px] font-semibold uppercase ${
@@ -1143,10 +1136,10 @@ function ValidationTradeoffMap({
                     }
                   >
                     <p className="text-[11px] font-semibold tabular-nums text-stone-900">
-                      test
+                      {formatCurrency(displayAnnualSpend)}
                     </p>
                     <p className="mt-0.5 text-[8px] font-semibold uppercase tracking-[0.06em] text-stone-400">
-                      test {formatCurrency(displayAnnualSpend)}
+                      level
                     </p>
                     <p
                       className={`mt-1 rounded-full px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-[0.08em] ring-1 ${
@@ -1186,7 +1179,7 @@ function ValidationTradeoffMap({
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="text-sm font-semibold tabular-nums text-stone-950">
-                        test {formatCurrency(displayAnnualSpend)}/yr
+                        {formatCurrency(displayAnnualSpend)}/yr validation level
                       </span>
                       {group.verdict && (
                         <span
