@@ -353,6 +353,14 @@ function hostDispatchBlockedReason(peer: Peer): string | null {
   return `build_${status}`;
 }
 
+function hostCertificationBlockedReason(peer: Peer): string | null {
+  if (!peer.roles.includes('host')) return null;
+  const status = compareBuildInfo(WIRE_DISPATCHER_BUILD_INFO, peer.buildInfo);
+  if (status === 'match') return null;
+  if (status === 'dirty' && !BLOCK_DIRTY_BUILDS) return null;
+  return `build_${status}`;
+}
+
 function isDispatchableHost(peer: Peer, nowMs: number): boolean {
   return (
     peer.roles.includes('host') &&
@@ -594,7 +602,7 @@ function pickHostForCertify(): Peer | null {
     if (!peer.roles.includes('host')) continue;
     if (peer.socket.readyState !== peer.socket.OPEN) continue;
     if (peer.quarantinedForSessionReason) continue;
-    if (hostDispatchBlockedReason(peer)) continue;
+    if (hostCertificationBlockedReason(peer)) continue;
     const capacity = certifyCapacity(peer);
     if (capacity <= 0) continue;
     const certifyInFlight = certifyInFlightForPeer(peer.peerId);
